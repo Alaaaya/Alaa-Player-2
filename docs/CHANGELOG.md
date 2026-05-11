@@ -2,7 +2,7 @@
 
 All notable product changes are recorded in this document.
 
-## [1.0.10] - 2026-05-02
+## [1.0.10] - 2026-05-11
 
 ### Added
 
