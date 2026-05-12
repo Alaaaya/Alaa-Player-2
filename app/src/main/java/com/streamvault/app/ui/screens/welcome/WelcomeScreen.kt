@@ -168,17 +168,13 @@ fun WelcomeScreen(
                     if (progress.total > 0) {
                         LinearProgressIndicator(
                             progress = { progress.current.toFloat() / progress.total.toFloat() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .width(260.dp),
+                            modifier = Modifier.width(260.dp),
                             color = AppColors.Brand,
                             trackColor = AppColors.BrandMuted
                         )
                     } else {
                         LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .width(260.dp),
+                            modifier = Modifier.width(260.dp),
                             color = AppColors.Brand,
                             trackColor = AppColors.BrandMuted
                         )
