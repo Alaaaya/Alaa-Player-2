@@ -9,11 +9,13 @@
     <string name="nav_series">Series</string>
     <string name="nav_epg">Guide</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_plugins">Plugins</string>
 
     
     <string name="welcome_enter_app">Enter App</string>
     <string name="welcome_manage_providers">Manage Providers</string>
     <string name="welcome_setup_provider">Setup Provider</string>
+    <string name="welcome_setup_later">Set up later</string>
     <string name="welcome_version">v1.0.3</string>
     <string name="welcome_loading_title">Preparing your library</string>
     <string name="welcome_loading_subtitle">Opening the right screen for this device.</string>
@@ -1512,4 +1514,3 @@
     <string name="tv_input_setup_retry_scan">Retry Auto Scan</string>
     <string name="tv_input_setup_success_hint">Android TV Live TV can now open your StreamVault channels.</string>
 </resources>
-

@@ -48,6 +48,7 @@ Built for Android TV first, StreamVault focuses on the things generic IPTV apps 
 - Full EPG support with guide search, XMLTV support, and provider archive or catch-up when available
 - Built-in DVR with scheduled recording, background capture, recording playback, and app-managed default storage
 - Multi-view split-screen playback for watching multiple channels at once
+- Plugin API for creating companion Android APKs that extend providers, playback, Cast URL handling, or configuration flows
 - Strong parental controls with PIN-protected categories and automatic adult-category detection
 - TV integrations including Watch Next, launcher recommendations, TV input sync, Cast support, and in-app update delivery
 
@@ -134,6 +135,12 @@ Built for Android TV first, StreamVault focuses on the things generic IPTV apps 
 - Android TV Input Framework channel sync
 - Google Cast sender support
 
+### Plugins
+
+- StreamVault can be extended with companion Android APK plugins.
+- Plugin developers can expose provider, playback, Cast URL rewrite, and host-rendered or native configuration capabilities.
+- See the [StreamVault Plugin API](docs/PLUGIN_API.md) docs to create compatible plugins.
+
 ## Quick TV Tips
 
 - Long-press a channel, movie, or series to add it to Favorites or a custom group.
@@ -162,7 +169,7 @@ If StreamVault is useful to you, you can support development here:
 - `data/` Room database, sync, parsing, provider implementations, and repositories
 - `domain/` models, repository contracts, managers, and use cases
 - `player/` playback abstraction and Media3 player implementation
-- `docs/` architecture notes and image assets
+- `docs/` architecture notes, plugin API docs, and image assets
 
 ## Build
 

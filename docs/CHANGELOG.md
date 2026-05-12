@@ -12,6 +12,23 @@ All notable product changes are recorded in this document.
 - Added FFmpeg artifact verification in the player build, plus bundled provenance and LGPL notice docs.
 - Added expert playback settings for audio output policy and persistent compatibility memory.
 - Added richer playback diagnostics for FFmpeg availability/version, audio path classification, and compatibility decision source.
+- Added APK companion plugin support with discovery, activation, capability sync, and plugin provider integration.
+- Added plugin installation from APK URL and local file picker, plus automatic detection of compatible plugins installed manually by the user.
+- Added a host-rendered plugin configuration schema so plugins can expose StreamVault-native settings screens, persisted values, validation, and plugin actions over IPC.
+- Added native Activity plugin configuration mode so rich plugin UIs can open from StreamVault with their own visual and interaction model.
+- Added a welcome-screen "Set up later" option so first-time users can enter the app and reach Settings before adding a provider.
+
+### Changed
+
+- Updated the Plugins screen with compact StreamVault-styled controls and a dedicated blocks icon distinct from Settings.
+- Documented the plugin API, manifest metadata, installation model, IPC contract, host-rendered configuration schema, native Activity configuration mode, and visual integration guidance.
+
+### Fixed
+
+- Fixed software navigation bars cutting into the app on devices such as Nexus 5X by reapplying immersive fullscreen mode when the app resumes or regains focus.
+- Fixed touch/mouse activation behavior for TV controls used by plugin management on non-TV devices.
+
+---
 
 ## [1.0.10] - 2026-05-11
 

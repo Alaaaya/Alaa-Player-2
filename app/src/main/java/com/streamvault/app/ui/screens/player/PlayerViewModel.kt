@@ -9,6 +9,7 @@ import com.streamvault.app.cast.CastMediaRequest
 import com.streamvault.app.cast.CastStartResult
 import com.streamvault.app.di.MainPlayerEngine
 import com.streamvault.app.player.LivePreviewHandoffManager
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
@@ -92,6 +93,7 @@ class PlayerViewModel @Inject constructor(
     internal val watchNextManager: WatchNextManager,
     internal val launcherRecommendationsManager: LauncherRecommendationsManager,
     internal val castManager: CastManager,
+    internal val pluginManager: StreamVaultPluginManager,
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
@@ -1118,6 +1120,21 @@ class PlayerViewModel @Inject constructor(
                 actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
             )
             return false
+        }
+
+        when (val pluginPrepareResult = pluginManager.preparePlaybackUrl(streamInfo.url)) {
+            is Result.Error -> {
+                if (!isActivePlaybackSession(requestVersion)) return false
+                setLastFailureReason(pluginPrepareResult.message)
+                showPlayerNotice(
+                    message = pluginPrepareResult.message,
+                    recoveryType = PlayerRecoveryType.NETWORK,
+                    actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
+                )
+                return false
+            }
+            Result.Loading -> Unit
+            is Result.Success -> Unit
         }
 
         probePlaybackUrl(streamInfo)?.let { failure ->
