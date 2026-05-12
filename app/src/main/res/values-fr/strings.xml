@@ -1423,4 +1423,15 @@
     <string name="setup_stalker">Stalker</string>
     <string name="vod_sync_needed_subtitle">Actualisez ce fournisseur pour importer des films et séries dans la bibliothèque.</string>
     <string name="vod_sync_needed_title">Synchronisation requise</string>
+
+    <!-- M2 : sauvegarde Google Drive -->
+    <string name="settings_drive_section_title">Sauvegarde Google Drive</string>
+    <string name="settings_drive_section_subtitle">Envoyez et récupérez la configuration StreamVault dans un dossier Drive privé.</string>
+    <string name="settings_drive_signin">Se connecter à Google Drive</string>
+    <string name="settings_drive_signin_description">Connectez un compte Google pour activer la sauvegarde dans le cloud.</string>
+    <string name="settings_drive_signout">Se déconnecter</string>
+    <string name="settings_drive_push">Envoyer vers Drive</string>
+    <string name="settings_drive_push_subtitle">Téléverse la configuration actuelle dans votre sauvegarde Drive.</string>
+    <string name="settings_drive_pull">Récupérer depuis Drive</string>
+    <string name="settings_drive_pull_subtitle">Télécharge la dernière sauvegarde Drive et prévisualise l’import.</string>
 </resources>
