@@ -268,6 +268,19 @@ internal class SyncManagerXtreamLiveStrategy(
             acceptedCount += staged.acceptedCount
             flushCount++
             rawBatch.clear()
+            // D10 — mode HIGH (full catalog) : pas de count par categorie disponible,
+            // on emet en indetermine (`total = 0`) une fois par flush de batch (cadence
+            // <= 1/s en pratique, jamais par item). Le label reste vide car aucune
+            // categorie ne correspond a la fenetre courante.
+            syncProgressBus.emit(
+                SyncProgress(
+                    section = Section.LIVE,
+                    current = 0,
+                    total = 0,
+                    currentLabel = "",
+                    itemsIndexed = acceptedCount
+                )
+            )
             abortIfLowMemory()
         }
 
