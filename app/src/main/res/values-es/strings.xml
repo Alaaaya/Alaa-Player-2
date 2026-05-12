@@ -10,6 +10,7 @@
     <string name="welcome_enter_app">Entrar en la app</string>
     <string name="welcome_manage_providers">Administrar proveedores</string>
     <string name="welcome_setup_provider">Configurar proveedor</string>
+    <string name="welcome_setup_later">Configurar más adelante</string>
     <string name="welcome_version">v1.0.3</string>
     <string name="welcome_loading_title">Preparando tu biblioteca</string>
     <string name="welcome_loading_subtitle">Abriendo la pantalla derecha para este dispositivo.</string>
