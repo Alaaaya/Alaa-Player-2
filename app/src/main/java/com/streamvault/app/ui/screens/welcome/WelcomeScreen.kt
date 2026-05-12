@@ -195,17 +195,13 @@ private fun WelcomeLoadingCard(
                 if (syncProgress.total > 0) {
                     LinearProgressIndicator(
                         progress = { syncProgress.current.toFloat() / syncProgress.total.toFloat() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .width(260.dp),
+                        modifier = Modifier.width(260.dp),
                         color = AppColors.Brand,
                         trackColor = AppColors.BrandMuted
                     )
                 } else {
                     LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .width(260.dp),
+                        modifier = Modifier.width(260.dp),
                         color = AppColors.Brand,
                         trackColor = AppColors.BrandMuted
                     )
