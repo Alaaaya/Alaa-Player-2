@@ -7,7 +7,6 @@ import com.streamvault.data.remote.xtream.XtreamNetworkException
 import com.streamvault.data.remote.xtream.XtreamParsingException
 import com.streamvault.data.remote.xtream.XtreamRequestException
 import com.streamvault.data.remote.xtream.XtreamResponseTooLargeException
-import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.security.CredentialDecryptionException
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.DriveAuthState
@@ -56,7 +55,6 @@ class ProviderSetupViewModel @Inject constructor(
     private val validateAndAddProvider: ValidateAndAddProvider,
     private val importBackup: ImportBackup,
     private val driveBackupSyncManager: DriveBackupSyncManager,
-    private val credentialCrypto: CredentialCrypto,
 ) : ViewModel() {
 
     enum class OnboardingCompletion {
@@ -172,17 +170,12 @@ class ProviderSetupViewModel @Inject constructor(
     private suspend fun applyPendingDriveCredentials() {
         val pending = _uiState.value.pendingDriveCredentials.orEmpty()
         if (pending.isEmpty()) return
-        val providers = providerRepository.getProviders().first()
         pending.forEach { cred ->
-            val match = providers.firstOrNull { provider ->
-                provider.serverUrl == cred.serverUrl &&
-                    credentialCrypto.decryptIfNeeded(provider.username) == cred.username
-            } ?: return@forEach
-            val updated = match.copy(
-                username = credentialCrypto.encryptIfNeeded(cred.username),
-                password = credentialCrypto.encryptIfNeeded(cred.password),
+            providerRepository.updateProviderPassword(
+                serverUrl = cred.serverUrl,
+                username = cred.username,
+                cleartextPassword = cred.password,
             )
-            providerRepository.updateProvider(updated)
         }
         _uiState.update { it.copy(pendingDriveCredentials = null) }
     }

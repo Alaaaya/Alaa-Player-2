@@ -3,11 +3,9 @@ package com.streamvault.app.ui.screens.settings
 import androidx.activity.result.ActivityResultLauncher
 import android.content.Intent
 import android.util.Log
-import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.domain.manager.DriveAuthState
 import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.DriveSyncStatus
-import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.ImportBackup
@@ -16,7 +14,6 @@ import com.streamvault.domain.usecase.InspectBackupResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -33,7 +30,6 @@ internal class SettingsDriveBackupActions(
     private val driveManager: DriveBackupSyncManager,
     private val importBackup: ImportBackup,
     private val providerRepository: ProviderRepository,
-    private val credentialCrypto: CredentialCrypto,
     private val uiState: MutableStateFlow<SettingsUiState>
 ) {
 
@@ -161,18 +157,10 @@ internal class SettingsDriveBackupActions(
                 }
                 return@launch
             }
-            // Chain credentials push (M3). Decrypt local-DB ciphertexts before
-            // uploading: the Drive copy lives in appDataFolder cleartext.
-            val providers = providerRepository.getProviders().first()
-            val credentials = providers
-                .filter { it.username.isNotBlank() && it.password.isNotBlank() }
-                .map { provider ->
-                    ProviderCredentials(
-                        serverUrl = provider.serverUrl,
-                        username = credentialCrypto.decryptIfNeeded(provider.username),
-                        password = credentialCrypto.decryptIfNeeded(provider.password),
-                    )
-                }
+            // Chain credentials push (M3). The repository handles decryption
+            // internally so the cleartext never crosses the data layer except
+            // via the typed ProviderCredentials payload returned here.
+            val credentials = providerRepository.getAllProviderCredentials()
             val credsResult = driveManager.pushCredentials(credentials)
             uiState.update { state ->
                 when (credsResult) {
@@ -246,19 +234,16 @@ internal class SettingsDriveBackupActions(
         scope.launch {
             val pending = uiState.value.pendingDriveCredentials.orEmpty()
             if (pending.isEmpty()) return@launch
-            val providers = providerRepository.getProviders().first()
             var applied = 0
             pending.forEach { cred ->
-                val match = providers.firstOrNull { provider ->
-                    provider.serverUrl == cred.serverUrl &&
-                        credentialCrypto.decryptIfNeeded(provider.username) == cred.username
-                } ?: return@forEach
-                val updated = match.copy(
-                    username = credentialCrypto.encryptIfNeeded(cred.username),
-                    password = credentialCrypto.encryptIfNeeded(cred.password),
-                )
-                providerRepository.updateProvider(updated)
-                applied++
+                if (providerRepository.updateProviderPassword(
+                        serverUrl = cred.serverUrl,
+                        username = cred.username,
+                        cleartextPassword = cred.password,
+                    )
+                ) {
+                    applied++
+                }
             }
             Log.d("DriveSync", "applyPendingCredentials: $applied / ${pending.size} matched")
             uiState.update { it.copy(pendingDriveCredentials = null) }

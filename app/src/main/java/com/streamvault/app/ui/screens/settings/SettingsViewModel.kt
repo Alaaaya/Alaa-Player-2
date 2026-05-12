@@ -23,7 +23,6 @@ import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.sync.SyncRepairSection
 import com.streamvault.domain.manager.BackupConflictStrategy
@@ -95,7 +94,6 @@ class SettingsViewModel @Inject constructor(
     private val internetSpeedTestRunner: InternetSpeedTestRunner,
     private val backupManager: BackupManager,
     private val driveBackupSyncManager: DriveBackupSyncManager,
-    private val credentialCrypto: CredentialCrypto,
     private val recordingManager: RecordingManager,
     private val parentalControlManager: ParentalControlManager,
     private val syncManager: SyncManager,
@@ -136,7 +134,6 @@ class SettingsViewModel @Inject constructor(
         driveManager = driveBackupSyncManager,
         importBackup = importBackup,
         providerRepository = providerRepository,
-        credentialCrypto = credentialCrypto,
         uiState = _uiState
     )
     private val recordingActions = SettingsRecordingActions(
