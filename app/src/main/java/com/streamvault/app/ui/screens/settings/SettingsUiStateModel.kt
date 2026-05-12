@@ -8,6 +8,7 @@ import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.manager.DriveAuthState
 import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncStatus
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
@@ -93,6 +94,9 @@ data class SettingsUiState(
     val driveLastPullAt: Long? = null,
     val drivePendingSignIn: DriveSignInRequest? = null,
     val driveIsBusy: Boolean = false,
+    // M3 — credentials downloaded by pullBackup, waiting to be applied
+    // to providers once the import confirm completes.
+    val pendingDriveCredentials: List<ProviderCredentials>? = null,
     val recordingItems: List<RecordingItem> = emptyList(),
     val recordingStorageState: RecordingStorageState = RecordingStorageState(),
     val wifiOnlyRecording: Boolean = false,
