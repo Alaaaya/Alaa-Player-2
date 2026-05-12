@@ -22,6 +22,7 @@ import androidx.tv.material3.Text
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.R
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.Secondary
@@ -101,6 +102,10 @@ internal fun LazyListScope.settingsDriveBackupSection(
                     val accountLabel = auth.account.email
                         ?: auth.account.displayName
                         ?: stringResource(R.string.settings_drive_signin)
+                    DriveAccountRow(
+                        accountLabel = accountLabel,
+                        onSignOut = onSignOut
+                    )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -122,16 +127,43 @@ internal fun LazyListScope.settingsDriveBackupSection(
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    BackupActionCard(
-                        icon = "✕",
-                        title = stringResource(R.string.settings_drive_signout),
-                        subtitle = accountLabel,
-                        accent = OnSurfaceDim,
-                        onClick = onSignOut,
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun DriveAccountRow(
+    accountLabel: String,
+    onSignOut: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = accountLabel,
+            style = MaterialTheme.typography.bodyLarge,
+            color = OnSurface,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        TvClickableSurface(
+            onClick = onSignOut,
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.White.copy(alpha = 0.06f),
+                focusedContainerColor = Color.White.copy(alpha = 0.18f)
+            ),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+        ) {
+            Text(
+                text = stringResource(R.string.settings_drive_signout),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = OnSurface
+            )
         }
     }
 }
