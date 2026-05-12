@@ -11,17 +11,19 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.repository.ExternalRatingsRepository
+import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
-import com.streamvault.domain.repository.SeriesRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.SeriesRepository
 import com.streamvault.domain.util.isPlaybackComplete
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -31,7 +33,8 @@ class SeriesDetailViewModel @Inject constructor(
     private val seriesRepository: SeriesRepository,
     private val providerRepository: ProviderRepository,
     private val playbackHistoryRepository: PlaybackHistoryRepository,
-    private val externalRatingsRepository: ExternalRatingsRepository
+    private val externalRatingsRepository: ExternalRatingsRepository,
+    private val favoriteRepository: FavoriteRepository
 ) : ViewModel() {
 
     private val seriesId: Long = checkNotNull(
@@ -54,18 +57,24 @@ class SeriesDetailViewModel @Inject constructor(
                     return@collect
                 }
                 providerDetailJob = launch {
+                    val effectiveProviderId = resolveEffectiveProviderId(provider.id)
                     launch {
                         playbackHistoryRepository.getUnwatchedCount(
-                            providerId = provider.id,
+                            providerId = effectiveProviderId,
                             seriesId = seriesId
                         ).collect { count ->
                             _uiState.update { it.copy(unwatchedEpisodeCount = count) }
                         }
                     }
-                    loadSeriesDetailsForProvider(provider.id)
+                    loadSeriesDetailsForProvider(effectiveProviderId)
                 }
             }
         }
+    }
+
+    private suspend fun resolveEffectiveProviderId(fallbackProviderId: Long): Long {
+        return seriesRepository.getSeriesById(seriesId)?.providerId?.takeIf { it > 0L }
+            ?: fallbackProviderId
     }
 
     private suspend fun loadSeriesDetailsForProvider(providerId: Long) {
@@ -74,11 +83,14 @@ class SeriesDetailViewModel @Inject constructor(
 
             when (val result = seriesRepository.getSeriesDetails(providerId, seriesId)) {
                 is Result.Success -> {
+                    val isFavoriteDeferred = viewModelScope.async {
+                        favoriteRepository.isFavorite(providerId, seriesId, ContentType.SERIES)
+                    }
                     loadExternalRatings(result.data)
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            series = result.data,
+                            series = result.data.copy(isFavorite = isFavoriteDeferred.await()),
                             selectedSeason = result.data.seasons.firstOrNull(),
                             resumeEpisode = findResumeEpisode(result.data),
                             error = null
@@ -101,6 +113,19 @@ class SeriesDetailViewModel @Inject constructor(
                     error = e.message ?: "Failed to load series details"
                 )
             }
+        }
+    }
+
+    fun toggleFavorite() {
+        val series = _uiState.value.series ?: return
+        viewModelScope.launch {
+            val newState = !series.isFavorite
+            if (newState) {
+                favoriteRepository.addFavorite(series.providerId, series.id, ContentType.SERIES)
+            } else {
+                favoriteRepository.removeFavorite(series.providerId, series.id, ContentType.SERIES)
+            }
+            _uiState.update { it.copy(series = series.copy(isFavorite = newState)) }
         }
     }
 

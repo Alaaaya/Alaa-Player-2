@@ -9,6 +9,7 @@ import com.streamvault.data.remote.dto.XtreamEpgResponse
 import com.streamvault.data.remote.dto.XtreamEpisode
 import com.streamvault.data.remote.dto.XtreamEpisodeInfo
 import com.streamvault.data.remote.dto.XtreamLiveStreamRow
+import com.streamvault.data.remote.dto.XtreamSeason
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
 import com.streamvault.data.remote.dto.XtreamSeriesItem
 import com.streamvault.data.remote.dto.XtreamServerInfo
@@ -681,6 +682,36 @@ class XtreamProviderTest {
         assertThat(series?.seriesId).isEqualTo(88L)
         assertThat(series?.seasons).hasSize(1)
         assertThat(series?.seasons?.first()?.episodes).hasSize(1)
+    }
+
+    @Test
+    fun `getSeriesInfo preserves season metadata when provider omits episode rows`() = runBlocking {
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                seriesInfo = XtreamSeriesInfoResponse(
+                    info = XtreamSeriesItem(name = "Season Only Series"),
+                    seasons = listOf(
+                        XtreamSeason(
+                            seasonNumber = 1,
+                            name = "Season 1",
+                            episodeCount = 10
+                        )
+                    )
+                )
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val series = provider.getSeriesInfo(91).getOrNull()
+
+        assertThat(series).isNotNull()
+        assertThat(series?.seasons).hasSize(1)
+        assertThat(series?.seasons?.first()?.name).isEqualTo("Season 1")
+        assertThat(series?.seasons?.first()?.episodeCount).isEqualTo(10)
+        assertThat(series?.seasons?.first()?.episodes).isEmpty()
     }
 
     private class FakeXtreamApiService(
