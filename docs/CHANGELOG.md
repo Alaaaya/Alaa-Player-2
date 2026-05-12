@@ -2,6 +2,26 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.11] - 2026-05-12
+
+### Added
+
+- Added APK companion plugin support with discovery, activation, capability sync, and plugin provider integration.
+- Added plugin installation from APK URL and local file picker, plus automatic detection of compatible plugins installed manually by the user.
+- Added a host-rendered plugin configuration schema so plugins can expose StreamVault-native settings screens, persisted values, validation, and plugin actions over IPC.
+
+### Changed
+
+- Updated the Plugins screen with compact StreamVault-styled controls and a dedicated blocks icon distinct from Settings.
+- Documented the plugin API, manifest metadata, installation model, IPC contract, and host-rendered configuration schema.
+
+### Fixed
+
+- Fixed software navigation bars cutting into the app on devices such as Nexus 5X by reapplying immersive fullscreen mode when the app resumes or regains focus.
+- Fixed touch/mouse activation behavior for TV controls used by plugin management on non-TV devices.
+
+---
+
 ## [1.0.10] - 2026-05-11
 
 ### Added

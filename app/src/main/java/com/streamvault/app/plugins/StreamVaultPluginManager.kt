@@ -36,7 +36,7 @@ import okhttp3.Request
 
 @Singleton
 class StreamVaultPluginManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val messengerClient: PluginMessengerClient,
     private val providerRepository: ProviderRepository,
     private val combinedM3uRepository: CombinedM3uRepository,
