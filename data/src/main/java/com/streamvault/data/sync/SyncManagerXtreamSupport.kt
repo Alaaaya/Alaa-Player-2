@@ -35,7 +35,8 @@ internal class SyncManagerXtreamSupport(
         sectionLabel: String,
         sequentialModeWarning: String,
         onProgress: ((String) -> Unit)?,
-        fetch: suspend (XtreamCategory) -> TimedCategoryOutcome<T>
+        fetch: suspend (XtreamCategory) -> TimedCategoryOutcome<T>,
+        onCategoryCompleted: ((completed: Int, total: Int, currentLabel: String) -> Unit)? = null
     ): CategoryExecutionPlan<T> {
         if (categories.isEmpty()) {
             return CategoryExecutionPlan(emptyList())
@@ -69,6 +70,11 @@ internal class SyncManagerXtreamSupport(
 
             val completed = outcomes.size
             progress(provider.id, onProgress, "Downloading $sectionLabel by category $completed/${categories.size}...")
+            // Hook d'emission optionnel (M1 — T4) : permet aux strategies d'emettre un
+            // SyncProgress structure apres chaque fenetre traitee. Le label correspond a
+            // la derniere categorie de la fenetre (pertinent en mode sequentiel ; en mode
+            // concurrent, la fenetre est petite donc le label reste representatif).
+            onCategoryCompleted?.invoke(completed, categories.size, window.last().categoryName)
 
             if (!forceSequential && shouldRecoverRemainingCategoryRequests(categories.size, completed, outcomes.map { it.outcome })) {
                 forceSequential = true
