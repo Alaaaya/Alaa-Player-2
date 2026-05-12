@@ -166,7 +166,8 @@ class SyncManager @Inject constructor(
     private val credentialCrypto: CredentialCrypto,
     private val syncMetadataRepository: SyncMetadataRepository,
     private val transactionRunner: DatabaseTransactionRunner,
-    private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository
+    private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository,
+    private val syncProgressBus: SyncProgressBus
 ) {
     private val syncStateTracker = SyncStateTracker()
     private val syncErrorSanitizer = SyncErrorSanitizer()
@@ -456,65 +457,71 @@ class SyncManager @Inject constructor(
         onProgress: ((String) -> Unit)? = null,
         trackInitialLiveOnboarding: Boolean = false
     ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
-        val providerEntity = providerDao.getById(providerId)
-            ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
-
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
-            .let { resolvedProvider ->
-                resolvedProvider.copy(
-                    xtreamFastSyncEnabled = movieFastSyncOverride ?: resolvedProvider.xtreamFastSyncEnabled,
-                    epgSyncMode = epgSyncModeOverride ?: resolvedProvider.epgSyncMode
-                )
-            }
-        publishSyncState(providerId, SyncState.Syncing("Starting..."))
-
         try {
-            val outcome = withContext(Dispatchers.IO) {
-                when (provider.type) {
-                    ProviderType.XTREAM_CODES -> syncXtreamIndexFirst(
-                        provider = provider,
-                        force = force,
-                        onProgress = onProgress,
-                        trackInitialLiveOnboarding = trackInitialLiveOnboarding,
-                        syncReason = if (trackInitialLiveOnboarding) {
-                            XtreamLiveSyncReason.INITIAL_ONBOARDING
-                        } else {
-                            XtreamLiveSyncReason.FOREGROUND
-                        }
+            val providerEntity = providerDao.getById(providerId)
+                ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+
+            val provider = providerEntity
+                .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
+                .toDomain()
+                .let { resolvedProvider ->
+                    resolvedProvider.copy(
+                        xtreamFastSyncEnabled = movieFastSyncOverride ?: resolvedProvider.xtreamFastSyncEnabled,
+                        epgSyncMode = epgSyncModeOverride ?: resolvedProvider.epgSyncMode
                     )
-                    ProviderType.M3U -> syncM3u(provider, force, onProgress)
-                    ProviderType.STALKER_PORTAL -> syncStalker(provider, force, onProgress)
                 }
-            }
-            providerDao.updateSyncTime(providerId, System.currentTimeMillis())
-            updateSyncStatusMetadata(
-                providerId = providerId,
-                status = if (outcome.partial) "PARTIAL" else "SUCCESS"
-            )
-            publishSyncState(providerId, if (outcome.partial) {
-                SyncState.Partial("Sync completed with warnings", outcome.warnings)
-            } else {
-                SyncState.Success()
-            })
-            com.streamvault.domain.model.Result.success(Unit)
-        } catch (e: CancellationException) {
-            resetState(providerId)
-            throw e
-        } catch (e: Exception) {
-            val safeMessage = syncErrorSanitizer.userMessage(e, "Sync failed")
-            Log.e(TAG, "Sync failed for provider $providerId: ${syncErrorSanitizer.throwableMessage(e)}")
-            if (provider.type == ProviderType.XTREAM_CODES && trackInitialLiveOnboarding) {
-                recordXtreamLiveOnboardingState(
-                    provider = provider,
-                    phase = XTREAM_ONBOARDING_PHASE_FAILED,
-                    lastError = sanitizeThrowableMessage(e)
+            publishSyncState(providerId, SyncState.Syncing("Starting..."))
+
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    when (provider.type) {
+                        ProviderType.XTREAM_CODES -> syncXtreamIndexFirst(
+                            provider = provider,
+                            force = force,
+                            onProgress = onProgress,
+                            trackInitialLiveOnboarding = trackInitialLiveOnboarding,
+                            syncReason = if (trackInitialLiveOnboarding) {
+                                XtreamLiveSyncReason.INITIAL_ONBOARDING
+                            } else {
+                                XtreamLiveSyncReason.FOREGROUND
+                            }
+                        )
+                        ProviderType.M3U -> syncM3u(provider, force, onProgress)
+                        ProviderType.STALKER_PORTAL -> syncStalker(provider, force, onProgress)
+                    }
+                }
+                providerDao.updateSyncTime(providerId, System.currentTimeMillis())
+                updateSyncStatusMetadata(
+                    providerId = providerId,
+                    status = if (outcome.partial) "PARTIAL" else "SUCCESS"
                 )
+                publishSyncState(providerId, if (outcome.partial) {
+                    SyncState.Partial("Sync completed with warnings", outcome.warnings)
+                } else {
+                    SyncState.Success()
+                })
+                com.streamvault.domain.model.Result.success(Unit)
+            } catch (e: CancellationException) {
+                resetState(providerId)
+                throw e
+            } catch (e: Exception) {
+                val safeMessage = syncErrorSanitizer.userMessage(e, "Sync failed")
+                Log.e(TAG, "Sync failed for provider $providerId: ${syncErrorSanitizer.throwableMessage(e)}")
+                if (provider.type == ProviderType.XTREAM_CODES && trackInitialLiveOnboarding) {
+                    recordXtreamLiveOnboardingState(
+                        provider = provider,
+                        phase = XTREAM_ONBOARDING_PHASE_FAILED,
+                        lastError = sanitizeThrowableMessage(e)
+                    )
+                }
+                updateSyncStatusMetadata(providerId = providerId, status = "ERROR")
+                publishSyncState(providerId, SyncState.Error(safeMessage, e))
+                com.streamvault.domain.model.Result.error(safeMessage, e)
             }
-            updateSyncStatusMetadata(providerId = providerId, status = "ERROR")
-            publishSyncState(providerId, SyncState.Error(safeMessage, e))
-            com.streamvault.domain.model.Result.error(safeMessage, e)
+        } finally {
+            // D7 — reset systematique du bus a la fin du cycle (succes, exception, abort low-memory)
+            // pour eviter qu'un ecran ulterieur n'herite d'un etat de progression obsolete.
+            syncProgressBus.reset()
         }
     }
 
