@@ -104,6 +104,8 @@ internal fun LazyListScope.settingsDriveBackupSection(
                         ?: stringResource(R.string.settings_drive_signin)
                     DriveAccountRow(
                         accountLabel = accountLabel,
+                        lastPushAtMs = uiState.driveSyncStatus.lastPushAtMs,
+                        lastPullAtMs = uiState.driveSyncStatus.lastPullAtMs,
                         onSignOut = onSignOut
                     )
                     Row(
@@ -136,19 +138,28 @@ internal fun LazyListScope.settingsDriveBackupSection(
 @androidx.compose.runtime.Composable
 private fun DriveAccountRow(
     accountLabel: String,
+    lastPushAtMs: Long?,
+    lastPullAtMs: Long?,
     onSignOut: () -> Unit
 ) {
+    val syncSummary = formatLastSync(lastPushAtMs, lastPullAtMs)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = accountLabel,
-            style = MaterialTheme.typography.bodyLarge,
-            color = OnSurface,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = accountLabel,
+                style = MaterialTheme.typography.bodyLarge,
+                color = OnSurface,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = syncSummary,
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceDim
+            )
+        }
         TvClickableSurface(
             onClick = onSignOut,
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
@@ -166,6 +177,21 @@ private fun DriveAccountRow(
             )
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun formatLastSync(pushMs: Long?, pullMs: Long?): String {
+    if (pushMs == null && pullMs == null) {
+        return stringResource(R.string.settings_drive_never_synced)
+    }
+    val df = java.text.DateFormat.getDateTimeInstance(
+        java.text.DateFormat.SHORT,
+        java.text.DateFormat.SHORT
+    )
+    val parts = mutableListOf<String>()
+    pushMs?.let { parts += stringResource(R.string.settings_drive_last_push, df.format(java.util.Date(it))) }
+    pullMs?.let { parts += stringResource(R.string.settings_drive_last_pull, df.format(java.util.Date(it))) }
+    return parts.joinToString("  ·  ")
 }
 
 @androidx.compose.runtime.Composable

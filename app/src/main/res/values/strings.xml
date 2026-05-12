@@ -1507,5 +1507,8 @@
     <string name="settings_drive_push_subtitle">Upload the current configuration to your Drive backup.</string>
     <string name="settings_drive_pull">Restore from Drive</string>
     <string name="settings_drive_pull_subtitle">Download the latest Drive backup and preview the import.</string>
+    <string name="settings_drive_last_push">Pushed: %1$s</string>
+    <string name="settings_drive_last_pull">Pulled: %1$s</string>
+    <string name="settings_drive_never_synced">Never synced yet</string>
 </resources>
 

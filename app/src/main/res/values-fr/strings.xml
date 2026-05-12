@@ -1434,4 +1434,7 @@
     <string name="settings_drive_push_subtitle">Téléverse la configuration actuelle dans votre sauvegarde Drive.</string>
     <string name="settings_drive_pull">Récupérer depuis Drive</string>
     <string name="settings_drive_pull_subtitle">Télécharge la dernière sauvegarde Drive et prévisualise l’import.</string>
+    <string name="settings_drive_last_push">Envoyé : %1$s</string>
+    <string name="settings_drive_last_pull">Récupéré : %1$s</string>
+    <string name="settings_drive_never_synced">Jamais synchronisé</string>
 </resources>
