@@ -120,7 +120,6 @@ class MovieRepositoryImpl @Inject constructor(
 
     private data class FreshCursor(
         val addedAt: Long,
-        val releaseDate: String,
         val name: String,
         val id: Long
     )
@@ -1021,7 +1020,7 @@ class MovieRepositoryImpl @Inject constructor(
                     query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED
                 ) -> {
                 collectMoviePages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
-                    extractCursor = { FreshCursor(it.addedAt, it.releaseDate.orEmpty(), it.name, it.id) }
+                    extractCursor = { FreshCursor(it.addedAt, it.name, it.id) }
                 ) { limit, cursor ->
                     loadMovieFreshPage(query, limit, cursor)
                 }
@@ -1088,14 +1087,13 @@ class MovieRepositoryImpl @Inject constructor(
         val categoryId = query.categoryId
         return if (categoryId == null) {
             if (cursor == null) movieDao.getFreshCursorPage(query.providerId, limit)
-            else movieDao.getFreshCursorPageAfter(query.providerId, cursor.addedAt, cursor.releaseDate, cursor.name, cursor.id, limit)
+            else movieDao.getFreshCursorPageAfter(query.providerId, cursor.addedAt, cursor.name, cursor.id, limit)
         } else {
             if (cursor == null) movieDao.getFreshByCategoryCursorPage(query.providerId, categoryId, limit)
             else movieDao.getFreshByCategoryCursorPageAfter(
                 query.providerId,
                 categoryId,
                 cursor.addedAt,
-                cursor.releaseDate,
                 cursor.name,
                 cursor.id,
                 limit
@@ -1113,7 +1111,7 @@ class MovieRepositoryImpl @Inject constructor(
                     LibrarySortBy.RELEASE,
                     LibrarySortBy.UPDATED,
                     LibrarySortBy.RATING
-                ) -> true
+                ) -> query.categoryId == null || query.sortBy != LibrarySortBy.LIBRARY
             else -> false
         }
     }
@@ -1157,7 +1155,7 @@ class MovieRepositoryImpl @Inject constructor(
         LibraryFilterType.IN_PROGRESS -> movie.id in inProgressIds || movieIsInProgress(movie)
         LibraryFilterType.UNWATCHED -> movie.id !in inProgressIds && movie.watchProgress <= 0L
         LibraryFilterType.TOP_RATED -> movie.rating > 0f
-        LibraryFilterType.RECENTLY_UPDATED -> movieReleaseScore(movie) > 0L
+        LibraryFilterType.RECENTLY_UPDATED -> movieAddedScore(movie) > 0L
     }
 
     private fun movieMatchesSearch(movie: Movie, searchQuery: String): Boolean {
@@ -1395,6 +1393,9 @@ class MovieRepositoryImpl @Inject constructor(
             ?: movie.releaseDate?.filter { it.isDigit() }?.toLongOrNull()
             ?: movie.year?.toLongOrNull()
             ?: 0L
+
+    private fun movieAddedScore(movie: Movie): Long =
+        movie.addedAt.takeIf { it > 0L } ?: 0L
 
     private suspend fun getOrCreateXtreamProvider(providerId: Long, provider: ProviderEntity): XtreamProvider {
         val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()

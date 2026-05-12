@@ -1172,27 +1172,20 @@ class MoviesViewModel @Inject constructor(
                 )
             }
             LibraryFilterType.UNWATCHED -> searched.filter { it.watchProgress <= 0L }
-            LibraryFilterType.RECENTLY_UPDATED -> searched.filter { movieReleaseScore(it) > 0L }
+            LibraryFilterType.RECENTLY_UPDATED -> searched.filter { movieAddedScore(it) > 0L }
             LibraryFilterType.TOP_RATED -> searched.filter { it.rating > 0f }
         }
         return when (sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::movieReleaseScore)
-            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::movieReleaseScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::movieAddedScore)
+            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::movieAddedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { it.lastWatchedAt }
         }
     }
 
-    private fun movieReleaseScore(movie: Movie): Long {
-        return movie.releaseDate
-            ?.filter { it.isDigit() }
-            ?.take(8)
-            ?.toLongOrNull()
-            ?: movie.year?.toLongOrNull()
-            ?: 0L
-    }
+    private fun movieAddedScore(movie: Movie): Long = movie.addedAt.takeIf { it > 0L } ?: 0L
 }
 
 private data class MovieCatalogParams(

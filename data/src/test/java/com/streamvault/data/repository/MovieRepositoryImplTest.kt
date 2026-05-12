@@ -381,6 +381,64 @@ class MovieRepositoryImplTest {
     }
 
     @Test
+    fun `stalker movie category hydration preserves requested category when portal omits item category fields`() = runTest {
+        val actionCategoryId = ("7/${ContentType.MOVIE.name}/42".hashCode().toLong() and 0x7fff_ffffL).coerceAtLeast(1L)
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, actionCategoryId)).thenReturn(flowOf(0), flowOf(1))
+        whenever(movieDao.getByCategory(7L, actionCategoryId)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, actionCategoryId)).thenReturn(null)
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Stalker",
+                type = ProviderType.STALKER_PORTAL,
+                serverUrl = "http://example.com",
+                stalkerMacAddress = "00:11:22:33:44:55",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(stalkerApiService.authenticate(any())).thenReturn(
+            Result.success(
+                StalkerSession(
+                    loadUrl = "http://example.com/stalker_portal/server/load.php",
+                    portalReferer = "http://example.com/stalker_portal/c/",
+                    token = "token"
+                ) to StalkerProviderProfile(accountName = "Stalker")
+            )
+        )
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(1))).thenReturn(
+            Result.success(
+                StalkerPagedItems(
+                    items = listOf(
+                        StalkerItemRecord(
+                            id = "101",
+                            name = "Movie",
+                            cmd = "ffmpeg http://example.com/movie.mp4",
+                            containerExtension = "mp4"
+                        )
+                    ),
+                    page = 1,
+                    totalPages = 1,
+                    pageSize = 1
+                )
+            )
+        )
+
+        val repository = createRepository()
+
+        repository.getMoviesByCategory(7L, actionCategoryId).first()
+
+        val movieCaptor = argumentCaptor<List<MovieEntity>>()
+        verify(movieDao).upsertCategoryPage(eq(7L), movieCaptor.capture())
+        assertThat(movieCaptor.firstValue).hasSize(1)
+        assertThat(movieCaptor.firstValue.single().categoryId).isEqualTo(actionCategoryId)
+        assertThat(movieCaptor.firstValue.single().categoryName).isEqualTo("Action")
+    }
+
+    @Test
     fun `getMovieDetails returns local data for stalker without full remote fetch`() = runTest {
         whenever(movieDao.getById(101L)).thenReturn(
             movieRecord(

@@ -9,6 +9,7 @@ import com.streamvault.data.remote.xtream.XtreamRequestException
 import com.streamvault.data.remote.xtream.XtreamResponseTooLargeException
 import com.streamvault.domain.model.Provider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -155,8 +156,8 @@ internal class SyncManagerXtreamSupport(
         block: suspend () -> T
     ): T {
         adaptiveSyncPolicy.awaitTurn(providerId, stage)
+        val timeoutMs = adaptiveSyncPolicy.timeoutFor(providerId, stage)
         return try {
-            val timeoutMs = adaptiveSyncPolicy.timeoutFor(providerId, stage)
             val result = if (timeoutMs != null) {
                 withTimeout(timeoutMs) {
                     block()
@@ -166,6 +167,12 @@ internal class SyncManagerXtreamSupport(
             }
             adaptiveSyncPolicy.recordSuccess(providerId)
             result
+        } catch (e: TimeoutCancellationException) {
+            adaptiveSyncPolicy.recordFailure(providerId, e)
+            throw IOException(
+                "Timed out after ${formatTimeout(timeoutMs)} during ${stage.name.lowercase()} Xtream request",
+                e
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -318,8 +325,19 @@ internal class SyncManagerXtreamSupport(
             withTimeout(timeoutMillis) {
                 block()
             }
-        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            throw IOException("Timed out after 60 seconds while loading $requestLabel", e)
+        } catch (e: TimeoutCancellationException) {
+            throw IOException("Timed out after ${formatTimeout(timeoutMillis)} while loading $requestLabel", e)
+        }
+    }
+
+    private fun formatTimeout(timeoutMillis: Long?): String {
+        if (timeoutMillis == null) {
+            return "the configured timeout"
+        }
+        return if (timeoutMillis % 1_000L == 0L) {
+            "${timeoutMillis / 1_000L} seconds"
+        } else {
+            "$timeoutMillis ms"
         }
     }
 }

@@ -21,18 +21,22 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.PushbackInputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.SerializationException
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.ResponseBody
 import java.net.URI
 import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 @OptIn(ExperimentalSerializationApi::class)
 class OkHttpXtreamApiService(
@@ -54,6 +58,7 @@ class OkHttpXtreamApiService(
 
     private enum class RequestProfile {
         STANDARD,
+        SEGMENTED_CATALOG,
         HEAVY_CATALOG
     }
 
@@ -70,6 +75,14 @@ class OkHttpXtreamApiService(
             .readTimeout(NetworkTimeoutConfig.XTREAM_HEAVY_READ_TIMEOUT_SECONDS, SECONDS)
             .writeTimeout(NetworkTimeoutConfig.XTREAM_HEAVY_WRITE_TIMEOUT_SECONDS, SECONDS)
             .callTimeout(NetworkTimeoutConfig.XTREAM_HEAVY_CALL_TIMEOUT_SECONDS, SECONDS)
+            .build()
+    }
+
+    private val segmentedCatalogClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .readTimeout(NetworkTimeoutConfig.XTREAM_SEGMENTED_READ_TIMEOUT_SECONDS, SECONDS)
+            .writeTimeout(NetworkTimeoutConfig.XTREAM_SEGMENTED_WRITE_TIMEOUT_SECONDS, SECONDS)
+            .callTimeout(NetworkTimeoutConfig.XTREAM_SEGMENTED_CALL_TIMEOUT_SECONDS, SECONDS)
             .build()
     }
 
@@ -186,6 +199,7 @@ class OkHttpXtreamApiService(
         requestProfile: HttpRequestProfile = HttpRequestProfile()
     ): T = withContext(Dispatchers.IO) {
         val descriptor = describeEndpoint(endpoint)
+        val effectiveProfile = requestProfileFor(descriptor, profile)
         val effectiveRequestProfile = requestProfile.mergedWithDefaults(defaultRequestProfile)
         val request = Request.Builder()
             .url(endpoint)
@@ -193,8 +207,8 @@ class OkHttpXtreamApiService(
             .build()
             .withRequestProfile(effectiveRequestProfile)
         try {
-            val call = clientFor(profile).newCall(request)
-            call.execute().use { response ->
+            val call = clientFor(effectiveProfile).newCall(request)
+            executeCancellable(call).use { response ->
                 if (!response.isSuccessful) {
                     val message = "HTTP ${response.code}"
                     Log.w(
@@ -235,7 +249,19 @@ class OkHttpXtreamApiService(
 
     private fun clientFor(profile: RequestProfile): OkHttpClient = when (profile) {
         RequestProfile.STANDARD -> client
+        RequestProfile.SEGMENTED_CATALOG -> segmentedCatalogClient
         RequestProfile.HEAVY_CATALOG -> heavyCatalogClient
+    }
+
+    private fun requestProfileFor(
+        descriptor: EndpointDescriptor,
+        requestedProfile: RequestProfile
+    ): RequestProfile {
+        return when {
+            requestedProfile == RequestProfile.HEAVY_CATALOG && isSegmentedCatalogRequest(descriptor) ->
+                RequestProfile.SEGMENTED_CATALOG
+            else -> requestedProfile
+        }
     }
 
     private fun describeEndpoint(endpoint: String): EndpointDescriptor {
@@ -269,10 +295,7 @@ class OkHttpXtreamApiService(
 
     private fun responseBudgetFor(descriptor: EndpointDescriptor): Long? {
         val action = descriptor.action?.lowercase().orEmpty()
-        val queryKeys = descriptor.queryKeys
-        val isSegmentedCatalogRequest = queryKeys.any { key ->
-            key == "category_id" || key == "page" || key == "offset" || key == "items_per_page" || key == "limit"
-        }
+        val isSegmentedCatalogRequest = isSegmentedCatalogRequest(descriptor)
         return when {
             (action == "get_live_streams" || action == "get_vod_streams" || action == "get_series") &&
                 isSegmentedCatalogRequest -> MAX_PARTIAL_CATALOG_BYTES
@@ -284,6 +307,13 @@ class OkHttpXtreamApiService(
         }
     }
 
+    private fun isSegmentedCatalogRequest(descriptor: EndpointDescriptor): Boolean {
+        val queryKeys = descriptor.queryKeys
+        return queryKeys.any { key ->
+            key == "category_id" || key == "page" || key == "offset" || key == "items_per_page" || key == "limit"
+        }
+    }
+
     private suspend fun <T> streamArray(
         endpoint: String,
         profile: RequestProfile,
@@ -292,6 +322,7 @@ class OkHttpXtreamApiService(
         onItem: suspend (T) -> Unit
     ): Int = withContext(Dispatchers.IO) {
         val descriptor = describeEndpoint(endpoint)
+        val effectiveProfile = requestProfileFor(descriptor, profile)
         val effectiveRequestProfile = requestProfile.mergedWithDefaults(defaultRequestProfile)
         val request = Request.Builder()
             .url(endpoint)
@@ -299,8 +330,8 @@ class OkHttpXtreamApiService(
             .build()
             .withRequestProfile(effectiveRequestProfile)
         try {
-            val call = clientFor(profile).newCall(request)
-            call.execute().use { response ->
+            val call = clientFor(effectiveProfile).newCall(request)
+            executeCancellable(call).use { response ->
                 if (!response.isSuccessful) {
                     val message = "HTTP ${response.code}"
                     Log.w(
@@ -338,6 +369,24 @@ class OkHttpXtreamApiService(
                 "Xtream streamed request network failure for ${descriptor.hint} (${request.safeRequestIdentitySummary(effectiveRequestProfile)}): ${XtreamUrlFactory.sanitizeLogMessage(e.message ?: "Network request failed")}"
             )
             throw XtreamNetworkException(XtreamUrlFactory.sanitizeLogMessage(e.message ?: "Network request failed"), e)
+        }
+    }
+
+    private suspend fun executeCancellable(call: Call) = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation {
+            call.cancel()
+        }
+        try {
+            val response = call.execute()
+            if (continuation.isActive) {
+                continuation.resume(response)
+            } else {
+                response.close()
+            }
+        } catch (e: Exception) {
+            if (continuation.isActive) {
+                continuation.resumeWithException(e)
+            }
         }
     }
 

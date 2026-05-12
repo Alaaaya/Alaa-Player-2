@@ -1115,13 +1115,13 @@ interface MovieDao {
     ): List<MovieBrowseEntity>
 
     /** SQL-level parental filter per category. */
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND is_user_protected = 0 ORDER BY name ASC")
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND is_user_protected = 0 ORDER BY added_at DESC, name ASC, id ASC")
     fun getByCategoryUnprotected(providerId: Long, categoryId: Long): Flow<List<MovieBrowseEntity>>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY name ASC LIMIT :limit OFFSET :offset")
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit OFFSET :offset")
     fun getByCategoryPage(providerId: Long, categoryId: Long, limit: Int, offset: Int): Flow<List<MovieBrowseEntity>>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY name ASC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     fun getByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
 
     @Query("SELECT * FROM movies WHERE provider_id = :providerId AND rating > 0 ORDER BY rating DESC, name ASC LIMIT :limit")
@@ -1186,7 +1186,7 @@ interface MovieDao {
         limit: Int
     ): List<MovieBrowseEntity>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '') ORDER BY added_at DESC, release_date DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     fun getFreshPreview(providerId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
 
     @Query(
@@ -1194,49 +1194,40 @@ interface MovieDao {
         SELECT COUNT(*) FROM movies
         WHERE provider_id = :providerId
           AND (
-              added_at > 0
-              OR COALESCE(release_date, '') != ''
-              OR COALESCE(year, '') != ''
+                            added_at > 0
           )
         """
     )
     fun getFreshCountByProvider(providerId: Long): Flow<Int>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '') ORDER BY added_at DESC, release_date DESC, name ASC, id ASC LIMIT :limit")
+        @Query("SELECT * FROM movies WHERE provider_id = :providerId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     suspend fun getFreshCursorPage(providerId: Long, limit: Int): List<MovieBrowseEntity>
 
     @Query(
         """
         SELECT * FROM movies
         WHERE provider_id = :providerId
-          AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '')
+          AND added_at > 0
           AND (
               added_at < :lastAddedAt
               OR (
                   added_at = :lastAddedAt
-                  AND (
-                      COALESCE(release_date, '') < :lastReleaseDate
-                      OR (
-                          COALESCE(release_date, '') = :lastReleaseDate
-                          AND (name > :lastName OR (name = :lastName AND id > :lastId))
-                      )
-                  )
+                  AND (name > :lastName OR (name = :lastName AND id > :lastId))
               )
           )
-        ORDER BY added_at DESC, release_date DESC, name ASC, id ASC
+        ORDER BY added_at DESC, name ASC, id ASC
         LIMIT :limit
         """
     )
     suspend fun getFreshCursorPageAfter(
         providerId: Long,
         lastAddedAt: Long,
-        lastReleaseDate: String,
         lastName: String,
         lastId: Long,
         limit: Int
     ): List<MovieBrowseEntity>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '') ORDER BY added_at DESC, release_date DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     fun getFreshByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
 
     @Query(
@@ -1245,15 +1236,13 @@ interface MovieDao {
         WHERE provider_id = :providerId
           AND category_id = :categoryId
           AND (
-              added_at > 0
-              OR COALESCE(release_date, '') != ''
-              OR COALESCE(year, '') != ''
+                            added_at > 0
           )
         """
     )
     fun getFreshCountByCategory(providerId: Long, categoryId: Long): Flow<Int>
 
-    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '') ORDER BY added_at DESC, release_date DESC, name ASC, id ASC LIMIT :limit")
+        @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     suspend fun getFreshByCategoryCursorPage(providerId: Long, categoryId: Long, limit: Int): List<MovieBrowseEntity>
 
     @Query(
@@ -1261,21 +1250,15 @@ interface MovieDao {
         SELECT * FROM movies
         WHERE provider_id = :providerId
           AND category_id = :categoryId
-          AND (added_at > 0 OR COALESCE(release_date, '') != '' OR COALESCE(year, '') != '')
+          AND added_at > 0
           AND (
               added_at < :lastAddedAt
               OR (
                   added_at = :lastAddedAt
-                  AND (
-                      COALESCE(release_date, '') < :lastReleaseDate
-                      OR (
-                          COALESCE(release_date, '') = :lastReleaseDate
-                          AND (name > :lastName OR (name = :lastName AND id > :lastId))
-                      )
-                  )
+                  AND (name > :lastName OR (name = :lastName AND id > :lastId))
               )
           )
-        ORDER BY added_at DESC, release_date DESC, name ASC, id ASC
+        ORDER BY added_at DESC, name ASC, id ASC
         LIMIT :limit
         """
     )
@@ -1283,7 +1266,6 @@ interface MovieDao {
         providerId: Long,
         categoryId: Long,
         lastAddedAt: Long,
-        lastReleaseDate: String,
         lastName: String,
         lastId: Long,
         limit: Int

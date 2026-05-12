@@ -6,8 +6,6 @@ All notable product changes are recorded in this document.
 
 ### Added
 
-- Added bundled Media3 FFmpeg audio decoder support for `AC-3`, `E-AC-3`, `DTS`, `MP2`, and `TrueHD` playback fallback.
-- Added automatic one-time software retry for streams with unsupported audio codecs when FFmpeg support is available.
 - Added audio decoder name to player diagnostics so FFmpeg-backed playback can be confirmed from the overlay.
 - Added FFmpeg artifact verification in the player build, plus bundled provenance and LGPL notice docs.
 - Added expert playback settings for audio output policy and persistent compatibility memory.
@@ -18,6 +16,8 @@ All notable product changes are recorded in this document.
 - Added native Activity plugin configuration mode so rich plugin UIs can open from StreamVault with their own visual and interaction model.
 - Added a welcome-screen "Set up later" option so first-time users can enter the app and reach Settings before adding a provider.
 - Added Google Drive backup sync support with sign-in/out, push/pull actions, last-sync status in Settings, and onboarding import-from-Drive progress flow.
+- Added opt-in developer onboarding seeding from `local.properties` (Xtream + M3U) in debug builds, with a versioned `local.properties.example` template and `docs/DEV_SEEDING.md` guide.
+- Added real-time first-boot library sync progress on the welcome screen (Live/VOD/Series section state, determinate/indeterminate progress bar, current label, and indexed-items counter) powered by a typed sync progress bus.
 
 ### Changed
 
@@ -26,8 +26,15 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed unsupported audio codec playback fallback by bundling Media3 FFmpeg decoder support for `AC-3`, `E-AC-3`, `DTS`, `MP2`, and `TrueHD` streams.
+- Fixed streams with unsupported audio codecs not retrying in software when FFmpeg support is available; the player now performs one automatic fallback retry.
 - Fixed software navigation bars cutting into the app on devices such as Nexus 5X by reapplying immersive fullscreen mode when the app resumes or regains focus.
 - Fixed touch/mouse activation behavior for TV controls used by plugin management on non-TV devices.
+- Fixed series detail screens missing the favorite heart action; series info pages now match movies with add/remove favorite support directly from the detail view.
+- Fixed Xtream series detail pages sometimes showing no seasons or episodes when providers returned season metadata without inline episode rows; cached episodes are now preserved and metadata-only season payloads no longer render as empty detail screens.
+- Fixed Xtream live sync category requests stalling for several minutes near the end of large provider imports; segmented catalog calls now use shorter cancellable transport timeouts and timeout handling now surfaces as normal request failures instead of hanging the sync.
+- Fixed VOD category shelves and category browse ordering in both classic and modern views to sort by provider-added time instead of release metadata.
+- Fixed Stalker VOD category filtering drifting or appearing empty when filtered portal responses omit item category metadata; requested category context is now preserved during category hydration.
 
 ---
 
@@ -62,7 +69,7 @@ All notable product changes are recorded in this document.
 - Fixed default `AUTO` playback startup to use a safer stock Media3 path unless users explicitly enable AV sync or select a non-default decoder mode.
 - Fixed automatic playback recovery to stay bounded and progressive instead of looping through aggressive startup-time workarounds.
 - Fixed compatibility history so it is advisory only, non-fatal, and ignored during clean first startup.
-- Added release-safe crash reports for fatal playback failures so users can view, share, and delete the latest report from Settings.
+- Fixed fatal playback failures now generating a release-safe crash report that users can view, share, and delete from Settings.
 - Fixed several DVR lifecycle edge cases around recording promotion, foreground-service startup, handoff, and recovery.
 - Fixed recording schedule backup/restore for padding, recurring rules, and partial import failures.
 - Fixed reminder and recording scheduling: exact-alarm enforcement, stale suppression, alarm identity/cleanup, OS alarm cancel on provider delete.
