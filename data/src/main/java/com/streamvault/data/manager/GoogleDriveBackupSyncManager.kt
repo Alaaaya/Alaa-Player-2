@@ -1,6 +1,7 @@
 package com.streamvault.data.manager
 
 import android.content.Context
+import android.util.Log
 import androidx.core.net.toUri
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -99,18 +100,29 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         withContext(Dispatchers.IO) {
             try {
                 val data = signInData as? android.content.Intent
+                Log.d("DriveSync", "completeSignIn intent=$data extras=${data?.extras}")
                 val account = GoogleSignIn.getSignedInAccountFromIntent(data).awaitTask()
-                if (account == null || !hasAppDataScope(account)) {
+                Log.d("DriveSync", "account=$account email=${account?.email} grantedScopes=${account?.grantedScopes}")
+                if (account == null) {
+                    Log.w("DriveSync", "completeSignIn: account is null (user cancelled or sign-in failed silently)")
+                    _authState.value = DriveAuthState.SignedOut
+                    return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
+                }
+                if (!hasAppDataScope(account)) {
+                    Log.w("DriveSync", "completeSignIn: drive.appdata scope NOT granted, grantedScopes=${account.grantedScopes}")
                     _authState.value = DriveAuthState.SignedOut
                     return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
                 }
                 val driveAccount = account.toDriveAccount()
+                Log.d("DriveSync", "completeSignIn: SUCCESS for ${driveAccount.email}")
                 _authState.value = DriveAuthState.SignedIn(driveAccount)
                 Result.Success(driveAccount)
             } catch (apiError: ApiException) {
+                Log.e("DriveSync", "completeSignIn: ApiException statusCode=${apiError.statusCode} message=${apiError.message}", apiError)
                 _authState.value = DriveAuthState.SignedOut
                 Result.Error(DriveSyncError.AUTH_FAILED, apiError)
             } catch (t: Throwable) {
+                Log.e("DriveSync", "completeSignIn: Throwable", t)
                 _authState.value = DriveAuthState.SignedOut
                 Result.Error(DriveSyncError.AUTH_FAILED, t)
             }
@@ -181,25 +193,42 @@ class GoogleDriveBackupSyncManager @Inject constructor(
     }
 
     override suspend fun pullBackup(): Result<DriveBackupArtifact> = withContext(Dispatchers.IO) {
-        val account = requireSignedInAccount() ?: return@withContext Result.Error(DriveSyncError.NOT_SIGNED_IN)
-        val token = fetchAccessToken(account) ?: return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
+        Log.d("DriveSync", "pullBackup: start")
+        val account = requireSignedInAccount() ?: run {
+            Log.w("DriveSync", "pullBackup: NOT_SIGNED_IN (account is null)")
+            return@withContext Result.Error(DriveSyncError.NOT_SIGNED_IN)
+        }
+        val token = fetchAccessToken(account) ?: run {
+            Log.w("DriveSync", "pullBackup: AUTH_FAILED (no token)")
+            return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
+        }
+        Log.d("DriveSync", "pullBackup: token OK, looking up remote backup id")
 
         val fileId = try {
             findRemoteBackupId(token)
         } catch (io: IOException) {
+            Log.e("DriveSync", "pullBackup: NETWORK error while finding remote id", io)
             return@withContext Result.Error(DriveSyncError.NETWORK, io)
-        } ?: return@withContext Result.Error(DriveSyncError.NO_REMOTE_BACKUP)
+        }
+        if (fileId == null) {
+            Log.w("DriveSync", "pullBackup: NO_REMOTE_BACKUP (no file found in appDataFolder)")
+            return@withContext Result.Error(DriveSyncError.NO_REMOTE_BACKUP)
+        }
+        Log.d("DriveSync", "pullBackup: remote fileId=$fileId, downloading")
 
         val target = File(context.cacheDir, TEMP_BACKUP_FILE_NAME).apply { delete() }
         val downloadOk = try {
             downloadAppDataFile(token, fileId, target)
         } catch (io: IOException) {
+            Log.e("DriveSync", "pullBackup: NETWORK error during download", io)
             return@withContext Result.Error(DriveSyncError.NETWORK, io)
         }
         if (!downloadOk || !target.exists() || target.length() == 0L) {
+            Log.w("DriveSync", "pullBackup: download failed or empty file (ok=$downloadOk exists=${target.exists()} size=${target.length()})")
             target.delete()
             return@withContext Result.Error(DriveSyncError.NETWORK)
         }
+        Log.d("DriveSync", "pullBackup: downloaded ${target.length()} bytes to ${target.absolutePath}")
 
         _syncStatus.value = _syncStatus.value.copy(
             lastPullAtMs = System.currentTimeMillis(),
@@ -308,7 +337,9 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         DriveAccount(email = email, displayName = displayName)
 
     private fun uriEncode(value: String): String =
-        java.net.URLEncoder.encode(value, Charsets.UTF_8)
+        // URLEncoder.encode(String, Charset) is API 33+ only.
+        // We support minSdk 28, so use the String charset name overload.
+        java.net.URLEncoder.encode(value, "UTF-8")
 
     private companion object {
         const val SCOPE_APP_DATA = "https://www.googleapis.com/auth/drive.appdata"
