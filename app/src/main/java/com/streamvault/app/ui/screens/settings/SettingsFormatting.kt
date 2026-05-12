@@ -10,6 +10,7 @@ import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
@@ -140,6 +141,15 @@ internal fun formatDecoderModeLabel(mode: DecoderMode, context: android.content.
         DecoderMode.SOFTWARE -> context.getString(R.string.settings_decoder_software)
         DecoderMode.COMPATIBILITY -> context.getString(R.string.settings_decoder_compatibility)
     }
+}
+
+internal fun formatAudioOutputPreferenceLabel(
+    preference: AudioOutputPreference,
+    context: android.content.Context
+): String = when (preference) {
+    AudioOutputPreference.AUTO -> context.getString(R.string.settings_audio_output_auto)
+    AudioOutputPreference.PREFER_PASSTHROUGH -> context.getString(R.string.settings_audio_output_prefer_passthrough)
+    AudioOutputPreference.DISABLE_PASSTHROUGH -> context.getString(R.string.settings_audio_output_disable_passthrough)
 }
 
 internal fun formatSurfaceModeLabel(

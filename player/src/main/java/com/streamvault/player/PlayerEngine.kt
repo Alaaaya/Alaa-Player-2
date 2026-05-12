@@ -2,6 +2,7 @@ package com.streamvault.player
 
 import android.content.Context
 import android.view.View
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.DrmScheme
@@ -74,6 +75,9 @@ interface PlayerEngine {
     fun setPlaybackSpeed(speed: Float)
     fun setAudioVideoSyncEnabled(enabled: Boolean)
     fun setAudioVideoOffsetMs(offsetMs: Int)
+    fun setAudioOutputPreference(preference: AudioOutputPreference)
+    fun setCompatibilityMemoryEnabled(enabled: Boolean)
+    fun clearLearnedPlaybackCompatibility()
     fun startLiveTimeshift(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig)
     fun stopLiveTimeshift()
     fun seekToLiveEdge()
@@ -144,6 +148,11 @@ data class PlayerStats(
     val videoCodec: String = "Unknown",
     val audioCodec: String = "Unknown",
     val videoDecoderName: String = "Unknown",
+    val audioDecoderName: String = "Unknown",
+    val ffmpegAvailable: Boolean = false,
+    val ffmpegVersion: String? = null,
+    val audioOutputPath: String = "UNKNOWN",
+    val compatibilityDecisionSource: String = "DEFAULT",
     val activeDecoderPolicy: String = "AUTO",
     val renderSurfaceType: String = "SURFACE_VIEW",
     val audioVideoSyncEnabled: Boolean = false,
@@ -158,7 +167,52 @@ data class PlayerStats(
     val bufferedDurationMs: Long = 0,
     val rebufferCount: Int = 0,
     val ttffMs: Long = 0
-)
+) {
+    @Suppress("LongParameterList")
+    constructor(
+        videoCodec: String,
+        audioCodec: String,
+        videoDecoderName: String,
+        audioDecoderName: String,
+        activeDecoderPolicy: String,
+        renderSurfaceType: String,
+        audioVideoSyncEnabled: Boolean,
+        audioVideoSyncSinkActive: Boolean,
+        videoStallCount: Int,
+        lastVideoFrameAgoMs: Long,
+        videoBitrate: Int,
+        droppedFrames: Int,
+        width: Int,
+        height: Int,
+        bandwidthEstimate: Long,
+        bufferedDurationMs: Long,
+        rebufferCount: Int,
+        ttffMs: Long
+    ) : this(
+        videoCodec = videoCodec,
+        audioCodec = audioCodec,
+        videoDecoderName = videoDecoderName,
+        audioDecoderName = audioDecoderName,
+        ffmpegAvailable = false,
+        ffmpegVersion = null,
+        audioOutputPath = "UNKNOWN",
+        compatibilityDecisionSource = "DEFAULT",
+        activeDecoderPolicy = activeDecoderPolicy,
+        renderSurfaceType = renderSurfaceType,
+        audioVideoSyncEnabled = audioVideoSyncEnabled,
+        audioVideoSyncSinkActive = audioVideoSyncSinkActive,
+        videoStallCount = videoStallCount,
+        lastVideoFrameAgoMs = lastVideoFrameAgoMs,
+        videoBitrate = videoBitrate,
+        droppedFrames = droppedFrames,
+        width = width,
+        height = height,
+        bandwidthEstimate = bandwidthEstimate,
+        bufferedDurationMs = bufferedDurationMs,
+        rebufferCount = rebufferCount,
+        ttffMs = ttffMs
+    )
+}
 
 sealed class PlayerError(val message: String) {
     class NetworkError(message: String) : PlayerError(message)

@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.PlaybackCompatibilityKey
 import com.streamvault.domain.model.PlaybackCompatibilityRecord
@@ -43,10 +44,12 @@ import com.streamvault.player.playback.PlaybackCodecSelector
 import com.streamvault.player.playback.PlaybackCompatibilityProfile
 import com.streamvault.player.playback.PlaybackBufferPolicies
 import com.streamvault.player.playback.PlaybackErrorCategory
+import com.streamvault.player.playback.FfmpegAudioFallbackRequest
+import com.streamvault.player.playback.FfmpegExtensionSupport
 import com.streamvault.player.playback.PlaybackLogSanitizer
+import com.streamvault.player.playback.PlaybackPreparationPlan
+import com.streamvault.player.playback.PlaybackRendererPlan
 import com.streamvault.player.playback.PlaybackRetryContext
-import com.streamvault.player.playback.buildPlaybackPreparationPlan
-import com.streamvault.player.playback.buildPlaybackRendererPlan
 import com.streamvault.player.playback.PlayerDataSourceFactoryProvider
 import com.streamvault.player.playback.PlayerErrorClassifier
 import com.streamvault.player.playback.PlayerMediaSourceFactory
@@ -88,7 +91,9 @@ import okhttp3.OkHttpClient
 class Media3PlayerEngine @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val playbackCompatibilityRepository: PlaybackCompatibilityRepository
+    private val playbackCompatibilityRepository: PlaybackCompatibilityRepository,
+    private val audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
+    private val playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
 ) : PlayerEngine {
 
     companion object {
@@ -146,6 +151,12 @@ class Media3PlayerEngine @Inject constructor(
     private var knownBadDecoderNames: Set<String> = emptySet()
     private var knownBadSurfaceTypes: Set<String> = emptySet()
     private var selectedVideoDecoderName: String = "Unknown"
+    private var selectedAudioDecoderName: String = "Unknown"
+    private var audioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO
+    private var compatibilityMemoryEnabled: Boolean = true
+    private var audioOutputPath: String = "UNKNOWN"
+    private var compatibilityDecisionSource: String = "DEFAULT"
+    private var pendingLearnedAudioFallback: PendingLearnedAudioFallback? = null
     private var videoStallCount = 0
     private var videoStallRecoveryAttempt = 0
     private var videoStallSafeRecoveryPerformed = false
@@ -164,6 +175,7 @@ class Media3PlayerEngine @Inject constructor(
     private var retryGeneration = 0L
     private var currentBufferIsLive: Boolean? = null
     private var audioCodecUnsupportedReported = false
+    private var lastSupportErrorMessage: String? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
     override val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -211,6 +223,8 @@ class Media3PlayerEngine @Inject constructor(
     private val subtitleStyleController = SubtitleStyleController()
     private val viewBinder = PlayerViewBinder(subtitleStyleController)
     private val trackController = PlayerTrackController(context)
+    private val ffmpegExtensionSupport = FfmpegExtensionSupport()
+    private var ffmpegAvailability = ffmpegExtensionSupport.availability()
     override val availableAudioTracks: StateFlow<List<PlayerTrack>> = trackController.availableAudioTracks
     override val availableSubtitleTracks: StateFlow<List<PlayerTrack>> = trackController.availableSubtitleTracks
     override val availableVideoTracks: StateFlow<List<PlayerTrack>> = trackController.availableVideoTracks
@@ -253,6 +267,13 @@ class Media3PlayerEngine @Inject constructor(
     private var pendingTimeshiftAutoPlay: Boolean = false
     private var lastAudioRendererRecoveryAtMs: Long = 0L
 
+    private data class PendingLearnedAudioFallback(
+        val mediaId: String,
+        val streamType: String,
+        val audioMimeTypes: List<String>,
+        val detail: String?
+    )
+
     init {
         startEngineCollectors()
     }
@@ -279,11 +300,17 @@ class Media3PlayerEngine @Inject constructor(
                     lastVideoFrameAgoMs = videoStallDetector.lastVideoFrameAgoMs(),
                     videoStallCount = videoStallCount,
                     videoDecoderName = selectedVideoDecoderName,
+                    audioDecoderName = selectedAudioDecoderName,
+                    ffmpegAvailable = ffmpegAvailability.available,
+                    ffmpegVersion = ffmpegAvailability.version,
+                    audioOutputPath = audioOutputPath,
+                    compatibilityDecisionSource = compatibilityDecisionSource,
                     activeDecoderPolicy = activeDecoderPolicy.name,
                     renderSurfaceType = _renderSurfaceType.value.name,
                     audioVideoSyncEnabled = _audioVideoSyncEnabled.value,
                     audioVideoSyncSinkActive = audioVideoSyncSinkActive
                 )
+                playbackSupportSnapshotStore.write(buildPlaybackSupportSnapshot())
                 if (shouldFallbackTextureViewBeforeFirstFrame(stats)) {
                     fallbackTextureViewSurface("NO_FIRST_FRAME")
                     continue
@@ -461,6 +488,27 @@ class Media3PlayerEngine @Inject constructor(
         val effectiveOffset = if (_audioVideoSyncEnabled.value) clamped else 0
         _audioVideoOffsetMs.value = effectiveOffset
         audioVideoOffsetUs.set(effectiveOffset * 1_000L)
+    }
+
+    override fun setAudioOutputPreference(preference: AudioOutputPreference) {
+        if (audioOutputPreference == preference) return
+        audioOutputPreference = preference
+        val streamInfo = lastStreamInfo ?: return
+        val player = exoPlayer ?: return
+        prepareInternal(
+            streamInfo = streamInfo,
+            preserveRetryState = true,
+            seekPositionMs = player.currentPosition.takeIf { it > 0L },
+            autoPlay = player.playWhenReady
+        )
+    }
+
+    override fun setCompatibilityMemoryEnabled(enabled: Boolean) {
+        compatibilityMemoryEnabled = enabled
+    }
+
+    override fun clearLearnedPlaybackCompatibility() {
+        audioCompatibilityMemoryStore.clear()
     }
 
     @MainThread
@@ -683,6 +731,7 @@ class Media3PlayerEngine @Inject constructor(
         statsCollector.reset()
         videoStallDetector.reset()
         selectedVideoDecoderName = "Unknown"
+        selectedAudioDecoderName = "Unknown"
         videoStallCount = 0
         videoStallRecoveryAttempt = 0
         recoveryDecoderPolicyOverride = null
@@ -736,6 +785,8 @@ class Media3PlayerEngine @Inject constructor(
         playbackStarted = false
         prepareStartMs = System.currentTimeMillis()
         audioCodecUnsupportedReported = false
+        pendingLearnedAudioFallback = null
+        lastSupportErrorMessage = null
         _error.tryEmit(null)
         _mediaTitle.value = null
         trackController.resetSelections()
@@ -746,6 +797,9 @@ class Media3PlayerEngine @Inject constructor(
             videoStallSafeRecoveryPerformed = false
         }
         selectedVideoDecoderName = "Unknown"
+        selectedAudioDecoderName = "Unknown"
+        ffmpegAvailability = ffmpegExtensionSupport.availability()
+        audioOutputPath = resolveStartupAudioOutputPath()
 
         val playbackPlan = buildPlaybackPreparationPlan(
             streamInfo = streamInfo,
@@ -759,7 +813,21 @@ class Media3PlayerEngine @Inject constructor(
         if (!preserveRetryState) {
             recoveryDecoderPolicyOverride = null
         }
-        val preferredDecoderMode = decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
+        val learnedAudioCompatibility = if (requestedDecoderMode == DecoderMode.AUTO && compatibilityMemoryEnabled) {
+            audioCompatibilityMemoryStore.lookup(mediaId, currentResolvedStreamType.name)
+        } else {
+            null
+        }
+        val preferredDecoderMode = when {
+            requestedDecoderMode != DecoderMode.AUTO -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
+            learnedAudioCompatibility?.decision == AudioCompatibilityMemoryStore.DECISION_SOFTWARE_FFMPEG -> DecoderMode.SOFTWARE
+            else -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
+        }
+        compatibilityDecisionSource = when {
+            requestedDecoderMode != DecoderMode.AUTO -> "USER_SELECTED"
+            learnedAudioCompatibility != null -> "LEARNED_AUDIO_FALLBACK"
+            else -> "DEFAULT"
+        }
         val nextDecoderPolicy = recoveryDecoderPolicyOverride ?: resolveActiveDecoderPolicy(
             policyModeFor(requestedDecoderMode, preferredDecoderMode)
         )
@@ -781,7 +849,7 @@ class Media3PlayerEngine @Inject constructor(
 
         Log.i(
             TAG,
-            "prepare resolvedStreamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile decoderPreference=$activeDecoderMode activePolicy=$activeDecoderPolicy surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            "prepare resolvedStreamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile decoderPreference=$activeDecoderMode activePolicy=$activeDecoderPolicy audioOutputPreference=$audioOutputPreference compatibilitySource=$compatibilityDecisionSource surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
 
         try {
@@ -901,6 +969,7 @@ class Media3PlayerEngine @Inject constructor(
 
 
     private fun buildRenderersFactory(): DefaultRenderersFactory {
+        logFfmpegAvailability()
         val decoderPolicy = activeDecoderPolicy
         val badDecoderNames = knownBadDecoderNames
         val requestedMode = requestedDecoderMode
@@ -1028,6 +1097,21 @@ class Media3PlayerEngine @Inject constructor(
                 _playerStats.value = _playerStats.value.copy(videoDecoderName = decoderName)
                 Log.i(TAG, "video-decoder name=$decoderName policy=$activeDecoderPolicy surface=${_renderSurfaceType.value}")
                 refreshKnownBadCompatibilityRecords()
+            }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long
+            ) {
+                selectedAudioDecoderName = decoderName
+                audioOutputPath = classifyAudioOutputPath(decoderName)
+                _playerStats.value = _playerStats.value.copy(
+                    audioDecoderName = decoderName,
+                    audioOutputPath = audioOutputPath
+                )
+                Log.i(TAG, "audio-decoder name=$decoderName policy=$activeDecoderPolicy outputPath=$audioOutputPath")
             }
 
             override fun onAudioInputFormatChanged(
@@ -1171,16 +1255,20 @@ class Media3PlayerEngine @Inject constructor(
                         it.mediaTrackGroup.type == C.TRACK_TYPE_AUDIO && it.length > 0
                     }
                     if (hasAudioGroups && trackController.availableAudioTracks.value.isEmpty()) {
+                        val mimeTypes = audioMimeTypes(tracks)
+                        if (tryFfmpegAudioFallback("audio-track-missing", mimeTypes, detail = null)) {
+                            return
+                        }
                         audioCodecUnsupportedReported = true
-                        val mimeTypes = tracks.groups
-                            .filter { it.mediaTrackGroup.type == C.TRACK_TYPE_AUDIO }
-                            .flatMap { g -> (0 until g.length).mapNotNull { g.mediaTrackGroup.getFormat(it).sampleMimeType } }
-                            .distinct()
-                            .joinToString()
-                        Log.w(TAG, "audio-codec-unsupported mimeTypes=$mimeTypes target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url.orEmpty())}")
+                        val mimeTypeLabel = mimeTypes.joinToString()
+                        Log.w(
+                            TAG,
+                            "audio-codec-unsupported mimeTypes=$mimeTypeLabel target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url.orEmpty())}"
+                        )
+                        lastSupportErrorMessage = "No compatible audio decoder for this stream ($mimeTypeLabel)."
                         _error.tryEmit(
                             PlayerError.DecoderError(
-                                "No compatible audio decoder for this stream ($mimeTypes). " +
+                                "No compatible audio decoder for this stream ($mimeTypeLabel). " +
                                     "The audio codec is not supported on this device."
                             )
                         )
@@ -1256,8 +1344,19 @@ class Media3PlayerEngine @Inject constructor(
         playbackStarted = true
         Log.i(
             TAG,
-            "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
+            "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioPath=$audioOutputPath compatibilitySource=$compatibilityDecisionSource target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
         )
+        pendingLearnedAudioFallback?.let { learned ->
+            if (compatibilityMemoryEnabled && activeDecoderMode == DecoderMode.SOFTWARE) {
+                audioCompatibilityMemoryStore.rememberSoftwareAudioFallback(
+                    mediaId = learned.mediaId,
+                    streamType = learned.streamType,
+                    audioMimeTypes = learned.audioMimeTypes,
+                    detail = learned.detail
+                )
+            }
+            pendingLearnedAudioFallback = null
+        }
         recordCompatibilitySuccess()
         refreshKnownBadCompatibilityRecords()
     }
@@ -1530,7 +1629,19 @@ class Media3PlayerEngine @Inject constructor(
     private fun handleAudioRendererIssue(error: Exception, source: String) {
         val streamInfo = lastStreamInfo
         if (streamInfo == null) {
+            lastSupportErrorMessage = error.message ?: "Audio playback failed."
             _error.tryEmit(PlayerError.DecoderError(error.message ?: "Audio playback failed."))
+            return
+        }
+
+        if (
+            source == "audio-codec" &&
+            tryFfmpegAudioFallback(
+                trigger = "audio-renderer-$source",
+                mimeTypes = audioMimeTypes(),
+                detail = error.message
+            )
+        ) {
             return
         }
 
@@ -1540,6 +1651,7 @@ class Media3PlayerEngine @Inject constructor(
                 TAG,
                 "audio-renderer-failed source=$source target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
             )
+            lastSupportErrorMessage = error.message ?: "Audio playback failed for this stream."
             _error.tryEmit(
                 PlayerError.DecoderError(
                     error.message ?: "Audio playback failed for this stream."
@@ -1567,6 +1679,181 @@ class Media3PlayerEngine @Inject constructor(
             seekPositionMs = seekPosition,
             autoPlay = wasPlaying
         )
+    }
+
+    private fun tryFfmpegAudioFallback(
+        trigger: String,
+        mimeTypes: List<String>,
+        detail: String?
+    ): Boolean {
+        val streamInfo = lastStreamInfo ?: return false
+        val mediaId = lastMediaId ?: return false
+        val availability = ffmpegExtensionSupport.availability()
+        ffmpegAvailability = availability
+        if (!availability.available) {
+            compatibilityDecisionSource = "FFMPEG_UNAVAILABLE"
+            Log.w(
+                TAG,
+                "ffmpeg-audio-fallback unavailable trigger=$trigger target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            )
+            return false
+        }
+        val supportedMimeTypes = ffmpegExtensionSupport.supportedAudioMimeTypes(mimeTypes)
+        val effectiveSupportedMimeTypes = if (mimeTypes.isEmpty()) listOf("<unknown>") else supportedMimeTypes
+        if (mimeTypes.isNotEmpty() && supportedMimeTypes.isEmpty()) {
+            compatibilityDecisionSource = "FFMPEG_UNSUPPORTED_AUDIO"
+            Log.w(
+                TAG,
+                "ffmpeg-audio-fallback unsupported trigger=$trigger mimeTypes=${mimeTypes.joinToString()} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            )
+            return false
+        }
+        val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
+        if (
+            !shouldAttemptFfmpegAudioFallback(
+                FfmpegAudioFallbackRequest(
+                    requestedMode = requestedDecoderMode,
+                    extensionAvailable = availability.available,
+                    supportedMimeTypes = effectiveSupportedMimeTypes,
+                    fallbackMode = fallbackMode
+                )
+            )
+        ) {
+            return false
+        }
+        compatibilityDecisionSource = "FFMPEG_RETRY:$trigger"
+        pendingLearnedAudioFallback = PendingLearnedAudioFallback(
+            mediaId = mediaId,
+            streamType = currentResolvedStreamType.name,
+            audioMimeTypes = supportedMimeTypes,
+            detail = detail
+        )
+        audioOutputPath = "FFMPEG_RETRY_PENDING"
+
+        val wasPlaying = exoPlayer?.playWhenReady ?: true
+        val seekPosition = exoPlayer?.currentPosition
+            ?.takeIf { currentResolvedStreamType == ResolvedStreamType.PROGRESSIVE && it > 0L }
+        Log.w(
+            TAG,
+            "ffmpeg-audio-fallback retry trigger=$trigger supportedMimeTypes=${effectiveSupportedMimeTypes.joinToString()} version=${availability.version ?: "unknown"} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} detail=${PlaybackLogSanitizer.sanitizeMessage(detail)}"
+        )
+
+        retryJob?.cancel()
+        retryJob = null
+        _retryStatus.value = null
+        prepareInternal(
+            streamInfo = streamInfo,
+            preserveRetryState = false,
+            seekPositionMs = seekPosition,
+            autoPlay = wasPlaying
+        )
+        return true
+    }
+
+    private fun audioMimeTypes(
+        tracks: androidx.media3.common.Tracks? = exoPlayer?.currentTracks
+    ): List<String> {
+        val fromTracks = tracks?.groups
+            ?.filter { it.mediaTrackGroup.type == C.TRACK_TYPE_AUDIO }
+            ?.flatMap { group ->
+                (0 until group.length).mapNotNull { index ->
+                    group.mediaTrackGroup.getFormat(index).sampleMimeType
+                }
+            }
+            ?.distinct()
+            .orEmpty()
+        if (fromTracks.isNotEmpty()) return fromTracks
+        val codec = _playerStats.value.audioCodec
+        return codec.takeUnless { it.isBlank() || it.equals("Unknown", ignoreCase = true) }
+            ?.let(::listOf)
+            .orEmpty()
+    }
+
+    private fun logFfmpegAvailability() {
+        val availability = ffmpegAvailability
+        Log.i(
+            TAG,
+            "ffmpeg-extension available=${availability.available} version=${availability.version ?: "unavailable"}"
+        )
+    }
+
+    private fun buildPlaybackSupportSnapshot(): String = buildString {
+        appendLine("StreamVault Playback Support Snapshot")
+        appendLine("requestedDecoderMode=$requestedDecoderMode")
+        appendLine("activeDecoderMode=$activeDecoderMode")
+        appendLine("activeDecoderPolicy=$activeDecoderPolicy")
+        appendLine("audioOutputPreference=$audioOutputPreference")
+        appendLine("compatibilityDecisionSource=$compatibilityDecisionSource")
+        appendLine("ffmpegAvailable=${ffmpegAvailability.available}")
+        appendLine("ffmpegVersion=${ffmpegAvailability.version ?: "unavailable"}")
+        appendLine("audioOutputPath=$audioOutputPath")
+        appendLine("videoDecoderName=$selectedVideoDecoderName")
+        appendLine("audioDecoderName=$selectedAudioDecoderName")
+        appendLine("videoCodec=${_playerStats.value.videoCodec}")
+        appendLine("audioCodec=${_playerStats.value.audioCodec}")
+        appendLine("streamType=$currentResolvedStreamType")
+        appendLine("target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}")
+        appendLine("lastError=${PlaybackLogSanitizer.sanitizeMessage(lastSupportErrorMessage)}")
+    }
+
+    private fun resolveStartupAudioOutputPath(): String = when {
+        audioOutputPreference == AudioOutputPreference.PREFER_PASSTHROUGH -> "PASSTHROUGH_PREFERRED"
+        audioOutputPreference == AudioOutputPreference.DISABLE_PASSTHROUGH -> "PASSTHROUGH_DISABLED"
+        activeDecoderMode == DecoderMode.SOFTWARE -> "SOFTWARE_PREFERRED"
+        else -> "AUTO"
+    }
+
+    private fun classifyAudioOutputPath(decoderName: String): String {
+        val normalized = decoderName.lowercase()
+        return when {
+            "ffmpeg" in normalized -> "FFMPEG_SOFTWARE"
+            activeDecoderMode == DecoderMode.SOFTWARE -> "PLATFORM_SOFTWARE"
+            else -> "PLATFORM_DECODER"
+        }
+    }
+
+    private fun buildPlaybackPreparationPlan(
+        streamInfo: StreamInfo,
+        preload: Boolean,
+        playbackStarted: () -> Boolean
+    ): PlaybackPreparationPlan {
+        val resolvedStreamType = StreamTypeResolver.resolve(streamInfo)
+        val timeoutProfile = PlayerTimeoutProfile.resolve(streamInfo, resolvedStreamType, preload = preload)
+        val retryContext = PlaybackRetryContext(resolvedStreamType, timeoutProfile)
+        return PlaybackPreparationPlan(
+            resolvedStreamType = resolvedStreamType,
+            timeoutProfile = timeoutProfile,
+            retryContext = retryContext,
+            retryPolicy = PlayerRetryPolicy(retryContext) { playbackStarted() }
+        )
+    }
+
+    private fun buildPlaybackRendererPlan(
+        requestedMode: DecoderMode,
+        decoderPolicy: ActiveDecoderPolicy,
+        useAudioVideoSyncSink: Boolean,
+        useVideoRendererWorkaround: Boolean
+    ): PlaybackRendererPlan {
+        val useManagedCodecSelector = requestedMode != DecoderMode.AUTO && decoderPolicy != ActiveDecoderPolicy.AUTO
+        val useEffectiveVideoRendererWorkaround = useVideoRendererWorkaround && requestedMode != DecoderMode.AUTO
+        val renderPath = buildList {
+            if (useAudioVideoSyncSink) add("av-sync-sink")
+            if (useEffectiveVideoRendererWorkaround) add("decoder-reuse-workaround")
+            if (useManagedCodecSelector) add("managed-codec-selector")
+        }.ifEmpty { listOf("stock-media3") }.joinToString("+")
+        return PlaybackRendererPlan(
+            useAudioVideoSyncSink = useAudioVideoSyncSink,
+            useVideoRendererWorkaround = useEffectiveVideoRendererWorkaround,
+            useManagedCodecSelector = useManagedCodecSelector,
+            renderPath = renderPath
+        )
+    }
+
+    private fun shouldAttemptFfmpegAudioFallback(request: FfmpegAudioFallbackRequest): Boolean {
+        if (request.requestedMode != DecoderMode.AUTO) return false
+        if (!request.extensionAvailable) return false
+        if (request.fallbackMode != DecoderMode.SOFTWARE) return false
+        return request.supportedMimeTypes.isNotEmpty()
     }
 
     private fun handlePlaybackSetupFailure(
@@ -1599,6 +1886,7 @@ class Media3PlayerEngine @Inject constructor(
 
         recreatePlayer()
         _retryStatus.value = null
+        lastSupportErrorMessage = error.message
         _error.tryEmit(PlayerError.fromException(error))
         _playbackState.value = PlaybackState.ERROR
     }
@@ -1614,6 +1902,7 @@ class Media3PlayerEngine @Inject constructor(
 
         if (streamInfo == null || mediaId == null || retryPolicy == null || retryContext == null) {
             _retryStatus.value = null
+            lastSupportErrorMessage = error.message
             _error.tryEmit(PlayerError.fromException(error))
             _playbackState.value = PlaybackState.ERROR
             return
@@ -1684,6 +1973,7 @@ class Media3PlayerEngine @Inject constructor(
             TAG,
             "fatal-error category=$category target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
         )
+        lastSupportErrorMessage = error.message
         _error.tryEmit(PlayerError.fromException(error))
         _playbackState.value = PlaybackState.ERROR
     }

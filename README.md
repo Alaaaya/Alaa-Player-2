@@ -101,6 +101,7 @@ Built for Android TV first, StreamVault focuses on the things generic IPTV apps 
 - App-managed default recording folder with optional custom storage selection
 - In-app playback for completed recordings with a visible on-player recording indicator during active capture
 - Playback troubleshooting controls for decoder mode, media session behavior, and timeout tuning
+- Bundled Media3 FFmpeg audio fallback for unsupported audio codecs such as AC-3, E-AC-3, DTS, MP2, and TrueHD, with diagnostics and expert compatibility controls
 
 ### Movies And Series
 
@@ -170,6 +171,7 @@ Requirements:
 - Android Studio
 - Android SDK
 - JDK 17 or another Gradle-supported JDK 17 runtime
+- Android NDK only if you want to rebuild the bundled Media3 FFmpeg extension locally
 
 Useful commands:
 

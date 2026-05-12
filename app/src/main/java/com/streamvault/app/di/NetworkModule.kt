@@ -16,8 +16,10 @@ import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.OkHttpXtreamApiService
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.data.parser.XmltvParser
+import com.streamvault.player.AudioCompatibilityMemoryStore
 import com.streamvault.player.Media3PlayerEngine
 import com.streamvault.player.PlayerEngine
+import com.streamvault.player.PlaybackSupportSnapshotStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -113,8 +115,16 @@ object NetworkModule {
     fun provideMainPlayerEngine(
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient,
-        playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository
-    ): PlayerEngine = Media3PlayerEngine(context, okHttpClient, playbackCompatibilityRepository)
+        playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
+        audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
+    ): PlayerEngine = Media3PlayerEngine(
+        context,
+        okHttpClient,
+        playbackCompatibilityRepository,
+        audioCompatibilityMemoryStore,
+        playbackSupportSnapshotStore
+    )
 
     /**
      * Factory binding for preview and multiview playback.
@@ -125,8 +135,16 @@ object NetworkModule {
     fun provideAuxiliaryPlayerEngine(
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient,
-        playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository
-    ): PlayerEngine = Media3PlayerEngine(context, okHttpClient, playbackCompatibilityRepository).apply {
+        playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
+        audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
+    ): PlayerEngine = Media3PlayerEngine(
+        context,
+        okHttpClient,
+        playbackCompatibilityRepository,
+        audioCompatibilityMemoryStore,
+        playbackSupportSnapshotStore
+    ).apply {
         enableMediaSession = false
         bypassAudioFocus = true
     }

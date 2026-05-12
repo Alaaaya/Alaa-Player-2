@@ -24,6 +24,7 @@ internal class SettingsScreenDialogState(
     private val showPlaybackSpeedDialogState: MutableState<Boolean>,
     private val showAudioVideoOffsetDialogState: MutableState<Boolean>,
     private val showDecoderModeDialogState: MutableState<Boolean>,
+    private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
     private val showSurfaceModeDialogState: MutableState<Boolean>,
     private val showTimeshiftDepthDialogState: MutableState<Boolean>,
     private val showDefaultStopTimerDialogState: MutableState<Boolean>,
@@ -76,6 +77,7 @@ internal class SettingsScreenDialogState(
     var showPlaybackSpeedDialog by showPlaybackSpeedDialogState
     var showAudioVideoOffsetDialog by showAudioVideoOffsetDialogState
     var showDecoderModeDialog by showDecoderModeDialogState
+    var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
     var showSurfaceModeDialog by showSurfaceModeDialogState
     var showTimeshiftDepthDialog by showTimeshiftDepthDialogState
     var showDefaultStopTimerDialog by showDefaultStopTimerDialogState
@@ -196,6 +198,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showPlaybackSpeedDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioVideoOffsetDialogState = rememberSaveable { mutableStateOf(false) }
     val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showTimeshiftDepthDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultStopTimerDialogState = rememberSaveable { mutableStateOf(false) }
@@ -257,6 +260,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showPlaybackSpeedDialogState = showPlaybackSpeedDialogState,
         showAudioVideoOffsetDialogState = showAudioVideoOffsetDialogState,
         showDecoderModeDialogState = showDecoderModeDialogState,
+        showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
         showSurfaceModeDialogState = showSurfaceModeDialogState,
         showTimeshiftDepthDialogState = showTimeshiftDepthDialogState,
         showDefaultStopTimerDialogState = showDefaultStopTimerDialogState,

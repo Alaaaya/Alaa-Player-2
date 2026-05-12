@@ -12,6 +12,8 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         preferredAudioLanguage = snapshot.preferredAudioLanguage,
         playerMediaSessionEnabled = snapshot.playerMediaSessionEnabled,
         playerDecoderMode = snapshot.playerDecoderMode,
+        playerAudioOutputPreference = snapshot.playerAudioOutputPreference,
+        playerCompatibilityMemoryEnabled = snapshot.playerCompatibilityMemoryEnabled,
         playerSurfaceMode = snapshot.playerSurfaceMode,
         playerPlaybackSpeed = snapshot.playerPlaybackSpeed,
         playerAudioVideoSyncEnabled = snapshot.playerAudioVideoSyncEnabled,

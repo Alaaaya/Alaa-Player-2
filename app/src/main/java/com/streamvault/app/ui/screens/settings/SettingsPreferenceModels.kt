@@ -6,6 +6,7 @@ import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
@@ -40,6 +41,8 @@ internal data class SettingsPreferenceSnapshot(
     val preferredAudioLanguage: String,
     val playerMediaSessionEnabled: Boolean,
     val playerDecoderMode: DecoderMode,
+    val playerAudioOutputPreference: AudioOutputPreference,
+    val playerCompatibilityMemoryEnabled: Boolean,
     val playerSurfaceMode: PlayerSurfaceMode,
     val playerPlaybackSpeed: Float,
     val playerAudioVideoSyncEnabled: Boolean,

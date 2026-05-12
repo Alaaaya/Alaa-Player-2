@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.streamvault.app.R
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 
@@ -22,6 +23,8 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowAudioVideoOffsetDialogChange: (Boolean) -> Unit,
     showDecoderModeDialog: Boolean,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showAudioOutputPreferenceDialog: Boolean,
+    onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     showSurfaceModeDialog: Boolean,
     onShowSurfaceModeDialogChange: (Boolean) -> Unit,
     showTimeshiftDepthDialog: Boolean,
@@ -112,6 +115,32 @@ internal fun SettingsPlayerPreferenceDialogs(
                     onSelect = {
                         viewModel.setPlayerDecoderMode(option.first)
                         onShowDecoderModeDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showAudioOutputPreferenceDialog) {
+        val outputOptions = remember(context) {
+            listOf(
+                AudioOutputPreference.AUTO to context.getString(R.string.settings_audio_output_auto),
+                AudioOutputPreference.PREFER_PASSTHROUGH to context.getString(R.string.settings_audio_output_prefer_passthrough),
+                AudioOutputPreference.DISABLE_PASSTHROUGH to context.getString(R.string.settings_audio_output_disable_passthrough)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_audio_output_mode),
+            onDismiss = { onShowAudioOutputPreferenceDialogChange(false) }
+        ) {
+            outputOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerAudioOutputPreference == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerAudioOutputPreference(option.first)
+                        onShowAudioOutputPreferenceDialogChange(false)
                     }
                 )
             }

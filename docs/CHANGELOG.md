@@ -2,6 +2,17 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.11] - 2026-05-12
+
+### Added
+
+- Added bundled Media3 FFmpeg audio decoder support for `AC-3`, `E-AC-3`, `DTS`, `MP2`, and `TrueHD` playback fallback.
+- Added automatic one-time software retry for streams with unsupported audio codecs when FFmpeg support is available.
+- Added audio decoder name to player diagnostics so FFmpeg-backed playback can be confirmed from the overlay.
+- Added FFmpeg artifact verification in the player build, plus bundled provenance and LGPL notice docs.
+- Added expert playback settings for audio output policy and persistent compatibility memory.
+- Added richer playback diagnostics for FFmpeg availability/version, audio path classification, and compatibility decision source.
+
 ## [1.0.10] - 2026-05-11
 
 ### Added

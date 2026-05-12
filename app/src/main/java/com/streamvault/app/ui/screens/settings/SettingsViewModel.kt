@@ -38,6 +38,7 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.CombinedM3uProfile
 import com.streamvault.domain.model.GroupedChannelLabelMode
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.ProviderStatus
@@ -66,6 +67,7 @@ import com.streamvault.domain.usecase.GetCustomCategories
 import com.streamvault.domain.usecase.SyncProvider
 import com.streamvault.domain.usecase.SyncProviderCommand
 import com.streamvault.domain.usecase.SyncProviderResult
+import com.streamvault.player.AudioCompatibilityMemoryStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -102,7 +104,8 @@ class SettingsViewModel @Inject constructor(
     private val epgSourceRepository: com.streamvault.domain.repository.EpgSourceRepository,
     private val gitHubReleaseChecker: GitHubReleaseChecker,
     private val appUpdateInstaller: AppUpdateInstaller,
-    private val getCustomCategories: GetCustomCategories
+    private val getCustomCategories: GetCustomCategories,
+    private val audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore
 ) : ViewModel() {
     private val appContext = application
     private val exportBackup = ExportBackup(backupManager)
@@ -660,6 +663,25 @@ class SettingsViewModel @Inject constructor(
     fun setPlayerDecoderMode(mode: DecoderMode) {
         viewModelScope.launch {
             preferencesRepository.setPlayerDecoderMode(mode)
+        }
+    }
+
+    fun setPlayerAudioOutputPreference(preference: AudioOutputPreference) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerAudioOutputPreference(preference)
+        }
+    }
+
+    fun setPlayerCompatibilityMemoryEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerCompatibilityMemoryEnabled(enabled)
+        }
+    }
+
+    fun clearLearnedPlaybackCompatibility() {
+        audioCompatibilityMemoryStore.clear()
+        _uiState.update {
+            it.copy(userMessage = appContext.getString(R.string.settings_ffmpeg_compatibility_cleared))
         }
     }
 

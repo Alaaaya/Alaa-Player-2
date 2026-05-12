@@ -17,6 +17,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.dao.SearchHistoryDao
 import com.streamvault.domain.model.GroupedChannelLabelMode
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
@@ -117,6 +118,8 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_MUTED = booleanPreferencesKey("player_muted")
         val PLAYER_MEDIA_SESSION_ENABLED = booleanPreferencesKey("player_media_session_enabled")
         val PLAYER_DECODER_MODE = stringPreferencesKey("player_decoder_mode")
+        val PLAYER_AUDIO_OUTPUT_PREFERENCE = stringPreferencesKey("player_audio_output_preference")
+        val PLAYER_COMPATIBILITY_MEMORY_ENABLED = booleanPreferencesKey("player_compatibility_memory_enabled")
         val PLAYER_SURFACE_MODE = stringPreferencesKey("player_surface_mode")
         val PLAYER_PLAYBACK_SPEED = stringPreferencesKey("player_playback_speed")
         val PLAYER_AUDIO_VIDEO_SYNC_ENABLED = booleanPreferencesKey("player_av_sync_enabled")
@@ -272,6 +275,16 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_SURFACE_MODE]
             ?.let { saved -> PlayerSurfaceMode.entries.firstOrNull { it.name == saved } }
             ?: PlayerSurfaceMode.AUTO
+    }
+
+    val playerAudioOutputPreference: Flow<AudioOutputPreference> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.PLAYER_AUDIO_OUTPUT_PREFERENCE]
+            ?.let { saved -> AudioOutputPreference.entries.firstOrNull { it.name == saved } }
+            ?: AudioOutputPreference.AUTO
+    }
+
+    val playerCompatibilityMemoryEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.PLAYER_COMPATIBILITY_MEMORY_ENABLED] ?: true
     }
 
     val playerPlaybackSpeed: Flow<Float> = context.dataStore.data.map { preferences ->
@@ -760,6 +773,18 @@ class PreferencesRepository @Inject constructor(
     suspend fun setPlayerDecoderMode(mode: DecoderMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.PLAYER_DECODER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setPlayerAudioOutputPreference(preference: AudioOutputPreference) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_AUDIO_OUTPUT_PREFERENCE] = preference.name
+        }
+    }
+
+    suspend fun setPlayerCompatibilityMemoryEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_COMPATIBILITY_MEMORY_ENABLED] = enabled
         }
     }
 

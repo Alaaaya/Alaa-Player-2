@@ -754,6 +754,26 @@ fun DiagnosticsOverlay(
             }
             PlayerOverlaySectionLabel(stringResource(R.string.player_diagnostics_section_audio))
             PlayerMetaRow(stringResource(R.string.player_diagnostics_audio_codec), stats.audioCodec)
+            PlayerMetaRow(
+                stringResource(R.string.player_diagnostics_audio_decoder),
+                diagnostics.activeAudioDecoderName
+            )
+            PlayerMetaRow(
+                stringResource(R.string.player_diagnostics_audio_output_path),
+                diagnostics.audioOutputPath
+            )
+            PlayerMetaRow(
+                stringResource(R.string.player_diagnostics_ffmpeg),
+                if (diagnostics.ffmpegAvailable) {
+                    diagnostics.ffmpegVersion?.let { "Available ($it)" } ?: "Available"
+                } else {
+                    "Unavailable"
+                }
+            )
+            PlayerMetaRow(
+                stringResource(R.string.player_diagnostics_compatibility_source),
+                diagnostics.compatibilityDecisionSource
+            )
             val avSyncPathLabel = when {
                 !diagnostics.audioVideoSyncEnabled -> stringResource(R.string.player_diagnostics_av_sync_stock)
                 diagnostics.audioVideoSyncSinkActive -> stringResource(R.string.player_diagnostics_av_sync_custom)
@@ -761,6 +781,13 @@ fun DiagnosticsOverlay(
             }
             PlayerMetaRow(stringResource(R.string.player_diagnostics_av_sync), avSyncPathLabel)
             PlayerMetaRow(stringResource(R.string.player_diagnostics_av_offset), formatOffsetLabel(diagnostics.audioVideoOffsetMs))
+            if (diagnostics.compatibilityDecisionSource != "DEFAULT") {
+                PlayerMetaRow(
+                    stringResource(R.string.player_diagnostics_compatibility_note),
+                    stringResource(R.string.player_diagnostics_compatibility_note_value),
+                    maxLines = 3
+                )
+            }
             PlayerOverlaySectionLabel(stringResource(R.string.player_diagnostics_section_recovery))
             diagnostics.lastFailureReason?.let { reason ->
                 PlayerMetaRow(stringResource(R.string.player_diagnostics_last_failure), reason, maxLines = 3)

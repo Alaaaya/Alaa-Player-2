@@ -85,6 +85,8 @@ class BackupManagerImpl @Inject constructor(
                 "liveTvQuickFilterVisibility" to (preferencesRepository.liveTvQuickFilterVisibility.first() ?: "always"),
                 "playerMediaSessionEnabled" to preferencesRepository.playerMediaSessionEnabled.first().toString(),
                 "playerDecoderMode" to preferencesRepository.playerDecoderMode.first().name,
+                "playerAudioOutputPreference" to preferencesRepository.playerAudioOutputPreference.first().name,
+                "playerCompatibilityMemoryEnabled" to preferencesRepository.playerCompatibilityMemoryEnabled.first().toString(),
                 "playerSurfaceMode" to preferencesRepository.playerSurfaceMode.first().name,
                 "playerPlaybackSpeed" to preferencesRepository.playerPlaybackSpeed.first().toString(),
                 "playerAudioVideoSyncEnabled" to preferencesRepository.playerAudioVideoSyncEnabled.first().toString(),
@@ -503,6 +505,15 @@ class BackupManagerImpl @Inject constructor(
                 preferencesRepository.setPlayerDecoderMode(decoderMode)
             }
         }
+        prefs["playerAudioOutputPreference"]?.takeIf { it.isNotBlank() }?.let { savedPreference ->
+            val preference = com.streamvault.domain.model.AudioOutputPreference.entries
+                .firstOrNull { entry -> entry.name == savedPreference }
+            if (preference != null) {
+                preferencesRepository.setPlayerAudioOutputPreference(preference)
+            }
+        }
+        prefs["playerCompatibilityMemoryEnabled"]?.toBooleanStrictOrNull()
+            ?.let { preferencesRepository.setPlayerCompatibilityMemoryEnabled(it) }
         prefs["playerSurfaceMode"]?.takeIf { it.isNotBlank() }?.let { savedMode ->
             val surfaceMode = com.streamvault.domain.model.PlayerSurfaceMode.entries
                 .firstOrNull { entry -> entry.name == savedMode }

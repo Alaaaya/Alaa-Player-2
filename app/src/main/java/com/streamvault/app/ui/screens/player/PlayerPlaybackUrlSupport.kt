@@ -11,7 +11,7 @@ internal fun resolveTimeshiftStreamInfo(
     streamInfoOverride: StreamInfo?,
     currentResolvedStreamInfo: StreamInfo?,
     currentResolvedPlaybackUrl: String,
-    currentStreamUrl: String,
+    currentStreamUrl: String?,
     playbackTitle: String,
     currentTitle: String
 ): StreamInfo? {
@@ -36,20 +36,22 @@ internal fun resolveTimeshiftStreamInfo(
 
 internal fun resolvePlaybackIdentityUrl(
     currentResolvedPlaybackUrl: String,
-    currentStreamUrl: String
-): String = currentResolvedPlaybackUrl.ifBlank { currentStreamUrl }
+    currentStreamUrl: String?
+): String = currentResolvedPlaybackUrl.safeTrimmedOrNull()
+    ?: currentStreamUrl.safeTrimmedOrNull()
+    ?: ""
 
 internal fun resolvePlaybackProbeCacheKey(
-    currentStreamUrl: String,
+    currentStreamUrl: String?,
     url: String
-): String = currentStreamUrl.takeIf { it.isNotBlank() } ?: url
+): String = currentStreamUrl.safeTrimmedOrNull() ?: url
 
 internal fun matchesActivePlaybackSession(
     requestVersion: Long,
     activeRequestVersion: Long,
     expectedLogicalUrl: String? = null,
     currentResolvedPlaybackUrl: String,
-    currentStreamUrl: String
+    currentStreamUrl: String?
 ): Boolean {
     if (requestVersion != activeRequestVersion) return false
     val expectedUrl = expectedLogicalUrl?.takeIf { it.isNotBlank() } ?: return true
@@ -57,5 +59,5 @@ internal fun matchesActivePlaybackSession(
         currentResolvedPlaybackUrl = currentResolvedPlaybackUrl,
         currentStreamUrl = currentStreamUrl
     )
-    return activeUrl.isBlank() || activeUrl == expectedUrl || currentStreamUrl == expectedUrl
+    return activeUrl.isBlank() || activeUrl == expectedUrl || currentStreamUrl.safeTrimmedOrNull() == expectedUrl
 }

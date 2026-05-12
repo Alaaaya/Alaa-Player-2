@@ -7,6 +7,7 @@ import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
@@ -39,6 +40,8 @@ internal fun observeSettingsPreferenceSnapshot(
             preferredAudioLanguage = "auto",
             playerMediaSessionEnabled = true,
             playerDecoderMode = DecoderMode.AUTO,
+            playerAudioOutputPreference = AudioOutputPreference.AUTO,
+            playerCompatibilityMemoryEnabled = true,
             playerSurfaceMode = com.streamvault.domain.model.PlayerSurfaceMode.AUTO,
             playerPlaybackSpeed = 1f,
             playerAudioVideoSyncEnabled = false,
@@ -102,6 +105,10 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerMediaSessionEnabled = mediaSessionEnabled)
     }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
         snapshot.copy(playerDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerAudioOutputPreference) { snapshot, audioOutputPreference ->
+        snapshot.copy(playerAudioOutputPreference = audioOutputPreference)
+    }.combine(preferencesRepository.playerCompatibilityMemoryEnabled) { snapshot, enabled ->
+        snapshot.copy(playerCompatibilityMemoryEnabled = enabled)
     }.combine(preferencesRepository.playerSurfaceMode) { snapshot, surfaceMode ->
         snapshot.copy(playerSurfaceMode = surfaceMode)
     }.combine(preferencesRepository.playerPlaybackSpeed) { snapshot, playerPlaybackSpeed ->

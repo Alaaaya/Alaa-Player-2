@@ -9,6 +9,7 @@ import com.streamvault.app.R
 import com.streamvault.app.ui.time.createDateTimeFormat
 import com.streamvault.app.util.OfficialBuildStatus
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AudioOutputPreference
 
 internal data class SettingsScreenLabels(
     val buildVerificationLabel: String,
@@ -18,6 +19,7 @@ internal data class SettingsScreenLabels(
     val playbackSpeedLabel: String,
     val audioVideoOffsetLabel: String,
     val decoderModeLabel: String,
+    val audioOutputPreferenceLabel: String,
     val surfaceModeLabel: String,
     val controlsTimeoutLabel: String,
     val liveOverlayTimeoutLabel: String,
@@ -65,6 +67,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val decoderModeLabel = remember(uiState.playerDecoderMode, context) {
         formatDecoderModeLabel(uiState.playerDecoderMode, context)
+    }
+    val audioOutputPreferenceLabel = remember(uiState.playerAudioOutputPreference, context) {
+        formatAudioOutputPreferenceLabel(uiState.playerAudioOutputPreference, context)
     }
     val surfaceModeLabel = remember(uiState.playerSurfaceMode, context) {
         formatSurfaceModeLabel(uiState.playerSurfaceMode, context)
@@ -147,6 +152,7 @@ internal fun rememberSettingsScreenLabels(
         playbackSpeedLabel = playbackSpeedLabel,
         audioVideoOffsetLabel = audioVideoOffsetLabel,
         decoderModeLabel = decoderModeLabel,
+        audioOutputPreferenceLabel = audioOutputPreferenceLabel,
         surfaceModeLabel = surfaceModeLabel,
         controlsTimeoutLabel = controlsTimeoutLabel,
         liveOverlayTimeoutLabel = liveOverlayTimeoutLabel,

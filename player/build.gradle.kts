@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -32,6 +34,55 @@ kover {
             add("debug")
         }
     }
+}
+
+val ffmpegAarFile = layout.projectDirectory.file("libs/media3-decoder-ffmpeg-1.9.2.aar").asFile
+val ffmpegManifestFile = layout.projectDirectory.file("libs/media3-decoder-ffmpeg-1.9.2.properties").asFile
+
+val verifyLocalFfmpegArtifact by tasks.registering {
+    group = "verification"
+    description = "Verifies the bundled Media3 FFmpeg artifact, metadata, and supported ABIs."
+
+    inputs.file(ffmpegAarFile)
+    inputs.file(ffmpegManifestFile)
+
+    doLast {
+        check(ffmpegAarFile.isFile) {
+            "Required FFmpeg artifact missing: ${ffmpegAarFile.absolutePath}"
+        }
+        check(ffmpegManifestFile.isFile) {
+            "Required FFmpeg manifest missing: ${ffmpegManifestFile.absolutePath}"
+        }
+
+        val manifest = Properties().apply {
+            ffmpegManifestFile.inputStream().use(::load)
+        }
+        check(manifest.getProperty("media3Version") == "1.9.2") {
+            "FFmpeg manifest media3Version must be 1.9.2"
+        }
+
+        val aarEntries = zipTree(ffmpegAarFile).files.map { it.invariantSeparatorsPath }
+        listOf("jni/arm64-v8a/", "jni/armeabi-v7a/").forEach { abiPrefix ->
+            check(aarEntries.any { it.contains(abiPrefix) && it.endsWith(".so") }) {
+                "FFmpeg artifact is missing native libraries under $abiPrefix"
+            }
+        }
+
+        val classesJar = zipTree(ffmpegAarFile).matching { include("classes.jar") }.singleFile
+        val classEntries = zipTree(classesJar).files.map { it.invariantSeparatorsPath }
+        listOf(
+            "androidx/media3/decoder/ffmpeg/FfmpegLibrary.class",
+            "androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.class"
+        ).forEach { requiredClass ->
+            check(classEntries.any { it.endsWith(requiredClass) }) {
+                "FFmpeg artifact is missing required class $requiredClass"
+            }
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(verifyLocalFfmpegArtifact)
 }
 
 dependencies {

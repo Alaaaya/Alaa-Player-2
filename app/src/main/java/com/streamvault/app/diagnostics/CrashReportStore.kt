@@ -26,6 +26,7 @@ object CrashReportStore {
     const val MIME_TYPE_TEXT = "text/plain"
     private const val CRASH_DIR = "diagnostics/crash"
     private const val LATEST_FILE_NAME = "latest-crash.txt"
+    private const val PLAYBACK_SUPPORT_FILE_NAME = "latest-playback-support.txt"
     private const val MAX_REPORT_CHARS = 64_000
     private val installed = AtomicBoolean(false)
     private val writingCrash = AtomicBoolean(false)
@@ -115,7 +116,20 @@ object CrashReportStore {
             appendLine(memorySnapshot())
             appendLine()
             appendLine("Files Dir Free MB: ${bytesToMb(context.filesDir.freeSpace)}")
+            latestPlaybackSupport(context)?.let { playbackSupport ->
+                appendLine()
+                appendLine("Latest Playback Support:")
+                appendLine(playbackSupport)
+            }
         }.take(MAX_REPORT_CHARS)
+    }
+
+    private fun latestPlaybackSupport(context: Context): String? {
+        val file = File(context.filesDir, "$CRASH_DIR/$PLAYBACK_SUPPORT_FILE_NAME")
+        if (!file.isFile || file.length() <= 0L) return null
+        return runCatching { file.readText(Charsets.UTF_8).take(MAX_REPORT_CHARS / 2) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::sanitize)
     }
 
     private fun Throwable.stackTraceString(): String {

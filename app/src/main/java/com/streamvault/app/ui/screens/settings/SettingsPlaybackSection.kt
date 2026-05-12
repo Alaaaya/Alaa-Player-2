@@ -29,6 +29,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     viewModel: SettingsViewModel,
     timeshiftDepthLabel: String,
     decoderModeLabel: String,
+    audioOutputPreferenceLabel: String,
     surfaceModeLabel: String,
     playbackSpeedLabel: String,
     defaultStopTimerLabel: String,
@@ -49,6 +50,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     speedTestRecommendationLabel: String,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     onShowSurfaceModeDialogChange: (Boolean) -> Unit,
     onShowPlaybackSpeedDialogChange: (Boolean) -> Unit,
     onShowDefaultStopTimerDialogChange: (Boolean) -> Unit,
@@ -200,6 +202,43 @@ internal fun LazyListScope.settingsPlaybackSection(
             label = stringResource(R.string.settings_decoder_mode),
             value = decoderModeLabel,
             onClick = { onShowDecoderModeDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_audio_output_mode),
+            value = audioOutputPreferenceLabel,
+            onClick = { onShowAudioOutputPreferenceDialogChange(true) }
+        )
+        TvClickableSurface(
+            onClick = {
+                viewModel.setPlayerCompatibilityMemoryEnabled(!uiState.playerCompatibilityMemoryEnabled)
+            },
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Primary.copy(alpha = 0.15f)
+            ),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = stringResource(R.string.settings_ffmpeg_compatibility_memory), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                    Text(text = stringResource(R.string.settings_ffmpeg_compatibility_memory_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                }
+                Switch(
+                    checked = uiState.playerCompatibilityMemoryEnabled,
+                    onCheckedChange = { viewModel.setPlayerCompatibilityMemoryEnabled(it) }
+                )
+            }
+        }
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_ffmpeg_compatibility_clear),
+            value = stringResource(R.string.settings_ffmpeg_compatibility_clear_value),
+            onClick = viewModel::clearLearnedPlaybackCompatibility
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_surface_mode),

@@ -624,6 +624,20 @@ class PlayerViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            preferencesRepository.playerAudioOutputPreference
+                .combine(activePlayerEngineFlow) { preference, engine -> engine to preference }
+                .collect { (engine, preference) ->
+                    engine.setAudioOutputPreference(preference)
+                }
+        }
+        viewModelScope.launch {
+            preferencesRepository.playerCompatibilityMemoryEnabled
+                .combine(activePlayerEngineFlow) { enabled, engine -> engine to enabled }
+                .collect { (engine, enabled) ->
+                    engine.setCompatibilityMemoryEnabled(enabled)
+                }
+        }
+        viewModelScope.launch {
             preferencesRepository.playerSurfaceMode
                 .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
                 .collect { (engine, mode) ->
@@ -638,6 +652,11 @@ class PlayerViewModel @Inject constructor(
                 _playerDiagnostics.update {
                     it.copy(
                         activeDecoderName = stats.videoDecoderName,
+                        activeAudioDecoderName = stats.audioDecoderName,
+                        ffmpegAvailable = stats.ffmpegAvailable,
+                        ffmpegVersion = stats.ffmpegVersion,
+                        audioOutputPath = stats.audioOutputPath,
+                        compatibilityDecisionSource = stats.compatibilityDecisionSource,
                         activeDecoderPolicy = stats.activeDecoderPolicy,
                         renderSurfaceType = stats.renderSurfaceType,
                         videoStallCount = stats.videoStallCount,
@@ -1057,6 +1076,13 @@ class PlayerViewModel @Inject constructor(
                         url = session.streamInfo.url
                     )
                 )
+                // Re-prime the adopted engine against the fullscreen surface path.
+                // Preview-to-fullscreen handoff can temporarily leave the reused live
+                // player with an audio-only pipeline until the new render view binds.
+                // Refreshing the current live media source makes the handoff more
+                // robust without re-resolving provider URLs or abandoning the adopted
+                // engine instance.
+                playerEngine.renewStreamUrl(session.streamInfo)
                 playerEngine.play()
                 startTokenRenewalMonitoring(session.streamInfo.expirationTime)
                 maybeStartLiveTimeshift(session.streamInfo)

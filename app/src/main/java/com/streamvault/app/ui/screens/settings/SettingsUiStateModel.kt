@@ -7,6 +7,7 @@ import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
@@ -55,6 +56,8 @@ data class SettingsUiState(
     val preferredAudioLanguage: String = "auto",
     val playerMediaSessionEnabled: Boolean = true,
     val playerDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val playerAudioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO,
+    val playerCompatibilityMemoryEnabled: Boolean = true,
     val playerSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO,
     val playerPlaybackSpeed: Float = 1f,
     val playerAudioVideoSyncEnabled: Boolean = false,
