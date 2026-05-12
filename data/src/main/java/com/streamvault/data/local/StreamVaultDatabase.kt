@@ -338,7 +338,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         stream_url TEXT NOT NULL,
                         container_extension TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -360,13 +360,13 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     """
                     INSERT INTO movies_new (
                         stream_id, name, poster_url, backdrop_url, category_id, category_name, stream_url,
-                        container_extension, plot, cast, director, genre, release_date, duration, duration_seconds,
+                        container_extension, plot, "cast", director, genre, release_date, duration, duration_seconds,
                         rating, year, tmdb_id, youtube_trailer, provider_id, watch_progress, last_watched_at,
                         is_adult, is_user_protected
                     )
                     SELECT
                         stream_id, name, poster_url, backdrop_url, category_id, category_name, stream_url,
-                        container_extension, plot, cast, director, genre, release_date, duration, duration_seconds,
+                        container_extension, plot, "cast", director, genre, release_date, duration, duration_seconds,
                         rating, year, tmdb_id, youtube_trailer, provider_id, watch_progress, last_watched_at,
                         is_adult, is_user_protected
                     FROM movies
@@ -419,7 +419,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id INTEGER,
                         category_name TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -437,12 +437,12 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL(
                     """
                     INSERT INTO series_new (
-                        series_id, name, poster_url, backdrop_url, category_id, category_name, plot, cast,
+                        series_id, name, poster_url, backdrop_url, category_id, category_name, plot, "cast",
                         director, genre, release_date, rating, tmdb_id, youtube_trailer, episode_run_time,
                         last_modified, provider_id, is_adult, is_user_protected
                     )
                     SELECT
-                        series_id, name, poster_url, backdrop_url, category_id, category_name, plot, cast,
+                        series_id, name, poster_url, backdrop_url, category_id, category_name, plot, "cast",
                         director, genre, release_date, rating, tmdb_id, youtube_trailer, episode_run_time,
                         last_modified, provider_id, is_adult, is_user_protected
                     FROM series
@@ -731,7 +731,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         stream_url TEXT NOT NULL DEFAULT '',
                         container_extension TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -767,7 +767,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id INTEGER,
                         category_name TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -1110,7 +1110,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         stream_url TEXT NOT NULL,
                         container_extension TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -1142,7 +1142,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id INTEGER,
                         category_name TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -2037,8 +2037,59 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                       )
                     """.trimIndent()
                 )
+
+                database.execSQL("DROP INDEX IF EXISTS index_favorites_provider_id_content_id_content_type_group_id")
+                database.execSQL("DROP TABLE IF EXISTS favorites_new")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS favorites_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        provider_id INTEGER NOT NULL,
+                        content_id INTEGER NOT NULL,
+                        content_type TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        group_id INTEGER,
+                        group_key INTEGER NOT NULL,
+                        added_at INTEGER NOT NULL,
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE,
+                        FOREIGN KEY(group_id) REFERENCES virtual_groups(id) ON DELETE SET NULL
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO favorites_new(
+                        id,
+                        provider_id,
+                        content_id,
+                        content_type,
+                        position,
+                        group_id,
+                        group_key,
+                        added_at
+                    )
+                    SELECT
+                        id,
+                        provider_id,
+                        content_id,
+                        content_type,
+                        position,
+                        group_id,
+                        group_key,
+                        added_at
+                    FROM favorites
+                    """.trimIndent()
+                )
+                database.execSQL("DROP TABLE favorites")
+                database.execSQL("ALTER TABLE favorites_new RENAME TO favorites")
                 database.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS index_favorites_provider_id_content_id_content_type_group_key ON favorites(provider_id, content_id, content_type, group_key)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_favorites_provider_id_content_type_group_id ON favorites(provider_id, content_type, group_id)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_favorites_group_id_position ON favorites(group_id, position)"
                 )
                 validateForeignKeys(database, "favorites")
             }
@@ -2064,7 +2115,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id INTEGER,
                         category_name TEXT,
                         plot TEXT,
-                        cast TEXT,
+                        "cast" TEXT,
                         director TEXT,
                         genre TEXT,
                         release_date TEXT,
@@ -2094,7 +2145,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id,
                         category_name,
                         plot,
-                        cast,
+                        "cast",
                         director,
                         genre,
                         release_date,
@@ -2118,7 +2169,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                         category_id,
                         category_name,
                         plot,
-                        cast,
+                        "cast",
                         director,
                         genre,
                         release_date,
@@ -2178,7 +2229,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     UPDATE movies
                     SET cache_state = 'SUMMARY_ONLY'
                     WHERE COALESCE(plot, '') = ''
-                      AND COALESCE(cast, '') = ''
+                      AND COALESCE("cast", '') = ''
                       AND COALESCE(director, '') = ''
                       AND COALESCE(genre, '') = ''
                       AND COALESCE(duration, '') = ''
@@ -2191,7 +2242,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     UPDATE series
                     SET cache_state = 'SUMMARY_ONLY'
                     WHERE COALESCE(plot, '') = ''
-                      AND COALESCE(cast, '') = ''
+                      AND COALESCE("cast", '') = ''
                       AND COALESCE(director, '') = ''
                       AND COALESCE(genre, '') = ''
                       AND COALESCE(episode_run_time, '') = ''

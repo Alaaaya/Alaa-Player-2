@@ -795,5 +795,6 @@ private fun buildDestinationItems(): List<DestinationItem> = listOf(
     DestinationItem(Routes.SERIES, R.string.nav_series, Icons.Default.Menu),
     DestinationItem(Routes.EPG, R.string.nav_epg, Icons.Default.Info),
     DestinationItem(Routes.SEARCH, R.string.search_title, Icons.Default.Search),
+    DestinationItem(Routes.PLUGINS, R.string.nav_plugins, Icons.Default.Settings),
     DestinationItem(Routes.SETTINGS, R.string.nav_settings, Icons.Default.Settings)
 )

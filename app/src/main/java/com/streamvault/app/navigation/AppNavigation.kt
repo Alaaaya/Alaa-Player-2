@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation.NavHostController
@@ -24,12 +25,15 @@ import com.streamvault.app.ui.screens.multiview.MultiViewScreen
 import com.streamvault.app.ui.screens.home.HomeScreen
 import com.streamvault.app.ui.screens.movies.MoviesScreen
 import com.streamvault.app.ui.screens.player.PlayerScreen
+import com.streamvault.app.ui.screens.plugins.PluginsScreen
 import com.streamvault.app.ui.screens.provider.ProviderSetupScreen
 import com.streamvault.app.ui.screens.series.SeriesScreen
 import com.streamvault.app.ui.screens.settings.SettingsScreen
 import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.MainActivity
 import java.io.Serializable
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 
 private const val PLAYER_REQUEST_KEY = "player_request"
@@ -67,6 +71,7 @@ object Routes {
     const val EPG_DESTINATION = "epg?categoryId={categoryId}&anchorTime={anchorTime}&favoritesOnly={favoritesOnly}"
     const val SETTINGS = "settings"
     const val SETTINGS_DESTINATION = "settings?backupUri={backupUri}"
+    const val PLUGINS = "plugins"
     const val PLAYER = "player"
     const val SEARCH = "search"
     const val SEARCH_DESTINATION = "search?query={query}"
@@ -212,6 +217,27 @@ private fun NavHostController.navigateIfResumed(route: String, builder: NavOptio
     return true
 }
 
+private suspend fun Lifecycle.awaitResumed() {
+    if (currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+    suspendCancellableCoroutine { continuation ->
+        lateinit var observer: LifecycleEventObserver
+        observer = LifecycleEventObserver { _, _ ->
+            when {
+                currentState.isAtLeast(Lifecycle.State.RESUMED) -> {
+                    removeObserver(observer)
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+                currentState == Lifecycle.State.DESTROYED -> {
+                    removeObserver(observer)
+                    continuation.cancel()
+                }
+            }
+        }
+        addObserver(observer)
+        continuation.invokeOnCancellation { removeObserver(observer) }
+    }
+}
+
 private fun NavHostController.navigateToPlayer(request: PlayerNavigationRequest): Boolean {
     if (currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return false
     currentBackStackEntry?.savedStateHandle?.set(PLAYER_REQUEST_KEY, request)
@@ -232,7 +258,9 @@ fun AppNavigation(mainActivity: MainActivity) {
     val currentBackStackEntry = navController.currentBackStackEntryAsState().value
     val externalNavigationRequest = mainActivity.externalNavigationRequestFlow.collectAsStateWithLifecycle().value
 
-    LaunchedEffect(externalNavigationRequest, currentBackStackEntry?.lifecycle?.currentState) {
+    LaunchedEffect(externalNavigationRequest, currentBackStackEntry) {
+        val entry = currentBackStackEntry ?: return@LaunchedEffect
+        entry.lifecycle.awaitResumed()
         when (val request = externalNavigationRequest) {
             is ExternalNavigationRequest.Player -> {
                 if (navController.navigateToExternalPlayer(request.request)) {
@@ -539,6 +567,13 @@ fun AppNavigation(mainActivity: MainActivity) {
                 },
                 currentRoute = Routes.SETTINGS,
                 initialBackupImportUri = backupUri
+            )
+        }
+
+        composable(Routes.PLUGINS) {
+            PluginsScreen(
+                currentRoute = Routes.PLUGINS,
+                onNavigate = { route -> tabNavigate(route) }
             )
         }
 

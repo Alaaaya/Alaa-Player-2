@@ -11,6 +11,7 @@ import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +21,8 @@ import javax.inject.Singleton
 
 @Singleton
 class CastManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val pluginManager: StreamVaultPluginManager
 ) {
 
     private val _connectionState = MutableStateFlow(CastConnectionState.UNAVAILABLE)
@@ -94,17 +96,19 @@ class CastManager @Inject constructor(
         )
         .build()
 
-    fun startCasting(request: CastMediaRequest): CastStartResult {
+    suspend fun startCasting(request: CastMediaRequest): CastStartResult {
         ensureInitialized()
         val resolvedContext = castContext ?: return CastStartResult.UNAVAILABLE
         if (!isRequestSupported(request)) {
             return CastStartResult.UNSUPPORTED
         }
+        val rewrittenUrl = pluginManager.rewriteCastUrl(request.url) ?: return CastStartResult.UNSUPPORTED
+        val resolvedRequest = request.copy(url = rewrittenUrl)
 
-        pendingRequest = request
+        pendingRequest = resolvedRequest
         val activeSession = resolvedContext.sessionManager.currentCastSession
         return if (activeSession?.isConnected == true) {
-            loadMedia(activeSession, request)
+            loadMedia(activeSession, resolvedRequest)
             pendingRequest = null
             CastStartResult.STARTED
         } else {
