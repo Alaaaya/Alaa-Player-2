@@ -953,6 +953,18 @@ class SyncManager @Inject constructor(
         )
         scheduleXtreamIndexSync(provider.id, ContentType.LIVE)
 
+        // Transition VOD : signale a l'UI qu'on passe a la section Movies. Le total
+        // reel des categories VOD n'est connu qu'a l'interieur de `syncXtreamCategoryShell`,
+        // donc on emet en indetermine (total = 0). `itemsIndexed` cumule le LIVE deja importe.
+        syncProgressBus.emit(
+            com.streamvault.domain.sync.SyncProgress(
+                section = com.streamvault.domain.sync.Section.VOD,
+                current = 0,
+                total = 0,
+                currentLabel = "",
+                itemsIndexed = liveCount
+            )
+        )
         val movieCategoryCount = syncXtreamCategoryShell(
             provider = provider,
             api = api,
@@ -975,6 +987,18 @@ class SyncManager @Inject constructor(
         if (movieCategoryCount > 0) {
             scheduleXtreamIndexSync(provider.id, ContentType.MOVIE)
         }
+        // Transition SERIES : meme principe que VOD ci-dessus. `itemsIndexed` reste a
+        // `liveCount` car VOD ne stage pas d'items dans la base au moment du shell
+        // (le contenu detaille est rempli ulterieurement par XtreamIndexWorker).
+        syncProgressBus.emit(
+            com.streamvault.domain.sync.SyncProgress(
+                section = com.streamvault.domain.sync.Section.SERIES,
+                current = 0,
+                total = 0,
+                currentLabel = "",
+                itemsIndexed = liveCount
+            )
+        )
         val seriesCategoryCount = syncXtreamCategoryShell(
             provider = provider,
             api = api,
