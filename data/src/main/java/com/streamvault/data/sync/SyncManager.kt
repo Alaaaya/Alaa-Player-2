@@ -2930,6 +2930,18 @@ class SyncManager @Inject constructor(
         trackInitialLiveOnboarding: Boolean = false,
         syncReason: XtreamLiveSyncReason = XtreamLiveSyncReason.FOREGROUND
     ): CatalogSyncPayload<Channel> {
+        // Emission d'entree LIVE : signale tot a l'UI que la section LIVE demarre,
+        // avant meme la requete `get_live_categories`. `total = 0` = indetermine ;
+        // la premiere fin de fenetre (T5) viendra raffiner avec le vrai denominateur.
+        syncProgressBus.emit(
+            com.streamvault.domain.sync.SyncProgress(
+                section = com.streamvault.domain.sync.Section.LIVE,
+                current = 0,
+                total = 0,
+                currentLabel = "",
+                itemsIndexed = 0
+            )
+        )
         val effectiveLiveSyncMethod = XtreamLiveSyncPolicy.resolve(
             userMode = provider.xtreamLiveSyncMode,
             runtimeProfile = runtimeProfile,
