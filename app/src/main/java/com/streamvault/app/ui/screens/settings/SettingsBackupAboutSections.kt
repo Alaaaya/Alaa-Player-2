@@ -25,6 +25,7 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.Secondary
+import com.streamvault.domain.manager.DriveAuthState
 
 internal fun LazyListScope.settingsBackupSection(
     onCreateBackup: () -> Unit,
@@ -65,6 +66,72 @@ internal fun LazyListScope.settingsBackupSection(
                 onClick = onRestoreBackup,
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+    }
+}
+
+internal fun LazyListScope.settingsDriveBackupSection(
+    uiState: SettingsUiState,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    onPush: () -> Unit,
+    onPull: () -> Unit
+) {
+    item(key = "settings_drive_section") {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            SettingsSectionHeader(
+                title = stringResource(R.string.settings_drive_section_title),
+                subtitle = stringResource(R.string.settings_drive_section_subtitle)
+            )
+            when (val auth = uiState.driveAuthState) {
+                is DriveAuthState.SignedOut, is DriveAuthState.Pending -> {
+                    BackupActionCard(
+                        icon = "☁",
+                        title = stringResource(R.string.settings_drive_signin),
+                        subtitle = stringResource(R.string.settings_drive_signin_description),
+                        accent = Primary,
+                        onClick = onSignIn,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                is DriveAuthState.SignedIn -> {
+                    val accountLabel = auth.account.email
+                        ?: auth.account.displayName
+                        ?: stringResource(R.string.settings_drive_signin)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        BackupActionCard(
+                            icon = "↑",
+                            title = stringResource(R.string.settings_drive_push),
+                            subtitle = stringResource(R.string.settings_drive_push_subtitle),
+                            accent = Primary,
+                            onClick = onPush,
+                            modifier = Modifier.weight(1f)
+                        )
+                        BackupActionCard(
+                            icon = "↓",
+                            title = stringResource(R.string.settings_drive_pull),
+                            subtitle = stringResource(R.string.settings_drive_pull_subtitle),
+                            accent = Secondary,
+                            onClick = onPull,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    BackupActionCard(
+                        icon = "✕",
+                        title = stringResource(R.string.settings_drive_signout),
+                        subtitle = accountLabel,
+                        accent = OnSurfaceDim,
+                        onClick = onSignOut,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
     }
 }
