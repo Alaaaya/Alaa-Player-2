@@ -36,15 +36,14 @@ internal fun buildPlaybackRendererPlan(
     useVideoRendererWorkaround: Boolean
 ): PlaybackRendererPlan {
     val useManagedCodecSelector = shouldUseManagedCodecSelector(requestedMode, decoderPolicy)
-    val useEffectiveVideoRendererWorkaround = useVideoRendererWorkaround && requestedMode != DecoderMode.AUTO
     val renderPath = buildList {
         if (useAudioVideoSyncSink) add("av-sync-sink")
-        if (useEffectiveVideoRendererWorkaround) add("decoder-reuse-workaround")
+        if (useVideoRendererWorkaround) add("decoder-reuse-workaround")
         if (useManagedCodecSelector) add("managed-codec-selector")
     }.ifEmpty { listOf("stock-media3") }.joinToString("+")
     return PlaybackRendererPlan(
         useAudioVideoSyncSink = useAudioVideoSyncSink,
-        useVideoRendererWorkaround = useEffectiveVideoRendererWorkaround,
+        useVideoRendererWorkaround = useVideoRendererWorkaround,
         useManagedCodecSelector = useManagedCodecSelector,
         renderPath = renderPath
     )
