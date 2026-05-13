@@ -70,6 +70,7 @@ fun PremiumDialog(
     modifier: Modifier = Modifier,
     widthFraction: Float = 0.42f,
     heightFraction: Float? = 0.88f,
+    bodyHeightFraction: Float = 0.5f,
     content: @Composable ColumnScope.() -> Unit,
     footer: @Composable RowScope.() -> Unit = {}
 ) {
@@ -91,7 +92,7 @@ fun PremiumDialog(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    val maxDialogBodyHeight = maxHeight * 0.5f
+                    val maxDialogBodyHeight = maxHeight * bodyHeightFraction
                     val dialogModifier = modifier
                         .fillMaxWidth(widthFraction)
                         .then(
@@ -159,7 +160,7 @@ fun PremiumDialog(
                         maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
                         else -> widthFraction
                     }
-                    val maxDialogBodyHeight = maxHeight * 0.5f
+                    val maxDialogBodyHeight = maxHeight * bodyHeightFraction
                     val dialogModifier = modifier
                         .fillMaxWidth(resolvedWidthFraction)
                         .then(

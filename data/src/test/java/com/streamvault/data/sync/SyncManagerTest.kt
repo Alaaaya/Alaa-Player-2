@@ -331,7 +331,8 @@ class SyncManagerTest {
         credentialCrypto = credentialCrypto,
         syncMetadataRepository = syncMetadataRepo,
         transactionRunner = transactionRunner,
-        preferencesRepository = preferencesRepo
+        preferencesRepository = preferencesRepo,
+        syncProgressBus = SyncProgressBus()
     )
 
     // ── Initial state ───────────────────────────────────────────────

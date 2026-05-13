@@ -21,6 +21,7 @@ import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncError
 import com.streamvault.domain.manager.DriveSyncStatus
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -174,7 +175,7 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         }
 
         val uploadOk = try {
-            uploadAppDataFile(token, tempFile)
+            uploadAppDataFile(token, tempFile, BACKUP_FILE_NAME)
         } catch (io: IOException) {
             return@withContext Result.Error(DriveSyncError.NETWORK, io)
         } finally {
@@ -205,7 +206,7 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         Log.d("DriveSync", "pullBackup: token OK, looking up remote backup id")
 
         val fileId = try {
-            findRemoteBackupId(token)
+            findRemoteFileId(token, BACKUP_FILE_NAME)
         } catch (io: IOException) {
             Log.e("DriveSync", "pullBackup: NETWORK error while finding remote id", io)
             return@withContext Result.Error(DriveSyncError.NETWORK, io)
@@ -242,6 +243,91 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         )
     }
 
+    override suspend fun pushCredentials(
+        credentials: List<ProviderCredentials>,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        Log.d("DriveSync", "pushCredentials: start (count=${credentials.size})")
+        val account = requireSignedInAccount() ?: return@withContext Result.Error(DriveSyncError.NOT_SIGNED_IN)
+        val token = fetchAccessToken(account) ?: return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
+
+        val json = JSONArray().apply {
+            credentials.forEach { cred ->
+                put(
+                    JSONObject().apply {
+                        put("serverUrl", cred.serverUrl)
+                        put("username", cred.username)
+                        put("password", cred.password)
+                    },
+                )
+            }
+        }.toString()
+
+        val tempFile = File(context.cacheDir, TEMP_CREDENTIALS_FILE_NAME).apply { delete() }
+        tempFile.writeText(json)
+
+        val uploadOk = try {
+            uploadAppDataFile(token, tempFile, CREDENTIALS_FILE_NAME)
+        } catch (io: IOException) {
+            return@withContext Result.Error(DriveSyncError.NETWORK, io)
+        } finally {
+            tempFile.delete()
+        }
+        if (!uploadOk) {
+            Log.w("DriveSync", "pushCredentials: upload failed")
+            return@withContext Result.Error(DriveSyncError.NETWORK)
+        }
+        Log.d("DriveSync", "pushCredentials: SUCCESS")
+        Result.Success(Unit)
+    }
+
+    override suspend fun pullCredentials(): Result<List<ProviderCredentials>> = withContext(Dispatchers.IO) {
+        Log.d("DriveSync", "pullCredentials: start")
+        val account = requireSignedInAccount() ?: return@withContext Result.Error(DriveSyncError.NOT_SIGNED_IN)
+        val token = fetchAccessToken(account) ?: return@withContext Result.Error(DriveSyncError.AUTH_FAILED)
+
+        val fileId = try {
+            findRemoteFileId(token, CREDENTIALS_FILE_NAME)
+        } catch (io: IOException) {
+            return@withContext Result.Error(DriveSyncError.NETWORK, io)
+        }
+        if (fileId == null) {
+            Log.d("DriveSync", "pullCredentials: no remote credentials file (pre-M3 backup), returning empty list")
+            return@withContext Result.Success(emptyList())
+        }
+
+        val target = File(context.cacheDir, TEMP_CREDENTIALS_FILE_NAME).apply { delete() }
+        val downloadOk = try {
+            downloadAppDataFile(token, fileId, target)
+        } catch (io: IOException) {
+            target.delete()
+            return@withContext Result.Error(DriveSyncError.NETWORK, io)
+        }
+        if (!downloadOk || !target.exists() || target.length() == 0L) {
+            target.delete()
+            return@withContext Result.Error(DriveSyncError.NETWORK)
+        }
+
+        val parsed = try {
+            val array = JSONArray(target.readText())
+            (0 until array.length()).map { idx ->
+                val obj = array.getJSONObject(idx)
+                ProviderCredentials(
+                    serverUrl = obj.getString("serverUrl"),
+                    username = obj.getString("username"),
+                    password = obj.getString("password"),
+                )
+            }
+        } catch (t: Throwable) {
+            Log.e("DriveSync", "pullCredentials: JSON parse error", t)
+            target.delete()
+            return@withContext Result.Error(DriveSyncError.IMPORT_FAILED, t)
+        } finally {
+            target.delete()
+        }
+        Log.d("DriveSync", "pullCredentials: SUCCESS (count=${parsed.size})")
+        Result.Success(parsed)
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private fun buildClient(): GoogleSignInClient {
@@ -272,10 +358,10 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         null
     }
 
-    private fun findRemoteBackupId(authToken: String): String? {
+    private fun findRemoteFileId(authToken: String, fileName: String): String? {
         val url = "https://www.googleapis.com/drive/v3/files" +
             "?spaces=appDataFolder" +
-            "&q=" + uriEncode("name='$BACKUP_FILE_NAME'") +
+            "&q=" + uriEncode("name='$fileName'") +
             "&fields=files(id,modifiedTime,size)"
         val request = Request.Builder()
             .url(url)
@@ -291,8 +377,8 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         }
     }
 
-    private fun uploadAppDataFile(authToken: String, payload: File): Boolean {
-        val existingId = findRemoteBackupId(authToken)
+    private fun uploadAppDataFile(authToken: String, payload: File, fileName: String): Boolean {
+        val existingId = findRemoteFileId(authToken, fileName)
         val boundary = "streamvault-${System.nanoTime()}"
         val (httpMethod, endpoint) = if (existingId != null) {
             "PATCH" to "https://www.googleapis.com/upload/drive/v3/files/$existingId?uploadType=multipart"
@@ -301,7 +387,7 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         }
 
         val metadata = JSONObject().apply {
-            put("name", BACKUP_FILE_NAME)
+            put("name", fileName)
             if (existingId == null) {
                 put("parents", JSONArray().put("appDataFolder"))
             }
@@ -345,6 +431,8 @@ class GoogleDriveBackupSyncManager @Inject constructor(
         const val SCOPE_APP_DATA = "https://www.googleapis.com/auth/drive.appdata"
         const val BACKUP_FILE_NAME = "streamvault_backup.json"
         const val TEMP_BACKUP_FILE_NAME = "drive_sync_backup.json"
+        const val CREDENTIALS_FILE_NAME = "streamvault_credentials.json"
+        const val TEMP_CREDENTIALS_FILE_NAME = "drive_sync_credentials.json"
     }
 }
 

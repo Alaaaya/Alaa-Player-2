@@ -133,6 +133,7 @@ class SettingsViewModel @Inject constructor(
     private val driveBackupActions = SettingsDriveBackupActions(
         driveManager = driveBackupSyncManager,
         importBackup = importBackup,
+        providerRepository = providerRepository,
         uiState = _uiState
     )
     private val recordingActions = SettingsRecordingActions(
@@ -943,7 +944,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun confirmBackupImport() {
-        backupActions.confirmBackupImport(viewModelScope)
+        backupActions.confirmBackupImport(viewModelScope) {
+            driveBackupActions.applyPendingCredentials(viewModelScope)
+        }
     }
 
     fun beginDriveSignIn(launcher: ActivityResultLauncher<Intent>) {

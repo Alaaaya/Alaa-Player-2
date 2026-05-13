@@ -1,5 +1,6 @@
 package com.streamvault.domain.repository
 
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -19,6 +20,26 @@ interface ProviderRepository {
     suspend fun addProvider(provider: Provider): Result<Long>
     suspend fun updateProvider(provider: Provider): Result<Unit>
     suspend fun deleteProvider(id: Long): Result<Unit>
+
+    /**
+     * Returns cleartext credentials for all providers that have both a
+     * username and a password. Used by the Drive credentials sync path
+     * (M3). Decryption happens inside the `:data` layer — the cleartext
+     * payload is only ever exposed via this single typed method.
+     */
+    suspend fun getAllProviderCredentials(): List<ProviderCredentials>
+
+    /**
+     * Applies a cleartext password to the provider matched by
+     * `(serverUrl, username)`. Encryption happens inside the `:data`
+     * layer. Returns true if a matching provider was found and updated.
+     */
+    suspend fun updateProviderPassword(
+        serverUrl: String,
+        username: String,
+        cleartextPassword: String,
+    ): Boolean
+
     suspend fun setActiveProvider(id: Long): Result<Unit>
     suspend fun loginXtream(serverUrl: String, username: String, password: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", xtreamFastSyncEnabled: Boolean, epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
     suspend fun validateM3u(url: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, m3uVodClassificationEnabled: Boolean = false, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>

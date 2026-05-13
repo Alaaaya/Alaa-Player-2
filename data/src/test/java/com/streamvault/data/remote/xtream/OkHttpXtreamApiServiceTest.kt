@@ -1,11 +1,17 @@
 package com.streamvault.data.remote.xtream
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.remote.NetworkTimeoutConfig
 import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
+import java.io.IOException
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -127,6 +133,63 @@ class OkHttpXtreamApiServiceTest {
 
         assertThat(count).isEqualTo(2)
         assertThat(seen).containsExactly(101L to "Live One", 102L to "Live Two").inOrder()
+    }
+
+    @Test
+    fun `streamLiveStreamRows cancels the underlying call when coroutine times out`() = runTest {
+        val cancellationObserved = CompletableDeferred<Unit>()
+        val service = OkHttpXtreamApiService(
+            client = OkHttpClient.Builder()
+                .addInterceptor(Interceptor { chain ->
+                    while (!chain.call().isCanceled()) {
+                        Thread.sleep(10)
+                    }
+                    cancellationObserved.complete(Unit)
+                    throw IOException("Canceled")
+                })
+                .build(),
+            json = json
+        )
+
+        val failure = runCatching {
+            withTimeout(100) {
+                service.streamLiveStreamRows(
+                    "https://example.test/player_api.php?action=get_live_streams&category_id=7"
+                ) { }
+            }
+        }.exceptionOrNull()
+
+        assertThat(failure).isNotNull()
+        withTimeout(500) {
+            cancellationObserved.await()
+        }
+    }
+
+    @Test
+    fun `segmented live requests use segmented timeout profile`() = runTest {
+        val seenReadTimeoutMs = AtomicInteger(-1)
+        val service = OkHttpXtreamApiService(
+            client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    seenReadTimeoutMs.set(chain.readTimeoutMillis())
+                    Response.Builder()
+                        .request(Request.Builder().url(chain.request().url).build())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("test")
+                        .body("[]".toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = json
+        )
+
+        service.streamLiveStreamRows(
+            "https://example.test/player_api.php?action=get_live_streams&category_id=7"
+        ) { }
+
+        assertThat(seenReadTimeoutMs.get())
+            .isEqualTo((NetworkTimeoutConfig.XTREAM_SEGMENTED_READ_TIMEOUT_SECONDS * 1_000L).toInt())
     }
 
     @Test

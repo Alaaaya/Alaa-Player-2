@@ -486,11 +486,15 @@ class HomeViewModel @Inject constructor(
                         addAll(unpinnedProviderCategories)
                     }
 
+                    val hiddenLiveCategoriesList = providerCats
+                        .filter { it.id != ChannelRepository.ALL_CHANNELS_ID && it.id in hiddenCategoryIds }
+                        .sortedBy { it.name }
                     CategorySelectionContext(
                         categories = orderedCategories,
                         defaultCategoryId = defaultId,
                         lastVisitedCategoryId = lastVisitedCategoryId,
-                        pinnedCategoryIds = pinnedCategoryIds
+                        pinnedCategoryIds = pinnedCategoryIds,
+                        hiddenLiveCategories = hiddenLiveCategoriesList
                     )
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
@@ -508,7 +512,8 @@ class HomeViewModel @Inject constructor(
                             categories = categories,
                             lastVisitedCategory = lastVisitedCategory,
                             isCategoriesLoading = false,
-                            pinnedCategoryIds = selectionContext.pinnedCategoryIds
+                            pinnedCategoryIds = selectionContext.pinnedCategoryIds,
+                            hiddenLiveCategories = selectionContext.hiddenLiveCategories
                         )
                     }
 
@@ -595,7 +600,8 @@ class HomeViewModel @Inject constructor(
                         },
                         defaultCategoryId = null,
                         lastVisitedCategoryId = null,
-                        pinnedCategoryIds = emptySet()
+                        pinnedCategoryIds = emptySet(),
+                        hiddenLiveCategories = emptyList()
                     )
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
@@ -1473,6 +1479,14 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(showDialog = false, selectedChannelForDialog = null) }
     }
 
+    fun onShowHiddenChannelsDialog() {
+        _uiState.update { it.copy(showHiddenChannelsDialog = true) }
+    }
+
+    fun onDismissHiddenChannelsDialog() {
+        _uiState.update { it.copy(showHiddenChannelsDialog = false) }
+    }
+
     suspend fun verifyPin(pin: String): Boolean {
         return preferencesRepository.verifyParentalPin(pin)
     }
@@ -1548,6 +1562,75 @@ class HomeViewModel @Inject constructor(
                 dismissCategoryOptions()
             }
             _uiState.update { it.copy(userMessage = "Hidden category '${category.name}'") }
+        }
+    }
+
+    fun unhideCategory(category: Category) {
+        if (_uiState.value.isCombinedLiveSource) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setCategoryHidden(
+                providerId = providerId,
+                type = ContentType.LIVE,
+                categoryId = category.id,
+                hidden = false
+            )
+        }
+    }
+
+    fun unhideAllLiveCategories() {
+        if (_uiState.value.isCombinedLiveSource) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setHiddenCategoryIds(
+                providerId = providerId,
+                type = ContentType.LIVE,
+                categoryIds = emptySet()
+            )
+        }
+    }
+
+    /**
+     * Surfaces the list of currently-hidden Live channels for the active provider,
+     * sorted by name. Mirrors the M5 `hiddenLiveCategories` pattern but uses
+     * `getChannelsByIds` to resolve channel metadata (name) from the hidden id
+     * set, since HomeViewModel does not retain an "all channels" snapshot in
+     * memory.
+     */
+    val hiddenChannelsLiveTv: StateFlow<List<Channel>> =
+        _uiState
+            .map { it.provider?.id }
+            .distinctUntilChanged()
+            .flatMapLatest { providerId ->
+                if (providerId == null) flowOf(emptyList())
+                else preferencesRepository.getHiddenChannelIds(providerId)
+                    .flatMapLatest { hiddenIds ->
+                        if (hiddenIds.isEmpty()) flowOf(emptyList())
+                        else channelRepository.getChannelsByIds(hiddenIds.toList())
+                    }
+                    .map { channels -> channels.sortedBy { it.name } }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+
+    fun hideChannel(channel: Channel) {
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setChannelHidden(providerId, channel.id, true)
+            onDismissDialog()
+        }
+    }
+
+    fun unhideChannel(channel: Channel) {
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setChannelHidden(providerId, channel.id, false)
+        }
+    }
+
+    fun unhideAllChannels() {
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setHiddenChannelIds(providerId, emptySet())
         }
     }
 
@@ -1804,6 +1887,7 @@ data class HomeUiState(
     val showDialog: Boolean = false,
     val selectedChannelForDialog: Channel? = null,
     val dialogGroupMemberships: List<Long> = emptyList(),
+    val showHiddenChannelsDialog: Boolean = false,
     val userMessage: String? = null,
     val showRenameGroupDialog: Boolean = false,
     val groupToRename: Category? = null,
@@ -1813,6 +1897,7 @@ data class HomeUiState(
     val parentalControlLevel: Int = 0,
     val unlockedCategoryIds: Set<Long> = emptySet(),
     val pinnedCategoryIds: Set<Long> = emptySet(),
+    val hiddenLiveCategories: List<Category> = emptyList(),
     val selectedCategoryForOptions: Category? = null,
     val isChannelReorderMode: Boolean = false,
     val reorderCategory: Category? = null,
@@ -1830,5 +1915,6 @@ private data class CategorySelectionContext(
     val categories: List<Category>,
     val defaultCategoryId: Long?,
     val lastVisitedCategoryId: Long?,
-    val pinnedCategoryIds: Set<Long>
+    val pinnedCategoryIds: Set<Long>,
+    val hiddenLiveCategories: List<Category>
 )

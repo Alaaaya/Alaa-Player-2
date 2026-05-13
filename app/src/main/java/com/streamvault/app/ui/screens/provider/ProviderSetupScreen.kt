@@ -66,6 +66,7 @@ import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 import com.streamvault.app.ui.components.extractProgressFraction
+import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.screens.settings.BackupImportPreviewDialog
 import com.streamvault.app.ui.theme.*
@@ -1743,14 +1744,14 @@ private fun ProviderActionButton(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isFocused) 1.03f else 1f, tween(150), label = "scale")
 
-    Surface(
-        onClick = { if (!isLoading) onClick() },
+    TvClickableSurface(
+        onClick = onClick,
+        enabled = !isLoading,
         modifier = Modifier
             .fillMaxWidth()
             .height(height)
             .scale(scale)
-            .onFocusEvent { isFocused = it.hasFocus }
-            .mouseClickable(enabled = !isLoading, onClick = onClick),
+            .onFocusEvent { isFocused = it.hasFocus },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (!isLoading) Primary else SurfaceHighlight,

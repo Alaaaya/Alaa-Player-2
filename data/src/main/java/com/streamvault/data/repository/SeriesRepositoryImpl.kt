@@ -424,7 +424,8 @@ class SeriesRepositoryImpl @Inject constructor(
                     it.episodeId.takeIf { remoteId -> remoteId > 0 } ?: it.id
                 }
 
-                val mergedSeasons = if (remoteSeries.seasons.isNotEmpty()) {
+                val remoteSeasonMetadataByNumber = remoteSeries.seasons.associateBy { it.seasonNumber }
+                val mergedSeasons = if (remoteSeries.seasons.any { it.episodes.isNotEmpty() }) {
                     remoteSeries.seasons
                         .sortedBy { it.seasonNumber }
                         .map { remoteSeason ->
@@ -450,6 +451,23 @@ class SeriesRepositoryImpl @Inject constructor(
                                 episodeCount = mergedEpisodes.size
                             )
                         }
+                } else if (persistedEpisodes.isNotEmpty()) {
+                    persistedEpisodes.groupBy { it.seasonNumber }
+                        .entries
+                        .sortedBy { it.key }
+                        .map { (seasonNumber, episodes) ->
+                            val seasonMetadata = remoteSeasonMetadataByNumber[seasonNumber]
+                            Season(
+                                seasonNumber = seasonNumber,
+                                name = seasonMetadata?.name?.takeIf { it.isNotBlank() } ?: "Season $seasonNumber",
+                                coverUrl = seasonMetadata?.coverUrl,
+                                airDate = seasonMetadata?.airDate,
+                                episodes = episodes,
+                                episodeCount = seasonMetadata?.episodeCount?.takeIf { it > 0 } ?: episodes.size
+                            )
+                        }
+                } else if (remoteSeries.seasons.isNotEmpty()) {
+                    remoteSeries.seasons.sortedBy { it.seasonNumber }
                 } else {
                     persistedEpisodes.groupBy { it.seasonNumber }
                         .entries

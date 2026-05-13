@@ -55,6 +55,8 @@ import com.streamvault.app.ui.components.shell.LiveChannelRowSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.components.TvEmptyState
 import com.streamvault.app.ui.components.dialogs.CategoryOptionsDialog
+import com.streamvault.app.ui.components.dialogs.HiddenCategoriesDialog
+import com.streamvault.app.ui.components.dialogs.HiddenChannelsDialog
 import com.streamvault.app.ui.components.dialogs.PinDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogActionButton
@@ -189,7 +191,9 @@ fun HomeScreen(
     var showSplitManagerDialog by rememberSaveable { mutableStateOf(false) }
     var pendingSplitPlannerChannel by remember { mutableStateOf<Channel?>(null) }
     var showAddQuickFilterDialog by rememberSaveable { mutableStateOf(false) }
-    
+    var showHiddenCategoriesDialog by rememberSaveable { mutableStateOf(false) }
+    var showHiddenChannelsDialog by rememberSaveable { mutableStateOf(false) }
+
     // Parental Control State
     var showPinDialog by rememberSaveable { mutableStateOf(false) }
     var pinError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -220,8 +224,8 @@ fun HomeScreen(
         }
     }
 
-    val hasOverlay = showPinDialog || showSplitManagerDialog || pendingSplitPlannerChannel != null ||
-        showAddQuickFilterDialog ||
+        val hasOverlay = showPinDialog || showSplitManagerDialog || pendingSplitPlannerChannel != null ||
+        showAddQuickFilterDialog || showHiddenCategoriesDialog || showHiddenChannelsDialog ||
         uiState.showDialog || uiState.showDeleteGroupDialog ||
         uiState.showRenameGroupDialog || uiState.selectedCategoryForOptions != null ||
         isReorderMode
@@ -229,6 +233,8 @@ fun HomeScreen(
     BackHandler(enabled = hasOverlay) {
         when {
             showAddQuickFilterDialog -> showAddQuickFilterDialog = false
+            showHiddenCategoriesDialog -> showHiddenCategoriesDialog = false
+            showHiddenChannelsDialog -> showHiddenChannelsDialog = false
             showPinDialog -> {
                 showPinDialog = false
                 pinError = null
@@ -270,6 +276,44 @@ fun HomeScreen(
         onNavigate = onNavigate,
         scope = scope
     )
+
+    LaunchedEffect(uiState.hiddenLiveCategories.isEmpty()) {
+        if (showHiddenCategoriesDialog && uiState.hiddenLiveCategories.isEmpty()) {
+            showHiddenCategoriesDialog = false
+        }
+    }
+
+    if (showHiddenCategoriesDialog) {
+        HiddenCategoriesDialog(
+            hiddenCategories = uiState.hiddenLiveCategories,
+            onUnhide = { viewModel.unhideCategory(it) },
+            onUnhideAll = {
+                viewModel.unhideAllLiveCategories()
+                showHiddenCategoriesDialog = false
+            },
+            onDismiss = { showHiddenCategoriesDialog = false }
+        )
+    }
+
+    val hiddenChannelsLiveTv by viewModel.hiddenChannelsLiveTv.collectAsStateWithLifecycle()
+
+    LaunchedEffect(hiddenChannelsLiveTv.isEmpty()) {
+        if (showHiddenChannelsDialog && hiddenChannelsLiveTv.isEmpty()) {
+            showHiddenChannelsDialog = false
+        }
+    }
+
+    if (showHiddenChannelsDialog) {
+        HiddenChannelsDialog(
+            hiddenChannels = hiddenChannelsLiveTv,
+            onUnhide = { viewModel.unhideChannel(it) },
+            onUnhideAll = {
+                viewModel.unhideAllChannels()
+                showHiddenChannelsDialog = false
+            },
+            onDismiss = { showHiddenChannelsDialog = false }
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppScreenScaffold(
@@ -700,15 +744,44 @@ fun HomeScreen(
                                     }
                                 }
                                 if (showQuickFiltersDrawer) {
-                                    Row(
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 8.dp),
-                                        horizontalArrangement = Arrangement.End
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
+                                        if (uiState.hiddenLiveCategories.isNotEmpty()) {
+                                            TvButton(
+                                                onClick = { showHiddenCategoriesDialog = true },
+                                                enabled = !isReorderMode,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.live_quick_filter_hidden_categories,
+                                                        uiState.hiddenLiveCategories.size
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        if (hiddenChannelsLiveTv.isNotEmpty()) {
+                                            TvButton(
+                                                onClick = { showHiddenChannelsDialog = true },
+                                                enabled = !isReorderMode,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.live_quick_filter_hidden_channels,
+                                                        hiddenChannelsLiveTv.size
+                                                    )
+                                                )
+                                            }
+                                        }
                                         TvButton(
                                             onClick = { showAddQuickFilterDialog = true },
-                                            enabled = !isReorderMode
+                                            enabled = !isReorderMode,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(stringResource(R.string.home_quick_filters_add_chip))
                                         }
