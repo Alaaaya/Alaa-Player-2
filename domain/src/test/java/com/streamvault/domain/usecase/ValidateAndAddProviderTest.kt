@@ -1,6 +1,7 @@
 package com.streamvault.domain.usecase
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.manager.ProviderSetupInputValidator
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.manager.ValidatedM3uProviderInput
@@ -574,6 +575,14 @@ private class FakeProviderRepository : ProviderRepository {
     override suspend fun updateProvider(provider: Provider): Result<Unit> = error("Not used in test")
 
     override suspend fun deleteProvider(id: Long): Result<Unit> = error("Not used in test")
+
+    override suspend fun getAllProviderCredentials(): List<ProviderCredentials> = emptyList()
+
+    override suspend fun updateProviderPassword(
+        serverUrl: String,
+        username: String,
+        cleartextPassword: String
+    ): Boolean = false
 
     override suspend fun setActiveProvider(id: Long): Result<Unit> = error("Not used in test")
 
