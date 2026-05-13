@@ -486,11 +486,15 @@ class HomeViewModel @Inject constructor(
                         addAll(unpinnedProviderCategories)
                     }
 
+                    val hiddenLiveCategoriesList = providerCats
+                        .filter { it.id != ChannelRepository.ALL_CHANNELS_ID && it.id in hiddenCategoryIds }
+                        .sortedBy { it.name }
                     CategorySelectionContext(
                         categories = orderedCategories,
                         defaultCategoryId = defaultId,
                         lastVisitedCategoryId = lastVisitedCategoryId,
-                        pinnedCategoryIds = pinnedCategoryIds
+                        pinnedCategoryIds = pinnedCategoryIds,
+                        hiddenLiveCategories = hiddenLiveCategoriesList
                     )
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
@@ -508,7 +512,8 @@ class HomeViewModel @Inject constructor(
                             categories = categories,
                             lastVisitedCategory = lastVisitedCategory,
                             isCategoriesLoading = false,
-                            pinnedCategoryIds = selectionContext.pinnedCategoryIds
+                            pinnedCategoryIds = selectionContext.pinnedCategoryIds,
+                            hiddenLiveCategories = selectionContext.hiddenLiveCategories
                         )
                     }
 
@@ -595,7 +600,8 @@ class HomeViewModel @Inject constructor(
                         },
                         defaultCategoryId = null,
                         lastVisitedCategoryId = null,
-                        pinnedCategoryIds = emptySet()
+                        pinnedCategoryIds = emptySet(),
+                        hiddenLiveCategories = emptyList()
                     )
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
@@ -1551,6 +1557,31 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun unhideCategory(category: Category) {
+        if (_uiState.value.isCombinedLiveSource) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setCategoryHidden(
+                providerId = providerId,
+                type = ContentType.LIVE,
+                categoryId = category.id,
+                hidden = false
+            )
+        }
+    }
+
+    fun unhideAllLiveCategories() {
+        if (_uiState.value.isCombinedLiveSource) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setHiddenCategoryIds(
+                providerId = providerId,
+                type = ContentType.LIVE,
+                categoryIds = emptySet()
+            )
+        }
+    }
+
     fun setShowAllChannelsCategory(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setShowAllChannelsCategory(enabled) }
     }
@@ -1813,6 +1844,7 @@ data class HomeUiState(
     val parentalControlLevel: Int = 0,
     val unlockedCategoryIds: Set<Long> = emptySet(),
     val pinnedCategoryIds: Set<Long> = emptySet(),
+    val hiddenLiveCategories: List<Category> = emptyList(),
     val selectedCategoryForOptions: Category? = null,
     val isChannelReorderMode: Boolean = false,
     val reorderCategory: Category? = null,
@@ -1830,5 +1862,6 @@ private data class CategorySelectionContext(
     val categories: List<Category>,
     val defaultCategoryId: Long?,
     val lastVisitedCategoryId: Long?,
-    val pinnedCategoryIds: Set<Long>
+    val pinnedCategoryIds: Set<Long>,
+    val hiddenLiveCategories: List<Category>
 )
