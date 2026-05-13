@@ -10,11 +10,14 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.entity.EpisodeBrowseEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.local.entity.SeriesBrowseEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.remote.dto.XtreamSeason
+import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
 import com.streamvault.data.remote.stalker.StalkerCategoryRecord
 import com.streamvault.data.remote.stalker.StalkerEpisodeRecord
 import com.streamvault.data.remote.stalker.StalkerItemRecord
@@ -379,6 +382,64 @@ class SeriesRepositoryImplTest {
         assertThat(series.id).isEqualTo(15L)
         assertThat(series.name).isEqualTo("Stored Series")
         assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
+    }
+
+    @Test
+    fun `getSeriesDetails keeps persisted episodes when remote payload only has season metadata`() = runTest {
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        val seriesEntity = SeriesEntity(
+            id = 15L,
+            seriesId = 301L,
+            name = "Stored Series",
+            providerId = 7L
+        )
+        whenever(seriesDao.getById(15L)).thenReturn(seriesEntity)
+        whenever(seriesDao.getById(15L)).thenReturn(seriesEntity)
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Xtream",
+                type = ProviderType.XTREAM_CODES,
+                serverUrl = "http://example.com",
+                username = "user",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(xtreamApiService.getSeriesInfo(any(), any())).thenReturn(
+            XtreamSeriesInfoResponse(
+                info = XtreamSeriesItem(name = "Stored Series"),
+                seasons = listOf(
+                    XtreamSeason(
+                        seasonNumber = 1,
+                        name = "Season 1",
+                        episodeCount = 12
+                    )
+                )
+            )
+        )
+        whenever(episodeDao.getBySeriesSync(15L)).thenReturn(
+            listOf(
+                EpisodeBrowseEntity(
+                    id = 1L,
+                    episodeId = 7001L,
+                    title = "Pilot",
+                    episodeNumber = 1,
+                    seasonNumber = 1,
+                    streamUrl = "internal://episode/7001",
+                    seriesId = 15L,
+                    providerId = 7L
+                )
+            )
+        )
+
+        val result = createRepository().getSeriesDetails(7L, 15L)
+
+        assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
+        val series = (result as com.streamvault.domain.model.Result.Success).data
+        assertThat(series.seasons).hasSize(1)
+        assertThat(series.seasons.first().name).isEqualTo("Season 1")
+        assertThat(series.seasons.first().episodes.map { it.title }).containsExactly("Pilot")
     }
 
     @Test

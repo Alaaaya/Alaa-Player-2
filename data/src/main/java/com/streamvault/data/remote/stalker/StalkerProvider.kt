@@ -139,7 +139,7 @@ class StalkerProvider(
         mapItems(ContentType.MOVIE, categoryId) { session, profile, rawCategoryId ->
             api.getVodStreams(session, profile, rawCategoryId)
         }.mapData { items ->
-            items.mapNotNull(::toMovie)
+            items.mapNotNull { item -> toMovie(item, requestedCategoryId = categoryId) }
         }
 
     suspend fun getVodStreamsPage(categoryId: Long?, page: Int): Result<StalkerPagedResult<Movie>> =
@@ -147,7 +147,7 @@ class StalkerProvider(
             api.getVodStreamsPage(session, profile, rawCategoryId, page)
         }.mapData { paged ->
             StalkerPagedResult(
-                items = paged.items.mapNotNull(::toMovie),
+                items = paged.items.mapNotNull { item -> toMovie(item, requestedCategoryId = categoryId) },
                 page = paged.page,
                 totalPages = paged.totalPages,
                 pageSize = paged.pageSize
@@ -626,9 +626,10 @@ class StalkerProvider(
         )
     }
 
-    private fun toMovie(item: StalkerItemRecord): Movie? {
+    private fun toMovie(item: StalkerItemRecord, requestedCategoryId: Long? = null): Movie? {
         val numericId = stableItemId(ContentType.MOVIE, item.id)
-        val category = resolveCategory(ContentType.MOVIE, item.categoryId, item.categoryName)
+        val category = requestedCategorySeed(ContentType.MOVIE, requestedCategoryId)
+            ?: resolveCategory(ContentType.MOVIE, item.categoryId, item.categoryName)
         val directStreamUrl = item.streamUrl
             ?.substringAfter(' ', missingDelimiterValue = item.streamUrl)
             ?.trim()
@@ -666,6 +667,17 @@ class StalkerProvider(
             streamId = numericId,
             addedAt = item.addedAt
         )
+    }
+
+    private fun requestedCategorySeed(type: ContentType, categoryId: Long?): CategorySeed? {
+        val targetId = categoryId ?: return null
+        val normalizedType = when (type) {
+            ContentType.SERIES_EPISODE -> ContentType.SERIES
+            else -> type
+        }
+        return categoryCache[normalizedType]?.firstOrNull { category ->
+            category.id == targetId || category.rawId.toLongOrNull() == targetId
+        }
     }
 
     private fun toSeries(item: StalkerItemRecord): Series? {

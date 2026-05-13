@@ -19,6 +19,10 @@
     <string name="welcome_version">v1.0.3</string>
     <string name="welcome_loading_title">Preparing your library</string>
     <string name="welcome_loading_subtitle">Opening the right screen for this device.</string>
+    <string name="sync_section_live">Live</string>
+    <string name="sync_section_vod">VOD</string>
+    <string name="sync_section_series">Series</string>
+    <string name="sync_items_indexed_format">%1$d items indexed</string>
     <string name="welcome_tagline">Premium IPTV for the living room</string>
     <string name="welcome_subtitle">Lean back into live channels, catch-up viewing, movies, and series with a first-party Android TV experience.</string>
     <string name="welcome_feature_live">Fast live browsing with remote-first focus</string>
@@ -46,6 +50,11 @@
     <string name="home_quick_filters_active">Applied filter: %1$s</string>
     <string name="home_quick_filters_manual_search">Manual search: %1$s</string>
     <string name="home_quick_filters_empty">No saved quick filters yet. Add one to keep category searches close at hand.</string>
+    <string name="live_quick_filter_hidden_categories">Hidden categories (%1$d)</string>
+    <string name="hidden_categories_dialog_title">Hidden categories</string>
+    <string name="hidden_categories_dialog_subtitle">Pick the ones to restore.</string>
+    <string name="hidden_categories_dialog_unhide_all">Unhide all</string>
+    <string name="hidden_categories_dialog_close">Close</string>
     <string name="home_all_channels">All Channels</string>
     <string name="home_recent_channels">Recent</string>
     <string name="home_last_channel">Last Channel</string>
@@ -165,6 +174,14 @@
     <string name="add_group_remove_btn">Remove</string>
     <string name="add_group_add_btn">Add</string>
     <string name="add_group_create_new_btn">Create New Group</string>
+
+    <!-- M4 hide individual channels -->
+    <string name="channel_action_hide">Hide this channel</string>
+    <string name="live_quick_filter_hidden_channels">Hidden channels (%1$d)</string>
+    <string name="hidden_channels_dialog_title">Hidden channels</string>
+    <string name="hidden_channels_dialog_subtitle">Pick the ones to restore.</string>
+    <string name="hidden_channels_dialog_unhide_all">Unhide all</string>
+    <string name="hidden_channels_dialog_close">Close</string>
 
     <string name="card_locked_channel">Locked Channel</string>
     <string name="card_live_badge">LIVE</string>

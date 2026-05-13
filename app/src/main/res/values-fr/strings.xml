@@ -13,6 +13,10 @@
     <string name="welcome_version">v1.0.3</string>
     <string name="welcome_loading_title">Préparation de votre bibliothèque</string>
     <string name="welcome_loading_subtitle">Ouverture du bon écran pour cet appareil.</string>
+    <string name="sync_section_live">Live</string>
+    <string name="sync_section_vod">VOD</string>
+    <string name="sync_section_series">Séries</string>
+    <string name="sync_items_indexed_format">%1$d éléments indexés</string>
     <string name="welcome_tagline">IPTV premium pour le salon</string>
     <string name="welcome_subtitle">Profitez des chaînes en direct, du visionnage de rattrapage, des films et des séries avec une expérience Android TV propriétaire.</string>
     <string name="welcome_feature_live">Navigation en direct rapide avec mise au point à distance</string>
@@ -38,6 +42,11 @@
     <string name="home_quick_filters_active">Filtre appliqué : %1$s</string>
     <string name="home_quick_filters_manual_search">Recherche manuelle : %1$s</string>
     <string name="home_quick_filters_empty">Aucun filtre rapide enregistré pour le moment. Ajoutez-en un pour garder les recherches de catégories à portée de main.</string>
+    <string name="live_quick_filter_hidden_categories">Catégories masquées (%1$d)</string>
+    <string name="hidden_categories_dialog_title">Catégories masquées</string>
+    <string name="hidden_categories_dialog_subtitle">Choisissez celles à démasquer.</string>
+    <string name="hidden_categories_dialog_unhide_all">Tout démasquer</string>
+    <string name="hidden_categories_dialog_close">Fermer</string>
     <string name="home_all_channels">Toutes les chaînes</string>
     <string name="home_recent_channels">Récent</string>
     <string name="home_last_channel">Dernière chaîne</string>
@@ -145,6 +154,15 @@
     <string name="add_group_remove_btn">Supprimer</string>
     <string name="add_group_add_btn">Ajouter</string>
     <string name="add_group_create_new_btn">Créer un nouveau groupe</string>
+
+    <!-- M4 masquage individuel de chaînes -->
+    <string name="channel_action_hide">Masquer cette chaîne</string>
+    <string name="live_quick_filter_hidden_channels">Chaînes masquées (%1$d)</string>
+    <string name="hidden_channels_dialog_title">Chaînes masquées</string>
+    <string name="hidden_channels_dialog_subtitle">Choisissez celles à démasquer.</string>
+    <string name="hidden_channels_dialog_unhide_all">Tout démasquer</string>
+    <string name="hidden_channels_dialog_close">Fermer</string>
+
     <string name="card_locked_channel">Chaîne verrouillée</string>
     <string name="card_live_badge">EN DIRECT</string>
     <string name="card_locked">Verrouillé</string>

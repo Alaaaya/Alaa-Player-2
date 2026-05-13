@@ -2,10 +2,12 @@ package com.streamvault.app.ui.screens.settings
 
 import androidx.activity.result.ActivityResultLauncher
 import android.content.Intent
+import android.util.Log
 import com.streamvault.domain.manager.DriveAuthState
 import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.ImportBackup
 import com.streamvault.domain.usecase.InspectBackupCommand
 import com.streamvault.domain.usecase.InspectBackupResult
@@ -27,6 +29,7 @@ import kotlinx.coroutines.launch
 internal class SettingsDriveBackupActions(
     private val driveManager: DriveBackupSyncManager,
     private val importBackup: ImportBackup,
+    private val providerRepository: ProviderRepository,
     private val uiState: MutableStateFlow<SettingsUiState>
 ) {
 
@@ -144,16 +147,30 @@ internal class SettingsDriveBackupActions(
                 return@launch
             }
             uiState.update { it.copy(driveIsBusy = true) }
-            val result = driveManager.pushBackup()
+            val backupResult = driveManager.pushBackup()
+            if (backupResult is Result.Error) {
+                uiState.update {
+                    it.copy(
+                        driveIsBusy = false,
+                        userMessage = "Drive push failed: ${backupResult.message}"
+                    )
+                }
+                return@launch
+            }
+            // Chain credentials push (M3). The repository handles decryption
+            // internally so the cleartext never crosses the data layer except
+            // via the typed ProviderCredentials payload returned here.
+            val credentials = providerRepository.getAllProviderCredentials()
+            val credsResult = driveManager.pushCredentials(credentials)
             uiState.update { state ->
-                when (result) {
+                when (credsResult) {
                     is Result.Success -> state.copy(
                         driveIsBusy = false,
                         userMessage = "Backup uploaded to Google Drive"
                     )
                     is Result.Error -> state.copy(
                         driveIsBusy = false,
-                        userMessage = "Drive push failed: ${result.message}"
+                        userMessage = "Backup uploaded but credentials failed: ${credsResult.message}"
                     )
                     is Result.Loading -> state.copy(driveIsBusy = false)
                 }
@@ -179,6 +196,13 @@ internal class SettingsDriveBackupActions(
                 return@launch
             }
             val artifact = (pullResult as Result.Success).data
+            // Best-effort companion fetch (M3). Failures here are non-fatal —
+            // the user can still complete the import without credentials.
+            val credentialsResult = driveManager.pullCredentials()
+            val pendingCredentials = (credentialsResult as? Result.Success)?.data
+            if (credentialsResult is Result.Error) {
+                Log.w("DriveSync", "pullCredentials failed (non-fatal): ${credentialsResult.message}")
+            }
             val inspectResult = importBackup.inspect(InspectBackupCommand(artifact.localUriString))
             uiState.update { state ->
                 when (inspectResult) {
@@ -186,7 +210,8 @@ internal class SettingsDriveBackupActions(
                         driveIsBusy = false,
                         pendingBackupUri = inspectResult.uriString,
                         backupPreview = inspectResult.preview,
-                        backupImportPlan = inspectResult.defaultPlan
+                        backupImportPlan = inspectResult.defaultPlan,
+                        pendingDriveCredentials = pendingCredentials,
                     )
                     is InspectBackupResult.Error -> state.copy(
                         driveIsBusy = false,
@@ -194,6 +219,34 @@ internal class SettingsDriveBackupActions(
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Applies the credentials downloaded by [pullBackup] to the providers that
+     * were just restored by the SAF import dialog. Match key is
+     * `(serverUrl, username)` so the row ids reshuffled by import don't matter.
+     * Re-encrypts via [CredentialCrypto] before writing to the local DB.
+     *
+     * Call this from the ViewModel **after** the import confirm succeeds.
+     */
+    fun applyPendingCredentials(scope: CoroutineScope) {
+        scope.launch {
+            val pending = uiState.value.pendingDriveCredentials.orEmpty()
+            if (pending.isEmpty()) return@launch
+            var applied = 0
+            pending.forEach { cred ->
+                if (providerRepository.updateProviderPassword(
+                        serverUrl = cred.serverUrl,
+                        username = cred.username,
+                        cleartextPassword = cred.password,
+                    )
+                ) {
+                    applied++
+                }
+            }
+            Log.d("DriveSync", "applyPendingCredentials: $applied / ${pending.size} matched")
+            uiState.update { it.copy(pendingDriveCredentials = null) }
         }
     }
 }

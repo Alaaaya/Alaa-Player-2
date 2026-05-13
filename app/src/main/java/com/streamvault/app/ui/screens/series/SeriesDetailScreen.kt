@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +43,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
@@ -109,6 +113,7 @@ fun SeriesDetailScreen(
         unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
         externalRatings = uiState.externalRatings,
         isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+        onToggleFavorite = viewModel::toggleFavorite,
         onSeasonSelected = viewModel::selectSeason,
         onEpisodeClick = onEpisodeClick,
         onResumeClick = onResumeClick ?: onEpisodeClick,
@@ -124,6 +129,7 @@ private fun SeriesDetailContent(
     unwatchedEpisodeCount: Int,
     externalRatings: ExternalRatings,
     isLoadingExternalRatings: Boolean,
+    onToggleFavorite: () -> Unit,
     onSeasonSelected: (Season) -> Unit,
     onEpisodeClick: (Episode) -> Unit,
     onResumeClick: (Episode) -> Unit,
@@ -262,30 +268,16 @@ private fun SeriesDetailContent(
                             )
                             resumeEpisode?.let { ep ->
                                 val hasProgress = ep.watchProgress > 5000L
-                                TvButton(
-                                    onClick = { onResumeClick(ep) },
-                                    colors = ButtonDefaults.colors(
-                                        containerColor = AppColors.Brand,
-                                        contentColor = Color.White
-                                    )
-                                ) {
-                                    Text(
-                                        text = if (hasProgress) {
-                                            stringResource(
-                                                R.string.series_detail_resume,
-                                                ep.seasonNumber,
-                                                ep.episodeNumber,
-                                                formatPositionMs(ep.watchProgress)
-                                            )
-                                        } else {
-                                            stringResource(
-                                                R.string.series_detail_play_episode,
-                                                ep.seasonNumber,
-                                                ep.episodeNumber
-                                            )
-                                        }
-                                    )
-                                }
+                                SeriesDetailActions(
+                                    series = series,
+                                    resumeEpisode = ep,
+                                    hasProgress = hasProgress,
+                                    onResumeClick = onResumeClick,
+                                    onToggleFavorite = onToggleFavorite
+                                )
+                            }
+                            if (resumeEpisode == null) {
+                                SeriesDetailFavoriteAction(series = series, onToggleFavorite = onToggleFavorite)
                             }
                         }
                     }
@@ -356,30 +348,16 @@ private fun SeriesDetailContent(
                             )
                             resumeEpisode?.let { ep ->
                                 val hasProgress = ep.watchProgress > 5000L
-                                TvButton(
-                                    onClick = { onResumeClick(ep) },
-                                    colors = ButtonDefaults.colors(
-                                        containerColor = AppColors.Brand,
-                                        contentColor = Color.White
-                                    )
-                                ) {
-                                    Text(
-                                        text = if (hasProgress) {
-                                            stringResource(
-                                                R.string.series_detail_resume,
-                                                ep.seasonNumber,
-                                                ep.episodeNumber,
-                                                formatPositionMs(ep.watchProgress)
-                                            )
-                                        } else {
-                                            stringResource(
-                                                R.string.series_detail_play_episode,
-                                                ep.seasonNumber,
-                                                ep.episodeNumber
-                                            )
-                                        }
-                                    )
-                                }
+                                SeriesDetailActions(
+                                    series = series,
+                                    resumeEpisode = ep,
+                                    hasProgress = hasProgress,
+                                    onResumeClick = onResumeClick,
+                                    onToggleFavorite = onToggleFavorite
+                                )
+                            }
+                            if (resumeEpisode == null) {
+                                SeriesDetailFavoriteAction(series = series, onToggleFavorite = onToggleFavorite)
                             }
                         }
                     }
@@ -448,6 +426,64 @@ private fun SeriesDetailContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SeriesDetailActions(
+    series: Series,
+    resumeEpisode: Episode,
+    hasProgress: Boolean,
+    onResumeClick: (Episode) -> Unit,
+    onToggleFavorite: () -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        TvButton(
+            onClick = { onResumeClick(resumeEpisode) },
+            colors = ButtonDefaults.colors(
+                containerColor = AppColors.Brand,
+                contentColor = Color.White
+            )
+        ) {
+            Text(
+                text = if (hasProgress) {
+                    stringResource(
+                        R.string.series_detail_resume,
+                        resumeEpisode.seasonNumber,
+                        resumeEpisode.episodeNumber,
+                        formatPositionMs(resumeEpisode.watchProgress)
+                    )
+                } else {
+                    stringResource(
+                        R.string.series_detail_play_episode,
+                        resumeEpisode.seasonNumber,
+                        resumeEpisode.episodeNumber
+                    )
+                }
+            )
+        }
+        SeriesDetailFavoriteAction(series = series, onToggleFavorite = onToggleFavorite)
+    }
+}
+
+@Composable
+private fun SeriesDetailFavoriteAction(
+    series: Series,
+    onToggleFavorite: () -> Unit
+) {
+    TvIconButton(
+        onClick = onToggleFavorite,
+        colors = ButtonDefaults.colors(
+            containerColor = if (series.isFavorite) AppColors.Brand else AppColors.SurfaceEmphasis,
+            contentColor = if (series.isFavorite) Color.White else AppColors.TextSecondary
+        )
+    ) {
+        Icon(
+            imageVector = if (series.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            contentDescription = stringResource(
+                if (series.isFavorite) R.string.favorites_remove else R.string.favorites_add
+            )
+        )
     }
 }
 

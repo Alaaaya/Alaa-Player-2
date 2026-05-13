@@ -99,7 +99,10 @@ internal class SettingsBackupActions(
         uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importRecordingSchedules = enabled)) }
     }
 
-    fun confirmBackupImport(scope: CoroutineScope) {
+    fun confirmBackupImport(
+        scope: CoroutineScope,
+        onSuccess: (suspend () -> Unit)? = null,
+    ) {
         // Atomically capture uri+plan and mark in-flight so rapid double-taps cannot both
         // pass the guard before the flag is written. MutableStateFlow.update {} is a CAS
         // loop, so only one call wins the transition isImportingBackup=false→true.
@@ -134,6 +137,9 @@ internal class SettingsBackupActions(
                     pendingBackupUri = null,
                     backupImportPlan = BackupImportPlan()
                 )
+            }
+            if (result is ImportBackupResult.Success) {
+                onSuccess?.invoke()
             }
         }
     }

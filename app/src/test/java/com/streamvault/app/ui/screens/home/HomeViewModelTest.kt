@@ -26,6 +26,7 @@ import com.streamvault.player.PlayerEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Before
@@ -87,6 +88,7 @@ class HomeViewModelTest {
         whenever(preferencesRepository.liveChannelNumberingMode).thenReturn(flowOf(ChannelNumberingMode.PROVIDER))
         whenever(preferencesRepository.isIncognitoMode).thenReturn(flowOf(false))
         whenever(preferencesRepository.getHiddenCategoryIds(any(), any())).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getHiddenChannelIds(any())).thenReturn(flowOf(emptySet()))
         whenever(preferencesRepository.getCategorySortMode(any(), any())).thenReturn(flowOf(CategorySortMode.DEFAULT))
         whenever(preferencesRepository.getPinnedCategoryIds(any(), any())).thenReturn(flowOf(emptySet()))
         whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(any(), any())).thenReturn(flowOf(emptyList()))
@@ -432,5 +434,176 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.filteredChannels.map(Channel::number)).containsExactly(0)
+    }
+
+    @Test
+    fun `hideChannel delegates to repository with hidden=true and dismisses dialog`() = runTest {
+        val provider = Provider(id = 9L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val channel = Channel(id = 77L, name = "BBC", streamUrl = "http://stream", providerId = provider.id)
+        viewModel.hideChannel(channel)
+        advanceUntilIdle()
+
+        verify(preferencesRepository).setChannelHidden(
+            providerId = provider.id,
+            channelId = 77L,
+            hidden = true
+        )
+        assertThat(viewModel.uiState.value.showDialog).isFalse()
+    }
+
+    @Test
+    fun `unhideCategory delegates to repository with hidden=false`() = runTest {
+        val provider = Provider(id = 9L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val category = Category(id = 42L, name = "DELAY", type = ContentType.LIVE)
+        viewModel.unhideCategory(category)
+        advanceUntilIdle()
+
+        verify(preferencesRepository).setCategoryHidden(
+            providerId = provider.id,
+            type = ContentType.LIVE,
+            categoryId = 42L,
+            hidden = false
+        )
+    }
+
+    @Test
+    fun `unhideChannel delegates to repository with hidden=false`() = runTest {
+        val provider = Provider(id = 9L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val channel = Channel(id = 77L, name = "BBC", streamUrl = "http://stream", providerId = provider.id)
+        viewModel.unhideChannel(channel)
+        advanceUntilIdle()
+
+        verify(preferencesRepository).setChannelHidden(
+            providerId = provider.id,
+            channelId = 77L,
+            hidden = false
+        )
+    }
+
+    @Test
+    fun `unhideAllLiveCategories clears the hidden set for live`() = runTest {
+        val provider = Provider(id = 9L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.unhideAllLiveCategories()
+        advanceUntilIdle()
+
+        verify(preferencesRepository).setHiddenCategoryIds(
+            providerId = provider.id,
+            type = ContentType.LIVE,
+            categoryIds = emptySet()
+        )
+    }
+
+    @Test
+    fun `unhideAllChannels clears the hidden set`() = runTest {
+        val provider = Provider(id = 9L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.unhideAllChannels()
+        advanceUntilIdle()
+
+        verify(preferencesRepository).setHiddenChannelIds(
+            providerId = provider.id,
+            channelIds = emptySet()
+        )
+    }
+
+    @Test
+    fun `unhideCategory is a no-op when no provider is active`() = runTest {
+        val category = Category(id = 42L, name = "DELAY", type = ContentType.LIVE)
+        viewModel.unhideCategory(category)
+        advanceUntilIdle()
+        verify(preferencesRepository, never()).setCategoryHidden(any(), any(), any(), any())
+    }
+
+    @Test
+    fun `hiddenLiveCategories surfaces categories whose id is in the hidden set`() = runTest {
+        val provider = Provider(id = 11L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        val visible = Category(id = 1L, name = "News", type = ContentType.LIVE)
+        val hidden = Category(id = 2L, name = "DELAY", type = ContentType.LIVE)
+        val alsoHidden = Category(id = 3L, name = "TNT HD", type = ContentType.LIVE)
+
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(listOf(visible, hidden, alsoHidden)))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+        whenever(preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE))
+            .thenReturn(flowOf(setOf(2L, 3L)))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.hiddenLiveCategories.map(Category::id)).containsExactly(2L, 3L)
+    }
+
+    @Test
+    fun `hiddenChannelsLiveTv surfaces channels whose id is in the hidden set, in name order`() = runTest {
+        val provider = Provider(id = 11L, name = "Acme", type = ProviderType.XTREAM_CODES, serverUrl = "url")
+        val hiddenA = Channel(id = 2L, name = "Alpha", streamUrl = "http://a", providerId = provider.id)
+        val hiddenZ = Channel(id = 3L, name = "Zulu", streamUrl = "http://z", providerId = provider.id)
+
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(eq(provider.id), any())).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavorites(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptyList()))
+        whenever(preferencesRepository.getHiddenChannelIds(provider.id))
+            .thenReturn(flowOf(setOf(2L, 3L)))
+        whenever(channelRepository.getChannelsByIds(any<List<Long>>()))
+            .thenReturn(flowOf(listOf(hiddenZ, hiddenA)))
+
+        viewModel = createViewModel()
+        // hiddenChannelsLiveTv uses SharingStarted.WhileSubscribed — keep a
+        // collector alive so the upstream flow actually emits.
+        backgroundScope.launch { viewModel.hiddenChannelsLiveTv.collect {} }
+        advanceUntilIdle()
+
+        val collected = viewModel.hiddenChannelsLiveTv.value
+        assertThat(collected.map(Channel::id)).containsExactly(2L, 3L).inOrder()
+        assertThat(collected.map(Channel::name)).containsExactly("Alpha", "Zulu").inOrder()
     }
 }

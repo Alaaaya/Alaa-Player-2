@@ -409,58 +409,73 @@ class XtreamProvider(
             categoryName = info?.categoryName,
             adultCategoryIds = adultCategoryIds
         )
-        val seasons = response.episodes.map { (seasonNum, episodes) ->
-            val resolvedSeasonNumber = seasonNum.toIntOrNull() ?: episodes.firstNotNullOfOrNull { episode ->
-                episode.season.takeIf { it > 0 }
-            } ?: 0
-            val mappedEpisodes = episodes.mapIndexedNotNull { index, ep ->
-                val episodeId = ep.id.toLongOrNull()?.takeIf { it > 0 }
-                    ?: ep.episodeNum.takeIf { it > 0 }?.let { resolvedSeasonNumber * 10000L + it }
-                    ?: ((index + 1).let { resolvedSeasonNumber * 10000L + it })
-                val normalizedEpisodeNum = if (ep.episodeNum > 0) ep.episodeNum else index + 1
-                val normalizedExtension = normalizeContainerExtension(ep.containerExtension)
-                Episode(
-                    id = episodeId,
-                    title = decodeXtreamText(
-                        ep.title.ifBlank { decodeXtreamNullableText(ep.info?.name, XtreamTextDecodeMode.RAW) ?: "Episode $normalizedEpisodeNum" },
-                        XtreamTextDecodeMode.RAW
-                    ),
-                    episodeNumber = normalizedEpisodeNum,
-                    seasonNumber = ep.season.takeIf { it > 0 } ?: resolvedSeasonNumber,
-                    containerExtension = normalizedExtension,
-                    coverUrl = sanitizeAssetValue(ep.info?.movieImage),
-                    plot = decodeXtreamNullableText(ep.info?.plot, XtreamTextDecodeMode.METADATA),
-                    duration = ep.info?.duration,
-                    durationSeconds = ep.info?.durationSecs ?: 0,
-                    rating = ep.info?.rating?.toFloatOrNull() ?: 0f,
-                    releaseDate = ep.info?.releaseDate,
-                    seriesId = seriesId,
-                    providerId = providerId,
-                    streamUrl = XtreamUrlFactory.buildInternalStreamUrl(
-                        providerId = providerId,
-                        kind = XtreamStreamKind.SERIES,
-                        streamId = episodeId,
+        val seasonMetadataByNumber = response.seasons.associateBy { it.seasonNumber }
+        val seasons = when {
+            response.episodes.isNotEmpty() -> response.episodes.map { (seasonNum, episodes) ->
+                val resolvedSeasonNumber = seasonNum.toIntOrNull() ?: episodes.firstNotNullOfOrNull { episode ->
+                    episode.season.takeIf { it > 0 }
+                } ?: 0
+                val mappedEpisodes = episodes.mapIndexedNotNull { index, ep ->
+                    val episodeId = ep.id.toLongOrNull()?.takeIf { it > 0 }
+                        ?: ep.episodeNum.takeIf { it > 0 }?.let { resolvedSeasonNumber * 10000L + it }
+                        ?: ((index + 1).let { resolvedSeasonNumber * 10000L + it })
+                    val normalizedEpisodeNum = if (ep.episodeNum > 0) ep.episodeNum else index + 1
+                    val normalizedExtension = normalizeContainerExtension(ep.containerExtension)
+                    Episode(
+                        id = episodeId,
+                        title = decodeXtreamText(
+                            ep.title.ifBlank { decodeXtreamNullableText(ep.info?.name, XtreamTextDecodeMode.RAW) ?: "Episode $normalizedEpisodeNum" },
+                            XtreamTextDecodeMode.RAW
+                        ),
+                        episodeNumber = normalizedEpisodeNum,
+                        seasonNumber = ep.season.takeIf { it > 0 } ?: resolvedSeasonNumber,
                         containerExtension = normalizedExtension,
-                        directSource = sanitizeAssetValue(ep.directSource)
-                    ),
-                    isAdult = isAdult,
-                    isUserProtected = false,
-                    episodeId = episodeId
+                        coverUrl = sanitizeAssetValue(ep.info?.movieImage),
+                        plot = decodeXtreamNullableText(ep.info?.plot, XtreamTextDecodeMode.METADATA),
+                        duration = ep.info?.duration,
+                        durationSeconds = ep.info?.durationSecs ?: 0,
+                        rating = ep.info?.rating?.toFloatOrNull() ?: 0f,
+                        releaseDate = ep.info?.releaseDate,
+                        seriesId = seriesId,
+                        providerId = providerId,
+                        streamUrl = XtreamUrlFactory.buildInternalStreamUrl(
+                            providerId = providerId,
+                            kind = XtreamStreamKind.SERIES,
+                            streamId = episodeId,
+                            containerExtension = normalizedExtension,
+                            directSource = sanitizeAssetValue(ep.directSource)
+                        ),
+                        isAdult = isAdult,
+                        isUserProtected = false,
+                        episodeId = episodeId
+                    )
+                }
+                val seasonMetadata = seasonMetadataByNumber[resolvedSeasonNumber]
+                Season(
+                    seasonNumber = resolvedSeasonNumber,
+                    name = seasonMetadata?.name?.takeIf { it.isNotBlank() } ?: "Season $resolvedSeasonNumber",
+                    coverUrl = seasonMetadata?.cover,
+                    airDate = seasonMetadata?.airDate,
+                    episodes = mappedEpisodes,
+                    episodeCount = seasonMetadata?.episodeCount?.takeIf { it > 0 } ?: mappedEpisodes.size
                 )
-            }
-            Season(
-                seasonNumber = resolvedSeasonNumber,
-                name = response.seasons.find { it.seasonNumber == resolvedSeasonNumber }?.name
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "Season $resolvedSeasonNumber",
-                coverUrl = response.seasons.find { it.seasonNumber == resolvedSeasonNumber }?.cover,
-                airDate = response.seasons.find { it.seasonNumber == resolvedSeasonNumber }?.airDate,
-                episodes = mappedEpisodes,
-                episodeCount = response.seasons.find { it.seasonNumber == resolvedSeasonNumber }?.episodeCount
-                    ?.takeIf { it > 0 }
-                    ?: mappedEpisodes.size
-            )
-        }.sortedBy { it.seasonNumber }
+            }.sortedBy { it.seasonNumber }
+
+            response.seasons.isNotEmpty() -> response.seasons
+                .sortedBy { it.seasonNumber }
+                .map { season ->
+                    Season(
+                        seasonNumber = season.seasonNumber,
+                        name = season.name.takeIf { it.isNotBlank() } ?: "Season ${season.seasonNumber}",
+                        coverUrl = season.cover,
+                        airDate = season.airDate,
+                        episodes = emptyList(),
+                        episodeCount = season.episodeCount
+                    )
+                }
+
+            else -> emptyList()
+        }
 
         Result.success(
             baseSeries.copy(
