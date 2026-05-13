@@ -2,13 +2,14 @@
 
 All notable product changes are recorded in this document.
 
-## [1.0.11] - 2026-05-12
+## [1.0.11] - 2026-05-13
 
 ### Added
 
 - Added close app icon, top right corner in settings tab.
 - Added audio decoder names to player diagnostics.
 - Added FFmpeg artifact verification plus provenance and LGPL docs.
+- Hide Unhide individual channels.
 - Added advanced playback settings for audio output and compatibility memory.
 - Added richer FFmpeg and compatibility diagnostics.
 - Added APK companion plugin discovery, activation, and provider integration.

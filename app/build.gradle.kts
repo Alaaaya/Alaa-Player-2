@@ -97,6 +97,19 @@ android {
             buildConfigField("String", "M3U_DEV_URL", "\"${localProp("m3u.dev.url")}\"")
             buildConfigField("String", "M3U_DEV_NAME", "\"${localProp("m3u.dev.name")}\"")
         }
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta"
+            isDebuggable = false
+            // Keep beta close to release behavior but faster for CI/test distribution.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            matchingFallbacks += listOf("release")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
