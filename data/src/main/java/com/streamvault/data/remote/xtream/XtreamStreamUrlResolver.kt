@@ -100,7 +100,9 @@ class XtreamStreamUrlResolver @Inject constructor(
                 val kind = xtreamToken?.kind ?: fallbackContentType?.let(XtreamUrlFactory::kindForContentType) ?: return null
                 val streamId = xtreamToken?.streamId ?: fallbackStreamId?.takeIf { it > 0 } ?: return null
                 val ext = xtreamToken?.containerExtension ?: fallbackContainerExtension
-                val directSource = xtreamToken?.directSource?.takeIf(UrlSecurityPolicy::isAllowedStreamEntryUrl)
+                val directSource = xtreamToken?.directSource
+                    ?.takeIf { kind != XtreamStreamKind.LIVE }
+                    ?.takeIf(UrlSecurityPolicy::isAllowedStreamEntryUrl)
                 val decryptedPassword = credentialCrypto.decryptIfNeeded(resolvedProvider.password)
 
                 val fallbackResolvedUrl = XtreamUrlFactory.buildPlaybackUrl(

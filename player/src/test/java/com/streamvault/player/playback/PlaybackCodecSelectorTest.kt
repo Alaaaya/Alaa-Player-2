@@ -59,7 +59,7 @@ class PlaybackCodecSelectorTest {
     }
 
     @Test
-    fun `auto ignores decoder reuse workaround to keep default startup stock`() {
+    fun `auto keeps decoder reuse workaround when compatibility requests it`() {
         val plan = buildPlaybackRendererPlan(
             requestedMode = DecoderMode.AUTO,
             decoderPolicy = ActiveDecoderPolicy.AUTO,
@@ -67,15 +67,15 @@ class PlaybackCodecSelectorTest {
             useVideoRendererWorkaround = true
         )
 
-        assertThat(plan.renderPath).isEqualTo("stock-media3")
-        assertThat(plan.useStockRenderersFactory).isTrue()
+        assertThat(plan.renderPath).isEqualTo("decoder-reuse-workaround")
+        assertThat(plan.useStockRenderersFactory).isFalse()
         assertThat(plan.useAudioVideoSyncSink).isFalse()
-        assertThat(plan.useVideoRendererWorkaround).isFalse()
+        assertThat(plan.useVideoRendererWorkaround).isTrue()
         assertThat(plan.useManagedCodecSelector).isFalse()
     }
 
     @Test
-    fun `auto with av sync on only requests audio video offset sink`() {
+    fun `auto with av sync on can combine audio video offset sink and decoder reuse workaround`() {
         val plan = buildPlaybackRendererPlan(
             requestedMode = DecoderMode.AUTO,
             decoderPolicy = ActiveDecoderPolicy.AUTO,
@@ -83,10 +83,10 @@ class PlaybackCodecSelectorTest {
             useVideoRendererWorkaround = true
         )
 
-        assertThat(plan.renderPath).isEqualTo("av-sync-sink")
+        assertThat(plan.renderPath).isEqualTo("av-sync-sink+decoder-reuse-workaround")
         assertThat(plan.useStockRenderersFactory).isFalse()
         assertThat(plan.useAudioVideoSyncSink).isTrue()
-        assertThat(plan.useVideoRendererWorkaround).isFalse()
+        assertThat(plan.useVideoRendererWorkaround).isTrue()
         assertThat(plan.useManagedCodecSelector).isFalse()
     }
 

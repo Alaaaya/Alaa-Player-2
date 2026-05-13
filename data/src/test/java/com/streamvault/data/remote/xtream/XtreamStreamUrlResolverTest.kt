@@ -63,7 +63,37 @@ class XtreamStreamUrlResolverTest {
     }
 
     @Test
-    fun resolveWithMetadata_prefers_allowed_direct_source() = runBlocking {
+    fun resolveWithMetadata_prefers_allowed_direct_source_for_vod() = runBlocking {
+        val resolver = XtreamStreamUrlResolver(
+            providerDao = FakeProviderDao(
+                ProviderEntity(
+                    id = 9,
+                    name = "Xtream",
+                    type = ProviderType.XTREAM_CODES,
+                    serverUrl = "https://portal.example.com",
+                    username = "alice",
+                    password = "secret"
+                )
+            ),
+            credentialCrypto = credentialCrypto,
+            stalkerApiService = stalkerApiService
+        )
+        val url = XtreamUrlFactory.buildInternalStreamUrl(
+            providerId = 9,
+            kind = XtreamStreamKind.MOVIE,
+            streamId = 456,
+            containerExtension = "mp4",
+            directSource = "http://edge.example.com/movie/456/index.mp4?exp=1774017000"
+        )
+
+        val resolved = resolver.resolveWithMetadata(url)
+
+        assertThat(resolved?.url).isEqualTo("http://edge.example.com/movie/456/index.mp4?exp=1774017000")
+        assertThat(resolved?.expirationTime).isEqualTo(1_774_017_000_000L)
+    }
+
+    @Test
+    fun resolveWithMetadata_ignores_live_direct_source_and_uses_portal_url() = runBlocking {
         val resolver = XtreamStreamUrlResolver(
             providerDao = FakeProviderDao(
                 ProviderEntity(
@@ -88,8 +118,8 @@ class XtreamStreamUrlResolverTest {
 
         val resolved = resolver.resolveWithMetadata(url)
 
-        assertThat(resolved?.url).isEqualTo("http://edge.example.com/live/456/index.ts?exp=1774017000")
-        assertThat(resolved?.expirationTime).isEqualTo(1_774_017_000_000L)
+        assertThat(resolved?.url).isEqualTo("https://portal.example.com/live/alice/secret/456.ts")
+        assertThat(resolved?.expirationTime).isNull()
     }
 
     @Test
