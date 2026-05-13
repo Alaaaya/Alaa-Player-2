@@ -18,6 +18,7 @@ import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.sync.hasUsableLiveCatalogForActivation
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.data.util.UrlSecurityPolicy
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.*
 import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.repository.LiveStreamProgramRequest
@@ -84,6 +85,35 @@ class ProviderRepositoryImpl @Inject constructor(
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to update provider: ${e.message}", e)
+    }
+
+    override suspend fun getAllProviderCredentials(): List<ProviderCredentials> {
+        return providerDao.getAllSync()
+            .map { entity ->
+                ProviderCredentials(
+                    serverUrl = entity.serverUrl,
+                    username = entity.username,
+                    password = try {
+                        credentialCrypto.decryptIfNeeded(entity.password)
+                    } catch (e: Throwable) {
+                        ""
+                    },
+                )
+            }
+            .filter { it.username.isNotBlank() && it.password.isNotBlank() }
+    }
+
+    override suspend fun updateProviderPassword(
+        serverUrl: String,
+        username: String,
+        cleartextPassword: String,
+    ): Boolean {
+        val entity = providerDao.getAllSync().firstOrNull {
+            it.serverUrl == serverUrl && it.username == username
+        } ?: return false
+        val encrypted = credentialCrypto.encryptIfNeeded(cleartextPassword)
+        providerDao.update(entity.copy(password = encrypted))
+        return true
     }
 
     override suspend fun deleteProvider(id: Long): Result<Unit> = try {
