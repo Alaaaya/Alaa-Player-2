@@ -15,7 +15,8 @@ All notable product changes are recorded in this document.
 - Added a host-rendered plugin configuration schema so plugins can expose StreamVault-native settings screens, persisted values, validation, and plugin actions over IPC.
 - Added native Activity plugin configuration mode so rich plugin UIs can open from StreamVault with their own visual and interaction model.
 - Added a welcome-screen "Set up later" option so first-time users can enter the app and reach Settings before adding a provider.
-- Added Google Drive backup sync support with sign-in/out, push/pull actions, last-sync status in Settings, and onboarding import-from-Drive progress flow.
+- Added Google Drive backup sync support with sign-in/out, push/pull actions, last-sync status in Settings, onboarding import-from-Drive progress flow, and private Drive credential sync so imported providers can restore saved usernames/passwords.
+- Added Live TV quick-filter management for hidden categories and hidden channels, including restore dialogs and channel-level hide actions from the home screen dialogs.
 - Added opt-in developer onboarding seeding from `local.properties` (Xtream + M3U) in debug builds, with a versioned `local.properties.example` template and `docs/DEV_SEEDING.md` guide.
 - Added real-time first-boot library sync progress on the welcome screen (Live/VOD/Series section state, determinate/indeterminate progress bar, current label, and indexed-items counter) powered by a typed sync progress bus.
 
@@ -23,6 +24,7 @@ All notable product changes are recorded in this document.
 
 - Updated the Plugins screen with compact StreamVault-styled controls and a dedicated blocks icon distinct from Settings.
 - Documented the plugin API, manifest metadata, installation model, IPC contract, host-rendered configuration schema, native Activity configuration mode, and visual integration guidance.
+- Clarified the Google Drive maintainer setup guide around the `drive.appdata` scope and the Testing-to-Production consent-screen flip for public rollout.
 
 ### Fixed
 
@@ -30,11 +32,13 @@ All notable product changes are recorded in this document.
 - Fixed streams with unsupported audio codecs not retrying in software when FFmpeg support is available; the player now performs one automatic fallback retry.
 - Fixed software navigation bars cutting into the app on devices such as Nexus 5X by reapplying immersive fullscreen mode when the app resumes or regains focus.
 - Fixed touch/mouse activation behavior for TV controls used by plugin management on non-TV devices.
+- Fixed `TvClickableSurface` / `TvIconButton` long-click handling so home-screen category and channel actions keep their press-and-hold behavior.
 - Fixed series detail screens missing the favorite heart action; series info pages now match movies with add/remove favorite support directly from the detail view.
 - Fixed Xtream series detail pages sometimes showing no seasons or episodes when providers returned season metadata without inline episode rows; cached episodes are now preserved and metadata-only season payloads no longer render as empty detail screens.
 - Fixed Xtream live sync category requests stalling for several minutes near the end of large provider imports; segmented catalog calls now use shorter cancellable transport timeouts and timeout handling now surfaces as normal request failures instead of hanging the sync.
 - Fixed VOD category shelves and category browse ordering in both classic and modern views to sort by provider-added time instead of release metadata.
 - Fixed Stalker VOD category filtering drifting or appearing empty when filtered portal responses omit item category metadata; requested category context is now preserved during category hydration.
+- Fixed backup export/import to preserve hidden live categories and hidden channels preferences.
 
 ---
 
