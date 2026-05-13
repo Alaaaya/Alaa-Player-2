@@ -55,6 +55,7 @@ import com.streamvault.app.ui.components.shell.LiveChannelRowSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.components.TvEmptyState
 import com.streamvault.app.ui.components.dialogs.CategoryOptionsDialog
+import com.streamvault.app.ui.components.dialogs.HiddenChannelsDialog
 import com.streamvault.app.ui.components.dialogs.PinDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogActionButton
@@ -189,7 +190,8 @@ fun HomeScreen(
     var showSplitManagerDialog by rememberSaveable { mutableStateOf(false) }
     var pendingSplitPlannerChannel by remember { mutableStateOf<Channel?>(null) }
     var showAddQuickFilterDialog by rememberSaveable { mutableStateOf(false) }
-    
+    var showHiddenChannelsDialog by rememberSaveable { mutableStateOf(false) }
+
     // Parental Control State
     var showPinDialog by rememberSaveable { mutableStateOf(false) }
     var pinError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -221,7 +223,7 @@ fun HomeScreen(
     }
 
     val hasOverlay = showPinDialog || showSplitManagerDialog || pendingSplitPlannerChannel != null ||
-        showAddQuickFilterDialog ||
+        showAddQuickFilterDialog || showHiddenChannelsDialog ||
         uiState.showDialog || uiState.showDeleteGroupDialog ||
         uiState.showRenameGroupDialog || uiState.selectedCategoryForOptions != null ||
         isReorderMode
@@ -229,6 +231,7 @@ fun HomeScreen(
     BackHandler(enabled = hasOverlay) {
         when {
             showAddQuickFilterDialog -> showAddQuickFilterDialog = false
+            showHiddenChannelsDialog -> showHiddenChannelsDialog = false
             showPinDialog -> {
                 showPinDialog = false
                 pinError = null
@@ -270,6 +273,26 @@ fun HomeScreen(
         onNavigate = onNavigate,
         scope = scope
     )
+
+    val hiddenChannelsLiveTv by viewModel.hiddenChannelsLiveTv.collectAsStateWithLifecycle()
+
+    LaunchedEffect(hiddenChannelsLiveTv.isEmpty()) {
+        if (showHiddenChannelsDialog && hiddenChannelsLiveTv.isEmpty()) {
+            showHiddenChannelsDialog = false
+        }
+    }
+
+    if (showHiddenChannelsDialog) {
+        HiddenChannelsDialog(
+            hiddenChannels = hiddenChannelsLiveTv,
+            onUnhide = { viewModel.unhideChannel(it) },
+            onUnhideAll = {
+                viewModel.unhideAllChannels()
+                showHiddenChannelsDialog = false
+            },
+            onDismiss = { showHiddenChannelsDialog = false }
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppScreenScaffold(
@@ -700,6 +723,59 @@ fun HomeScreen(
                                     }
                                 }
                                 if (showQuickFiltersDrawer) {
+                                    if (hiddenChannelsLiveTv.isNotEmpty()) {
+                                        TvClickableSurface(
+                                            onClick = { if (!isReorderMode) showHiddenChannelsDialog = true },
+                                            enabled = !isReorderMode,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 10.dp),
+                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = SurfaceElevated,
+                                                focusedContainerColor = SurfaceHighlight.copy(alpha = 0.9f)
+                                            ),
+                                            border = ClickableSurfaceDefaults.border(
+                                                focusedBorder = Border(
+                                                    border = BorderStroke(2.dp, Primary.copy(alpha = 0.85f)),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                )
+                                            ),
+                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Lock,
+                                                        contentDescription = null,
+                                                        tint = OnSurface,
+                                                        modifier = Modifier.padding(end = 8.dp)
+                                                    )
+                                                    Text(
+                                                        text = stringResource(
+                                                            R.string.live_quick_filter_hidden_channels,
+                                                            hiddenChannelsLiveTv.size
+                                                        ),
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        color = OnSurface
+                                                    )
+                                                }
+                                                Text(
+                                                    text = stringResource(R.string.hidden_channels_dialog_unhide_all),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = Primary
+                                                )
+                                            }
+                                        }
+                                    }
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
