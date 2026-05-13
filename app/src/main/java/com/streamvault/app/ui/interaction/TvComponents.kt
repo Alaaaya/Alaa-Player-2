@@ -48,8 +48,17 @@ fun TvClickableSurface(
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
+        // When a long-click handler is provided, we cannot consume the
+        // activation key events ourselves: the underlying TV Surface needs to
+        // observe the full DOWN → (hold) → UP sequence to recognise a
+        // long-press. Forwarding only onClick on ACTION_UP (as activateOnRemoteKey
+        // does) collapses every key press into a click and silently breaks
+        // onLongClick on the D-pad / Enter / Space / Button A.
         modifier = modifier
-            .activateOnRemoteKey(enabled = enabled, onClick = onClick)
+            .then(
+                if (onLongClick != null) Modifier
+                else Modifier.activateOnRemoteKey(enabled = enabled, onClick = onClick)
+            )
             .mouseClickable(onClick = onClick, enabled = enabled, onLongClick = onLongClick),
         enabled = enabled,
         shape = shape,
@@ -118,8 +127,14 @@ fun TvIconButton(
     IconButton(
         onClick = onClick,
         onLongClick = onLongClick,
+        // Same reason as TvClickableSurface: if a long-click handler is set,
+        // let the native TV IconButton see the full key sequence instead of
+        // collapsing it via activateOnRemoteKey.
         modifier = modifier
-            .activateOnRemoteKey(enabled = enabled, onClick = onClick)
+            .then(
+                if (onLongClick != null) Modifier
+                else Modifier.activateOnRemoteKey(enabled = enabled, onClick = onClick)
+            )
             .mouseClickable(onClick = onClick, enabled = enabled),
         enabled = enabled,
         scale = scale,
