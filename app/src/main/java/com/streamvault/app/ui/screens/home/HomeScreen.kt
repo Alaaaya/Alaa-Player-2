@@ -723,68 +723,30 @@ fun HomeScreen(
                                     }
                                 }
                                 if (showQuickFiltersDrawer) {
-                                    if (hiddenChannelsLiveTv.isNotEmpty()) {
-                                        TvClickableSurface(
-                                            onClick = { if (!isReorderMode) showHiddenChannelsDialog = true },
-                                            enabled = !isReorderMode,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(bottom = 10.dp),
-                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-                                            colors = ClickableSurfaceDefaults.colors(
-                                                containerColor = SurfaceElevated,
-                                                focusedContainerColor = SurfaceHighlight.copy(alpha = 0.9f)
-                                            ),
-                                            border = ClickableSurfaceDefaults.border(
-                                                focusedBorder = Border(
-                                                    border = BorderStroke(2.dp, Primary.copy(alpha = 0.85f)),
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
-                                            ),
-                                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Lock,
-                                                        contentDescription = null,
-                                                        tint = OnSurface,
-                                                        modifier = Modifier.padding(end = 8.dp)
-                                                    )
-                                                    Text(
-                                                        text = stringResource(
-                                                            R.string.live_quick_filter_hidden_channels,
-                                                            hiddenChannelsLiveTv.size
-                                                        ),
-                                                        style = MaterialTheme.typography.labelLarge,
-                                                        color = OnSurface
-                                                    )
-                                                }
-                                                Text(
-                                                    text = stringResource(R.string.hidden_channels_dialog_unhide_all),
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = Primary
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Row(
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(bottom = 8.dp),
-                                        horizontalArrangement = Arrangement.End
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
+                                        if (hiddenChannelsLiveTv.isNotEmpty()) {
+                                            TvButton(
+                                                onClick = { showHiddenChannelsDialog = true },
+                                                enabled = !isReorderMode,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = stringResource(
+                                                        R.string.live_quick_filter_hidden_channels,
+                                                        hiddenChannelsLiveTv.size
+                                                    )
+                                                )
+                                            }
+                                        }
                                         TvButton(
                                             onClick = { showAddQuickFilterDialog = true },
-                                            enabled = !isReorderMode
+                                            enabled = !isReorderMode,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(stringResource(R.string.home_quick_filters_add_chip))
                                         }
