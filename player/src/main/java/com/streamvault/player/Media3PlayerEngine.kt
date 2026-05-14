@@ -613,8 +613,10 @@ class Media3PlayerEngine @Inject constructor(
         val player = exoPlayer ?: return
         val streamInfo = lastStreamInfo ?: return
         val retryPolicy = currentRetryPolicy ?: return
-        val position = player.currentPosition
-        val wasPlaying = player.playWhenReady
+        val transition = buildExternalSubtitlePlaybackTransition(
+            currentPositionMs = player.currentPosition,
+            playWhenReady = player.playWhenReady
+        )
 
         val (_, mainMediaSource) = mediaSourceFactory.create(
             streamInfo = streamInfo,
@@ -632,9 +634,11 @@ class Media3PlayerEngine @Inject constructor(
         ).createMediaSource(subtitleConfig, C.TIME_UNSET)
         val merged = androidx.media3.exoplayer.source.MergingMediaSource(mainMediaSource, subtitleSource)
 
-        player.setMediaSource(merged, position)
+        player.trackSelectionParameters = player.trackSelectionParameters.withExternalSubtitleEnabled()
+        player.setMediaSource(merged, /* resetPosition= */ false)
         player.prepare()
-        player.playWhenReady = wasPlaying
+        transition.resumePositionMs.takeIf { it > 0L }?.let(player::seekTo)
+        player.playWhenReady = transition.playWhenReady
         Log.i(TAG, "addExternalSubtitle language=$language uri=$subtitleUri")
     }
 
