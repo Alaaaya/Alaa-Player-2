@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit
 internal suspend fun reconcileTargetedProviderStatus(
     providerDao: ProviderDao,
     channelDao: ChannelDao,
+    syncMetadataRepository: SyncMetadataRepository,
     syncManager: SyncManager,
     provider: com.streamvault.data.local.entity.ProviderEntity,
     result: com.streamvault.domain.model.Result<Unit>,
@@ -46,7 +47,12 @@ internal suspend fun reconcileTargetedProviderStatus(
             } else {
                 ProviderStatus.ACTIVE
             }
-            if (!hasUsableLiveCatalogForActivation(provider.id, provider.type, channelDao)) {
+            if (!hasUsableLiveCatalogForActivation(
+                    provider.id,
+                    provider.type,
+                    channelDao,
+                    syncMetadataRepository
+                )) {
                 providerDao.update(
                     provider.copy(
                         isActive = false,
@@ -310,6 +316,7 @@ class ProviderSyncWorker(
         reconcileTargetedProviderStatus(
             providerDao = entryPoint.providerDao(),
             channelDao = entryPoint.channelDao(),
+            syncMetadataRepository = entryPoint.syncMetadataRepository(),
             syncManager = entryPoint.syncManager(),
             provider = provider,
             result = result

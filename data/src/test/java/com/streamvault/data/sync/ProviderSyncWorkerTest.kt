@@ -7,9 +7,11 @@ import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.XtreamLiveOnboardingStateEntity
 import com.streamvault.domain.model.ProviderStatus
+import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.SyncState
+import com.streamvault.domain.repository.SyncMetadataRepository
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -24,6 +26,7 @@ class ProviderSyncWorkerTest {
     private val channelDao: ChannelDao = mock()
     private val xtreamLiveOnboardingDao: XtreamLiveOnboardingDao = mock()
     private val syncManager: SyncManager = mock()
+    private val syncMetadataRepository: SyncMetadataRepository = mock()
 
     @Test
     fun `xtream provider with incomplete onboarding state is tracked for initial live resume`() = runTest {
@@ -83,6 +86,7 @@ class ProviderSyncWorkerTest {
         reconcileTargetedProviderStatus(
             providerDao = providerDao,
             channelDao = channelDao,
+            syncMetadataRepository = syncMetadataRepository,
             syncManager = syncManager,
             provider = provider,
             result = Result.success(Unit),
@@ -114,6 +118,7 @@ class ProviderSyncWorkerTest {
         reconcileTargetedProviderStatus(
             providerDao = providerDao,
             channelDao = channelDao,
+            syncMetadataRepository = syncMetadataRepository,
             syncManager = syncManager,
             provider = provider,
             result = Result.success(Unit),
@@ -124,6 +129,41 @@ class ProviderSyncWorkerTest {
         verify(providerDao).update(updatedProvider.capture())
         assertThat(updatedProvider.firstValue.isActive).isFalse()
         assertThat(updatedProvider.firstValue.status).isEqualTo(ProviderStatus.PARTIAL)
+        assertThat(updatedProvider.firstValue.lastSyncedAt).isEqualTo(456L)
+    }
+
+    @Test
+    fun `targeted xtream resume success with no live but vod metadata activates provider`() = runTest {
+        val provider = ProviderEntity(
+            id = 9L,
+            name = "Xtream",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user",
+            isActive = false,
+            status = ProviderStatus.PARTIAL,
+            lastSyncedAt = 0L
+        )
+        whenever(syncManager.currentSyncState(9L)).thenReturn(SyncState.Success(123L))
+        whenever(channelDao.getCount(9L)).thenReturn(flowOf(0))
+        whenever(syncMetadataRepository.getMetadata(9L)).thenReturn(
+            SyncMetadata(providerId = 9L, movieCount = 4)
+        )
+
+        reconcileTargetedProviderStatus(
+            providerDao = providerDao,
+            channelDao = channelDao,
+            syncMetadataRepository = syncMetadataRepository,
+            syncManager = syncManager,
+            provider = provider,
+            result = Result.success(Unit),
+            currentTimeMillis = 456L
+        )
+
+        val updatedProvider = argumentCaptor<ProviderEntity>()
+        verify(providerDao).update(updatedProvider.capture())
+        assertThat(updatedProvider.firstValue.isActive).isTrue()
+        assertThat(updatedProvider.firstValue.status).isEqualTo(ProviderStatus.ACTIVE)
         assertThat(updatedProvider.firstValue.lastSyncedAt).isEqualTo(456L)
     }
 
@@ -142,6 +182,7 @@ class ProviderSyncWorkerTest {
         reconcileTargetedProviderStatus(
             providerDao = providerDao,
             channelDao = channelDao,
+            syncMetadataRepository = syncMetadataRepository,
             syncManager = syncManager,
             provider = provider,
             result = Result.error("timeout")
