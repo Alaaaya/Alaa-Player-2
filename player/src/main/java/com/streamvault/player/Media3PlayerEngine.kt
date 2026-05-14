@@ -832,7 +832,10 @@ class Media3PlayerEngine @Inject constructor(
             policyModeFor(requestedDecoderMode, preferredDecoderMode)
         )
         val isLiveBuffer = currentResolvedStreamType in setOf(
-            ResolvedStreamType.HLS, ResolvedStreamType.MPEG_TS_LIVE, ResolvedStreamType.RTSP
+            ResolvedStreamType.HLS,
+            ResolvedStreamType.SMOOTH_STREAMING,
+            ResolvedStreamType.MPEG_TS_LIVE,
+            ResolvedStreamType.RTSP
         )
         val previousDecoderPolicy = activeDecoderPolicy
         val needsRecreate = activeDecoderMode != preferredDecoderMode ||
@@ -876,7 +879,10 @@ class Media3PlayerEngine @Inject constructor(
             seekPositionMs?.takeIf { it > 0L }?.let(player::seekTo)
 
             val isLive = currentResolvedStreamType in setOf(
-                ResolvedStreamType.HLS, ResolvedStreamType.MPEG_TS_LIVE, ResolvedStreamType.RTSP
+                ResolvedStreamType.HLS,
+                ResolvedStreamType.SMOOTH_STREAMING,
+                ResolvedStreamType.MPEG_TS_LIVE,
+                ResolvedStreamType.RTSP
             )
             val osContentType = if (isLive) {
                 android.media.AudioAttributes.CONTENT_TYPE_MUSIC
@@ -1622,6 +1628,7 @@ class Media3PlayerEngine @Inject constructor(
 
     private fun isCurrentStreamLive(): Boolean = currentResolvedStreamType in setOf(
         ResolvedStreamType.HLS,
+        ResolvedStreamType.SMOOTH_STREAMING,
         ResolvedStreamType.MPEG_TS_LIVE,
         ResolvedStreamType.RTSP
     )
