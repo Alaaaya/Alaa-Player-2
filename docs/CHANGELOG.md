@@ -35,6 +35,7 @@ All notable product changes are recorded in this document.
 - Fixed unsupported audio streams not retrying once in software when FFmpeg is available.
 - Fixed explicit `TextureView` live playback getting stuck on green or corrupted frames before first video render.
 - Fixed movie playback context and recovery so non-live titles no longer inherit stale live-channel state, external subtitle attachment resumes from the current position, and VOD retries preserve playback progress correctly.
+- Fixed in-app updates crossing release channels: stable builds now only offer stable releases, beta builds now only offer beta prereleases, and same-version beta updates fall back to publish time to detect newer beta builds.
 - Fixed software nav bars overlapping the app on devices like Nexus 5X.
 - Fixed touch and mouse activation for TV plugin controls on non-TV devices.
 - Fixed `TvClickableSurface` and `TvIconButton` long-press behavior for home-screen actions.
