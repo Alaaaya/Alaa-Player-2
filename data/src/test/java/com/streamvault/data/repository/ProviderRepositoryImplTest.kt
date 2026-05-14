@@ -13,6 +13,9 @@ import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.xtream.XtreamApiService
+import com.streamvault.data.remote.dto.XtreamAuthResponse
+import com.streamvault.data.remote.dto.XtreamServerInfo
+import com.streamvault.data.remote.dto.XtreamUserInfo
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -21,6 +24,8 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.repository.SyncMetadataRepository
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -75,6 +80,10 @@ class ProviderRepositoryImplTest {
     )
 
     private val repository = createRepository()
+
+    init {
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+    }
 
     @Test
     fun `deleteProvider cancels recording and reminder alarms before deleting provider rows`() = runTest {
@@ -397,7 +406,7 @@ class ProviderRepositoryImplTest {
         val result = repository.setActiveProvider(9L)
 
         assertThat(result.isError).isTrue()
-        assertThat((result as Result.Error).message).contains("still importing")
+        assertThat((result as Result.Error).message).contains("no content has been committed yet")
         verify(providerDao, never()).setActive(9L)
         verify(syncManager).scheduleProviderSyncResume(9L)
     }
@@ -417,6 +426,77 @@ class ProviderRepositoryImplTest {
         whenever(channelDao.getCount(9L)).thenReturn(flowOf(12))
 
         val result = repository.setActiveProvider(9L)
+
+        assertThat(result.isSuccess).isTrue()
+        verify(providerDao).setActive(9L)
+        verify(syncManager, never()).scheduleProviderSyncResume(9L)
+    }
+
+    @Test
+    fun `setActiveProvider allows xtream provider with no live but committed vod`() = runTest {
+        whenever(providerDao.getById(9L)).thenReturn(
+            ProviderEntity(
+                id = 9L,
+                name = "Xtream",
+                type = ProviderType.XTREAM_CODES,
+                serverUrl = "https://example.com",
+                username = "user",
+                status = ProviderStatus.PARTIAL
+            )
+        )
+        whenever(channelDao.getCount(9L)).thenReturn(flowOf(0))
+        whenever(syncMetadataRepository.getMetadata(9L)).thenReturn(
+            SyncMetadata(providerId = 9L, movieCount = 7)
+        )
+
+        val result = repository.setActiveProvider(9L)
+
+        assertThat(result.isSuccess).isTrue()
+        verify(providerDao).setActive(9L)
+        verify(syncManager, never()).scheduleProviderSyncResume(9L)
+    }
+
+    @Test
+    fun `loginXtream does not fail onboarding when provider has no live but committed vod`() = runTest {
+        whenever(providerDao.getByUrlAndUser("https://example.com", "user")).thenReturn(null)
+        whenever(credentialCrypto.encryptIfNeeded("pass")).thenReturn("pass")
+        whenever(providerDao.insert(any())).thenReturn(9L)
+        whenever(syncManager.sync(eq(9L), eq(false), anyOrNull(), anyOrNull(), anyOrNull(), eq(true)))
+            .thenReturn(Result.success(Unit))
+        whenever(syncManager.currentSyncState(9L)).thenReturn(SyncState.Success(123L))
+        whenever(channelDao.getCount(9L)).thenReturn(flowOf(0))
+        whenever(syncMetadataRepository.getMetadata(9L)).thenReturn(
+            SyncMetadata(providerId = 9L, movieCount = 3)
+        )
+        whenever(xtreamApiService.authenticate(any(), any())).thenReturn(
+            XtreamAuthResponse(
+                userInfo = XtreamUserInfo(
+                    username = "user",
+                    password = "pass",
+                    auth = 1,
+                    status = "Active"
+                ),
+                serverInfo = XtreamServerInfo(
+                    url = "example.com",
+                    port = "80",
+                    serverProtocol = "http"
+                )
+            )
+        )
+
+        val result = repository.loginXtream(
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass",
+            name = "Xtream",
+            httpUserAgent = "",
+            httpHeaders = "",
+            xtreamFastSyncEnabled = false,
+            epgSyncMode = ProviderEpgSyncMode.UPFRONT,
+            xtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+            onProgress = null,
+            id = null
+        )
 
         assertThat(result.isSuccess).isTrue()
         verify(providerDao).setActive(9L)

@@ -152,9 +152,9 @@ class ProviderRepositoryImpl @Inject constructor(
         return try {
             val provider = providerDao.getById(id)
                 ?: return Result.error("Provider not found")
-            if (!hasUsableLiveCatalogForActivation(id, provider.type, channelDao)) {
+            if (!hasUsableLiveCatalogForActivation(id, provider.type, channelDao, syncMetadataRepository)) {
                 syncManager.scheduleProviderSyncResume(id)
-                return Result.error("Provider is saved but Live TV is still importing. Sync will resume in background.")
+                return Result.error("Provider is saved but no content has been committed yet. Sync will resume in background.")
             }
             providerDao.setActive(id)
             Result.success(Unit)
@@ -456,7 +456,12 @@ class ProviderRepositoryImpl @Inject constructor(
             } else {
                 ProviderStatus.ACTIVE
             }
-            if (!hasUsableLiveCatalogForActivation(providerData.id, providerData.type, channelDao)) {
+            if (!hasUsableLiveCatalogForActivation(
+                    providerData.id,
+                    providerData.type,
+                    channelDao,
+                    syncMetadataRepository
+                )) {
                 updateProviderSyncStatus(
                     providerData.id,
                     ProviderStatus.PARTIAL,
@@ -464,7 +469,7 @@ class ProviderRepositoryImpl @Inject constructor(
                     isActive = false
                 )
                 syncManager.scheduleProviderSyncResume(providerData.id)
-                val message = "$syncFailurePrefix: Live TV did not finish with any committed channels."
+                val message = "$syncFailurePrefix: Sync did not finish with any committed content."
                 Result.error(
                     message,
                     ProviderSavedWithSyncErrorException(
@@ -525,7 +530,12 @@ class ProviderRepositoryImpl @Inject constructor(
                     ProviderStatus.ACTIVE
                 }
                 val provider = providerDao.getById(providerId)
-                if (provider != null && !hasUsableLiveCatalogForActivation(providerId, provider.type, channelDao)) {
+                if (provider != null && !hasUsableLiveCatalogForActivation(
+                        providerId,
+                        provider.type,
+                        channelDao,
+                        syncMetadataRepository
+                    )) {
                     updateProviderSyncStatus(
                         providerId,
                         ProviderStatus.PARTIAL,
