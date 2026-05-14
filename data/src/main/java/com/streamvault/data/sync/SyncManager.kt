@@ -3125,17 +3125,34 @@ class SyncManager @Inject constructor(
                 }
             }
             is CatalogStrategyResult.Partial -> {
-                val liveCatalog = mergeVisibleLiveSyncWithHiddenStoredContent(
-                    providerId = providerId,
-                    visibleCategories = liveSyncResult.categories,
-                    visibleChannels = liveResult.items.map { it.toEntity() },
-                    hiddenLiveCategoryIds = hiddenLiveCategoryIds
-                )
-                syncCatalogStore.upsertLiveCatalog(
-                    providerId = providerId,
-                    categories = liveCatalog.categories,
-                    channels = liveCatalog.channels
-                )
+                liveSyncResult.stagedSessionId?.let { sessionId ->
+                    val mergedCategories = mergeVisibleLiveCategoriesWithHiddenStoredContent(
+                        providerId = providerId,
+                        visibleCategories = liveSyncResult.categories,
+                        hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                    )
+                    if (hiddenLiveCategoryIds.isNotEmpty()) {
+                        mergeHiddenChannelsIntoStaging(providerId, sessionId, hiddenLiveCategoryIds)
+                    }
+                    syncCatalogStore.applyStagedLiveCatalogUpsertOnly(
+                        providerId = providerId,
+                        sessionId = sessionId,
+                        categories = mergedCategories
+                    )
+                    liveSyncResult.stagedAcceptedCount
+                } ?: run {
+                    val liveCatalog = mergeVisibleLiveSyncWithHiddenStoredContent(
+                        providerId = providerId,
+                        visibleCategories = liveSyncResult.categories,
+                        visibleChannels = liveResult.items.map { it.toEntity() },
+                        hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                    )
+                    syncCatalogStore.upsertLiveCatalog(
+                        providerId = providerId,
+                        categories = liveCatalog.categories,
+                        channels = liveCatalog.channels
+                    )
+                }
             }
             is CatalogStrategyResult.EmptyValid,
             is CatalogStrategyResult.Failure -> {

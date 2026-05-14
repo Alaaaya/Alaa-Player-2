@@ -890,6 +890,52 @@ class SyncManagerTest {
     }
 
     @Test
+    fun `sync_xtream_partial_live_category_bulk_commits_staged_channels`() = runTest {
+        val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
+        xtreamBackend.respond(
+            action = "get_live_categories",
+            body = """
+                [
+                  {"category_id":"1","category_name":"News"},
+                  {"category_id":"2","category_name":"Sports"}
+                ]
+            """.trimIndent()
+        )
+        xtreamBackend.respond(
+            action = "get_live_streams",
+            body = """
+                [
+                  {
+                    "name": "Channel One",
+                    "stream_id": 1001,
+                    "category_id": "1",
+                    "stream_icon": "https://example.com/ch1.png",
+                    "tv_archive": 0,
+                    "num": 1
+                  }
+                ]
+            """.trimIndent()
+        )
+        xtreamBackend.respond(
+            action = "get_live_streams",
+            body = "{" + '"' + "error" + '"' + ":" + '"' + "category unavailable" + '"' + "}",
+            code = 500
+        )
+        stubXtreamEmptyVodAndSeriesCategories()
+
+        val result = mgr.sync(1L, force = false)
+        advanceUntilIdle()
+
+        assertThat(result.isSuccess).isTrue()
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
+        assertThat(syncMetadataRepo.getMetadata(1L)?.liveCount).isEqualTo(1)
+        val stagedSessionId = argumentCaptor<Long>()
+        verify(catalogSyncDao).updateChangedChannelsFromStage(eq(1L), stagedSessionId.capture())
+        verify(catalogSyncDao).insertMissingChannelsFromStage(1L, stagedSessionId.firstValue)
+        verify(catalogSyncDao).clearChannelStages(1L, stagedSessionId.firstValue)
+    }
+
+    @Test
     fun `sync_xtream_vod_category_failure_does_not_fetch_movie_streams`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
         val now = System.currentTimeMillis()

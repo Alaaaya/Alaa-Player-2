@@ -42,6 +42,7 @@ All notable product changes are recorded in this document.
 - Fixed missing favorite actions on series detail screens.
 - Fixed Xtream series detail pages rendering empty when only metadata-only season payloads were returned.
 - Fixed Xtream live sync category requests hanging near the end of large imports.
+- Fixed Xtream live category-bulk partial sync dropping staged channels and leaving providers stuck on `Live 0`/inactive after successful live category imports.
 - Fixed VOD category ordering to sort by provider-added time.
 - Fixed Stalker VOD category filtering drifting when portal responses omitted category metadata.
 - Fixed backup export and import to preserve hidden live categories and channels.
