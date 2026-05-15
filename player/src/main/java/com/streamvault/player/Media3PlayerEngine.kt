@@ -58,6 +58,7 @@ import com.streamvault.player.playback.PlayerRetryPolicy
 import com.streamvault.player.playback.PlayerTimeoutProfile
 import com.streamvault.player.playback.PreloadCoordinator
 import com.streamvault.player.playback.ResolvedStreamType
+import com.streamvault.player.playback.resolveRetryAttemptAfterPlaybackStarted
 import com.streamvault.player.playback.resolveRetryAttemptAfterReady
 import com.streamvault.player.playback.resolveRetrySeekPositionMs
 import com.streamvault.player.playback.StreamTypeResolver
@@ -1229,8 +1230,7 @@ class Media3PlayerEngine @Inject constructor(
                     _retryStatus.value = null
                     retryAttempt = resolveRetryAttemptAfterReady(
                         currentAttempt = retryAttempt,
-                        playbackStarted = playbackStarted,
-                        isCurrentMediaItemLive = exoPlayer?.isCurrentMediaItemLive == true
+                        playbackStarted = playbackStarted
                     )
                     if (isPlayingTimeshiftSnapshot && pendingTimeshiftSeekToEnd) {
                         pendingTimeshiftSeekToEnd = false
@@ -1379,6 +1379,7 @@ class Media3PlayerEngine @Inject constructor(
     private fun markPlaybackStarted(reason: String) {
         if (playbackStarted) return
         playbackStarted = true
+        retryAttempt = resolveRetryAttemptAfterPlaybackStarted(retryAttempt)
         Log.i(
             TAG,
             "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioPath=$audioOutputPath compatibilitySource=$compatibilityDecisionSource target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"

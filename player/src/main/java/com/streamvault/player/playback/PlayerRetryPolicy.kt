@@ -117,7 +117,11 @@ class PlayerRetryPolicy(
                 else -> 1
             }
 
-            PlaybackErrorCategory.SOURCE_MALFORMED -> if (playbackStarted) 0 else 1
+            PlaybackErrorCategory.SOURCE_MALFORMED -> when {
+                streamContext.isLive && playbackStarted -> 3
+                playbackStarted -> 0
+                else -> 1
+            }
             PlaybackErrorCategory.UNKNOWN -> if (playbackStarted) 0 else 1
         }
     }

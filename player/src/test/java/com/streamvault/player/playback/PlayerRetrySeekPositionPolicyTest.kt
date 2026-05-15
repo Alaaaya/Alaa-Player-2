@@ -80,21 +80,26 @@ class PlayerRetrySeekPositionPolicyTest {
     fun `ready movie playback after retry restores transient retry budget`() {
         val nextAttempt = resolveRetryAttemptAfterReady(
             currentAttempt = 1,
-            playbackStarted = true,
-            isCurrentMediaItemLive = false
+            playbackStarted = true
         )
 
         assertThat(nextAttempt).isEqualTo(0)
     }
 
     @Test
-    fun `ready live playback keeps retry budget scoped to live recovery`() {
+    fun `ready live playback after retry restores transient retry budget`() {
         val nextAttempt = resolveRetryAttemptAfterReady(
             currentAttempt = 1,
-            playbackStarted = true,
-            isCurrentMediaItemLive = true
+            playbackStarted = true
         )
 
-        assertThat(nextAttempt).isEqualTo(1)
+        assertThat(nextAttempt).isEqualTo(0)
+    }
+
+    @Test
+    fun `first frame after retry restores transient retry budget`() {
+        val nextAttempt = resolveRetryAttemptAfterPlaybackStarted(currentAttempt = 1)
+
+        assertThat(nextAttempt).isEqualTo(0)
     }
 }
