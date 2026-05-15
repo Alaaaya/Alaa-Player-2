@@ -30,13 +30,15 @@ class PlayerTimeoutProfileTest {
 
     @Test
     fun `progressive file selects progressive timeout profile`() {
-        assertThat(
+        val profile =
             PlayerTimeoutProfile.resolve(
                 streamInfo = StreamInfo(url = "http://example.com/movie.mp4"),
                 resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
                 preload = false
             )
-        ).isEqualTo(PlayerTimeoutProfile.PROGRESSIVE)
+
+        assertThat(profile).isEqualTo(PlayerTimeoutProfile.PROGRESSIVE)
+        assertThat(profile.connectTimeoutMs).isAtMost(5_000L)
+        assertThat(profile.readTimeoutMs).isEqualTo(10_000L)
     }
 }
-
