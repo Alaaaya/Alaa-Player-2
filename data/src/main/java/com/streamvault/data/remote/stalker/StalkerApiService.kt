@@ -1,10 +1,15 @@
 package com.streamvault.data.remote.stalker
 
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerPortalProfile
 
 data class StalkerDeviceProfile(
     val portalUrl: String,
     val macAddress: String,
+    val authMode: StalkerAuthMode,
+    val username: String,
+    val password: String,
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
@@ -19,7 +24,11 @@ data class StalkerDeviceProfile(
 data class StalkerSession(
     val loadUrl: String,
     val portalReferer: String,
-    val token: String
+    val token: String,
+    val serverCookieHeader: String = "",
+    val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val bootstrapEvidence: List<String> = emptyList()
 )
 
 data class StalkerProviderProfile(
@@ -28,7 +37,16 @@ data class StalkerProviderProfile(
     val maxConnections: Int? = null,
     val expirationDate: Long? = null,
     val statusLabel: String? = null,
-    val authAccess: Boolean? = null
+    val authAccess: Boolean? = null,
+    val moduleNames: List<String> = emptyList(),
+    val bootstrapStrategy: StalkerBootstrapStrategy = StalkerBootstrapStrategy.AUTO,
+    val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val portalCapabilities: StalkerPortalCapabilities = StalkerPortalCapabilities(),
+    val credentialRequired: Boolean = false,
+    val macRequired: Boolean = true,
+    val bootstrapEvidence: List<String> = emptyList(),
+    val ambiguousState: Boolean = false
 )
 
 data class StalkerCategoryRecord(
@@ -57,6 +75,19 @@ data class StalkerItemRecord(
     val youtubeTrailer: String? = null,
     val backdropUrl: String? = null,
     val containerExtension: String? = null,
+    val playbackDescriptor: StalkerPlaybackDescriptor? = null,
+    val commandVariants: List<StalkerCommandVariant> = emptyList(),
+    val portalCapabilities: StalkerPortalCapabilities = StalkerPortalCapabilities(),
+    val mcCmd: String? = null,
+    val useHttpTemporaryLink: Boolean? = null,
+    val nginxSecureLink: Boolean? = null,
+    val flussonicTemporaryLink: Boolean? = null,
+    val wowzaTemporaryLink: Boolean? = null,
+    val useLoadBalancing: Boolean? = null,
+    val allowLocalTimeshift: Boolean? = null,
+    val allowLocalPvr: Boolean? = null,
+    val allowRemotePvr: Boolean? = null,
+    val archiveAvailable: Boolean? = null,
     val addedAt: Long = 0L,
     val isAdult: Boolean = false,
     val isSeries: Boolean = false

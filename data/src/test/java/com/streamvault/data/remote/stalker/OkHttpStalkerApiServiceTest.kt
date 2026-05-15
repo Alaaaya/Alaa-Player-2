@@ -146,6 +146,66 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_retains_server_cookies_for_follow_up_playback_requests() = runTest {
+        val observedCookies = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "create_link") {
+                        observedCookies += request.header("Cookie").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        "create_link" -> """{"js":{"cmd":"ffmpeg http://cdn.example.com/live/stream.ts"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    val responseBuilder = Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                    if (action == "handshake") {
+                        responseBuilder.addHeader("Set-Cookie", "PHPSESSID=session-42; Path=/; HttpOnly")
+                    }
+                    responseBuilder.build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val authResult = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        ) as Result.Success
+
+        val createLinkResult = service.createLink(
+            session = authResult.data.first,
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://localhost/ch/1234_"
+        )
+
+        assertThat(createLinkResult).isInstanceOf(Result.Success::class.java)
+        assertThat(authResult.data.first.serverCookieHeader).contains("PHPSESSID=session-42")
+        assertThat(observedCookies.single()).contains("PHPSESSID=session-42")
+    }
+
+    @Test
     fun authenticate_reports_access_denied_html_clearly() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
@@ -269,6 +329,61 @@ class OkHttpStalkerApiServiceTest {
         val success = result as Result.Success
         assertThat(success.data.map { it.name }).containsExactly("News")
         assertThat(requestedActions).containsExactly("get_all_channels")
+    }
+
+    @Test
+    fun getLiveStreams_preserves_command_variants_and_temp_link_flags() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_all_channels" to """
+                    {"js":{"data":[
+                        {
+                            "id":"100",
+                            "name":"News",
+                            "tv_genre_id":"10",
+                            "cmd":"ffmpeg http://localhost/ch/100_",
+                            "cmd_1":"ffmpeg http://backup.example.com/play/live.php?stream=100",
+                            "cmd_2":"ffmpeg http://edge.example.com/live/news.m3u8",
+                            "mc_cmd":"ffmpeg http://mc.example.com/live/100.ts",
+                            "cmds":[{"url":"ffmpeg http://multi.example.com/live/100.ts"}],
+                            "use_http_tmp_link":"1",
+                            "nginx_secure_link":"1",
+                            "allow_local_timeshift":"1",
+                            "archive":"1"
+                        }
+                    ]}}
+                """.trimIndent()
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getLiveStreams(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            categoryId = null
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val item = (result as Result.Success).data.single()
+        assertThat(item.commandVariants.map { it.sourceKey })
+            .containsAtLeast("cmd", "cmd_1", "cmd_2", "mc_cmd", "cmds[0]")
+        assertThat(item.commandVariants.map { it.cmd })
+            .contains("ffmpeg http://edge.example.com/live/news.m3u8")
+        assertThat(item.playbackDescriptor?.primaryMode).isEqualTo(StalkerPlaybackMode.MULTI_CMD)
+        assertThat(item.portalCapabilities.useHttpTemporaryLink).isTrue()
+        assertThat(item.portalCapabilities.nginxSecureLink).isTrue()
+        assertThat(item.portalCapabilities.allowLocalTimeshift).isTrue()
+        assertThat(item.portalCapabilities.archiveAvailable).isTrue()
     }
 
     @Test

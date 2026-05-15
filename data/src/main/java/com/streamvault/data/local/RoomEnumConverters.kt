@@ -6,6 +6,8 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerPortalProfile
 import java.util.logging.Logger
 
 class RoomEnumConverters {
@@ -39,6 +41,20 @@ class RoomEnumConverters {
     @TypeConverter
     fun toProviderXtreamLiveSyncMode(value: String?): ProviderXtreamLiveSyncMode? =
         enumValueOrDefault(value, ProviderXtreamLiveSyncMode.AUTO, providerXtreamLiveSyncModeAliases())
+
+    @TypeConverter
+    fun fromStalkerAuthMode(value: StalkerAuthMode?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerAuthMode(value: String?): StalkerAuthMode? =
+        enumValueOrDefault(value, StalkerAuthMode.AUTO)
+
+    @TypeConverter
+    fun fromStalkerPortalProfile(value: StalkerPortalProfile?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerPortalProfile(value: String?): StalkerPortalProfile? =
+        enumValueOrDefault(value, StalkerPortalProfile.MAG_BASIC)
 
     @TypeConverter
     fun fromContentType(value: ContentType?): String? = value?.name

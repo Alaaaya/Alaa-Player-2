@@ -19,6 +19,13 @@ data class Provider(
     val stalkerDeviceId: String = "",
     val stalkerDeviceId2: String = "",
     val stalkerSignature: String = "",
+    val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val stalkerLastPlaybackMode: String? = null,
+    val stalkerCredentialsRequired: Boolean = false,
+    val stalkerMacRequired: Boolean = true,
+    val stalkerUsesTemporaryLinks: Boolean = false,
+    val stalkerModuleRestricted: Boolean = false,
     val isActive: Boolean = true,
     val maxConnections: Int = 1,
     val expirationDate: Long? = null,
@@ -58,6 +65,21 @@ enum class ProviderXtreamLiveSyncMode {
     AUTO,
     CATEGORY_BY_CATEGORY,
     STREAM_ALL
+}
+
+enum class StalkerAuthMode {
+    AUTO,
+    MAC_ONLY,
+    MAC_PLUS_CREDENTIALS,
+    CREDENTIALS_ONLY
+}
+
+enum class StalkerPortalProfile {
+    MAG_BASIC,
+    MAG_STRICT,
+    AUTH_REQUIRED,
+    AUTH_PLUS_MAG,
+    MODULE_GATED
 }
 
 enum class ProviderStatus {

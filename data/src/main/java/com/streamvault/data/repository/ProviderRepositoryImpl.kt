@@ -9,6 +9,7 @@ import com.streamvault.data.mapper.*
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.http.buildGenericProviderRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamProvider
@@ -347,6 +348,9 @@ class ProviderRepositoryImpl @Inject constructor(
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -361,6 +365,7 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedPortalUrl = ProviderInputSanitizer.normalizeUrl(portalUrl)
         val normalizedMacAddress = ProviderInputSanitizer.normalizeMacAddress(macAddress)
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+        val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
@@ -375,27 +380,39 @@ class ProviderRepositoryImpl @Inject constructor(
         UrlSecurityPolicy.validateStalkerPortalUrl(normalizedPortalUrl)?.let { message ->
             return Result.error(message)
         }
-        ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
-            return Result.error(message)
+        if (normalizedMacAddress.isNotBlank()) {
+            ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
+                return Result.error(message)
+            }
         }
 
         onProgress?.invoke("Authenticating...")
         val existingProvider = if (id != null) {
             // Edit path: check that the new normalized identity does not collide with a
             // different provider before we commit the update.
-            val collision = providerDao.getByUrlAndUser(normalizedPortalUrl, "", normalizedMacAddress)
+            val collision = providerDao.getByUrlAndUser(normalizedPortalUrl, normalizedUsername, normalizedMacAddress)
             if (collision != null && collision.id != id) {
-                return Result.error("A Stalker provider with this portal URL and MAC address already exists.")
+                return Result.error("A Stalker provider with this portal URL and identity already exists.")
             }
             providerDao.getById(id)
         } else {
-            providerDao.getByUrlAndUser(normalizedPortalUrl, "", normalizedMacAddress)
+            providerDao.getByUrlAndUser(normalizedPortalUrl, normalizedUsername, normalizedMacAddress)
+        }
+        val effectivePassword = try {
+            password.takeIf { it.isNotBlank() }
+                ?: existingProvider?.password?.let(credentialCrypto::decryptIfNeeded)
+                ?: ""
+        } catch (e: CredentialDecryptionException) {
+            return Result.error(e.message ?: CredentialDecryptionException.MESSAGE, e)
         }
 
         val provider = createStalkerProvider(
             providerId = 0L,
             portalUrl = normalizedPortalUrl,
             macAddress = normalizedMacAddress,
+            authMode = authMode,
+            username = normalizedUsername,
+            password = effectivePassword,
             deviceProfile = normalizedDeviceProfile,
             timezone = normalizedTimezone,
             locale = normalizedLocale,
@@ -413,6 +430,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         id = existingProvider.id,
                         name = normalizedName.ifBlank { existingProvider.name },
                         serverUrl = normalizedPortalUrl,
+                        username = normalizedUsername,
+                        password = effectivePassword,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -436,6 +455,8 @@ class ProviderRepositoryImpl @Inject constructor(
                     val newData = authResult.data.copy(
                         name = normalizedName.ifBlank { authResult.data.name },
                         serverUrl = normalizedPortalUrl,
+                        username = normalizedUsername,
+                        password = effectivePassword,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -754,6 +775,11 @@ class ProviderRepositoryImpl @Inject constructor(
         providerId: Long,
         portalUrl: String,
         macAddress: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
+        portalProfileHint: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+        preferredPlaybackMode: StalkerPlaybackMode? = null,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -767,6 +793,11 @@ class ProviderRepositoryImpl @Inject constructor(
             api = stalkerApiService,
             portalUrl = portalUrl,
             macAddress = macAddress,
+            authMode = authMode,
+            username = username,
+            password = password,
+            portalProfileHint = portalProfileHint,
+            preferredPlaybackMode = preferredPlaybackMode,
             deviceProfile = deviceProfile,
             timezone = timezone,
             locale = locale,
@@ -782,6 +813,16 @@ class ProviderRepositoryImpl @Inject constructor(
             providerId = entity.id,
             portalUrl = entity.serverUrl,
             macAddress = entity.stalkerMacAddress,
+            authMode = entity.stalkerAuthMode,
+            username = entity.username,
+            password = try {
+                credentialCrypto.decryptIfNeeded(entity.password)
+            } catch (_: Throwable) {
+                ""
+            },
+            portalProfileHint = entity.stalkerPortalProfile,
+            preferredPlaybackMode = entity.stalkerLastPlaybackMode
+                ?.let { runCatching { StalkerPlaybackMode.valueOf(it) }.getOrNull() },
             deviceProfile = entity.stalkerDeviceProfile,
             timezone = entity.stalkerDeviceTimezone,
             locale = entity.stalkerDeviceLocale,

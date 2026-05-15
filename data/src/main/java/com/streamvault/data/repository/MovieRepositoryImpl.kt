@@ -20,6 +20,7 @@ import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
@@ -1485,6 +1486,12 @@ class MovieRepositoryImpl @Inject constructor(
             api = stalkerApiService,
             portalUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = credentialCrypto.decryptIfNeeded(provider.password),
+            portalProfileHint = provider.stalkerPortalProfile,
+            preferredPlaybackMode = provider.stalkerLastPlaybackMode
+                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
             locale = provider.stalkerDeviceLocale,

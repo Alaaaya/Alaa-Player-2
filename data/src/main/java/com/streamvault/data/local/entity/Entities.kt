@@ -10,6 +10,8 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 
 @Entity(
@@ -36,6 +38,13 @@ data class ProviderEntity(
     @ColumnInfo(name = "stalker_device_id") val stalkerDeviceId: String = "",
     @ColumnInfo(name = "stalker_device_id2") val stalkerDeviceId2: String = "",
     @ColumnInfo(name = "stalker_signature") val stalkerSignature: String = "",
+    @ColumnInfo(name = "stalker_auth_mode") val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    @ColumnInfo(name = "stalker_portal_profile") val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    @ColumnInfo(name = "stalker_last_playback_mode") val stalkerLastPlaybackMode: String? = null,
+    @ColumnInfo(name = "stalker_credentials_required") val stalkerCredentialsRequired: Boolean = false,
+    @ColumnInfo(name = "stalker_mac_required") val stalkerMacRequired: Boolean = true,
+    @ColumnInfo(name = "stalker_uses_temp_links") val stalkerUsesTemporaryLinks: Boolean = false,
+    @ColumnInfo(name = "stalker_module_restricted") val stalkerModuleRestricted: Boolean = false,
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
     @ColumnInfo(name = "max_connections") val maxConnections: Int = 1,
     @ColumnInfo(name = "expiration_date") val expirationDate: Long? = null,

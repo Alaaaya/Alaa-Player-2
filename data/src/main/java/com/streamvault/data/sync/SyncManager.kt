@@ -30,6 +30,7 @@ import com.streamvault.data.parser.M3uParser
 import com.streamvault.data.remote.http.buildAppRequestProfile
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
 import com.streamvault.data.remote.dto.XtreamCategory
@@ -4318,6 +4319,12 @@ class SyncManager @Inject constructor(
             api = stalkerApiService,
             portalUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = provider.password,
+            portalProfileHint = provider.stalkerPortalProfile,
+            preferredPlaybackMode = provider.stalkerLastPlaybackMode
+                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
             locale = provider.stalkerDeviceLocale,
@@ -4544,6 +4551,9 @@ class SyncManager @Inject constructor(
         val profile = when (val profileResult = api.getAccountProfile()) {
             is com.streamvault.domain.model.Result.Success -> profileResult.data
             else -> return null
+        }
+        if (profile.ambiguousState) {
+            return "Portal profile is ambiguous; playback/session validation failed. Check that the MAC is activated and that this portal supports MAG-style playback for the assigned account."
         }
         if (!profile.hasLikelyMissingCatalogAccess()) {
             return null

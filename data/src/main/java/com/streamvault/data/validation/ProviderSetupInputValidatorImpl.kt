@@ -7,6 +7,7 @@ import com.streamvault.domain.manager.ValidatedM3uProviderInput
 import com.streamvault.domain.manager.ValidatedStalkerProviderInput
 import com.streamvault.domain.manager.ValidatedXtreamProviderInput
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -100,6 +101,10 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
+        allowBlankPassword: Boolean,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -111,6 +116,8 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         val normalizedPortalUrl = ProviderInputSanitizer.normalizeUrl(portalUrl)
         val normalizedMacAddress = ProviderInputSanitizer.normalizeMacAddress(macAddress)
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+        val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
+        val normalizedPassword = ProviderInputSanitizer.normalizePassword(password)
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
@@ -128,8 +135,60 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         UrlSecurityPolicy.validateStalkerPortalUrl(normalizedPortalUrl)?.let { message ->
             return Result.error(message)
         }
-        ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
-            return Result.error(message)
+
+        when (authMode) {
+            StalkerAuthMode.MAC_ONLY -> {
+                ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
+                    return Result.error(message)
+                }
+            }
+
+            StalkerAuthMode.MAC_PLUS_CREDENTIALS -> {
+                ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
+                    return Result.error(message)
+                }
+                if (normalizedUsername.isBlank()) {
+                    return Result.error("Please enter username")
+                }
+                ProviderInputSanitizer.validatePassword(normalizedPassword, allowBlankPassword)?.let { message ->
+                    return Result.error(message)
+                }
+            }
+
+            StalkerAuthMode.CREDENTIALS_ONLY -> {
+                if (normalizedUsername.isBlank()) {
+                    return Result.error("Please enter username")
+                }
+                ProviderInputSanitizer.validatePassword(normalizedPassword, allowBlankPassword)?.let { message ->
+                    return Result.error(message)
+                }
+                if (normalizedMacAddress.isNotBlank()) {
+                    ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
+                        return Result.error(message)
+                    }
+                }
+            }
+
+            StalkerAuthMode.AUTO -> {
+                val hasMac = normalizedMacAddress.isNotBlank()
+                val hasUsername = normalizedUsername.isNotBlank()
+                if (!hasMac && !hasUsername) {
+                    return Result.error("Please enter a MAC address or username")
+                }
+                if (hasMac) {
+                    ProviderInputSanitizer.validateMacAddress(normalizedMacAddress)?.let { message ->
+                        return Result.error(message)
+                    }
+                }
+                if (hasUsername || password.isNotBlank()) {
+                    if (!hasUsername) {
+                        return Result.error("Please enter username")
+                    }
+                    ProviderInputSanitizer.validatePassword(normalizedPassword, allowBlankPassword)?.let { message ->
+                        return Result.error(message)
+                    }
+                }
+            }
         }
 
         // deviceProfile becomes the X-User-Agent model and part of the device signature. Blank
@@ -177,6 +236,9 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
                 portalUrl = normalizedPortalUrl,
                 macAddress = normalizedMacAddress,
                 name = normalizedName,
+                authMode = authMode,
+                username = normalizedUsername,
+                password = normalizedPassword,
                 deviceProfile = normalizedDeviceProfile,
                 timezone = normalizedTimezone,
                 locale = normalizedLocale,

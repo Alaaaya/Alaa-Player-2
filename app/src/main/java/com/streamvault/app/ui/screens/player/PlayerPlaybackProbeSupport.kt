@@ -6,6 +6,11 @@ internal data class PlaybackProbeFailure(
 )
 
 internal fun resolvePlaybackProbeFailure(responseCode: Int): PlaybackProbeFailure? = when (responseCode) {
+    204 -> PlaybackProbeFailure(
+        message = "Portal issued an empty temporary link for this stream (HTTP 204). Retrying the channel may refresh the portal session.",
+        recoveryType = PlayerRecoveryType.SOURCE
+    )
+
     401, 403 -> PlaybackProbeFailure(
         message = "This provider stream was rejected ($responseCode Unauthorized/Forbidden).",
         recoveryType = PlayerRecoveryType.SOURCE

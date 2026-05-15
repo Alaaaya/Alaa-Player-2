@@ -1,0 +1,21 @@
+{
+  "name": "auth_required",
+  "device": {
+    "portalUrl": "https://portal.example.com/c",
+    "macAddress": "",
+    "authMode": "CREDENTIALS_ONLY",
+    "username": "alice",
+    "password": "secret"
+  },
+  "responses": [
+    { "action": "handshake", "body": "{\"js\":{\"token\":\"token-456\"}}" },
+    { "action": "do_auth", "method": "POST", "body": "{\"js\":{\"status\":1}}" },
+    { "action": "get_profile", "body": "{\"js\":{\"id\":\"88\",\"name\":\"Bedroom\",\"status\":\"1\",\"auth_access\":true}}" }
+  ],
+  "expected": {
+    "authMode": "CREDENTIALS_ONLY",
+    "portalProfile": "AUTH_REQUIRED",
+    "bootstrapEvidence": ["handshake", "do_auth", "get_profile"],
+    "requestOrder": ["handshake", "do_auth", "get_profile"]
+  }
+}

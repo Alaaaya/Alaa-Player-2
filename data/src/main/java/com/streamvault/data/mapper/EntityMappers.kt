@@ -3,6 +3,8 @@ package com.streamvault.data.mapper
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.streamvault.data.local.entity.*
+import com.streamvault.data.remote.stalker.StalkerPlaybackDescriptor
+import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.xtream.XtreamStreamKind
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.domain.model.*
@@ -32,6 +34,13 @@ fun ProviderEntity.toDomain() = Provider(
     stalkerDeviceId = stalkerDeviceId,
     stalkerDeviceId2 = stalkerDeviceId2,
     stalkerSignature = stalkerSignature,
+    stalkerAuthMode = stalkerAuthMode,
+    stalkerPortalProfile = stalkerPortalProfile,
+    stalkerLastPlaybackMode = stalkerLastPlaybackMode,
+    stalkerCredentialsRequired = stalkerCredentialsRequired,
+    stalkerMacRequired = stalkerMacRequired,
+    stalkerUsesTemporaryLinks = stalkerUsesTemporaryLinks,
+    stalkerModuleRestricted = stalkerModuleRestricted,
     isActive = isActive,
     maxConnections = maxConnections,
     expirationDate = expirationDate,
@@ -65,6 +74,13 @@ fun Provider.toEntity() = ProviderEntity(
     stalkerDeviceId = stalkerDeviceId,
     stalkerDeviceId2 = stalkerDeviceId2,
     stalkerSignature = stalkerSignature,
+    stalkerAuthMode = stalkerAuthMode,
+    stalkerPortalProfile = stalkerPortalProfile,
+    stalkerLastPlaybackMode = stalkerLastPlaybackMode,
+    stalkerCredentialsRequired = stalkerCredentialsRequired,
+    stalkerMacRequired = stalkerMacRequired,
+    stalkerUsesTemporaryLinks = stalkerUsesTemporaryLinks,
+    stalkerModuleRestricted = stalkerModuleRestricted,
     isActive = isActive,
     maxConnections = maxConnections,
     expirationDate = expirationDate,
@@ -103,6 +119,28 @@ fun CombinedM3uProfileMemberWithProvider.toDomain() = CombinedM3uProfileMember(
 
 fun ChannelEntity.toDomain(): Channel {
     val qualityOptions = decodeQualityOptions(qualityOptionsJson)
+    val stalkerToken = StalkerUrlFactory.parseInternalStreamUrl(streamUrl)
+    val stalkerAlternateStreams = stalkerToken?.playbackDescriptor
+        ?.candidates
+        ?.drop(1)
+        ?.mapIndexed { index, variant ->
+            StalkerUrlFactory.buildInternalStreamUrl(
+                providerId = stalkerToken.providerId,
+                kind = stalkerToken.kind,
+                itemId = stalkerToken.itemId,
+                cmd = variant.cmd,
+                containerExtension = stalkerToken.containerExtension,
+                seriesNumber = stalkerToken.seriesNumber,
+                playbackDescriptor = StalkerPlaybackDescriptor(
+                    primaryMode = variant.playbackMode,
+                    candidates = listOf(
+                        variant.copy(priority = 0)
+                    ),
+                    capabilities = stalkerToken.playbackDescriptor.capabilities
+                )
+            )
+        }
+        .orEmpty()
     return Channel(
         id = id,
         name = name,
@@ -122,7 +160,10 @@ fun ChannelEntity.toDomain(): Channel {
         logicalGroupId = logicalGroupId,
         errorCount = errorCount,
         qualityOptions = qualityOptions,
-        alternativeStreams = qualityOptions.mapNotNull { it.url }.filter { it != streamUrl }.distinct(),
+        alternativeStreams = (
+            qualityOptions.mapNotNull { it.url }.filter { it != streamUrl } +
+                stalkerAlternateStreams.filter { it != streamUrl }
+            ).distinct(),
         streamId = streamId
     )
 }

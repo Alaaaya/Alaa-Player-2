@@ -1,0 +1,23 @@
+{
+  "name": "auth_plus_mag",
+  "device": {
+    "portalUrl": "https://portal.example.com/server/load.php",
+    "macAddress": "00:1A:79:AA:BB:CC",
+    "authMode": "AUTO",
+    "username": "alice",
+    "password": "secret"
+  },
+  "responses": [
+    { "action": "handshake", "body": "{\"js\":{\"token\":\"token-789\"}}" },
+    { "action": "get_profile", "body": "{\"js\":{\"name\":\"Partial\",\"status\":\"0\",\"auth_access\":false}}" },
+    { "action": "handshake", "body": "{\"js\":{\"token\":\"token-789\"}}" },
+    { "action": "do_auth", "method": "POST", "body": "{\"js\":{\"status\":1}}" },
+    { "action": "get_profile", "body": "{\"js\":{\"id\":\"42\",\"name\":\"Full Access\",\"status\":\"1\",\"auth_access\":true}}" }
+  ],
+  "expected": {
+    "authMode": "MAC_PLUS_CREDENTIALS",
+    "portalProfile": "AUTH_PLUS_MAG",
+    "bootstrapEvidence": ["handshake", "do_auth", "get_profile"],
+    "requestOrder": ["handshake", "get_profile", "handshake", "do_auth", "get_profile"]
+  }
+}

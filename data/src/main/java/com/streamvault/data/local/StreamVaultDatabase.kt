@@ -49,7 +49,7 @@ import com.streamvault.data.local.entity.*
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class
     ],
-    version = 54,
+    version = 55,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2593,6 +2593,19 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id TEXT NOT NULL DEFAULT ''")
                 database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id2 TEXT NOT NULL DEFAULT ''")
                 database.execSQL("ALTER TABLE providers ADD COLUMN stalker_signature TEXT NOT NULL DEFAULT ''")
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_auth_mode TEXT NOT NULL DEFAULT 'AUTO'")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_portal_profile TEXT NOT NULL DEFAULT 'MAG_BASIC'")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_last_playback_mode TEXT")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_credentials_required INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_mac_required INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_uses_temp_links INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_module_restricted INTEGER NOT NULL DEFAULT 0")
                 validateForeignKeys(database, "providers")
             }
         }

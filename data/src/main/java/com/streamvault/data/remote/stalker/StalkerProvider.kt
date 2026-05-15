@@ -14,8 +14,11 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.util.ChannelNormalizer
+import java.io.IOException
 import java.net.URI
 import java.util.Base64
 import java.util.Locale
@@ -25,7 +28,8 @@ import kotlinx.coroutines.sync.withLock
 data class StalkerPlaybackInfo(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
-    val userAgent: String? = null
+    val userAgent: String? = null,
+    val playbackMode: StalkerPlaybackMode = StalkerPlaybackMode.DIRECT_URL
 )
 
 data class StalkerPagedResult<T>(
@@ -42,6 +46,11 @@ class StalkerProvider(
     private val api: StalkerApiService,
     private val portalUrl: String,
     private val macAddress: String,
+    private val authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    private val username: String = "",
+    private val password: String = "",
+    private val portalProfileHint: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    private val preferredPlaybackMode: StalkerPlaybackMode? = null,
     private val deviceProfile: String,
     private val timezone: String,
     private val locale: String,
@@ -76,6 +85,7 @@ class StalkerProvider(
                 val profile = authResult.data.second
                 val hostLabel = portalUrl.substringAfter("://").substringBefore('/').ifBlank { "portal" }
                 val providerName = profile.accountName?.takeUnless { it.isBlank() || it == "0" }
+                    ?: normalizedUsername().takeIf { it.isNotBlank() }
                     ?: "${normalizedMacAddress().takeLast(8)}@$hostLabel"
                 Result.success(
                     Provider(
@@ -83,6 +93,8 @@ class StalkerProvider(
                         name = providerName,
                         type = ProviderType.STALKER_PORTAL,
                         serverUrl = StalkerUrlFactory.normalizePortalUrl(portalUrl),
+                        username = normalizedUsername(),
+                        password = normalizedPassword(),
                         stalkerMacAddress = normalizedMacAddress(),
                         stalkerDeviceProfile = normalizedDeviceProfile(),
                         stalkerDeviceTimezone = normalizedTimezone(),
@@ -91,15 +103,17 @@ class StalkerProvider(
                         stalkerDeviceId = normalizedDeviceId(),
                         stalkerDeviceId2 = normalizedDeviceId2(),
                         stalkerSignature = normalizedSignature(),
+                        stalkerAuthMode = profile.effectiveAuthMode,
+                        stalkerPortalProfile = profile.portalProfile,
+                        stalkerLastPlaybackMode = null,
+                        stalkerCredentialsRequired = profile.credentialRequired,
+                        stalkerMacRequired = profile.macRequired,
+                        stalkerUsesTemporaryLinks = profile.portalCapabilities.usesTemporaryLinks,
+                        stalkerModuleRestricted = profile.portalCapabilities.moduleRestricted,
                         maxConnections = profile.maxConnections ?: 1,
                         expirationDate = profile.expirationDate,
                         apiVersion = "Stalker/MAG Portal",
-                        status = when (profile.statusLabel?.trim()?.lowercase(Locale.ROOT)) {
-                            "active", "enabled", "1" -> ProviderStatus.ACTIVE
-                            "expired", "0" -> ProviderStatus.EXPIRED
-                            "disabled", "blocked", "banned" -> ProviderStatus.DISABLED
-                            else -> ProviderStatus.ACTIVE
-                        }
+                        status = resolveProviderStatus(profile)
                     )
                 )
             }
@@ -322,34 +336,121 @@ class StalkerProvider(
         kind: StalkerStreamKind,
         cmd: String,
         seriesNumber: Int? = null
+    ): Result<StalkerPlaybackInfo> = resolvePlaybackInfo(
+        kind = kind,
+        descriptor = buildStalkerPlaybackDescriptor(cmd),
+        seriesNumber = seriesNumber
+    )
+
+    suspend fun resolvePlaybackInfo(
+        kind: StalkerStreamKind,
+        descriptor: StalkerPlaybackDescriptor?,
+        seriesNumber: Int? = null
+    ): Result<StalkerPlaybackInfo> {
+        val resolvedDescriptor = descriptor ?: return Result.error("This portal requires a different playback path than the default command.")
+        return resolvePlaybackInfoInternal(kind, resolvedDescriptor, seriesNumber, allowRebootstrap = true)
+    }
+
+    private suspend fun resolvePlaybackInfoInternal(
+        kind: StalkerStreamKind,
+        descriptor: StalkerPlaybackDescriptor,
+        seriesNumber: Int?,
+        allowRebootstrap: Boolean
     ): Result<StalkerPlaybackInfo> {
         return when (val authResult = ensureAuthenticated()) {
             is Result.Success -> {
-                val (session, _) = authResult.data
+                val (session, accountProfile) = authResult.data
                 val profile = currentDeviceProfile()
-                val directUrl = extractDirectPlaybackUrl(cmd)
-                directUrl
-                    ?.takeIf { candidate -> shouldBypassCreateLink(kind, candidate) }
-                    ?.let { candidate ->
-                        return Result.success(
-                            StalkerPlaybackInfo(
-                                url = candidate,
-                                headers = buildPlaybackHeaders(session, profile),
-                                userAgent = profile.userAgent
-                            )
-                        )
-                    }
-                when (val linkResult = api.createLink(session, profile, kind, cmd, seriesNumber)) {
-                    is Result.Success -> Result.success(
-                        StalkerPlaybackInfo(
-                            url = repairCreateLinkUrl(kind, linkResult.data, directUrl),
-                            headers = buildPlaybackHeaders(session, profile),
-                            userAgent = profile.userAgent
-                        )
-                    )
-                    is Result.Error -> Result.error(linkResult.message, linkResult.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
+                var lastError: Result.Error? = null
+                val orderedCandidates = descriptor.candidates.sortedBy { variant ->
+                    if (preferredPlaybackMode != null && variant.playbackMode == preferredPlaybackMode) 0 else 1
                 }
+                orderedCandidates.forEach { variant ->
+                    val adapter = resolveStalkerPlaybackAdapter(
+                        descriptor = descriptor,
+                        variant = variant,
+                        portalProfileHint = accountProfile.portalProfile.takeUnless {
+                            it == StalkerPortalProfile.MAG_BASIC
+                        } ?: portalProfileHint,
+                        preferredMode = preferredPlaybackMode
+                    )
+                    val directUrl = extractDirectPlaybackUrl(variant.cmd)
+                    directUrl
+                        ?.takeIf { candidate ->
+                            adapter.allowsDirectBypass(variant) &&
+                                shouldBypassCreateLink(kind, candidate)
+                        }
+                        ?.let { candidate ->
+                            return Result.success(
+                                StalkerPlaybackInfo(
+                                    url = candidate,
+                                    headers = buildPlaybackHeaders(session, profile),
+                                    userAgent = profile.userAgent,
+                                    playbackMode = adapter.adapterMode
+                                )
+                            )
+                        }
+
+                    if (!adapter.requiresCreateLink(variant)) {
+                        lastError = Result.error("This portal requires a different playback path than the default command.")
+                        return@forEach
+                    }
+
+                    when (val linkResult = api.createLink(session, profile, kind, variant.cmd, seriesNumber)) {
+                        is Result.Success -> {
+                            return Result.success(
+                                StalkerPlaybackInfo(
+                                    url = repairCreateLinkUrl(kind, linkResult.data, directUrl),
+                                    headers = buildPlaybackHeaders(session, profile),
+                                    userAgent = profile.userAgent,
+                                    playbackMode = adapter.adapterMode
+                                )
+                            )
+                        }
+                        is Result.Error -> lastError = linkResult
+                        is Result.Loading -> {
+                            lastError = Result.error("Unexpected loading state")
+                        }
+                    }
+                }
+
+                val needsRebootstrap = allowRebootstrap &&
+                    orderedCandidates.any { variant ->
+                        resolveStalkerPlaybackAdapter(
+                            descriptor = descriptor,
+                            variant = variant,
+                            portalProfileHint = accountProfile.portalProfile.takeUnless {
+                                it == StalkerPortalProfile.MAG_BASIC
+                            } ?: portalProfileHint,
+                            preferredMode = preferredPlaybackMode
+                        ).allowsRebootstrap(descriptor, accountProfile)
+                    } &&
+                    isLikelyAuthOrSessionFailure(lastError?.message.orEmpty(), lastError?.exception)
+                if (needsRebootstrap) {
+                    invalidateAuthentication()
+                    return resolvePlaybackInfoInternal(
+                        kind = kind,
+                        descriptor = descriptor,
+                        seriesNumber = seriesNumber,
+                        allowRebootstrap = false
+                    )
+                }
+
+                val message = when {
+                    descriptor.capabilities.ambiguousAccountState || accountProfile.ambiguousState ->
+                        "Portal profile is ambiguous; playback/session validation failed."
+
+                    descriptor.primaryMode == StalkerPlaybackMode.MULTI_CMD || descriptor.candidates.size > 1 ->
+                        "This portal requires a different playback path than the default command."
+
+                    descriptor.capabilities.usesTemporaryLinks ->
+                        lastError?.message?.takeIf { it.isNotBlank() }
+                            ?: "Portal could not issue a valid temporary playback link for this stream."
+
+                    else -> lastError?.message?.takeIf { it.isNotBlank() }
+                        ?: "We couldn't resolve a playable Stalker stream for this item."
+                }
+                Result.error(message, lastError?.exception)
             }
             is Result.Error -> Result.error(authResult.message, authResult.exception)
             is Result.Loading -> Result.error("Unexpected loading state")
@@ -450,6 +551,9 @@ class StalkerProvider(
             val profile = buildStalkerDeviceProfile(
                 portalUrl = portalUrl,
                 macAddress = normalizedMacAddress(),
+                authMode = authMode,
+                username = normalizedUsername(),
+                password = normalizedPassword(),
                 deviceProfile = normalizedDeviceProfile(),
                 timezone = normalizedTimezone(),
                 locale = normalizedLocale(),
@@ -473,6 +577,9 @@ class StalkerProvider(
         return buildStalkerDeviceProfile(
             portalUrl = portalUrl,
             macAddress = normalizedMacAddress(),
+            authMode = authMode,
+            username = normalizedUsername(),
+            password = normalizedPassword(),
             deviceProfile = normalizedDeviceProfile(),
             timezone = normalizedTimezone(),
             locale = normalizedLocale(),
@@ -489,22 +596,35 @@ class StalkerProvider(
     ): Map<String, String> = buildMap {
         put("Referer", session.portalReferer)
         put("Accept", "*/*")
-        put(
-            "Cookie",
-            listOf(
-                "mac=${profile.macAddress}",
-                "stb_lang=${profile.locale}",
-                "timezone=${profile.timezone}",
-                "sn=${profile.serialNumber}",
-                "device_id=${profile.deviceId}",
-                "device_id2=${profile.deviceId2}",
-                "signature=${profile.signature}"
-            ).joinToString("; ")
-        )
+        put("Cookie", buildPlaybackCookieHeader(session, profile))
         put("X-User-Agent", profile.xUserAgent)
         session.token.takeIf { it.isNotBlank() }?.let { token ->
             put("Authorization", "Bearer $token")
         }
+    }
+
+    private fun buildPlaybackCookieHeader(
+        session: StalkerSession,
+        profile: StalkerDeviceProfile
+    ): String {
+        val cookies = linkedMapOf(
+            "mac" to profile.macAddress,
+            "stb_lang" to profile.locale,
+            "timezone" to profile.timezone,
+            "sn" to profile.serialNumber,
+            "device_id" to profile.deviceId,
+            "device_id2" to profile.deviceId2,
+            "signature" to profile.signature
+        )
+        session.serverCookieHeader.split(';')
+            .mapNotNull { part ->
+                val key = part.substringBefore('=', missingDelimiterValue = "").trim()
+                val value = part.substringAfter('=', missingDelimiterValue = "").trim()
+                key.takeIf { it.isNotBlank() && value.isNotBlank() }?.let { it to value }
+            }.forEach { (key, value) ->
+                cookies.putIfAbsent(key, value)
+            }
+        return cookies.entries.joinToString("; ") { (key, value) -> "$key=$value" }
     }
 
     private fun extractDirectPlaybackUrl(cmd: String): String? {
@@ -628,7 +748,8 @@ class StalkerProvider(
                 kind = StalkerStreamKind.LIVE,
                 itemId = numericId,
                 cmd = cmd,
-                containerExtension = item.containerExtension
+                containerExtension = item.containerExtension,
+                playbackDescriptor = item.playbackDescriptor
             )
         } ?: directStreamUrl
             ?: return null
@@ -664,7 +785,8 @@ class StalkerProvider(
                 kind = StalkerStreamKind.MOVIE,
                 itemId = numericId,
                 cmd = cmd,
-                containerExtension = item.containerExtension
+                containerExtension = item.containerExtension,
+                playbackDescriptor = item.playbackDescriptor
             )
         } ?: directStreamUrl
             ?: return null
@@ -782,7 +904,11 @@ class StalkerProvider(
                 itemId = numericId,
                 cmd = resolvedCmd,
                 containerExtension = containerExtension,
-                seriesNumber = seasonShellEpisodeSelector(resolvedCmd, episodeNumber)
+                seriesNumber = seasonShellEpisodeSelector(resolvedCmd, episodeNumber),
+                playbackDescriptor = buildStalkerPlaybackDescriptor(
+                    primaryCmd = resolvedCmd,
+                    capabilities = StalkerPortalCapabilities()
+                )
             )
         } ?: directStreamUrl.orEmpty()
         return Episode(
@@ -868,6 +994,12 @@ class StalkerProvider(
     private fun normalizedMacAddress(): String =
         macAddress.trim().uppercase(Locale.ROOT)
 
+    private fun normalizedUsername(): String =
+        username.trim()
+
+    private fun normalizedPassword(): String =
+        password
+
     private fun normalizedDeviceProfile(): String =
         deviceProfile.trim().ifBlank { "MAG250" }
 
@@ -888,6 +1020,42 @@ class StalkerProvider(
 
     private fun normalizedSignature(): String =
         signature.trim().uppercase(Locale.ROOT)
+
+    private fun resolveProviderStatus(profile: StalkerProviderProfile): ProviderStatus {
+        val normalizedStatus = profile.statusLabel?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        if (normalizedStatus in setOf("disabled", "blocked", "banned")) {
+            return ProviderStatus.DISABLED
+        }
+        val expirationDate = profile.expirationDate
+        if (expirationDate != null && expirationDate in 1 until System.currentTimeMillis()) {
+            return ProviderStatus.EXPIRED
+        }
+        if (normalizedStatus in setOf("active", "enabled", "1")) {
+            return ProviderStatus.ACTIVE
+        }
+        if (normalizedStatus == "0" || profile.authAccess == false || profile.ambiguousState) {
+            return ProviderStatus.PARTIAL
+        }
+        return ProviderStatus.UNKNOWN
+    }
+
+    private fun isLikelyAuthOrSessionFailure(message: String, exception: Throwable?): Boolean {
+        val normalizedMessage = message.lowercase(Locale.ROOT)
+        val exceptionMessage = exception?.message?.lowercase(Locale.ROOT).orEmpty()
+        return normalizedMessage.contains("http 401") ||
+            normalizedMessage.contains("http 403") ||
+            normalizedMessage.contains("http 456") ||
+            normalizedMessage.contains("authorization") ||
+            normalizedMessage.contains("token") ||
+            normalizedMessage.contains("access denied") ||
+            normalizedMessage.contains("forbidden") ||
+            normalizedMessage.contains("temporary playback link") ||
+            exceptionMessage.contains("http 401") ||
+            exceptionMessage.contains("http 403") ||
+            exceptionMessage.contains("http 456") ||
+            exceptionMessage.contains("authorization") ||
+            exceptionMessage.contains("token")
+    }
 }
 
 private inline fun <T, R> Result<T>.mapData(transform: (T) -> R): Result<R> = when (this) {

@@ -1540,6 +1540,11 @@ class PlayerViewModel @Inject constructor(
             showPlayerNotice(message = message, recoveryType = PlayerRecoveryType.SOURCE)
             return null
         }
+        resolution.resolutionFailureMessage?.let { message ->
+            setLastFailureReason(message)
+            showPlayerNotice(message = message, recoveryType = PlayerRecoveryType.SOURCE)
+            return null
+        }
         return resolution.streamInfo
     }
 
