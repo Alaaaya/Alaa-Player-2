@@ -1968,7 +1968,8 @@ class Media3PlayerEngine @Inject constructor(
                 resolvedStreamType = currentResolvedStreamType,
                 currentPositionMs = player?.currentPosition,
                 durationMs = player?.duration,
-                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true
+                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true,
+                playbackStarted = playbackStarted
             )
             // retryGeneration captured and checked on Main — safe with
             // Dispatchers.Main.immediate. If the scope dispatcher is ever changed

@@ -7,14 +7,15 @@ internal fun resolveRetrySeekPositionMs(
     resolvedStreamType: ResolvedStreamType,
     currentPositionMs: Long?,
     durationMs: Long?,
-    isCurrentMediaItemLive: Boolean
+    isCurrentMediaItemLive: Boolean,
+    playbackStarted: Boolean
 ): Long? {
     val positionMs = currentPositionMs?.takeIf { it > 0L } ?: return null
     if (category == PlaybackErrorCategory.LIVE_WINDOW) return null
     if (isCurrentMediaItemLive) return null
 
     return when (resolvedStreamType) {
-        ResolvedStreamType.PROGRESSIVE -> positionMs
+        ResolvedStreamType.PROGRESSIVE -> positionMs.takeIf { playbackStarted }
         ResolvedStreamType.HLS,
         ResolvedStreamType.DASH,
         ResolvedStreamType.SMOOTH_STREAMING,

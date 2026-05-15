@@ -12,8 +12,13 @@ class PlayerRetryPolicyTest {
         resolvedStreamType = ResolvedStreamType.HLS,
         timeoutProfile = PlayerTimeoutProfile.LIVE
     )
+    private val progressiveContext = PlaybackRetryContext(
+        resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
+        timeoutProfile = PlayerTimeoutProfile.PROGRESSIVE
+    )
 
     private val policy = PlayerRetryPolicy(liveContext) { false }
+    private val progressivePolicy = PlayerRetryPolicy(progressiveContext) { true }
 
     @Test
     fun `500 before first frame retries 3 times with expected backoff`() {
@@ -65,5 +70,15 @@ class PlayerRetryPolicyTest {
     fun `decoder init failure after playback start still does not retry`() {
         val error = IllegalStateException("decoder init failed")
         assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isFalse()
+    }
+
+    @Test
+    fun `progressive movie server errors get tolerant recovery after playback start`() {
+        val error = IOException("HTTP 502")
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 1)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 2)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 3)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 4)).isFalse()
+        assertThat(progressivePolicy.maxAttempts(error, playbackStarted = true)).isEqualTo(3)
     }
 }
