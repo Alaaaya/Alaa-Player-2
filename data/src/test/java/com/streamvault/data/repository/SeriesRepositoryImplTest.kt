@@ -47,11 +47,13 @@ import com.streamvault.domain.repository.PlaybackHistoryRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -382,6 +384,50 @@ class SeriesRepositoryImplTest {
         assertThat(series.id).isEqualTo(15L)
         assertThat(series.name).isEqualTo("Stored Series")
         assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
+    }
+
+    @Test
+    fun `getSeriesDetails returns local series when xtream details hang`() = runTest {
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        val seriesEntity = SeriesEntity(
+            id = 15L,
+            seriesId = 301L,
+            name = "Stored Series",
+            posterUrl = "https://img.example.test/poster.jpg",
+            providerId = 7L
+        )
+        whenever(seriesDao.getById(301L)).thenReturn(null)
+        whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Xtream",
+                type = ProviderType.XTREAM_CODES,
+                serverUrl = "http://example.com",
+                username = "user",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(episodeDao.getBySeriesSync(15L)).thenReturn(emptyList())
+        whenever(xtreamApiService.getSeriesInfo(any(), any())).doSuspendableAnswer {
+            delay(30_000L)
+            XtreamSeriesInfoResponse()
+        }
+
+        val result = createRepository().getSeriesDetails(7L, 301L)
+
+        assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
+        val series = (result as com.streamvault.domain.model.Result.Success).data
+        assertThat(series.id).isEqualTo(15L)
+        assertThat(series.name).isEqualTo("Stored Series")
+        assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
+        verify(xtreamContentIndexDao).markDetailHydrationError(
+            providerId = eq(7L),
+            contentType = eq(ContentType.SERIES.name),
+            remoteId = eq("301"),
+            errorState = eq("DETAIL_FAILED_TIMEOUT")
+        )
     }
 
     @Test
