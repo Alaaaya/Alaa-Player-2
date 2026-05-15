@@ -61,6 +61,8 @@ import com.streamvault.domain.model.VodSyncMode
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.sync.Section
+import com.streamvault.domain.sync.SyncProgress
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -716,6 +718,8 @@ class SyncManager @Inject constructor(
             updateSyncStatusMetadata(providerId = providerId, status = "ERROR")
             publishSyncState(providerId, SyncState.Error(safeMessage, e))
             com.streamvault.domain.model.Result.error(safeMessage, e)
+        } finally {
+            syncProgressBus.reset()
         }
     }
 
@@ -2892,6 +2896,7 @@ class SyncManager @Inject constructor(
         UrlSecurityPolicy.validateStalkerPortalUrl(provider.serverUrl)?.let { message ->
             throw IllegalStateException(message)
         }
+        emitCatalogSyncProgress(section = Section.LIVE)
         progress(provider.id, onProgress, "Connecting to portal...")
         val api = createStalkerSyncProvider(provider)
         requireResult(api.authenticate(), "Failed to authenticate with portal")
@@ -2919,6 +2924,10 @@ class SyncManager @Inject constructor(
                 liveCount = liveCatalogResult.acceptedCount
             )
             syncMetadataRepository.updateMetadata(metadata)
+            emitCatalogSyncProgress(
+                section = Section.LIVE,
+                itemsIndexed = liveCatalogResult.acceptedCount
+            )
             upsertXtreamIndexJob(
                 providerId = provider.id,
                 section = ContentType.LIVE.name,
@@ -2939,6 +2948,11 @@ class SyncManager @Inject constructor(
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastMovieSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Movies...")
             val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
+            emitCatalogSyncProgress(
+                section = Section.VOD,
+                total = categories.size,
+                itemsIndexed = metadata.liveCount
+            )
             // Stalker uses lazy-by-category VoD loading — only categories are persisted up
             // front. Using replaceMovieCatalog with an empty sequence would run full stale
             // deletion and destroy any movies already hydrated via on-demand category loads.
@@ -2978,6 +2992,11 @@ class SyncManager @Inject constructor(
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastSeriesSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Series...")
             val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
+            emitCatalogSyncProgress(
+                section = Section.SERIES,
+                total = categories.size,
+                itemsIndexed = metadata.liveCount
+            )
             // Same rationale as movies: use replaceCategories to avoid destroying any
             // already-hydrated series rows when running a category-only Stalker sync.
             syncCatalogStore.replaceCategories(
@@ -3637,6 +3656,7 @@ class SyncManager @Inject constructor(
                 syncMetadataRepository.updateMetadata(metadata)
             }
             ProviderType.STALKER_PORTAL -> {
+                emitCatalogSyncProgress(section = Section.LIVE)
                 progress(provider.id, onProgress, "Retrying Live TV...")
                 upsertXtreamIndexJob(
                     providerId = provider.id,
@@ -3658,6 +3678,10 @@ class SyncManager @Inject constructor(
                         liveCount = liveCatalogResult.acceptedCount
                 )
                 syncMetadataRepository.updateMetadata(metadata)
+                emitCatalogSyncProgress(
+                    section = Section.LIVE,
+                    itemsIndexed = liveCatalogResult.acceptedCount
+                )
                 upsertXtreamIndexJob(
                     providerId = provider.id,
                     section = ContentType.LIVE.name,
@@ -3746,6 +3770,11 @@ class SyncManager @Inject constructor(
                 progress(provider.id, onProgress, "Queueing Movies index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
+                emitCatalogSyncProgress(
+                    section = Section.VOD,
+                    total = categories.size,
+                    itemsIndexed = movieDao.getCount(provider.id).first()
+                )
                 syncCatalogStore.replaceCategories(
                     providerId = provider.id,
                     type = "MOVIE",
@@ -3828,6 +3857,11 @@ class SyncManager @Inject constructor(
                 progress(provider.id, onProgress, "Queueing Series index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
+                emitCatalogSyncProgress(
+                    section = Section.SERIES,
+                    total = categories.size,
+                    itemsIndexed = seriesDao.getCount(provider.id).first()
+                )
                 syncCatalogStore.replaceCategories(
                     providerId = provider.id,
                     type = "SERIES",
@@ -4143,6 +4177,24 @@ class SyncManager @Inject constructor(
     private fun progress(providerId: Long, callback: ((String) -> Unit)?, message: String) {
         publishSyncState(providerId, SyncState.Syncing(message))
         callback?.invoke(message)
+    }
+
+    private fun emitCatalogSyncProgress(
+        section: Section,
+        current: Int = 0,
+        total: Int = 0,
+        currentLabel: String = "",
+        itemsIndexed: Int = 0
+    ) {
+        syncProgressBus.emit(
+            SyncProgress(
+                section = section,
+                current = current,
+                total = total,
+                currentLabel = currentLabel,
+                itemsIndexed = itemsIndexed
+            )
+        )
     }
 
     private fun publishSyncState(providerId: Long, state: SyncState) {
