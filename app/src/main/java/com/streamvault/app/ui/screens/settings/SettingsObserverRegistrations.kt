@@ -2,6 +2,7 @@ package com.streamvault.app.ui.screens.settings
 
 import android.app.Application
 import com.streamvault.app.update.AppUpdateInstaller
+import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.RecordingItem
@@ -140,6 +141,7 @@ internal fun registerDerivedStateObservers(
     syncMetadataRepository: SyncMetadataRepository,
     movieRepository: MovieRepository,
     seriesRepository: SeriesRepository,
+    programDao: ProgramDao,
     application: Application,
     preferencesRepository: PreferencesRepository,
     activeProviderIdFlow: Flow<Long?>,
@@ -155,6 +157,7 @@ internal fun registerDerivedStateObservers(
             syncMetadataRepository = syncMetadataRepository,
             movieRepository = movieRepository,
             seriesRepository = seriesRepository,
+            programDao = programDao,
             application = application
         ).collect { diagnosticsByProvider ->
             uiState.update { it.copy(diagnosticsByProvider = diagnosticsByProvider) }

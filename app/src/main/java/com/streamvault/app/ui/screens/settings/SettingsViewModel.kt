@@ -19,6 +19,7 @@ import com.streamvault.app.update.AppUpdateDownloadStatus
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.app.update.GitHubReleaseInfo
+import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
@@ -90,6 +91,7 @@ class SettingsViewModel @Inject constructor(
     private val channelRepository: ChannelRepository,
     private val movieRepository: MovieRepository,
     private val seriesRepository: SeriesRepository,
+    private val programDao: ProgramDao,
     private val preferencesRepository: PreferencesRepository,
     private val internetSpeedTestRunner: InternetSpeedTestRunner,
     private val backupManager: BackupManager,
@@ -188,6 +190,7 @@ class SettingsViewModel @Inject constructor(
             syncMetadataRepository = syncMetadataRepository,
             movieRepository = movieRepository,
             seriesRepository = seriesRepository,
+            programDao = programDao,
             application = appContext,
             preferencesRepository = preferencesRepository,
             activeProviderIdFlow = activeProviderIdFlow,

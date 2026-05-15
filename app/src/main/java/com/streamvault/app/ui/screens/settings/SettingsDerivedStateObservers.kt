@@ -4,6 +4,7 @@ package com.streamvault.app.ui.screens.settings
 
 import android.app.Application
 import com.streamvault.app.R
+import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
@@ -30,6 +31,7 @@ internal fun observeProviderDiagnostics(
     syncMetadataRepository: SyncMetadataRepository,
     movieRepository: MovieRepository,
     seriesRepository: SeriesRepository,
+    programDao: ProgramDao,
     application: Application
 ): Flow<Map<Long, ProviderDiagnosticsUiModel>> {
     return providerRepository.getProviders()
@@ -42,8 +44,9 @@ internal fun observeProviderDiagnostics(
                         combine(
                             syncMetadataRepository.observeMetadata(provider.id),
                             movieRepository.getLibraryCount(provider.id),
-                            seriesRepository.getLibraryCount(provider.id)
-                        ) { metadata, movieCount, seriesCount ->
+                            seriesRepository.getLibraryCount(provider.id),
+                            programDao.observeCountByProvider(provider.id)
+                        ) { metadata, movieCount, seriesCount, epgCount ->
                             provider.id to ProviderDiagnosticsUiModel(
                                 lastSyncStatus = metadata?.lastSyncStatus ?: "NONE",
                                 lastLiveSync = metadata?.lastLiveSync ?: 0L,
@@ -59,7 +62,7 @@ internal fun observeProviderDiagnostics(
                                 liveCount = metadata?.liveCount ?: 0,
                                 movieCount = movieCount,
                                 seriesCount = seriesCount,
-                                epgCount = metadata?.epgCount ?: 0,
+                                epgCount = epgCount,
                                 movieSyncMode = metadata?.movieSyncMode ?: VodSyncMode.UNKNOWN,
                                 movieWarningsCount = metadata?.movieWarningsCount ?: 0,
                                 movieCatalogStale = metadata?.movieCatalogStale ?: false,

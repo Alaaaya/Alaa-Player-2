@@ -2,6 +2,34 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.12] - 2026-05-15
+
+### Added
+
+- Added queued background Stalker catalog indexing for Movies and Series so new providers become usable with Live TV first while VOD and series continue loading in the background.
+- Added a dedicated Stalker index worker with resumable category/page progress, retry budgeting, cooldowns, and recovery-aware job scheduling.
+- Added persisted Stalker hydration cursor metadata for attempted page, successful page, retry timing, retry budget, failure count, and page fingerprints, with database migration coverage.
+- Added Stalker summary-index persistence using thin movie and series rows in the existing local catalog tables and shared index/job infrastructure.
+- Added Stalker support for the shared sync progress bus used by the welcome/loading flow.
+
+### Changed
+
+- Changed Stalker provider onboarding and full sync to use a live-first, index-first model: Live TV is committed first, then Movies, Series, and EPG are queued or continued in the background instead of relying on browse-time lazy population.
+- Changed Stalker manual Settings sync for Movies and Series to queue background indexing instead of running blocking full category loads.
+- Changed Stalker repository browse fallback so on-demand category hydration is now a fallback path only when background indexing is unavailable or exhausted.
+- Changed Stalker stale-provider recovery on app open to requeue only stale or retryable catalog sections and avoid duplicate work while a section is already actively running.
+- Changed Stalker portal EPG replacement to operate channel-by-channel instead of deleting the entire provider guide up front.
+
+### Fixed
+
+- Fixed Stalker VOD and series catalogs loading mainly on demand by moving the primary path to queued background indexing with incremental visibility as pages land.
+- Fixed Stalker category/page retries being too shallow by persisting retry state, cooldowns, and page cursors across worker passes and restarts.
+- Fixed Stalker index rebuild safety around partial failures and page anomalies so stale pruning is suppressed when completion is uncertain and previously indexed content remains visible.
+- Fixed Stalker auth-expiry handling during background indexing by invalidating portal authentication and retrying once on likely session failures.
+- Fixed Stalker wildcard-category handling to avoid indexing duplicate full-catalog shells when normal categories are also available.
+- Fixed Stalker portal EPG partial-failure behavior so a broken guide refresh no longer wipes healthy guide data for untouched channels.
+- Fixed Stalker manual section sync progress leaving stale progress-bus state behind after completion.
+
 ## [1.0.11] - 2026-05-13
 
 ### Added
