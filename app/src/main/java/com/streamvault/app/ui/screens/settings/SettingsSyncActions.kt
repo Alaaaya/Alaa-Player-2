@@ -145,7 +145,9 @@ internal class SettingsSyncActions(
                     uiState.update { state -> state.copy(syncProgress = progress, syncingProviderName = providerName) }
                 }) {
                     is Result.Error -> failures += "${selection.label(appContext)}: ${result.message}"
-                    else -> completed += selection.completionLabel(isXtream = provider?.type == ProviderType.XTREAM_CODES)
+                    else -> completed += selection.completionLabel(
+                        isXtream = provider?.type == ProviderType.XTREAM_CODES || provider?.type == ProviderType.STALKER_PORTAL
+                    )
                 }
             }
 
@@ -195,7 +197,7 @@ internal class SettingsSyncActions(
         return buildList {
             add(ProviderSyncSelection.TV)
             add(ProviderSyncSelection.MOVIES)
-            if (provider?.type == ProviderType.XTREAM_CODES) {
+            if (provider?.type == ProviderType.XTREAM_CODES || provider?.type == ProviderType.STALKER_PORTAL) {
                 add(ProviderSyncSelection.SERIES)
             }
             add(ProviderSyncSelection.EPG)

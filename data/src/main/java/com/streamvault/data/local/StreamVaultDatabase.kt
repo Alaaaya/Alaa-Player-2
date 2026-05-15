@@ -49,7 +49,7 @@ import com.streamvault.data.local.entity.*
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class
     ],
-    version = 52,
+    version = 53,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2576,6 +2576,24 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE providers ADD COLUMN xtream_live_sync_mode TEXT NOT NULL DEFAULT 'AUTO'")
                 validateForeignKeys(database, "providers")
             }
+        }
+
+        val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addStalkerHardeningColumns(database, "movie_category_hydration")
+                addStalkerHardeningColumns(database, "series_category_hydration")
+                validateForeignKeys(database, "movie_category_hydration")
+                validateForeignKeys(database, "series_category_hydration")
+            }
+        }
+
+        private fun addStalkerHardeningColumns(database: SupportSQLiteDatabase, tableName: String) {
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_attempted_page INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_successful_page INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN retry_after_ms INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN retry_budget_remaining INTEGER NOT NULL DEFAULT 3")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_page_fingerprint TEXT")
         }
     }
 }

@@ -9,6 +9,7 @@ import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
@@ -73,6 +74,7 @@ class MovieRepositoryImplTest {
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
     private val syncMetadataRepository: SyncMetadataRepository = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -611,6 +613,7 @@ class MovieRepositoryImplTest {
         movieCategoryHydrationDao = movieCategoryHydrationDao,
         syncMetadataRepository = syncMetadataRepository,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         transactionRunner = transactionRunner
     )

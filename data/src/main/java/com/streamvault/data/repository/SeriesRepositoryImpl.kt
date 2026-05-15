@@ -59,6 +59,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
+    private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao
 ) : SeriesRepository {
@@ -1204,6 +1205,9 @@ class SeriesRepositoryImpl @Inject constructor(
             return
         }
         if (provider.type == ProviderType.STALKER_PORTAL) {
+            if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+                return
+            }
             hydrateStalkerSeriesCategoryToCount(
                 providerId = providerId,
                 categoryId = categoryId,
@@ -1235,6 +1239,9 @@ class SeriesRepositoryImpl @Inject constructor(
                 val hydration = seriesCategoryHydrationDao.get(providerId, categoryId)
                 if (localCount == 0 && hydration?.isEmptyRetryCoolingDown() == true) return@launch
                 if (provider.type == ProviderType.STALKER_PORTAL) {
+                    if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+                        return@launch
+                    }
                     hydrateStalkerSeriesCategoryToCount(
                         providerId = providerId,
                         categoryId = categoryId,
@@ -1248,6 +1255,22 @@ class SeriesRepositoryImpl @Inject constructor(
             } finally {
                 backgroundRefreshes.remove(key)
             }
+        }
+    }
+
+    private suspend fun shouldUseStalkerLazyFallback(
+        providerId: Long,
+        hydration: SeriesCategoryHydrationEntity?,
+        localCount: Int
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (localCount > 0) return false
+        if (hydration?.isComplete == true) return false
+        if (hydration?.lastStatus in setOf("FAILED_PERMANENT", "FAILED_BUDGET_EXHAUSTED")) return true
+        if (hydration?.retryBudgetRemaining == 0 && hydration.retryAfterMs <= now) return true
+        return when (xtreamIndexJobDao.get(providerId, ContentType.SERIES.name)?.state) {
+            null, "FAILED_PERMANENT" -> true
+            else -> false
         }
     }
 
@@ -1271,13 +1294,17 @@ class SeriesRepositoryImpl @Inject constructor(
             if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return
 
             val isPreviewLoad = requiredCount <= STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD
-            var nextPage = ((currentHydration?.lastLoadedPage ?: 0) + 1).coerceAtLeast(1)
+            var nextPage = when (currentHydration?.lastStatus) {
+                "FAILED_RETRYABLE", "COOLDOWN", "ANOMALY" -> currentHydration?.lastAttemptedPage?.coerceAtLeast(1) ?: 1
+                else -> ((currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0) + 1).coerceAtLeast(1)
+            }
             // The cached totalPages can under-report when the preview hydrate stored
             // it from a partial response. Skip the pre-fetch guard on the first
             // iteration so we always perform at least one real fetch that refreshes
             // totalPages; subsequent iterations use the in-loop updated value.
             var firstIteration = true
             while (currentCount < requiredCount) {
+                val attemptStartedAt = System.currentTimeMillis()
                 if (isPreviewLoad && nextPage > STALKER_PREVIEW_MAX_REMOTE_PAGES) break
                 val totalPages = currentHydration?.totalPages ?: 0
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
@@ -1291,32 +1318,54 @@ class SeriesRepositoryImpl @Inject constructor(
                         currentHydration = SeriesCategoryHydrationEntity(
                             providerId = providerId,
                             categoryId = categoryId,
-                            lastHydratedAt = System.currentTimeMillis(),
+                            lastHydratedAt = attemptStartedAt,
                             itemCount = currentCount,
                             lastStatus = "SUCCESS",
                             lastError = null,
                             lastLoadedPage = result.data.page,
+                            lastAttemptedPage = result.data.page,
+                            lastSuccessfulPage = result.data.page,
                             totalPages = result.data.totalPages,
                             isComplete = pageComplete,
-                            pageSize = result.data.pageSize
+                            pageSize = result.data.pageSize,
+                            retryAfterMs = 0L,
+                            failureCount = 0,
+                            retryBudgetRemaining = 3,
+                            lastPageFingerprint = null
                         )
                         seriesCategoryHydrationDao.upsert(currentHydration!!)
                         if (pageComplete) break
                         nextPage = result.data.page + 1
                     }
                     is Result.Error -> {
+                        val priorFailureCount = currentHydration?.failureCount ?: 0
+                        val remainingBudget = ((currentHydration?.retryBudgetRemaining ?: 3) - 1).coerceAtLeast(0)
+                        val nextStatus = when {
+                            remainingBudget <= 0 -> "FAILED_BUDGET_EXHAUSTED"
+                            else -> "FAILED_RETRYABLE"
+                        }
                         seriesCategoryHydrationDao.upsert(
                             SeriesCategoryHydrationEntity(
                                 providerId = providerId,
                                 categoryId = categoryId,
                                 lastHydratedAt = currentHydration?.lastHydratedAt ?: 0L,
                                 itemCount = currentCount,
-                                lastStatus = "ERROR",
+                                lastStatus = nextStatus,
                                 lastError = result.message,
                                 lastLoadedPage = currentHydration?.lastLoadedPage ?: 0,
+                                lastAttemptedPage = nextPage,
+                                lastSuccessfulPage = currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0,
                                 totalPages = currentHydration?.totalPages ?: 0,
                                 isComplete = currentHydration?.isComplete ?: false,
-                                pageSize = currentHydration?.pageSize ?: 0
+                                pageSize = currentHydration?.pageSize ?: 0,
+                                retryAfterMs = if (nextStatus == "FAILED_RETRYABLE") {
+                                    attemptStartedAt + XTREAM_EMPTY_CATEGORY_RETRY_COOLDOWN_MILLIS * (priorFailureCount + 1)
+                                } else {
+                                    0L
+                                },
+                                failureCount = priorFailureCount + 1,
+                                retryBudgetRemaining = remainingBudget,
+                                lastPageFingerprint = currentHydration?.lastPageFingerprint
                             )
                         )
                         break

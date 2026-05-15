@@ -10,6 +10,7 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.entity.EpisodeBrowseEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.SeriesEntity
@@ -75,6 +76,7 @@ class SeriesRepositoryImplTest {
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -614,6 +616,7 @@ class SeriesRepositoryImplTest {
         preferencesRepository = preferencesRepository,
         xtreamStreamUrlResolver = xtreamStreamUrlResolver,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         seriesCategoryHydrationDao = seriesCategoryHydrationDao
     )

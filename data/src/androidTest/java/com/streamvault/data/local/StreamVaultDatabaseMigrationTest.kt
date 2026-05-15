@@ -269,6 +269,34 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate52To53_addsStalkerHardeningHydrationColumns() {
+        migrationTestHelper.createDatabase("streamvault-52-53-test", 52).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-52-53-test",
+            53,
+            true,
+            StreamVaultDatabase.MIGRATION_52_53
+        )
+
+        val movieTable = "movie_category_hydration"
+        val seriesTable = "series_category_hydration"
+        listOf(
+            "last_attempted_page",
+            "last_successful_page",
+            "retry_after_ms",
+            "failure_count",
+            "retry_budget_remaining",
+            "last_page_fingerprint"
+        ).forEach { column ->
+            assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('$movieTable') WHERE name = '$column'"))
+            assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('$seriesTable') WHERE name = '$column'"))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
     fun migrate40To41_addsAudioVideoOffsetColumn() {
         migrationTestHelper.createDatabase("streamvault-40-41-test", 40).close()
 

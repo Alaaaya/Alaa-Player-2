@@ -829,9 +829,15 @@ data class MovieCategoryHydrationEntity(
     @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
     @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "last_loaded_page") val lastLoadedPage: Int = 0,
+    @ColumnInfo(name = "last_attempted_page") val lastAttemptedPage: Int = 0,
+    @ColumnInfo(name = "last_successful_page") val lastSuccessfulPage: Int = 0,
     @ColumnInfo(name = "total_pages") val totalPages: Int = 0,
     @ColumnInfo(name = "is_complete") val isComplete: Boolean = false,
-    @ColumnInfo(name = "page_size") val pageSize: Int = 0
+    @ColumnInfo(name = "page_size") val pageSize: Int = 0,
+    @ColumnInfo(name = "retry_after_ms") val retryAfterMs: Long = 0L,
+    @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
+    @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
+    @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
 )
 
 @Entity(
@@ -853,9 +859,15 @@ data class SeriesCategoryHydrationEntity(
     @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
     @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "last_loaded_page") val lastLoadedPage: Int = 0,
+    @ColumnInfo(name = "last_attempted_page") val lastAttemptedPage: Int = 0,
+    @ColumnInfo(name = "last_successful_page") val lastSuccessfulPage: Int = 0,
     @ColumnInfo(name = "total_pages") val totalPages: Int = 0,
     @ColumnInfo(name = "is_complete") val isComplete: Boolean = false,
-    @ColumnInfo(name = "page_size") val pageSize: Int = 0
+    @ColumnInfo(name = "page_size") val pageSize: Int = 0,
+    @ColumnInfo(name = "retry_after_ms") val retryAfterMs: Long = 0L,
+    @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
+    @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
+    @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
 )
 
 // ── External EPG Source ────────────────────────────────────────────

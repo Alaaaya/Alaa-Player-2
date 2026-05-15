@@ -58,6 +58,14 @@ class StalkerProvider(
     private var accountProfileCache: StalkerProviderProfile? = null
     private val categoryCache = mutableMapOf<ContentType, List<CategorySeed>>()
 
+    suspend fun invalidateAuthentication() {
+        authMutex.withLock {
+            sessionCache = null
+            accountProfileCache = null
+            categoryCache.clear()
+        }
+    }
+
     override suspend fun authenticate(): Result<Provider> {
         return when (val authResult = ensureAuthenticated()) {
             is Result.Success -> {

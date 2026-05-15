@@ -92,11 +92,54 @@ abstract class XtreamContentIndexDao {
     )
     abstract suspend fun markVodAndSeriesRowsStaleForRebuild(providerId: Long): Int
 
+    @Query(
+        """
+        UPDATE xtream_content_index
+        SET stale_state = 'STALE_REMOTE',
+            error_state = NULL
+        WHERE provider_id = :providerId
+          AND content_type = :contentType
+        """
+    )
+    abstract suspend fun markRowsStaleForProviderAndType(providerId: Long, contentType: String): Int
+
     @Query("DELETE FROM xtream_content_index WHERE provider_id = :providerId")
     abstract suspend fun deleteByProvider(providerId: Long): Int
 
     @Query("DELETE FROM xtream_content_index WHERE provider_id = :providerId AND content_type = :contentType")
     abstract suspend fun deleteByProviderAndType(providerId: Long, contentType: String): Int
+
+    @Query(
+        """
+        DELETE FROM movies
+        WHERE provider_id = :providerId
+          AND EXISTS (
+              SELECT 1
+              FROM xtream_content_index
+              WHERE xtream_content_index.provider_id = movies.provider_id
+                AND xtream_content_index.content_type = 'MOVIE'
+                AND xtream_content_index.stale_state = 'STALE_REMOTE'
+                AND xtream_content_index.remote_id = CAST(movies.stream_id AS TEXT)
+          )
+        """
+    )
+    protected abstract suspend fun pruneStaleMovieRows(providerId: Long): Int
+
+    @Query(
+        """
+        DELETE FROM series
+        WHERE provider_id = :providerId
+          AND EXISTS (
+              SELECT 1
+              FROM xtream_content_index
+              WHERE xtream_content_index.provider_id = series.provider_id
+                AND xtream_content_index.content_type = 'SERIES'
+                AND xtream_content_index.stale_state = 'STALE_REMOTE'
+                AND xtream_content_index.remote_id = COALESCE(NULLIF(series.provider_series_id, ''), CAST(series.series_id AS TEXT))
+          )
+        """
+    )
+    protected abstract suspend fun pruneStaleSeriesRows(providerId: Long): Int
 
     @Query(
         """
@@ -146,6 +189,17 @@ abstract class XtreamContentIndexDao {
     @Transaction
     open suspend fun pruneOrphanLocalContentRows(): Int =
         pruneOrphanLiveRows() + pruneOrphanMovieRows() + pruneOrphanSeriesRows()
+
+    @Transaction
+    open suspend fun pruneStaleLocalContentRows(providerId: Long, contentType: String): Int {
+        val deleted = when (contentType) {
+            "MOVIE" -> pruneStaleMovieRows(providerId)
+            "SERIES" -> pruneStaleSeriesRows(providerId)
+            else -> 0
+        }
+        deleteByProviderAndType(providerId, contentType)
+        return deleted
+    }
 }
 
 @Dao
