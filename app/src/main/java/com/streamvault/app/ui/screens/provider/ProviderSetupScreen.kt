@@ -5,6 +5,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -121,6 +124,7 @@ fun ProviderSetupScreen(
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
     var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
     var showDiscardDraftDialog by rememberSaveable { mutableStateOf(false) }
+    var showImportOptionsDialog by rememberSaveable { mutableStateOf(false) }
 
     // ?? File import helper ????????????????????????????????????????????????????
     fun importM3uUri(uri: android.net.Uri) {
@@ -317,6 +321,7 @@ fun ProviderSetupScreen(
                         isEditLabel = if (uiState.isEditing) androidx.compose.ui.res.stringResource(R.string.setup_edit_provider)
                                       else androidx.compose.ui.res.stringResource(R.string.setup_provider_title),
                         onSelect = ::onSourceTypeSelected,
+                        onImportClick = { showImportOptionsDialog = true },
                         modifier = Modifier.width(200.dp).fillMaxHeight()
                     )
                     ProviderFormContent(
@@ -346,12 +351,6 @@ fun ProviderSetupScreen(
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
-                        showImportBackupButton = !uiState.isEditing,
-                        isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
-                        onImportBackup = { backupImportLauncher.launch(arrayOf("application/json")) },
-                        driveSignedIn = uiState.driveSignedIn,
-                        onImportFromDrive = { viewModel.importBackupFromDrive() },
-                        onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -393,15 +392,20 @@ fun ProviderSetupScreen(
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
-                        showImportBackupButton = !uiState.isEditing,
-                        isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
-                        onImportBackup = { backupImportLauncher.launch(arrayOf("application/json")) },
-                        driveSignedIn = uiState.driveSignedIn,
-                        onImportFromDrive = { viewModel.importBackupFromDrive() },
-                        onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
+            }
+
+            if (!uiState.isEditing && !isWide) {
+                ImportOptionsButton(
+                    text = stringResource(R.string.settings_restore_data),
+                    onClick = { showImportOptionsDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 10.dp, end = 6.dp)
+                        .zIndex(1f)
+                )
             }
         }
     }
@@ -447,6 +451,26 @@ fun ProviderSetupScreen(
                     },
                     emphasized = true
                 )
+            }
+        )
+    }
+
+    if (showImportOptionsDialog) {
+        ImportOptionsDialog(
+            isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
+            driveSignedIn = uiState.driveSignedIn,
+            onDismiss = { showImportOptionsDialog = false },
+            onImportBackup = {
+                showImportOptionsDialog = false
+                backupImportLauncher.launch(arrayOf("application/json"))
+            },
+            onImportFromDrive = {
+                showImportOptionsDialog = false
+                viewModel.importBackupFromDrive()
+            },
+            onDriveSignIn = {
+                showImportOptionsDialog = false
+                viewModel.beginDriveSignIn(driveSignInLauncher)
             }
         )
     }
@@ -551,12 +575,6 @@ private fun ProviderFormContent(
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
-    showImportBackupButton: Boolean,
-    isImportingBackup: Boolean,
-    onImportBackup: () -> Unit,
-    driveSignedIn: Boolean,
-    onImportFromDrive: () -> Unit,
-    onDriveSignIn: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -836,29 +854,10 @@ private fun ProviderFormContent(
                     )
                 }
             }
-            if (showImportBackupButton) {
-                SmallActionButton(
-                    text = androidx.compose.ui.res.stringResource(R.string.setup_import_backup),
-                    isLoading = isImportingBackup,
-                    onClick = onImportBackup
-                )
-                if (driveSignedIn) {
-                    SmallActionButton(
-                        text = androidx.compose.ui.res.stringResource(R.string.setup_import_from_drive),
-                        isLoading = isImportingBackup,
-                        onClick = onImportFromDrive
-                    )
-                } else {
-                    SmallActionButton(
-                        text = androidx.compose.ui.res.stringResource(R.string.settings_drive_signin),
-                        isLoading = false,
-                        onClick = onDriveSignIn
-                    )
-                }
-            }
         }
     }
 }
+
 
 @Composable
 private fun AdvancedProviderOptionsSection(
@@ -1438,6 +1437,7 @@ private fun SourceTypeSelectorPanel(
     isEditing: Boolean,
     isEditLabel: String,
     onSelect: (SourceType) -> Unit,
+    onImportClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -1499,6 +1499,14 @@ private fun SourceTypeSelectorPanel(
                     selected = sourceType == SourceType.M3U_FILE,
                     enabled = !isEditing,
                     onClick = { onSelect(SourceType.M3U_FILE) }
+                )
+            }
+            if (!isEditing) {
+                ImportOptionsButton(
+                    text = stringResource(R.string.settings_restore_data),
+                    onClick = onImportClick,
+                    compact = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
@@ -2006,22 +2014,19 @@ private fun ProviderActionButton(
     isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (isFocused) 1.03f else 1f, tween(150), label = "scale")
-
     TvClickableSurface(
         onClick = onClick,
         enabled = !isLoading,
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
-            .scale(scale)
-            .onFocusEvent { isFocused = it.hasFocus },
+            .height(height),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (!isLoading) Primary else SurfaceHighlight,
-            focusedContainerColor = if (!isLoading) PrimaryLight else SurfaceHighlight
+            focusedContainerColor = if (!isLoading) Primary else SurfaceHighlight
         ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow.None),
         border = ClickableSurfaceDefaults.border(
             border = Border(BorderStroke(1.dp, if (!isLoading) PrimaryLight else SurfaceHighlight)),
             focusedBorder = Border(BorderStroke(2.dp, FocusBorder))
@@ -2038,6 +2043,120 @@ private fun ProviderActionButton(
                 Text(text = text, style = MaterialTheme.typography.bodySmall, color = Color.White)
             }
         }
+    }
+}
+
+@Composable
+private fun ImportOptionsButton(
+    text: String,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    TvClickableSurface(
+        onClick = onClick,
+        modifier = modifier
+            .height(if (compact) 38.dp else 44.dp)
+            .onFocusEvent { isFocused = it.hasFocus }
+            .semantics { contentDescription = text },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Surface.copy(alpha = 0.9f),
+            focusedContainerColor = SurfaceHighlight
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, if (isFocused) PrimaryLight else SurfaceHighlight)),
+            focusedBorder = Border(BorderStroke(2.dp, FocusBorder))
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = if (compact) 10.dp else 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SettingsBackupRestore,
+                contentDescription = null,
+                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+                tint = if (isFocused) TextPrimary else OnSurface
+            )
+            Spacer(modifier = Modifier.width(if (compact) 6.dp else 8.dp))
+            Text(
+                text = text,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
+                color = if (isFocused) TextPrimary else OnSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportOptionsDialog(
+    isImportingBackup: Boolean,
+    driveSignedIn: Boolean,
+    onDismiss: () -> Unit,
+    onImportBackup: () -> Unit,
+    onImportFromDrive: () -> Unit,
+    onDriveSignIn: () -> Unit
+) {
+    PremiumDialog(
+        title = stringResource(R.string.settings_backup_restore),
+        subtitle = stringResource(R.string.settings_restore_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.34f,
+        heightFraction = null,
+        bodyHeightFraction = 0.28f,
+        content = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ImportDialogActionButton(
+                    text = stringResource(R.string.setup_import_backup),
+                    isLoading = isImportingBackup,
+                    onClick = onImportBackup
+                )
+                if (driveSignedIn) {
+                    ImportDialogActionButton(
+                        text = stringResource(R.string.settings_drive_pull),
+                        isLoading = isImportingBackup,
+                        onClick = onImportFromDrive
+                    )
+                } else {
+                    ImportDialogActionButton(
+                        text = stringResource(R.string.settings_drive_signin),
+                        isLoading = false,
+                        onClick = onDriveSignIn
+                    )
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.add_group_cancel),
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+private fun ImportDialogActionButton(
+    text: String,
+    isLoading: Boolean,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth(0.72f)) {
+        SmallActionButton(
+            text = text,
+            isLoading = isLoading,
+            onClick = onClick
+        )
     }
 }
 

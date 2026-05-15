@@ -167,6 +167,7 @@ dependencies {
     implementation(composeBom)
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation("androidx.compose.ui:ui-test-manifest")
