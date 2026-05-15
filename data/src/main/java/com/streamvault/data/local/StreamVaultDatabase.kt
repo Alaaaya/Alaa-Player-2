@@ -49,7 +49,7 @@ import com.streamvault.data.local.entity.*
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class
     ],
-    version = 53,
+    version = 54,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2584,6 +2584,16 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 addStalkerHardeningColumns(database, "series_category_hydration")
                 validateForeignKeys(database, "movie_category_hydration")
                 validateForeignKeys(database, "series_category_hydration")
+            }
+        }
+
+        val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_serial_number TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id2 TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_signature TEXT NOT NULL DEFAULT ''")
+                validateForeignKeys(database, "providers")
             }
         }
 

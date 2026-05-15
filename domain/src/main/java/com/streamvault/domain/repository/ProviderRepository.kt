@@ -50,6 +50,10 @@ interface ProviderRepository {
         deviceProfile: String = "",
         timezone: String = "",
         locale: String = "",
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = "",
         epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
         onProgress: ((String) -> Unit)? = null,
         id: Long? = null

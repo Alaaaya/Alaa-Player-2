@@ -1626,17 +1626,21 @@ internal fun buildStalkerDeviceProfile(
     macAddress: String,
     deviceProfile: String,
     timezone: String,
-    locale: String
+    locale: String,
+    serialNumberOverride: String = "",
+    deviceIdOverride: String = "",
+    deviceId2Override: String = "",
+    signatureOverride: String = ""
 ): StalkerDeviceProfile {
     val normalizedProfile = deviceProfile.ifBlank { "MAG250" }
     val normalizedTimezone = timezone.ifBlank { java.util.TimeZone.getDefault().id }
     val normalizedLocale = locale.ifBlank { Locale.getDefault().language.ifBlank { "en" } }
     val normalizedMac = macAddress.uppercase(Locale.ROOT)
     val serialSeed = normalizedMac.replace(":", "")
-    val serialNumber = serialSeed.takeLast(13).padStart(13, '0')
-    val deviceId = stalkerDigest("device:$normalizedProfile:$normalizedMac")
-    val deviceId2 = stalkerDigest("device2:$normalizedProfile:$normalizedMac")
-    val signature = stalkerDigest("signature:$normalizedProfile:$normalizedMac:$normalizedTimezone")
+    val serialNumber = serialNumberOverride.ifBlank { serialSeed.takeLast(13).padStart(13, '0') }
+    val deviceId = deviceIdOverride.ifBlank { stalkerDigest("device:$normalizedProfile:$normalizedMac") }
+    val deviceId2 = deviceId2Override.ifBlank { stalkerDigest("device2:$normalizedProfile:$normalizedMac") }
+    val signature = signatureOverride.ifBlank { stalkerDigest("signature:$normalizedProfile:$normalizedMac:$normalizedTimezone") }
     return StalkerDeviceProfile(
         portalUrl = portalUrl,
         macAddress = normalizedMac,

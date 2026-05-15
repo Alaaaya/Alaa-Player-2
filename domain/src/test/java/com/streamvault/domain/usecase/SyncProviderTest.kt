@@ -145,6 +145,10 @@ private class FakeSyncProviderRepository(
         deviceProfile: String,
         timezone: String,
         locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?

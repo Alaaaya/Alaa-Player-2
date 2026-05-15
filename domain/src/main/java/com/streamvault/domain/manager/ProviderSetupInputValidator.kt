@@ -24,7 +24,11 @@ data class ValidatedStalkerProviderInput(
     val name: String,
     val deviceProfile: String,
     val timezone: String,
-    val locale: String
+    val locale: String,
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = ""
 )
 
 interface ProviderSetupInputValidator {
@@ -51,6 +55,10 @@ interface ProviderSetupInputValidator {
         name: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = ""
     ): Result<ValidatedStalkerProviderInput>
 }

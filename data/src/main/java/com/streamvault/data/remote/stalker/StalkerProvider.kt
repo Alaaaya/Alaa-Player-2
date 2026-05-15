@@ -44,7 +44,11 @@ class StalkerProvider(
     private val macAddress: String,
     private val deviceProfile: String,
     private val timezone: String,
-    private val locale: String
+    private val locale: String,
+    private val serialNumber: String = "",
+    private val deviceId: String = "",
+    private val deviceId2: String = "",
+    private val signature: String = ""
 ) : IptvProvider {
 
     private data class CategorySeed(
@@ -83,6 +87,10 @@ class StalkerProvider(
                         stalkerDeviceProfile = normalizedDeviceProfile(),
                         stalkerDeviceTimezone = normalizedTimezone(),
                         stalkerDeviceLocale = normalizedLocale(),
+                        stalkerSerialNumber = normalizedSerialNumber(),
+                        stalkerDeviceId = normalizedDeviceId(),
+                        stalkerDeviceId2 = normalizedDeviceId2(),
+                        stalkerSignature = normalizedSignature(),
                         maxConnections = profile.maxConnections ?: 1,
                         expirationDate = profile.expirationDate,
                         apiVersion = "Stalker/MAG Portal",
@@ -444,7 +452,11 @@ class StalkerProvider(
                 macAddress = normalizedMacAddress(),
                 deviceProfile = normalizedDeviceProfile(),
                 timezone = normalizedTimezone(),
-                locale = normalizedLocale()
+                locale = normalizedLocale(),
+                serialNumberOverride = normalizedSerialNumber(),
+                deviceIdOverride = normalizedDeviceId(),
+                deviceId2Override = normalizedDeviceId2(),
+                signatureOverride = normalizedSignature()
             )
             when (val authResult = api.authenticate(profile)) {
                 is Result.Success -> {
@@ -463,7 +475,11 @@ class StalkerProvider(
             macAddress = normalizedMacAddress(),
             deviceProfile = normalizedDeviceProfile(),
             timezone = normalizedTimezone(),
-            locale = normalizedLocale()
+            locale = normalizedLocale(),
+            serialNumberOverride = normalizedSerialNumber(),
+            deviceIdOverride = normalizedDeviceId(),
+            deviceId2Override = normalizedDeviceId2(),
+            signatureOverride = normalizedSignature()
         )
     }
 
@@ -860,6 +876,18 @@ class StalkerProvider(
 
     private fun normalizedLocale(): String =
         locale.trim().ifBlank { Locale.getDefault().language.ifBlank { "en" } }
+
+    private fun normalizedSerialNumber(): String =
+        serialNumber.trim().uppercase(Locale.ROOT)
+
+    private fun normalizedDeviceId(): String =
+        deviceId.trim().uppercase(Locale.ROOT)
+
+    private fun normalizedDeviceId2(): String =
+        deviceId2.trim().uppercase(Locale.ROOT)
+
+    private fun normalizedSignature(): String =
+        signature.trim().uppercase(Locale.ROOT)
 }
 
 private inline fun <T, R> Result<T>.mapData(transform: (T) -> R): Result<R> = when (this) {

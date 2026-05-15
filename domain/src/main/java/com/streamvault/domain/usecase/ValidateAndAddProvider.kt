@@ -42,6 +42,10 @@ data class StalkerProviderSetupCommand(
     val deviceProfile: String = "",
     val timezone: String = "",
     val locale: String = "",
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = "",
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val existingProviderId: Long? = null
 )
@@ -116,7 +120,11 @@ class ValidateAndAddProvider @Inject constructor(
                 name = command.name,
                 deviceProfile = command.deviceProfile,
                 timezone = command.timezone,
-                locale = command.locale
+                locale = command.locale,
+                serialNumber = command.serialNumber,
+                deviceId = command.deviceId,
+                deviceId2 = command.deviceId2,
+                signature = command.signature
             )
         ) {
             is Result.Error -> ValidateAndAddProviderResult.ValidationError(result.message)
@@ -223,7 +231,11 @@ class ValidateAndAddProvider @Inject constructor(
                 name = command.name,
                 deviceProfile = command.deviceProfile,
                 timezone = command.timezone,
-                locale = command.locale
+                locale = command.locale,
+                serialNumber = command.serialNumber,
+                deviceId = command.deviceId,
+                deviceId2 = command.deviceId2,
+                signature = command.signature
             )
         ) {
             is Result.Success -> providerRepository.loginStalker(
@@ -233,6 +245,10 @@ class ValidateAndAddProvider @Inject constructor(
                 deviceProfile = validated.data.deviceProfile,
                 timezone = validated.data.timezone,
                 locale = validated.data.locale,
+                serialNumber = validated.data.serialNumber,
+                deviceId = validated.data.deviceId,
+                deviceId2 = validated.data.deviceId2,
+                signature = validated.data.signature,
                 epgSyncMode = command.epgSyncMode,
                 onProgress = onProgress,
                 id = command.existingProviderId

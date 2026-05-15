@@ -62,7 +62,11 @@ class ProviderSetupInputValidatorImplTest {
         name = "MAG",
         deviceProfile = deviceProfile,
         timezone = timezone,
-        locale = locale
+        locale = locale,
+        serialNumber = "",
+        deviceId = "",
+        deviceId2 = "",
+        signature = ""
     )
 
     @Test

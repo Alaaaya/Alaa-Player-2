@@ -4320,7 +4320,11 @@ class SyncManager @Inject constructor(
             macAddress = provider.stalkerMacAddress,
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale
+            locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature
         )
     }
 

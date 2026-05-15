@@ -112,6 +112,10 @@ fun ProviderSetupScreen(
     var stalkerDeviceProfile by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceTimezone by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceLocale by rememberSaveable { mutableStateOf("") }
+    var stalkerSerialNumber by rememberSaveable { mutableStateOf("") }
+    var stalkerDeviceId by rememberSaveable { mutableStateOf("") }
+    var stalkerDeviceId2 by rememberSaveable { mutableStateOf("") }
+    var stalkerSignature by rememberSaveable { mutableStateOf("") }
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
     var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
     var showDiscardDraftDialog by rememberSaveable { mutableStateOf(false) }
@@ -219,6 +223,10 @@ fun ProviderSetupScreen(
             stalkerDeviceProfile = uiState.stalkerDeviceProfile
             stalkerDeviceTimezone = uiState.stalkerDeviceTimezone
             stalkerDeviceLocale = uiState.stalkerDeviceLocale
+            stalkerSerialNumber = uiState.stalkerSerialNumber
+            stalkerDeviceId = uiState.stalkerDeviceId
+            stalkerDeviceId2 = uiState.stalkerDeviceId2
+            stalkerSignature = uiState.stalkerSignature
         }
     }
 
@@ -264,6 +272,10 @@ fun ProviderSetupScreen(
             stalkerDeviceProfile.isNotBlank() ||
             stalkerDeviceTimezone.isNotBlank() ||
             stalkerDeviceLocale.isNotBlank() ||
+            stalkerSerialNumber.isNotBlank() ||
+            stalkerDeviceId.isNotBlank() ||
+            stalkerDeviceId2.isNotBlank() ||
+            stalkerSignature.isNotBlank() ||
             m3uUrl.isNotBlank()
         )
 
@@ -317,10 +329,14 @@ fun ProviderSetupScreen(
                         stalkerDeviceProfile = stalkerDeviceProfile, onStalkerDeviceProfileChange = { stalkerDeviceProfile = ProviderInputSanitizer.sanitizeDeviceProfileForEditing(it) },
                         stalkerDeviceTimezone = stalkerDeviceTimezone, onStalkerDeviceTimezoneChange = { stalkerDeviceTimezone = ProviderInputSanitizer.sanitizeTimezoneForEditing(it) },
                         stalkerDeviceLocale = stalkerDeviceLocale, onStalkerDeviceLocaleChange = { stalkerDeviceLocale = ProviderInputSanitizer.sanitizeLocaleForEditing(it) },
+                        stalkerSerialNumber = stalkerSerialNumber, onStalkerSerialNumberChange = { stalkerSerialNumber = ProviderInputSanitizer.sanitizeStalkerSerialForEditing(it) },
+                        stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
@@ -359,10 +375,14 @@ fun ProviderSetupScreen(
                         stalkerDeviceProfile = stalkerDeviceProfile, onStalkerDeviceProfileChange = { stalkerDeviceProfile = ProviderInputSanitizer.sanitizeDeviceProfileForEditing(it) },
                         stalkerDeviceTimezone = stalkerDeviceTimezone, onStalkerDeviceTimezoneChange = { stalkerDeviceTimezone = ProviderInputSanitizer.sanitizeTimezoneForEditing(it) },
                         stalkerDeviceLocale = stalkerDeviceLocale, onStalkerDeviceLocaleChange = { stalkerDeviceLocale = ProviderInputSanitizer.sanitizeLocaleForEditing(it) },
+                        stalkerSerialNumber = stalkerSerialNumber, onStalkerSerialNumberChange = { stalkerSerialNumber = ProviderInputSanitizer.sanitizeStalkerSerialForEditing(it) },
+                        stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
@@ -512,6 +532,10 @@ private fun ProviderFormContent(
     stalkerDeviceProfile: String, onStalkerDeviceProfileChange: (String) -> Unit,
     stalkerDeviceTimezone: String, onStalkerDeviceTimezoneChange: (String) -> Unit,
     stalkerDeviceLocale: String, onStalkerDeviceLocaleChange: (String) -> Unit,
+    stalkerSerialNumber: String, onStalkerSerialNumberChange: (String) -> Unit,
+    stalkerDeviceId: String, onStalkerDeviceIdChange: (String) -> Unit,
+    stalkerDeviceId2: String, onStalkerDeviceId2Change: (String) -> Unit,
+    stalkerSignature: String, onStalkerSignatureChange: (String) -> Unit,
     fileImportError: String?,
     onFilePick: () -> Unit,
     onLoginXtream: () -> Unit,
@@ -602,7 +626,15 @@ private fun ProviderFormContent(
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -652,7 +684,15 @@ private fun ProviderFormContent(
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -687,7 +727,15 @@ private fun ProviderFormContent(
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -727,7 +775,15 @@ private fun ProviderFormContent(
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -781,7 +837,15 @@ private fun AdvancedProviderOptionsSection(
     stalkerDeviceTimezone: String,
     onStalkerDeviceTimezoneChange: (String) -> Unit,
     stalkerDeviceLocale: String,
-    onStalkerDeviceLocaleChange: (String) -> Unit
+    onStalkerDeviceLocaleChange: (String) -> Unit,
+    stalkerSerialNumber: String,
+    onStalkerSerialNumberChange: (String) -> Unit,
+    stalkerDeviceId: String,
+    onStalkerDeviceIdChange: (String) -> Unit,
+    stalkerDeviceId2: String,
+    onStalkerDeviceId2Change: (String) -> Unit,
+    stalkerSignature: String,
+    onStalkerSignatureChange: (String) -> Unit
 ) {
     var showAdvancedOptions by rememberSaveable(sourceType) { mutableStateOf(false) }
     val defaultEpgSyncMode = when (sourceType) {
@@ -797,7 +861,15 @@ private fun AdvancedProviderOptionsSection(
             ((sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) && !uiState.m3uVodClassificationEnabled) ||
             ((sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
                 (httpUserAgent.isNotBlank() || httpHeaders.isNotBlank())) ||
-            (sourceType == SourceType.STALKER && (stalkerDeviceProfile.isNotBlank() || stalkerDeviceTimezone.isNotBlank() || stalkerDeviceLocale.isNotBlank()))
+            (sourceType == SourceType.STALKER && (
+                stalkerDeviceProfile.isNotBlank() ||
+                    stalkerDeviceTimezone.isNotBlank() ||
+                    stalkerDeviceLocale.isNotBlank() ||
+                    stalkerSerialNumber.isNotBlank() ||
+                    stalkerDeviceId.isNotBlank() ||
+                    stalkerDeviceId2.isNotBlank() ||
+                    stalkerSignature.isNotBlank()
+                ))
         if (uiState.isEditing && hasNonDefaultSelection) {
             showAdvancedOptions = true
         }
@@ -1011,6 +1083,26 @@ private fun AdvancedProviderOptionsSection(
                         value = stalkerDeviceLocale,
                         onValueChange = onStalkerDeviceLocaleChange,
                         placeholder = "Locale (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerSerialNumber,
+                        onValueChange = onStalkerSerialNumberChange,
+                        placeholder = "Serial number (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerDeviceId,
+                        onValueChange = onStalkerDeviceIdChange,
+                        placeholder = "Device ID (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerDeviceId2,
+                        onValueChange = onStalkerDeviceId2Change,
+                        placeholder = "Device ID2 (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerSignature,
+                        onValueChange = onStalkerSignatureChange,
+                        placeholder = "Signature (optional)"
                     )
                 }
             }

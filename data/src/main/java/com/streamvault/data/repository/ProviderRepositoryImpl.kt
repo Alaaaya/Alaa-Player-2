@@ -350,6 +350,10 @@ class ProviderRepositoryImpl @Inject constructor(
         deviceProfile: String,
         timezone: String,
         locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -360,6 +364,10 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
+        val normalizedSerialNumber = ProviderInputSanitizer.normalizeStalkerSerial(serialNumber)
+        val normalizedDeviceId = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId)
+        val normalizedDeviceId2 = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId2)
+        val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
 
         ProviderInputSanitizer.validateUrl(normalizedPortalUrl)?.let { message ->
             return Result.error(message)
@@ -390,7 +398,11 @@ class ProviderRepositoryImpl @Inject constructor(
             macAddress = normalizedMacAddress,
             deviceProfile = normalizedDeviceProfile,
             timezone = normalizedTimezone,
-            locale = normalizedLocale
+            locale = normalizedLocale,
+            serialNumber = normalizedSerialNumber,
+            deviceId = normalizedDeviceId,
+            deviceId2 = normalizedDeviceId2,
+            signature = normalizedSignature
         )
 
         return when (val authResult = provider.authenticate()) {
@@ -405,6 +417,10 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
                         stalkerDeviceLocale = normalizedLocale,
+                        stalkerSerialNumber = normalizedSerialNumber,
+                        stalkerDeviceId = normalizedDeviceId,
+                        stalkerDeviceId2 = normalizedDeviceId2,
+                        stalkerSignature = normalizedSignature,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
@@ -424,6 +440,10 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
                         stalkerDeviceLocale = normalizedLocale,
+                        stalkerSerialNumber = normalizedSerialNumber,
+                        stalkerDeviceId = normalizedDeviceId,
+                        stalkerDeviceId2 = normalizedDeviceId2,
+                        stalkerSignature = normalizedSignature,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
@@ -736,7 +756,11 @@ class ProviderRepositoryImpl @Inject constructor(
         macAddress: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = ""
     ): StalkerProvider {
         return StalkerProvider(
             providerId = providerId,
@@ -745,7 +769,11 @@ class ProviderRepositoryImpl @Inject constructor(
             macAddress = macAddress,
             deviceProfile = deviceProfile,
             timezone = timezone,
-            locale = locale
+            locale = locale,
+            serialNumber = serialNumber,
+            deviceId = deviceId,
+            deviceId2 = deviceId2,
+            signature = signature
         )
     }
 
@@ -756,7 +784,11 @@ class ProviderRepositoryImpl @Inject constructor(
             macAddress = entity.stalkerMacAddress,
             deviceProfile = entity.stalkerDeviceProfile,
             timezone = entity.stalkerDeviceTimezone,
-            locale = entity.stalkerDeviceLocale
+            locale = entity.stalkerDeviceLocale,
+            serialNumber = entity.stalkerSerialNumber,
+            deviceId = entity.stalkerDeviceId,
+            deviceId2 = entity.stalkerDeviceId2,
+            signature = entity.stalkerSignature
         )
     }
 

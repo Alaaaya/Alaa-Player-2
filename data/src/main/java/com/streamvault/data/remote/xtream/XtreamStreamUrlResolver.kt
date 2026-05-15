@@ -35,6 +35,10 @@ class XtreamStreamUrlResolver @Inject constructor(
         val deviceProfile: String,
         val timezone: String,
         val locale: String,
+        val serialNumber: String,
+        val deviceId: String,
+        val deviceId2: String,
+        val signature: String,
         val provider: StalkerProvider
     )
 
@@ -244,7 +248,11 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.macAddress == provider.stalkerMacAddress &&
             cached.deviceProfile == provider.stalkerDeviceProfile &&
             cached.timezone == provider.stalkerDeviceTimezone &&
-            cached.locale == provider.stalkerDeviceLocale
+            cached.locale == provider.stalkerDeviceLocale &&
+            cached.serialNumber == provider.stalkerSerialNumber &&
+            cached.deviceId == provider.stalkerDeviceId &&
+            cached.deviceId2 == provider.stalkerDeviceId2 &&
+            cached.signature == provider.stalkerSignature
         ) {
             return cached.provider
         }
@@ -256,7 +264,11 @@ class XtreamStreamUrlResolver @Inject constructor(
             macAddress = provider.stalkerMacAddress,
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale
+            locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature
         )
         stalkerProviders[providerId] = CachedStalkerProvider(
             serverUrl = provider.serverUrl,
@@ -264,6 +276,10 @@ class XtreamStreamUrlResolver @Inject constructor(
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
             locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature,
             provider = resolvedProvider
         )
         return resolvedProvider

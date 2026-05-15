@@ -518,7 +518,11 @@ private class FakeProviderSetupInputValidator(
         name: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String
     ): Result<ValidatedStalkerProviderInput> = stalkerResult
 }
 
@@ -552,6 +556,10 @@ private data class StalkerCall(
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = "",
     val epgSyncMode: ProviderEpgSyncMode,
     val id: Long?
 )
@@ -624,6 +632,10 @@ private class FakeProviderRepository : ProviderRepository {
         deviceProfile: String,
         timezone: String,
         locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -635,6 +647,10 @@ private class FakeProviderRepository : ProviderRepository {
             deviceProfile = deviceProfile,
             timezone = timezone,
             locale = locale,
+            serialNumber = serialNumber,
+            deviceId = deviceId,
+            deviceId2 = deviceId2,
+            signature = signature,
             epgSyncMode = epgSyncMode,
             id = id
         )
@@ -644,7 +660,11 @@ private class FakeProviderRepository : ProviderRepository {
                 stalkerMacAddress = macAddress,
                 stalkerDeviceProfile = deviceProfile,
                 stalkerDeviceTimezone = timezone,
-                stalkerDeviceLocale = locale
+                stalkerDeviceLocale = locale,
+                stalkerSerialNumber = serialNumber,
+                stalkerDeviceId = deviceId,
+                stalkerDeviceId2 = deviceId2,
+                stalkerSignature = signature
             )
         )
     }

@@ -199,6 +199,10 @@ class ProviderSetupViewModel @Inject constructor(
                         stalkerDeviceProfile = provider.stalkerDeviceProfile,
                         stalkerDeviceTimezone = provider.stalkerDeviceTimezone,
                         stalkerDeviceLocale = provider.stalkerDeviceLocale,
+                        stalkerSerialNumber = provider.stalkerSerialNumber,
+                        stalkerDeviceId = provider.stalkerDeviceId,
+                        stalkerDeviceId2 = provider.stalkerDeviceId2,
+                        stalkerSignature = provider.stalkerSignature,
                         epgSyncMode = provider.epgSyncMode,
                         xtreamLiveSyncMode = provider.xtreamLiveSyncMode,
                         hasCustomizedEpgSyncMode = true,
@@ -249,7 +253,11 @@ class ProviderSetupViewModel @Inject constructor(
         name: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = ""
     ) {
         _uiState.update {
             it.copy(
@@ -273,6 +281,10 @@ class ProviderSetupViewModel @Inject constructor(
                     deviceProfile = deviceProfile,
                     timezone = timezone,
                     locale = locale,
+                    serialNumber = serialNumber,
+                    deviceId = deviceId,
+                    deviceId2 = deviceId2,
+                    signature = signature,
                     epgSyncMode = _uiState.value.epgSyncMode,
                     existingProviderId = existingId
                 ),
@@ -797,6 +809,10 @@ data class ProviderSetupState(
     val stalkerDeviceProfile: String = "",
     val stalkerDeviceTimezone: String = "",
     val stalkerDeviceLocale: String = "",
+    val stalkerSerialNumber: String = "",
+    val stalkerDeviceId: String = "",
+    val stalkerDeviceId2: String = "",
+    val stalkerSignature: String = "",
     val createdProviderId: Long? = null,
     val createdProviderName: String? = null,
     val pendingCombinedAttachProfileId: Long? = null,

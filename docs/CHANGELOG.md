@@ -11,6 +11,7 @@ All notable product changes are recorded in this document.
 - Added persisted Stalker hydration cursor metadata for attempted page, successful page, retry timing, retry budget, failure count, and page fingerprints, with database migration coverage.
 - Added Stalker summary-index persistence using thin movie and series rows in the existing local catalog tables and shared index/job infrastructure.
 - Added Stalker support for the shared sync progress bus used by the welcome/loading flow.
+- Added optional Stalker MAG identity override fields for `serial number`, `device_id`, `device_id2`, and `signature`, with setup-screen editing and provider persistence.
 
 ### Changed
 
@@ -29,6 +30,9 @@ All notable product changes are recorded in this document.
 - Fixed Stalker wildcard-category handling to avoid indexing duplicate full-catalog shells when normal categories are also available.
 - Fixed Stalker portal EPG partial-failure behavior so a broken guide refresh no longer wipes healthy guide data for untouched channels.
 - Fixed Stalker manual section sync progress leaving stale progress-bus state behind after completion.
+- Fixed Stalker Settings provider cards hiding the Series diagnostic tile even when series indexing is available.
+- Fixed Settings EPG counts showing `0` for providers with loaded guide data by observing the real per-provider program count instead of relying on stale sync metadata.
+- Fixed Stalker MAG emulation being locked to generated identity values by allowing explicit STBEmu-style device identity fields while preserving generated fallbacks when those overrides are left blank.
 
 ## [1.0.11] - 2026-05-13
 

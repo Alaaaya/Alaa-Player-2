@@ -102,7 +102,11 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         name: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String
     ): Result<ValidatedStalkerProviderInput> {
         val normalizedPortalUrl = ProviderInputSanitizer.normalizeUrl(portalUrl)
         val normalizedMacAddress = ProviderInputSanitizer.normalizeMacAddress(macAddress)
@@ -110,6 +114,10 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
+        val normalizedSerialNumber = ProviderInputSanitizer.normalizeStalkerSerial(serialNumber)
+        val normalizedDeviceId = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId)
+        val normalizedDeviceId2 = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId2)
+        val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
 
         if (normalizedPortalUrl.isBlank()) {
             return Result.error("Please enter portal URL")
@@ -151,6 +159,19 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
             }
         }
 
+        validateOptionalIdentityToken(normalizedSerialNumber, "Serial number", allowHexOnly = false)?.let { message ->
+            return Result.error(message)
+        }
+        validateOptionalIdentityToken(normalizedDeviceId, "Device ID")?.let { message ->
+            return Result.error(message)
+        }
+        validateOptionalIdentityToken(normalizedDeviceId2, "Device ID2")?.let { message ->
+            return Result.error(message)
+        }
+        validateOptionalIdentityToken(normalizedSignature, "Signature")?.let { message ->
+            return Result.error(message)
+        }
+
         return Result.success(
             ValidatedStalkerProviderInput(
                 portalUrl = normalizedPortalUrl,
@@ -158,7 +179,11 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
                 name = normalizedName,
                 deviceProfile = normalizedDeviceProfile,
                 timezone = normalizedTimezone,
-                locale = normalizedLocale
+                locale = normalizedLocale,
+                serialNumber = normalizedSerialNumber,
+                deviceId = normalizedDeviceId,
+                deviceId2 = normalizedDeviceId2,
+                signature = normalizedSignature
             )
         )
     }
@@ -186,6 +211,21 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
         // BCP-47 language tag: primary subtag (2–8 letters) optionally followed by
         // hyphen-separated extension subtags (1–8 alphanumeric characters each).
         private val LOCALE_SAFE_REGEX = Regex("^[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*$")
+        private val IDENTITY_TOKEN_SAFE_REGEX = Regex("^[A-Za-z0-9._-]+$")
+        private val HEX_TOKEN_SAFE_REGEX = Regex("^[A-F0-9]+$")
+    }
+
+    private fun validateOptionalIdentityToken(
+        value: String,
+        label: String,
+        allowHexOnly: Boolean = true
+    ): String? {
+        if (value.isBlank()) return null
+        if (!COOKIE_VALUE_SAFE_REGEX.matches(value)) {
+            return "$label contains characters that are not allowed in this field."
+        }
+        val validShape = if (allowHexOnly) HEX_TOKEN_SAFE_REGEX.matches(value) else IDENTITY_TOKEN_SAFE_REGEX.matches(value)
+        return if (validShape) null else "$label contains unsupported characters."
     }
 
     private fun validateHttpOverrides(httpUserAgent: String, httpHeaders: String): String? {
