@@ -22,6 +22,7 @@ import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RecordingItem
@@ -63,6 +64,7 @@ data class SettingsUiState(
     val playerAudioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO,
     val playerCompatibilityMemoryEnabled: Boolean = true,
     val playerSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO,
+    val playerVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
     val playerPlaybackSpeed: Float = 1f,
     val playerAudioVideoSyncEnabled: Boolean = false,
     val playerAudioVideoOffsetMs: Int = 0,

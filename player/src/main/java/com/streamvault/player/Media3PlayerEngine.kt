@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackCompatibilityKey
 import com.streamvault.domain.model.PlaybackCompatibilityRecord
 import com.streamvault.domain.model.PlayerSurfaceMode
@@ -147,6 +148,7 @@ class Media3PlayerEngine @Inject constructor(
     private var requestedDecoderMode: DecoderMode = DecoderMode.AUTO
     private var activeDecoderMode: DecoderMode = DecoderMode.HARDWARE
     private var requestedSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO
+    private var requestedVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1
     private var sessionSurfaceModeOverride: PlayerSurfaceMode? = null
     private var activeDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
     private var recoveryDecoderPolicyOverride: ActiveDecoderPolicy? = null
@@ -351,6 +353,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         ).second
 
@@ -447,6 +450,16 @@ class Media3PlayerEngine @Inject constructor(
         sessionSurfaceModeOverride = null
         textureViewSessionFallbackAttempted = false
         updateRenderSurfaceForMode()
+        lastStreamInfo?.let { streamInfo ->
+            val wasPlaying = exoPlayer?.playWhenReady == true
+            val position = exoPlayer?.currentPosition
+            prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = position, autoPlay = wasPlaying)
+        }
+    }
+
+    override fun setVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        if (requestedVodHttpProtocolMode == mode) return
+        requestedVodHttpProtocolMode = mode
         lastStreamInfo?.let { streamInfo ->
             val wasPlaying = exoPlayer?.playWhenReady == true
             val position = exoPlayer?.currentPosition
@@ -624,6 +637,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         )
         val subtitleConfig = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subtitleUri)
@@ -675,6 +689,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = playbackPlan.resolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = true
         )
         preloadCoordinator.store(mediaId, streamInfo, playbackPlan.resolvedStreamType, mediaSource)
@@ -880,6 +895,7 @@ class Media3PlayerEngine @Inject constructor(
                     streamInfo = streamInfo,
                     resolvedStreamType = currentResolvedStreamType,
                     retryPolicy = currentRetryPolicy!!,
+                    vodHttpProtocolMode = requestedVodHttpProtocolMode,
                     preload = false
                 ).second
             preloadCoordinator.onPlaybackStarted(mediaId)

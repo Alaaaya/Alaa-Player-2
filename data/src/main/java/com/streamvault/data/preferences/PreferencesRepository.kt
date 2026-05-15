@@ -27,6 +27,7 @@ import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveChannelObservedQuality
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.SearchHistoryScope
 import com.streamvault.domain.manager.ParentalPinVerifier
@@ -118,6 +119,8 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_MUTED = booleanPreferencesKey("player_muted")
         val PLAYER_MEDIA_SESSION_ENABLED = booleanPreferencesKey("player_media_session_enabled")
         val PLAYER_DECODER_MODE = stringPreferencesKey("player_decoder_mode")
+        val PLAYER_VOD_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_vod_http_protocol_mode")
+        val LEGACY_PLAYER_MOVIE_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_movie_http_protocol_mode")
         val PLAYER_AUDIO_OUTPUT_PREFERENCE = stringPreferencesKey("player_audio_output_preference")
         val PLAYER_COMPATIBILITY_MEMORY_ENABLED = booleanPreferencesKey("player_compatibility_memory_enabled")
         val PLAYER_SURFACE_MODE = stringPreferencesKey("player_surface_mode")
@@ -275,6 +278,15 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_SURFACE_MODE]
             ?.let { saved -> PlayerSurfaceMode.entries.firstOrNull { it.name == saved } }
             ?: PlayerSurfaceMode.AUTO
+    }
+
+    val playerVodHttpProtocolMode: Flow<VodHttpProtocolMode> = context.dataStore.data.map { preferences ->
+        (
+            preferences[PreferencesKeys.PLAYER_VOD_HTTP_PROTOCOL_MODE]
+                ?: preferences[PreferencesKeys.LEGACY_PLAYER_MOVIE_HTTP_PROTOCOL_MODE]
+            )
+            ?.let { saved -> VodHttpProtocolMode.entries.firstOrNull { it.name == saved } }
+            ?: VodHttpProtocolMode.COMPATIBILITY_HTTP1
     }
 
     val playerAudioOutputPreference: Flow<AudioOutputPreference> = context.dataStore.data.map { preferences ->
@@ -791,6 +803,13 @@ class PreferencesRepository @Inject constructor(
     suspend fun setPlayerSurfaceMode(mode: PlayerSurfaceMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.PLAYER_SURFACE_MODE] = mode.name
+        }
+    }
+
+    suspend fun setPlayerVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_VOD_HTTP_PROTOCOL_MODE] = mode.name
+            preferences.remove(PreferencesKeys.LEGACY_PLAYER_MOVIE_HTTP_PROTOCOL_MODE)
         }
     }
 

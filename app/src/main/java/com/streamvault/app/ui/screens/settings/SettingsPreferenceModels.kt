@@ -13,6 +13,7 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 
@@ -44,6 +45,7 @@ internal data class SettingsPreferenceSnapshot(
     val playerAudioOutputPreference: AudioOutputPreference,
     val playerCompatibilityMemoryEnabled: Boolean,
     val playerSurfaceMode: PlayerSurfaceMode,
+    val playerVodHttpProtocolMode: VodHttpProtocolMode,
     val playerPlaybackSpeed: Float,
     val playerAudioVideoSyncEnabled: Boolean,
     val playerAudioVideoOffsetMs: Int,

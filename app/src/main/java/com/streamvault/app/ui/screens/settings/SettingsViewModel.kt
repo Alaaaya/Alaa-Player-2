@@ -44,6 +44,7 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageConfig
@@ -699,6 +700,12 @@ class SettingsViewModel @Inject constructor(
     fun setPlayerSurfaceMode(mode: com.streamvault.domain.model.PlayerSurfaceMode) {
         viewModelScope.launch {
             preferencesRepository.setPlayerSurfaceMode(mode)
+        }
+    }
+
+    fun setPlayerVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerVodHttpProtocolMode(mode)
         }
     }
 

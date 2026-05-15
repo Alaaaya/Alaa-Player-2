@@ -76,3 +76,8 @@ enum class PlayerSurfaceMode {
     SURFACE_VIEW,
     TEXTURE_VIEW
 }
+
+enum class VodHttpProtocolMode {
+    COMPATIBILITY_HTTP1,
+    AUTO
+}
