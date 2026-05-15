@@ -8,6 +8,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.StreamInfo
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
@@ -20,9 +21,11 @@ class PlayerDataSourceFactoryProvider(
 ) {
     private data class ClientKey(
         val profile: PlayerTimeoutProfile,
-        val forceHttp1: Boolean
+        val forceHttp1: Boolean,
+        val port: Int
     )
 
+    private val addressHealthStore = PlayerAddressHealthStore()
     private val clientsByKey = ConcurrentHashMap<ClientKey, OkHttpClient>()
 
     fun createFactory(
@@ -37,11 +40,14 @@ class PlayerDataSourceFactoryProvider(
             resolvedStreamType = resolvedStreamType,
             vodHttpProtocolMode = vodHttpProtocolMode
         )
-        val client = clientsByKey.computeIfAbsent(ClientKey(profile, forceHttp1)) {
+        val port = streamPort(streamInfo.url)
+        val client = clientsByKey.computeIfAbsent(ClientKey(profile, forceHttp1, port)) {
             baseClient.newBuilder()
                 .connectTimeout(profile.connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .readTimeout(profile.readTimeoutMs, TimeUnit.MILLISECONDS)
                 .writeTimeout(profile.writeTimeoutMs, TimeUnit.MILLISECONDS)
+                .dns(PlayerDnsPolicy.healthAwareDns(port = port, healthStore = addressHealthStore))
+                .eventListener(PlayerAddressHealthEventListener(addressHealthStore))
                 .apply {
                     if (forceHttp1) {
                         protocols(listOf(Protocol.HTTP_1_1))
@@ -60,6 +66,16 @@ class PlayerDataSourceFactoryProvider(
         }
         val factory = DefaultDataSource.Factory(context, upstreamFactory)
         return profile to factory
+    }
+
+    private fun streamPort(url: String): Int {
+        val uri = runCatching { URI(url) }.getOrNull()
+        uri?.port?.takeIf { it > 0 }?.let { return it }
+        return when (uri?.scheme?.lowercase()) {
+            "http" -> 80
+            "https" -> 443
+            else -> -1
+        }
     }
 
     private companion object {
