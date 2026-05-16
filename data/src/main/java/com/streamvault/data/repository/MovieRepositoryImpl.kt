@@ -636,7 +636,27 @@ class MovieRepositoryImpl @Inject constructor(
                             }
                         } ?: getTopRatedPreview(query.providerId, fetchLimit)
                     }
-                    query.sortBy == LibrarySortBy.RELEASE || query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
+                    query.sortBy == LibrarySortBy.RELEASE -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchIfMissing = true, refreshStaleInBackground = true, requiredCount = fetchLimit)
+                                emitAll(
+                                    combine(
+                                        movieDao.getReleasedByCategoryPreview(query.providerId, categoryId, fetchLimit),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: combine(
+                            movieDao.getReleasedPreview(query.providerId, fetchLimit),
+                            preferencesRepository.parentalControlLevel
+                        ) { entities, level ->
+                            if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                        }.map { entities -> entities.map { it.toDomain() } }
+                    }
+                    query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                         query.categoryId?.let { categoryId ->
                             flow {
                                 ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchIfMissing = true, refreshStaleInBackground = true, requiredCount = fetchLimit)
@@ -1017,11 +1037,8 @@ class MovieRepositoryImpl @Inject constructor(
                     loadMovieRatingPage(query, limit, cursor)
                 }
             }
-            (
-                query.sortBy == LibrarySortBy.RELEASE ||
-                    query.sortBy == LibrarySortBy.UPDATED ||
-                    query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED
-                ) -> {
+            query.sortBy == LibrarySortBy.UPDATED ||
+                query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                 collectMoviePages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { FreshCursor(it.addedAt, it.name, it.id) }
                 ) { limit, cursor ->
@@ -1111,7 +1128,6 @@ class MovieRepositoryImpl @Inject constructor(
                 query.sortBy in setOf(
                     LibrarySortBy.LIBRARY,
                     LibrarySortBy.TITLE,
-                    LibrarySortBy.RELEASE,
                     LibrarySortBy.UPDATED,
                     LibrarySortBy.RATING
                 ) -> query.categoryId == null || query.sortBy != LibrarySortBy.LIBRARY
@@ -1136,7 +1152,8 @@ class MovieRepositoryImpl @Inject constructor(
         val sorted = when (query.sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE, LibrarySortBy.UPDATED -> filtered.sortedByDescending(::movieReleaseScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::movieReleaseScore)
+            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::movieAddedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { watchCounts[it.id] ?: 0 }
         }
@@ -1440,9 +1457,9 @@ class MovieRepositoryImpl @Inject constructor(
     }
 
     private fun movieReleaseScore(movie: Movie): Long =
-        movie.addedAt.takeIf { it > 0L }
-            ?: movie.releaseDate?.filter { it.isDigit() }?.toLongOrNull()
+        movie.releaseDate?.filter { it.isDigit() }?.take(8)?.toLongOrNull()
             ?: movie.year?.toLongOrNull()
+            ?: movie.addedAt.takeIf { it > 0L }
             ?: 0L
 
     private fun movieAddedScore(movie: Movie): Long =

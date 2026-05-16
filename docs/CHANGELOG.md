@@ -27,6 +27,7 @@ All notable product changes are recorded in this document.
 - Fixed Stalker temp-link and backend-family failures being reported too generically by surfacing clearer empty-link and session-rejection diagnostics, including HTTP `204` cases.
 - Fixed Stalker indexing and hydration reliability on large or unstable portals with persisted cursors, retries, cooldowns, and safer stale-data pruning.
 - Fixed Stalker setup and sync edge cases around wildcard categories, stale progress, provider diagnostics, explicit MAG identity overrides, and per-provider EPG counts.
+- Fixed Stalker series detail season selection when some portals returned season-shell rows again for per-season requests, which could make multiple seasons show the same pseudo-episode list instead of that season's episodes.
 
 ## [1.0.11] - 2026-05-13
 

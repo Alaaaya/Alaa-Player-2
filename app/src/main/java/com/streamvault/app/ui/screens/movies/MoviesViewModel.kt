@@ -1178,12 +1178,18 @@ class MoviesViewModel @Inject constructor(
         return when (sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::movieAddedScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::movieReleaseScore)
             LibrarySortBy.UPDATED -> filtered.sortedByDescending(::movieAddedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { it.lastWatchedAt }
         }
     }
+
+    private fun movieReleaseScore(movie: Movie): Long =
+        movie.releaseDate?.filter { it.isDigit() }?.take(8)?.toLongOrNull()
+            ?: movie.year?.toLongOrNull()
+            ?: movie.addedAt.takeIf { it > 0L }
+            ?: 0L
 
     private fun movieAddedScore(movie: Movie): Long = movie.addedAt.takeIf { it > 0L } ?: 0L
 }

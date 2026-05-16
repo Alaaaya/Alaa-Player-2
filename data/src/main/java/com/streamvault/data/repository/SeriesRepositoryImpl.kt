@@ -595,7 +595,27 @@ class SeriesRepositoryImpl @Inject constructor(
                             }
                         } ?: getTopRatedPreview(query.providerId, fetchLimit)
                     }
-                    query.sortBy == LibrarySortBy.RELEASE || query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
+                    query.sortBy == LibrarySortBy.RELEASE -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchLimit)
+                                emitAll(
+                                    combine(
+                                        seriesDao.getReleasedByCategoryPreview(query.providerId, categoryId, fetchLimit),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: combine(
+                            seriesDao.getReleasedPreview(query.providerId, fetchLimit),
+                            preferencesRepository.parentalControlLevel
+                        ) { entities, level ->
+                            if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                        }.map { entities -> entities.map { it.toDomain() } }
+                    }
+                    query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                         query.categoryId?.let { categoryId ->
                             flow {
                                 ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchLimit)
@@ -994,8 +1014,7 @@ class SeriesRepositoryImpl @Inject constructor(
                     loadSeriesRatingPage(query, limit, cursor)
                 }
             }
-            query.sortBy == LibrarySortBy.RELEASE ||
-                query.sortBy == LibrarySortBy.UPDATED ||
+            query.sortBy == LibrarySortBy.UPDATED ||
                 query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                 collectSeriesPages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { FreshCursor(it.lastModified, it.name, it.id) }
@@ -1079,7 +1098,6 @@ class SeriesRepositoryImpl @Inject constructor(
                 query.sortBy in setOf(
                     LibrarySortBy.LIBRARY,
                     LibrarySortBy.TITLE,
-                    LibrarySortBy.RELEASE,
                     LibrarySortBy.UPDATED,
                     LibrarySortBy.RATING
                 ) -> true
@@ -1103,7 +1121,8 @@ class SeriesRepositoryImpl @Inject constructor(
         val sorted = when (query.sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE, LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesFreshnessScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::seriesReleaseScore)
+            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesUpdatedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { watchCounts[it.id] ?: 0 }
         }
@@ -1130,7 +1149,7 @@ class SeriesRepositoryImpl @Inject constructor(
         LibraryFilterType.IN_PROGRESS -> series.id in inProgressIds
         LibraryFilterType.UNWATCHED -> series.id !in completedSeriesIds
         LibraryFilterType.TOP_RATED -> series.rating > 0f
-        LibraryFilterType.RECENTLY_UPDATED -> seriesFreshnessScore(series) > 0L
+        LibraryFilterType.RECENTLY_UPDATED -> seriesUpdatedScore(series) > 0L
     }
 
     private fun seriesMatchesSearch(series: Series, searchQuery: String): Boolean {
@@ -1395,14 +1414,15 @@ class SeriesRepositoryImpl @Inject constructor(
         return true
     }
 
-    private fun seriesFreshnessScore(series: Series): Long =
-        series.lastModified
-            .takeIf { it > 0L }
-            ?: series.releaseDate
-                ?.filter { it.isDigit() }
-                ?.take(8)
-                ?.toLongOrNull()
-            ?: 0L
+    private fun seriesReleaseScore(series: Series): Long =
+        series.releaseDate
+            ?.filter { it.isDigit() }
+            ?.take(8)
+            ?.toLongOrNull()
+            ?: seriesUpdatedScore(series)
+
+    private fun seriesUpdatedScore(series: Series): Long =
+        series.lastModified.takeIf { it > 0L } ?: 0L
 
     private suspend fun getOrCreateXtreamProvider(providerId: Long, provider: ProviderEntity): XtreamProvider {
         val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
