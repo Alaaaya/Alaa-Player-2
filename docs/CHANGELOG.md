@@ -28,6 +28,8 @@ All notable product changes are recorded in this document.
 - Fixed Stalker indexing and hydration reliability on large or unstable portals with persisted cursors, retries, cooldowns, and safer stale-data pruning.
 - Fixed Stalker setup and sync edge cases around wildcard categories, stale progress, provider diagnostics, explicit MAG identity overrides, and per-provider EPG counts.
 - Fixed Stalker series detail season selection when some portals returned season-shell rows again for per-season requests, which could make multiple seasons show the same pseudo-episode list instead of that season's episodes.
+- Fixed the Movies and Series Filter & Sort dialog layout so chip rows wrap cleanly instead of clipping or wasting space in the VOD modal.
+- Fixed VOD category browse sort wiring so `Newest` and `Recently Updated` no longer collapse to the same behavior; Movies now separate release-date ordering from provider-added ordering, while Series keeps `Recently Updated` based on `last_modified` and uses release metadata for `Newest` when available across both Xtream and Stalker category views.
 
 ## [1.0.11] - 2026-05-13
 
