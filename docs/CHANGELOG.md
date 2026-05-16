@@ -6,33 +6,27 @@ All notable product changes are recorded in this document.
 
 ### Added
 
-- Added queued background Stalker catalog indexing for Movies and Series so new providers become usable with Live TV first while VOD and series continue loading in the background.
-- Added a dedicated Stalker index worker with resumable category/page progress, retry budgeting, cooldowns, and recovery-aware job scheduling.
-- Added persisted Stalker hydration cursor metadata for attempted page, successful page, retry timing, retry budget, failure count, and page fingerprints, with database migration coverage.
-- Added Stalker summary-index persistence using thin movie and series rows in the existing local catalog tables and shared index/job infrastructure.
-- Added Stalker support for the shared sync progress bus used by the welcome/loading flow.
-- Added optional Stalker MAG identity override fields for `serial number`, `device_id`, `device_id2`, and `signature`, with setup-screen editing and provider persistence.
+- Added live-first Stalker sync with background Movies/Series indexing so providers become usable sooner while VOD keeps loading in the background.
+- Added advanced Stalker auth and MAG compatibility support, including MAC-only, credential-based, mixed auth, and stricter MAG identity presets.
+- Added variant-aware Stalker playback handling for direct URLs, multi-command entries, temp-link portals, and `play/live.php` / `play/movie.php` backends.
+- Added persisted Stalker portal learning for auth mode, portal profile, MAG preset, bootstrap recipe, endpoint preference, cookie mode, and last working playback path.
+- Added a Stalker replay-fixture matrix and HAR-to-fixture capture script for onboarding new portal families faster.
 
 ### Changed
 
-- Changed Stalker provider onboarding and full sync to use a live-first, index-first model: Live TV is committed first, then Movies, Series, and EPG are queued or continued in the background instead of relying on browse-time lazy population.
-- Changed Stalker manual Settings sync for Movies and Series to queue background indexing instead of running blocking full category loads.
-- Changed Stalker repository browse fallback so on-demand category hydration is now a fallback path only when background indexing is unavailable or exhausted.
-- Changed Stalker stale-provider recovery on app open to requeue only stale or retryable catalog sections and avoid duplicate work while a section is already actively running.
-- Changed Stalker portal EPG replacement to operate channel-by-channel instead of deleting the entire provider guide up front.
+- Changed Stalker bootstrap from a single happy-path flow into recipe-driven session setup with cookies, localization/modules support, portal fingerprinting, and fallback rediscovery.
+- Changed Stalker catalog parsing to preserve backend flags, command variants, archive/timeshift hints, and other portal capabilities for later playback decisions.
+- Changed Stalker playback resolution to choose backend-specific strategies instead of forcing everything through one `cmd -> create_link` path.
+- Changed Stalker sync recovery and manual sync to reuse indexed state, resume partial work, and avoid duplicate or blocking reloads.
+- Changed Stalker EPG refresh to update more safely channel-by-channel instead of wiping healthy guide data up front.
 
 ### Fixed
 
-- Fixed Stalker VOD and series catalogs loading mainly on demand by moving the primary path to queued background indexing with incremental visibility as pages land.
-- Fixed Stalker category/page retries being too shallow by persisting retry state, cooldowns, and page cursors across worker passes and restarts.
-- Fixed Stalker index rebuild safety around partial failures and page anomalies so stale pruning is suppressed when completion is uncertain and previously indexed content remains visible.
-- Fixed Stalker auth-expiry handling during background indexing by invalidating portal authentication and retrying once on likely session failures.
-- Fixed Stalker wildcard-category handling to avoid indexing duplicate full-catalog shells when normal categories are also available.
-- Fixed Stalker portal EPG partial-failure behavior so a broken guide refresh no longer wipes healthy guide data for untouched channels.
-- Fixed Stalker manual section sync progress leaving stale progress-bus state behind after completion.
-- Fixed Stalker Settings provider cards hiding the Series diagnostic tile even when series indexing is available.
-- Fixed Settings EPG counts showing `0` for providers with loaded guide data by observing the real per-provider program count instead of relying on stale sync metadata.
-- Fixed Stalker MAG emulation being locked to generated identity values by allowing explicit STBEmu-style device identity fields while preserving generated fallbacks when those overrides are left blank.
+- Fixed many Stalker portals that could browse catalogs but failed at playback because they needed different auth, bootstrap, cookie, endpoint, or temp-link behavior.
+- Fixed incorrect handling of ambiguous Stalker account states such as `status=0`, which could previously be treated too aggressively as expired.
+- Fixed Stalker temp-link and backend-family failures being reported too generically by surfacing clearer empty-link and session-rejection diagnostics, including HTTP `204` cases.
+- Fixed Stalker indexing and hydration reliability on large or unstable portals with persisted cursors, retries, cooldowns, and safer stale-data pruning.
+- Fixed Stalker setup and sync edge cases around wildcard categories, stale progress, provider diagnostics, explicit MAG identity overrides, and per-provider EPG counts.
 
 ## [1.0.11] - 2026-05-13
 

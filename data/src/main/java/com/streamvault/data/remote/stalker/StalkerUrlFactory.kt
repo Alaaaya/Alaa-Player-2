@@ -8,6 +8,7 @@ import java.util.Locale
 
 enum class StalkerStreamKind(val pathSegment: String) {
     LIVE("live"),
+    ARCHIVE("archive"),
     MOVIE("movie"),
     EPISODE("episode")
 }
@@ -19,6 +20,8 @@ data class StalkerStreamToken(
     val cmd: String,
     val containerExtension: String? = null,
     val seriesNumber: Int? = null,
+    val archiveStartSeconds: Long? = null,
+    val archiveEndSeconds: Long? = null,
     val playbackDescriptor: StalkerPlaybackDescriptor? = null
 )
 
@@ -71,6 +74,8 @@ object StalkerUrlFactory {
         cmd: String,
         containerExtension: String? = null,
         seriesNumber: Int? = null,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null,
         playbackDescriptor: StalkerPlaybackDescriptor? = null
     ): String {
         val resolvedDescriptor = playbackDescriptor?.copy(
@@ -85,6 +90,10 @@ object StalkerUrlFactory {
                 ?.let { ext -> add("ext=${encode(ext.lowercase(Locale.ROOT))}") }
             seriesNumber?.takeIf { it > 0 }
                 ?.let { episode -> add("series=${encode(episode.toString())}") }
+            archiveStartSeconds?.takeIf { it > 0L }
+                ?.let { start -> add("utc=${encode(start.toString())}") }
+            archiveEndSeconds?.takeIf { it > 0L }
+                ?.let { end -> add("lutc=${encode(end.toString())}") }
             resolvedDescriptor?.let { descriptor ->
                 add("mode=${encode(descriptor.candidates.firstOrNull()?.playbackMode?.name ?: descriptor.primaryMode.name)}")
                 add("pm=${encode(descriptor.primaryMode.name)}")
@@ -109,6 +118,8 @@ object StalkerUrlFactory {
         val cmd = query["cmd"] ?: return null
         val ext = query["ext"]?.trim()?.takeIf { it.isNotBlank() }
         val seriesNumber = query["series"]?.toIntOrNull()?.takeIf { it > 0 }
+        val archiveStartSeconds = query["utc"]?.toLongOrNull()?.takeIf { it > 0L }
+        val archiveEndSeconds = query["lutc"]?.toLongOrNull()?.takeIf { it > 0L }
         val capabilities = decodePortalCapabilities(query["caps"])
         val primaryMode = query["mode"]
             ?.let { runCatching { StalkerPlaybackMode.valueOf(it) }.getOrNull() }
@@ -135,6 +146,8 @@ object StalkerUrlFactory {
             cmd = cmd,
             containerExtension = ext,
             seriesNumber = seriesNumber,
+            archiveStartSeconds = archiveStartSeconds,
+            archiveEndSeconds = archiveEndSeconds,
             playbackDescriptor = playbackDescriptor
         )
     }
@@ -143,6 +156,7 @@ object StalkerUrlFactory {
 
     private fun kindFromPathSegment(segment: String): StalkerStreamKind? = when (segment.lowercase(Locale.ROOT)) {
         StalkerStreamKind.LIVE.pathSegment -> StalkerStreamKind.LIVE
+        StalkerStreamKind.ARCHIVE.pathSegment -> StalkerStreamKind.ARCHIVE
         StalkerStreamKind.MOVIE.pathSegment -> StalkerStreamKind.MOVIE
         StalkerStreamKind.EPISODE.pathSegment -> StalkerStreamKind.EPISODE
         else -> null

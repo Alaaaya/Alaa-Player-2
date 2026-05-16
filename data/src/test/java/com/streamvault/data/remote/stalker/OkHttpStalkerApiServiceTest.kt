@@ -2,6 +2,9 @@ package com.streamvault.data.remote.stalker
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerMagPreset
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
@@ -13,6 +16,63 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
 
 class OkHttpStalkerApiServiceTest {
+
+    @Test
+    fun authenticate_retries_with_legacy_recipe_and_updates_profile_metadata() = runTest {
+        val requestedVersions = mutableListOf<String>()
+        val requestedImages = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedVersions += request.url.queryParameter("ver").orEmpty()
+                        requestedImages += request.url.queryParameter("image_version").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> if (requestedVersions.size <= 2) {
+                            ""
+                        } else {
+                            """{"js":{"id":"42","name":"Legacy Box","status":"1","auth_access":true}}"""
+                        }
+                        "get_main_info" -> """{"js":{"id":"42","name":"Legacy Box","status":"1","auth_access":true}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.first.magPreset).isEqualTo(StalkerMagPreset.MAG250_LEGACY)
+        assertThat(success.data.first.bootstrapRecipe).isEqualTo(StalkerBootstrapRecipe.LEGACY_MAG)
+        assertThat(success.data.second.magPreset).isEqualTo(StalkerMagPreset.MAG250_LEGACY)
+        assertThat(success.data.second.bootstrapRecipe).isEqualTo(StalkerBootstrapRecipe.LEGACY_MAG)
+        assertThat(success.data.first.recipeEvidence).containsAtLeast("fallback_recipe", "rediscovery_attempted")
+        assertThat(requestedImages).containsExactly("218", "218", "216").inOrder()
+        assertThat(requestedVersions.last()).contains("0.2.16-r17-250")
+    }
 
     @Test
     fun authenticate_reads_token_and_profile_from_js_wrapper() = runTest {
@@ -39,6 +99,61 @@ class OkHttpStalkerApiServiceTest {
         assertThat(success.data.first.token).isEqualTo("token-123")
         assertThat(success.data.second.accountName).isEqualTo("Living Room")
         assertThat(success.data.second.maxConnections).isEqualTo(2)
+    }
+
+    @Test
+    fun authenticate_module_gated_recipe_rebuilds_profile_for_modern_mag_preset() = runTest {
+        val requestedStbTypes = mutableListOf<String>()
+        val requestedAgents = mutableListOf<String>()
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedStbTypes += request.url.queryParameter("stb_type").orEmpty()
+                        requestedAgents += request.header("X-User-Agent").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"id":"55","name":"Module Portal","status":"1","auth_access":true}}"""
+                        "get_main_info" -> """{"js":{"id":"55","name":"Module Portal","status":"1","auth_access":true}}"""
+                        "get_localization" -> """{"js":{"lang":"en","timezone":"UTC"}}"""
+                        "get_modules" -> """{"js":{"modules":{"itv":1,"vod":1}}}"""
+                        "get_events" -> """{"js":[] }"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                magPresetHint = StalkerMagPreset.GENERIC_SAFE,
+                portalFingerprintHint = com.streamvault.domain.model.StalkerPortalFingerprint.MODULE_GATED,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths.first()).isEqualTo("/portal.php")
+        assertThat(requestedStbTypes).contains("MAG322")
+        assertThat(requestedAgents.last()).contains("MAG322")
     }
 
     @Test
@@ -117,6 +232,91 @@ class OkHttpStalkerApiServiceTest {
         assertThat(requestedSeries).isEqualTo("11")
         val success = result as Result.Success
         assertThat(success.data).isEqualTo("http://cdn.example.com/series/episode11.mkv")
+    }
+
+    @Test
+    fun createLink_appends_archive_window_for_archive_streams() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://portal.example.com/play/live.php?stream=301&play_token=abc"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.ARCHIVE,
+            cmd = "ffmpeg http://localhost/ch/301_",
+            archiveStartSeconds = 1000L,
+            archiveEndSeconds = 1300L
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data).contains("utc=1000")
+        assertThat(success.data).contains("lutc=1300")
+    }
+
+    @Test
+    fun buildStalkerDeviceProfile_sanitizes_impossible_auth_mode_hints() {
+        val credentialsOnly = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.MAC_PLUS_CREDENTIALS,
+            username = "alice",
+            password = "secret",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val macOnly = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.CREDENTIALS_ONLY,
+            username = "",
+            password = "",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val strictProfile = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.MAC_ONLY,
+            magPresetHint = com.streamvault.domain.model.StalkerMagPreset.MAG254_STRICT,
+            username = "",
+            password = "",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(credentialsOnly.authMode).isEqualTo(com.streamvault.domain.model.StalkerAuthMode.CREDENTIALS_ONLY)
+        assertThat(macOnly.authMode).isEqualTo(com.streamvault.domain.model.StalkerAuthMode.MAC_ONLY)
+        assertThat(strictProfile.deviceProfile).isEqualTo("MAG254")
+        assertThat(strictProfile.userAgent).contains("MAG254")
     }
 
     @Test

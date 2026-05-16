@@ -582,7 +582,9 @@ class XtreamStreamUrlResolverTest {
             profile: StalkerDeviceProfile,
             kind: StalkerStreamKind,
             cmd: String,
-            seriesNumber: Int?
+            seriesNumber: Int?,
+            archiveStartSeconds: Long?,
+            archiveEndSeconds: Long?
         ): Result<String> {
             createLinkCalls += 1
             lastCreateLinkSeriesNumber = seriesNumber

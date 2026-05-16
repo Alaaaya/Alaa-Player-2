@@ -16,7 +16,7 @@
     "portalProfile": "MAG_BASIC",
     "bootstrapEvidence": ["handshake", "get_profile"],
     "requestOrder": ["handshake", "get_profile", "get_all_channels", "create_link"],
-    "playbackMode": "TEMP_LINK_NGINX",
+    "playbackMode": "PLAY_LIVE_PORTAL",
     "resolvedPlaybackUrl": "http://edge.example.com/play/live.php?stream=100&play_token=abc"
   }
 }

@@ -4322,6 +4322,12 @@ class SyncManager @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = provider.password,
+            portalFingerprintHint = provider.stalkerPortalFingerprint,
+            magPresetHint = provider.stalkerMagPreset,
+            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
+            endpointPreferenceHint = provider.stalkerEndpointPreference,
+            cookieModeHint = provider.stalkerCookieMode,
+            playbackBackendHint = provider.stalkerPlaybackBackendHint,
             portalProfileHint = provider.stalkerPortalProfile,
             preferredPlaybackMode = provider.stalkerLastPlaybackMode
                 ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },

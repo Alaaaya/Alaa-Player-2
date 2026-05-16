@@ -49,7 +49,7 @@ import com.streamvault.data.local.entity.*
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class
     ],
-    version = 55,
+    version = 57,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2574,6 +2574,45 @@ abstract class StreamVaultDatabase : RoomDatabase() {
         val MIGRATION_51_52 = object : Migration(51, 52) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE providers ADD COLUMN xtream_live_sync_mode TEXT NOT NULL DEFAULT 'AUTO'")
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_portal_fingerprint TEXT NOT NULL DEFAULT 'BASIC_MAC'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_mag_preset TEXT NOT NULL DEFAULT 'GENERIC_SAFE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_last_bootstrap_recipe TEXT NOT NULL DEFAULT 'GENERIC_SAFE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_strict_fingerprint_required INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_recipe_fallback_used INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_recipe_rediscovery_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_endpoint_preference TEXT NOT NULL DEFAULT 'AUTO'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_cookie_mode TEXT NOT NULL DEFAULT 'NONE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_playback_backend_hint TEXT NOT NULL DEFAULT 'AUTO'"
+                )
                 validateForeignKeys(database, "providers")
             }
         }

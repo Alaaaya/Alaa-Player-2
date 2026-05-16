@@ -1,5 +1,6 @@
 package com.streamvault.data.remote.stalker
 
+import android.util.Log
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.Category
@@ -15,6 +16,12 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
+import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.util.ChannelNormalizer
@@ -29,7 +36,10 @@ data class StalkerPlaybackInfo(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val userAgent: String? = null,
-    val playbackMode: StalkerPlaybackMode = StalkerPlaybackMode.DIRECT_URL
+    val playbackMode: StalkerPlaybackMode = StalkerPlaybackMode.DIRECT_URL,
+    val endpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+    val cookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
+    val backendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO
 )
 
 data class StalkerPagedResult<T>(
@@ -49,6 +59,12 @@ class StalkerProvider(
     private val authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     private val username: String = "",
     private val password: String = "",
+    private val portalFingerprintHint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+    private val magPresetHint: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    private val bootstrapRecipeHint: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+    private val endpointPreferenceHint: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+    private val cookieModeHint: StalkerCookieMode = StalkerCookieMode.NONE,
+    private val playbackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
     private val portalProfileHint: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
     private val preferredPlaybackMode: StalkerPlaybackMode? = null,
     private val deviceProfile: String,
@@ -59,6 +75,9 @@ class StalkerProvider(
     private val deviceId2: String = "",
     private val signature: String = ""
 ) : IptvProvider {
+    private companion object {
+        private const val TAG = "StalkerProvider"
+    }
 
     private data class CategorySeed(
         val id: Long,
@@ -83,6 +102,7 @@ class StalkerProvider(
         return when (val authResult = ensureAuthenticated()) {
             is Result.Success -> {
                 val profile = authResult.data.second
+                val learnedDeviceProfile = buildLearnedDeviceProfile(profile)
                 val hostLabel = portalUrl.substringAfter("://").substringBefore('/').ifBlank { "portal" }
                 val providerName = profile.accountName?.takeUnless { it.isBlank() || it == "0" }
                     ?: normalizedUsername().takeIf { it.isNotBlank() }
@@ -96,20 +116,29 @@ class StalkerProvider(
                         username = normalizedUsername(),
                         password = normalizedPassword(),
                         stalkerMacAddress = normalizedMacAddress(),
-                        stalkerDeviceProfile = normalizedDeviceProfile(),
-                        stalkerDeviceTimezone = normalizedTimezone(),
-                        stalkerDeviceLocale = normalizedLocale(),
-                        stalkerSerialNumber = normalizedSerialNumber(),
-                        stalkerDeviceId = normalizedDeviceId(),
-                        stalkerDeviceId2 = normalizedDeviceId2(),
-                        stalkerSignature = normalizedSignature(),
+                        stalkerDeviceProfile = learnedDeviceProfile.deviceProfile,
+                        stalkerDeviceTimezone = learnedDeviceProfile.timezone,
+                        stalkerDeviceLocale = learnedDeviceProfile.locale,
+                        stalkerSerialNumber = learnedDeviceProfile.serialNumber,
+                        stalkerDeviceId = learnedDeviceProfile.deviceId,
+                        stalkerDeviceId2 = learnedDeviceProfile.deviceId2,
+                        stalkerSignature = learnedDeviceProfile.signature,
                         stalkerAuthMode = profile.effectiveAuthMode,
                         stalkerPortalProfile = profile.portalProfile,
+                        stalkerPortalFingerprint = profile.portalFingerprint,
+                        stalkerMagPreset = profile.magPreset,
+                        stalkerLastBootstrapRecipe = profile.bootstrapRecipe,
+                        stalkerEndpointPreference = profile.fingerprintEvidence.endpointPreference,
+                        stalkerCookieMode = profile.fingerprintEvidence.cookieMode,
+                        stalkerPlaybackBackendHint = profile.fingerprintEvidence.playbackBackendHint,
                         stalkerLastPlaybackMode = null,
                         stalkerCredentialsRequired = profile.credentialRequired,
                         stalkerMacRequired = profile.macRequired,
                         stalkerUsesTemporaryLinks = profile.portalCapabilities.usesTemporaryLinks,
                         stalkerModuleRestricted = profile.portalCapabilities.moduleRestricted,
+                        stalkerStrictFingerprintRequired = profile.strictFingerprintRequired,
+                        stalkerRecipeFallbackUsed = profile.fallbackRecipeUsed,
+                        stalkerRecipeRediscoveryAttempts = if (profile.rediscoveryAttempted) 1 else 0,
                         maxConnections = profile.maxConnections ?: 1,
                         expirationDate = profile.expirationDate,
                         apiVersion = "Stalker/MAG Portal",
@@ -335,26 +364,44 @@ class StalkerProvider(
     suspend fun resolvePlaybackInfo(
         kind: StalkerStreamKind,
         cmd: String,
-        seriesNumber: Int? = null
+        seriesNumber: Int? = null,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null
     ): Result<StalkerPlaybackInfo> = resolvePlaybackInfo(
         kind = kind,
         descriptor = buildStalkerPlaybackDescriptor(cmd),
-        seriesNumber = seriesNumber
+        seriesNumber = seriesNumber,
+        archiveStartSeconds = archiveStartSeconds,
+        archiveEndSeconds = archiveEndSeconds
     )
 
     suspend fun resolvePlaybackInfo(
         kind: StalkerStreamKind,
         descriptor: StalkerPlaybackDescriptor?,
-        seriesNumber: Int? = null
+        seriesNumber: Int? = null,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null
     ): Result<StalkerPlaybackInfo> {
+        validateArchiveWindow(kind, archiveStartSeconds, archiveEndSeconds)?.let { message ->
+            return Result.error(message)
+        }
         val resolvedDescriptor = descriptor ?: return Result.error("This portal requires a different playback path than the default command.")
-        return resolvePlaybackInfoInternal(kind, resolvedDescriptor, seriesNumber, allowRebootstrap = true)
+        return resolvePlaybackInfoInternal(
+            kind = kind,
+            descriptor = resolvedDescriptor,
+            seriesNumber = seriesNumber,
+            archiveStartSeconds = archiveStartSeconds,
+            archiveEndSeconds = archiveEndSeconds,
+            allowRebootstrap = true
+        )
     }
 
     private suspend fun resolvePlaybackInfoInternal(
         kind: StalkerStreamKind,
         descriptor: StalkerPlaybackDescriptor,
         seriesNumber: Int?,
+        archiveStartSeconds: Long?,
+        archiveEndSeconds: Long?,
         allowRebootstrap: Boolean
     ): Result<StalkerPlaybackInfo> {
         return when (val authResult = ensureAuthenticated()) {
@@ -372,21 +419,49 @@ class StalkerProvider(
                         portalProfileHint = accountProfile.portalProfile.takeUnless {
                             it == StalkerPortalProfile.MAG_BASIC
                         } ?: portalProfileHint,
-                        preferredMode = preferredPlaybackMode
+                        preferredMode = preferredPlaybackMode,
+                        backendHint = accountProfile.fingerprintEvidence.playbackBackendHint
+                            .takeUnless { it == StalkerPlaybackBackendHint.AUTO }
+                            ?: playbackBackendHint,
+                        cookieModeHint = accountProfile.fingerprintEvidence.cookieMode
+                            .takeUnless { it == StalkerCookieMode.NONE }
+                            ?: cookieModeHint
                     )
                     val directUrl = extractDirectPlaybackUrl(variant.cmd)
-                    directUrl
-                        ?.takeIf { candidate ->
+                    val directCandidates = when (kind) {
+                        StalkerStreamKind.ARCHIVE -> buildArchiveDirectCandidates(
+                            sourceUrl = directUrl,
+                            startSeconds = archiveStartSeconds,
+                            endSeconds = archiveEndSeconds
+                        )
+                        else -> listOfNotNull(directUrl)
+                    }
+                    directCandidates
+                        .firstOrNull { candidate ->
                             adapter.allowsDirectBypass(variant) &&
                                 shouldBypassCreateLink(kind, candidate)
                         }
                         ?.let { candidate ->
+                            Log.d(
+                                TAG,
+                                "Resolved direct Stalker playback provider=$providerId kind=${kind.name} mode=${adapter.adapterMode.name} " +
+                                    "candidateMode=${variant.playbackMode.name} endpoint=${effectiveArchiveEndpointPreference(kind, session).name}"
+                            )
                             return Result.success(
                                 StalkerPlaybackInfo(
                                     url = candidate,
-                                    headers = buildPlaybackHeaders(session, profile),
+                                    headers = buildPlaybackHeaders(session, profile, candidate),
                                     userAgent = profile.userAgent,
-                                    playbackMode = adapter.adapterMode
+                                    playbackMode = adapter.adapterMode,
+                                    endpointPreference = effectiveArchiveEndpointPreference(
+                                        kind = kind,
+                                        session = session
+                                    ),
+                                    cookieMode = derivePlaybackCookieMode(
+                                        current = effectiveArchiveCookieMode(kind, session, candidate),
+                                        url = candidate
+                                    ),
+                                    backendHint = detectPlaybackBackendHint(candidate, descriptor.capabilities, adapter)
                                 )
                             )
                         }
@@ -396,14 +471,46 @@ class StalkerProvider(
                         return@forEach
                     }
 
-                    when (val linkResult = api.createLink(session, profile, kind, variant.cmd, seriesNumber)) {
+                    when (
+                        val linkResult = api.createLink(
+                            session = session,
+                            profile = profile,
+                            kind = kind,
+                            cmd = variant.cmd,
+                            seriesNumber = seriesNumber,
+                            archiveStartSeconds = archiveStartSeconds,
+                            archiveEndSeconds = archiveEndSeconds
+                        )
+                    ) {
                         is Result.Success -> {
+                            val resolvedUrl = repairCreateLinkUrl(
+                                kind = kind,
+                                resolvedUrl = linkResult.data,
+                                sourceDirectUrl = directUrl,
+                                archiveStartSeconds = archiveStartSeconds,
+                                archiveEndSeconds = archiveEndSeconds
+                            )
+                            Log.d(
+                                TAG,
+                                "Resolved create_link playback provider=$providerId kind=${kind.name} mode=${adapter.adapterMode.name} " +
+                                    "candidateMode=${variant.playbackMode.name} endpoint=${effectiveArchiveEndpointPreference(kind, session).name} " +
+                                    "cookie=${effectiveArchiveCookieMode(kind, session, resolvedUrl).name}"
+                            )
                             return Result.success(
                                 StalkerPlaybackInfo(
-                                    url = repairCreateLinkUrl(kind, linkResult.data, directUrl),
-                                    headers = buildPlaybackHeaders(session, profile),
+                                    url = resolvedUrl,
+                                    headers = buildPlaybackHeaders(session, profile, resolvedUrl),
                                     userAgent = profile.userAgent,
-                                    playbackMode = adapter.adapterMode
+                                    playbackMode = adapter.adapterMode,
+                                    endpointPreference = effectiveArchiveEndpointPreference(
+                                        kind = kind,
+                                        session = session
+                                    ),
+                                    cookieMode = derivePlaybackCookieMode(
+                                        current = effectiveArchiveCookieMode(kind, session, resolvedUrl),
+                                        url = resolvedUrl
+                                    ),
+                                    backendHint = detectPlaybackBackendHint(resolvedUrl, descriptor.capabilities, adapter)
                                 )
                             )
                         }
@@ -422,7 +529,13 @@ class StalkerProvider(
                             portalProfileHint = accountProfile.portalProfile.takeUnless {
                                 it == StalkerPortalProfile.MAG_BASIC
                             } ?: portalProfileHint,
-                            preferredMode = preferredPlaybackMode
+                            preferredMode = preferredPlaybackMode,
+                            backendHint = accountProfile.fingerprintEvidence.playbackBackendHint
+                                .takeUnless { it == StalkerPlaybackBackendHint.AUTO }
+                                ?: playbackBackendHint,
+                            cookieModeHint = accountProfile.fingerprintEvidence.cookieMode
+                                .takeUnless { it == StalkerCookieMode.NONE }
+                                ?: cookieModeHint
                         ).allowsRebootstrap(descriptor, accountProfile)
                     } &&
                     isLikelyAuthOrSessionFailure(lastError?.message.orEmpty(), lastError?.exception)
@@ -432,11 +545,22 @@ class StalkerProvider(
                         kind = kind,
                         descriptor = descriptor,
                         seriesNumber = seriesNumber,
+                        archiveStartSeconds = archiveStartSeconds,
+                        archiveEndSeconds = archiveEndSeconds,
                         allowRebootstrap = false
                     )
                 }
 
                 val message = when {
+                    accountProfile.strictFingerprintRequired && lastError?.message.isNullOrBlank() ->
+                        "Portal requires stricter MAG emulation."
+
+                    accountProfile.fallbackRecipeUsed && descriptor.capabilities.usesTemporaryLinks ->
+                        "Portal matched a legacy MAG recipe and was retried automatically, but playback still failed."
+
+                    accountProfile.rediscoveryAttempted ->
+                        "Stored portal recipe failed; rediscovery attempted."
+
                     descriptor.capabilities.ambiguousAccountState || accountProfile.ambiguousState ->
                         "Portal profile is ambiguous; playback/session validation failed."
 
@@ -448,9 +572,33 @@ class StalkerProvider(
                             ?: "Portal could not issue a valid temporary playback link for this stream."
 
                     else -> lastError?.message?.takeIf { it.isNotBlank() }
-                        ?: "We couldn't resolve a playable Stalker stream for this item."
+                        ?: "Portal family detected, but no working recipe succeeded."
                 }
-                Result.error(message, lastError?.exception)
+                Log.w(
+                    TAG,
+                    "Stalker playback failed provider=$providerId kind=${kind.name} " +
+                        "fingerprint=${accountProfile.portalFingerprint.name} preset=${accountProfile.magPreset.name} " +
+                        "recipe=${accountProfile.bootstrapRecipe.name} endpoint=${accountProfile.fingerprintEvidence.endpointPreference.name} " +
+                        "cookie=${accountProfile.fingerprintEvidence.cookieMode.name} backend=${accountProfile.fingerprintEvidence.playbackBackendHint.name} " +
+                        "fallback=${accountProfile.fallbackRecipeUsed} rediscovery=${accountProfile.rediscoveryAttempted} " +
+                        "reason=$message"
+                )
+                Result.error(
+                    message,
+                    StalkerPlaybackResolutionException(
+                        message = message,
+                        cause = lastError?.exception,
+                        streamKind = kind,
+                        portalFingerprint = accountProfile.portalFingerprint,
+                        magPreset = accountProfile.magPreset,
+                        bootstrapRecipe = accountProfile.bootstrapRecipe,
+                        endpointPreference = accountProfile.fingerprintEvidence.endpointPreference,
+                        cookieMode = accountProfile.fingerprintEvidence.cookieMode,
+                        playbackBackendHint = accountProfile.fingerprintEvidence.playbackBackendHint,
+                        fallbackRecipeUsed = accountProfile.fallbackRecipeUsed,
+                        rediscoveryAttempted = accountProfile.rediscoveryAttempted
+                    )
+                )
             }
             is Result.Error -> Result.error(authResult.message, authResult.exception)
             is Result.Loading -> Result.error("Unexpected loading state")
@@ -460,15 +608,70 @@ class StalkerProvider(
     suspend fun resolvePlaybackUrl(
         kind: StalkerStreamKind,
         cmd: String,
-        seriesNumber: Int? = null
+        seriesNumber: Int? = null,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null
     ): Result<String> =
-        resolvePlaybackInfo(kind, cmd, seriesNumber).mapData(StalkerPlaybackInfo::url)
+        resolvePlaybackInfo(
+            kind = kind,
+            cmd = cmd,
+            seriesNumber = seriesNumber,
+            archiveStartSeconds = archiveStartSeconds,
+            archiveEndSeconds = archiveEndSeconds
+        ).mapData(StalkerPlaybackInfo::url)
 
     override suspend fun buildStreamUrl(streamId: Long, containerExtension: String?): String {
         throw UnsupportedOperationException("Stalker stream URLs require a command token context.")
     }
 
-    override suspend fun buildCatchUpUrl(streamId: Long, start: Long, end: Long): String? = null
+    override suspend fun buildCatchUpUrl(streamId: Long, start: Long, end: Long): String? =
+        buildCatchUpUrls(streamId, start, end).firstOrNull()
+
+    override suspend fun buildCatchUpUrls(streamId: Long, start: Long, end: Long): List<String> =
+        buildCatchUpUrls(streamId, start, end, sourceStreamUrl = null, sourceCatchUpSource = null)
+
+    suspend fun buildCatchUpUrls(
+        streamId: Long,
+        start: Long,
+        end: Long,
+        sourceStreamUrl: String?,
+        sourceCatchUpSource: String?
+    ): List<String> {
+        val safeStart = start.takeIf { it > 0L } ?: return emptyList()
+        val safeEnd = end.takeIf { it > safeStart } ?: return emptyList()
+        val seedToken = sequenceOf(sourceCatchUpSource, sourceStreamUrl)
+            .mapNotNull(StalkerUrlFactory::parseInternalStreamUrl)
+            .firstOrNull()
+            ?: return emptyList()
+        if (seedToken.providerId != providerId) {
+            return emptyList()
+        }
+        if (seedToken.kind != StalkerStreamKind.LIVE && seedToken.kind != StalkerStreamKind.ARCHIVE) {
+            return emptyList()
+        }
+        val seedDescriptor = seedToken.playbackDescriptor
+            ?: buildStalkerPlaybackDescriptor(seedToken.cmd)
+            ?: return emptyList()
+        val orderedCandidates = seedDescriptor.candidates.sortedBy { variant ->
+            if (preferredPlaybackMode != null && variant.playbackMode == preferredPlaybackMode) 0 else 1
+        }
+        return orderedCandidates.mapIndexed { index, variant ->
+            StalkerUrlFactory.buildInternalStreamUrl(
+                providerId = providerId,
+                kind = StalkerStreamKind.ARCHIVE,
+                itemId = streamId.takeIf { it > 0L } ?: seedToken.itemId,
+                cmd = variant.cmd,
+                containerExtension = seedToken.containerExtension,
+                archiveStartSeconds = safeStart,
+                archiveEndSeconds = safeEnd,
+                playbackDescriptor = StalkerPlaybackDescriptor(
+                    primaryMode = variant.playbackMode,
+                    candidates = listOf(variant.copy(priority = index)),
+                    capabilities = seedDescriptor.capabilities
+                )
+            )
+        }.distinct()
+    }
 
     private suspend fun mapCategories(
         type: ContentType,
@@ -552,6 +755,12 @@ class StalkerProvider(
                 portalUrl = portalUrl,
                 macAddress = normalizedMacAddress(),
                 authMode = authMode,
+                magPresetHint = magPresetHint,
+                portalFingerprintHint = portalFingerprintHint,
+                bootstrapRecipeHint = bootstrapRecipeHint,
+                endpointPreferenceHint = endpointPreferenceHint,
+                cookieModeHint = cookieModeHint,
+                playbackBackendHint = playbackBackendHint,
                 username = normalizedUsername(),
                 password = normalizedPassword(),
                 deviceProfile = normalizedDeviceProfile(),
@@ -578,6 +787,35 @@ class StalkerProvider(
             portalUrl = portalUrl,
             macAddress = normalizedMacAddress(),
             authMode = authMode,
+            magPresetHint = magPresetHint,
+            portalFingerprintHint = portalFingerprintHint,
+            bootstrapRecipeHint = bootstrapRecipeHint,
+            endpointPreferenceHint = endpointPreferenceHint,
+            cookieModeHint = cookieModeHint,
+            playbackBackendHint = playbackBackendHint,
+            username = normalizedUsername(),
+            password = normalizedPassword(),
+            deviceProfile = normalizedDeviceProfile(),
+            timezone = normalizedTimezone(),
+            locale = normalizedLocale(),
+            serialNumberOverride = normalizedSerialNumber(),
+            deviceIdOverride = normalizedDeviceId(),
+            deviceId2Override = normalizedDeviceId2(),
+            signatureOverride = normalizedSignature()
+        )
+    }
+
+    private fun buildLearnedDeviceProfile(profile: StalkerProviderProfile): StalkerDeviceProfile {
+        return buildStalkerDeviceProfile(
+            portalUrl = portalUrl,
+            macAddress = normalizedMacAddress(),
+            authMode = profile.effectiveAuthMode,
+            magPresetHint = profile.magPreset,
+            portalFingerprintHint = profile.portalFingerprint,
+            bootstrapRecipeHint = profile.bootstrapRecipe,
+            endpointPreferenceHint = profile.fingerprintEvidence.endpointPreference,
+            cookieModeHint = profile.fingerprintEvidence.cookieMode,
+            playbackBackendHint = profile.fingerprintEvidence.playbackBackendHint,
             username = normalizedUsername(),
             password = normalizedPassword(),
             deviceProfile = normalizedDeviceProfile(),
@@ -592,19 +830,29 @@ class StalkerProvider(
 
     private fun buildPlaybackHeaders(
         session: StalkerSession,
-        profile: StalkerDeviceProfile
+        profile: StalkerDeviceProfile,
+        url: String
     ): Map<String, String> = buildMap {
+        val omitAuthorization = shouldOmitPlaybackAuthorization(url)
+        val serverCookieHeader = api.currentCookieHeader(session)
+            .ifBlank { session.serverCookieHeader }
         put("Referer", session.portalReferer)
         put("Accept", "*/*")
-        put("Cookie", buildPlaybackCookieHeader(session, profile))
+        put("Accept-Encoding", "identity")
+        put("Cookie", buildPlaybackCookieHeader(serverCookieHeader, profile))
         put("X-User-Agent", profile.xUserAgent)
-        session.token.takeIf { it.isNotBlank() }?.let { token ->
+        session.token.takeIf { it.isNotBlank() && !omitAuthorization }?.let { token ->
             put("Authorization", "Bearer $token")
         }
     }
 
+    private fun shouldOmitPlaybackAuthorization(url: String): Boolean {
+        val path = runCatching { URI(url).path?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault("")
+        return path.endsWith("/play/live.php") || path.endsWith("/play/movie.php")
+    }
+
     private fun buildPlaybackCookieHeader(
-        session: StalkerSession,
+        serverCookieHeader: String,
         profile: StalkerDeviceProfile
     ): String {
         val cookies = linkedMapOf(
@@ -616,15 +864,132 @@ class StalkerProvider(
             "device_id2" to profile.deviceId2,
             "signature" to profile.signature
         )
-        session.serverCookieHeader.split(';')
+        serverCookieHeader.split(';')
             .mapNotNull { part ->
                 val key = part.substringBefore('=', missingDelimiterValue = "").trim()
                 val value = part.substringAfter('=', missingDelimiterValue = "").trim()
                 key.takeIf { it.isNotBlank() && value.isNotBlank() }?.let { it to value }
             }.forEach { (key, value) ->
                 cookies.putIfAbsent(key, value)
-            }
+        }
         return cookies.entries.joinToString("; ") { (key, value) -> "$key=$value" }
+    }
+
+    private fun derivePlaybackCookieMode(
+        current: StalkerCookieMode,
+        url: String
+    ): StalkerCookieMode {
+        val path = runCatching { URI(url).path?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault("")
+        val playbackNeedsCookies = path.endsWith("/play/live.php") || path.endsWith("/play/movie.php")
+        return when {
+            playbackNeedsCookies && current == StalkerCookieMode.CREATE_LINK -> StalkerCookieMode.BOTH
+            playbackNeedsCookies -> StalkerCookieMode.PLAYBACK
+            else -> current
+        }
+    }
+
+    private fun effectiveArchiveCookieMode(
+        kind: StalkerStreamKind,
+        session: StalkerSession,
+        url: String
+    ): StalkerCookieMode {
+        val base = session.fingerprintEvidence.cookieMode
+        if (kind != StalkerStreamKind.ARCHIVE) {
+            return base
+        }
+        return when (base) {
+            StalkerCookieMode.NONE -> StalkerCookieMode.PLAYBACK
+            StalkerCookieMode.CREATE_LINK -> StalkerCookieMode.BOTH
+            else -> derivePlaybackCookieMode(base, url)
+        }
+    }
+
+    private fun effectiveArchiveEndpointPreference(
+        kind: StalkerStreamKind,
+        session: StalkerSession
+    ): StalkerEndpointPreference =
+        if (kind == StalkerStreamKind.ARCHIVE) {
+            session.fingerprintEvidence.archiveEndpointPreference.takeUnless {
+                it == StalkerEndpointPreference.AUTO
+            } ?: session.fingerprintEvidence.endpointPreference
+        } else {
+            session.fingerprintEvidence.endpointPreference
+        }
+
+    private fun buildArchiveDirectCandidates(
+        sourceUrl: String?,
+        startSeconds: Long?,
+        endSeconds: Long?
+    ): List<String> {
+        val normalizedSource = sourceUrl?.trim()?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val safeStart = startSeconds?.takeIf { it > 0L } ?: return listOf(normalizedSource)
+        val safeEnd = endSeconds?.takeIf { it > safeStart } ?: return listOf(normalizedSource)
+        val liveNow = maxOf(safeEnd, System.currentTimeMillis() / 1000L)
+        val withUtc = appendArchiveQueryParameter(normalizedSource, "utc", safeStart.toString())
+        val withLutc = appendArchiveQueryParameter(withUtc ?: normalizedSource, "lutc", liveNow.toString())
+        return listOfNotNull(
+            normalizedSource.takeIf { hasArchiveQueryHints(it) },
+            withLutc
+        ).distinct()
+    }
+
+    private fun hasArchiveQueryHints(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val query = uri.rawQuery?.lowercase(Locale.ROOT).orEmpty()
+        return query.contains("utc=") ||
+            query.contains("lutc=") ||
+            query.contains("timeshift=") ||
+            uri.path?.lowercase(Locale.ROOT)?.contains("timeshift") == true
+    }
+
+    private fun appendArchiveQueryParameter(url: String, name: String, value: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val rawQuery = uri.rawQuery
+        val existingParts = rawQuery
+            ?.split('&')
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+            .toMutableList()
+        val replaced = existingParts.map { part ->
+            val key = part.substringBefore('=', missingDelimiterValue = "")
+            if (key.equals(name, ignoreCase = true)) {
+                "$key=$value"
+            } else {
+                part
+            }
+        }.toMutableList()
+        if (replaced.none { part ->
+                part.substringBefore('=', missingDelimiterValue = "").equals(name, ignoreCase = true)
+            }
+        ) {
+            replaced += "$name=$value"
+        }
+        val query = replaced.joinToString("&")
+        return URI(uri.scheme, uri.authority, uri.path, query, uri.fragment).toString()
+    }
+
+    private fun detectPlaybackBackendHint(
+        url: String,
+        capabilities: StalkerPortalCapabilities,
+        adapter: StalkerPlaybackAdapter
+    ): StalkerPlaybackBackendHint {
+        val path = runCatching { URI(url).path?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault("")
+        return when {
+            path.endsWith("/play/live.php") -> StalkerPlaybackBackendHint.PLAY_LIVE
+            path.endsWith("/play/movie.php") -> StalkerPlaybackBackendHint.PLAY_MOVIE
+            adapter.adapterMode == StalkerPlaybackMode.TEMP_LINK_FLUSSONIC ||
+                adapter.adapterMode == StalkerPlaybackMode.TEMP_LINK_WOWZA ||
+                adapter.adapterMode == StalkerPlaybackMode.TEMP_LINK_NGINX ||
+                adapter.adapterMode == StalkerPlaybackMode.PLAY_LIVE_PORTAL ||
+                adapter.adapterMode == StalkerPlaybackMode.PLAY_MOVIE_PORTAL ->
+                if (capabilities.nginxSecureLink || capabilities.useHttpTemporaryLink) {
+                    StalkerPlaybackBackendHint.TEMP_LINK_STRICT
+                } else {
+                    StalkerPlaybackBackendHint.TEMP_LINK
+                }
+
+            else -> StalkerPlaybackBackendHint.DIRECT
+        }
     }
 
     private fun extractDirectPlaybackUrl(cmd: String): String? {
@@ -639,7 +1004,7 @@ class StalkerProvider(
         val host = parsed.host?.trim()?.lowercase(Locale.ROOT).orEmpty()
         if (host.isBlank()) return false
         if (host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0") return false
-        if (kind == StalkerStreamKind.LIVE && !hasUsableLiveStreamTarget(parsed)) return false
+        if ((kind == StalkerStreamKind.LIVE || kind == StalkerStreamKind.ARCHIVE) && !hasUsableLiveStreamTarget(parsed)) return false
 
         return true
     }
@@ -647,23 +1012,31 @@ class StalkerProvider(
     private fun repairCreateLinkUrl(
         kind: StalkerStreamKind,
         resolvedUrl: String,
-        sourceDirectUrl: String?
+        sourceDirectUrl: String?,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null
     ): String {
+        val repairedArchive = if (kind == StalkerStreamKind.ARCHIVE) {
+            buildArchiveDirectCandidates(resolvedUrl, archiveStartSeconds, archiveEndSeconds).firstOrNull()
+                ?: resolvedUrl
+        } else {
+            resolvedUrl
+        }
         if (kind != StalkerStreamKind.LIVE || sourceDirectUrl.isNullOrBlank()) {
-            return resolvedUrl
+            return repairedArchive
         }
 
-        val resolvedUri = runCatching { URI(resolvedUrl) }.getOrNull() ?: return resolvedUrl
+        val resolvedUri = runCatching { URI(repairedArchive) }.getOrNull() ?: return repairedArchive
         val sourceUri = runCatching { URI(sourceDirectUrl) }.getOrNull() ?: return resolvedUrl
         if (!isSameLivePlayPath(resolvedUri, sourceUri)) {
-            return resolvedUrl
+            return repairedArchive
         }
         if (hasUsableLiveStreamTarget(resolvedUri)) {
-            return resolvedUrl
+            return repairedArchive
         }
 
-        val sourceStreamId = sourceUri.queryParameter("stream")?.takeIf { it.isNotBlank() } ?: return resolvedUrl
-        return replaceQueryParameter(resolvedUri, "stream", sourceStreamId) ?: resolvedUrl
+        val sourceStreamId = sourceUri.queryParameter("stream")?.takeIf { it.isNotBlank() } ?: return repairedArchive
+        return replaceQueryParameter(resolvedUri, "stream", sourceStreamId) ?: repairedArchive
     }
 
     private fun hasUsableLiveStreamTarget(uri: URI): Boolean {
@@ -754,6 +1127,11 @@ class StalkerProvider(
         } ?: directStreamUrl
             ?: return null
         val resolvedName = item.name.ifBlank { "Channel $numericId" }
+        val catchUpSupported = item.archiveAvailable == true ||
+            item.portalCapabilities.archiveAvailable ||
+            item.allowLocalTimeshift == true ||
+            item.allowLocalPvr == true ||
+            item.allowRemotePvr == true
         return Channel(
             id = 0L,
             name = resolvedName,
@@ -763,6 +1141,9 @@ class StalkerProvider(
             streamUrl = streamUrl,
             epgChannelId = item.epgChannelId ?: item.id,
             number = item.number.coerceAtLeast(0),
+            catchUpSupported = catchUpSupported,
+            catchUpDays = 0,
+            catchUpSource = streamUrl.takeIf { catchUpSupported },
             providerId = providerId,
             isAdult = item.isAdult || AdultContentClassifier.isAdultCategoryName(category.name),
             isUserProtected = false,
@@ -1044,17 +1425,42 @@ class StalkerProvider(
         val exceptionMessage = exception?.message?.lowercase(Locale.ROOT).orEmpty()
         return normalizedMessage.contains("http 401") ||
             normalizedMessage.contains("http 403") ||
+            normalizedMessage.contains("http 204") ||
             normalizedMessage.contains("http 456") ||
             normalizedMessage.contains("authorization") ||
             normalizedMessage.contains("token") ||
             normalizedMessage.contains("access denied") ||
             normalizedMessage.contains("forbidden") ||
             normalizedMessage.contains("temporary playback link") ||
+            normalizedMessage.contains("no content") ||
+            normalizedMessage.contains("empty temporary link") ||
             exceptionMessage.contains("http 401") ||
             exceptionMessage.contains("http 403") ||
+            exceptionMessage.contains("http 204") ||
             exceptionMessage.contains("http 456") ||
             exceptionMessage.contains("authorization") ||
-            exceptionMessage.contains("token")
+            exceptionMessage.contains("token") ||
+            exceptionMessage.contains("no content")
+    }
+
+    private fun validateArchiveWindow(
+        kind: StalkerStreamKind,
+        archiveStartSeconds: Long?,
+        archiveEndSeconds: Long?
+    ): String? {
+        if (kind != StalkerStreamKind.ARCHIVE) {
+            return null
+        }
+        val safeStart = archiveStartSeconds?.takeIf { it > 0L }
+            ?: return "Archive playback requires a valid start time."
+        val safeEnd = archiveEndSeconds?.takeIf { it > safeStart }
+            ?: return "Archive playback requires an end time after the start time."
+        val maxWindowSeconds = 7L * 24L * 60L * 60L
+        return if (safeEnd - safeStart > maxWindowSeconds) {
+            "Archive playback window is too large for a single request."
+        } else {
+            null
+        }
     }
 }
 

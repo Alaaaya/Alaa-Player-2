@@ -763,8 +763,17 @@ class ProviderSetupViewModel @Inject constructor(
             result.message.contains("stricter MAG emulation", ignoreCase = true) ->
                 "Portal requires stricter MAG emulation - keep the MAC and advanced device identity fields aligned with the working device"
 
+            result.message.contains("legacy MAG recipe", ignoreCase = true) ->
+                "Portal matched a legacy MAG recipe and was retried automatically, but playback still failed"
+
+            result.message.contains("rediscovery attempted", ignoreCase = true) ->
+                "The saved Stalker portal recipe failed, and the app already retried discovery automatically"
+
             result.message.contains("unsupported portal profile", ignoreCase = true) ->
                 "Portal authenticated, but this Stalker profile is not supported yet"
+
+            result.message.contains("no working recipe succeeded", ignoreCase = true) ->
+                "Portal family was detected, but none of the known Stalker recipes worked for this connection"
 
             failure.hasCause<CredentialDecryptionException>() ->
                 failure.findCause<CredentialDecryptionException>()?.message

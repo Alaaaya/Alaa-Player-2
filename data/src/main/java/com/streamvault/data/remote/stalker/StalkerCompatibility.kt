@@ -13,6 +13,8 @@ enum class StalkerBootstrapStrategy {
 enum class StalkerPlaybackMode {
     DIRECT_URL,
     LOCALHOST_CMD,
+    PLAY_LIVE_PORTAL,
+    PLAY_MOVIE_PORTAL,
     TEMP_LINK_NGINX,
     TEMP_LINK_FLUSSONIC,
     TEMP_LINK_WOWZA,
@@ -105,6 +107,12 @@ internal fun detectStalkerPlaybackMode(
         host.isBlank() || host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" ->
             StalkerPlaybackMode.LOCALHOST_CMD
 
+        path.endsWith("/play/live.php") ->
+            StalkerPlaybackMode.PLAY_LIVE_PORTAL
+
+        path.endsWith("/play/movie.php") ->
+            StalkerPlaybackMode.PLAY_MOVIE_PORTAL
+
         capabilities.flussonicTemporaryLink ->
             StalkerPlaybackMode.TEMP_LINK_FLUSSONIC
 
@@ -133,6 +141,8 @@ internal fun orderStalkerCommandVariants(
 private fun playbackModeRank(mode: StalkerPlaybackMode): Int = when (mode) {
     StalkerPlaybackMode.DIRECT_URL -> 0
     StalkerPlaybackMode.MULTI_CMD -> 1
+    StalkerPlaybackMode.PLAY_LIVE_PORTAL,
+    StalkerPlaybackMode.PLAY_MOVIE_PORTAL,
     StalkerPlaybackMode.LOCALHOST_CMD -> 2
     StalkerPlaybackMode.TEMP_LINK_NGINX,
     StalkerPlaybackMode.TEMP_LINK_FLUSSONIC,

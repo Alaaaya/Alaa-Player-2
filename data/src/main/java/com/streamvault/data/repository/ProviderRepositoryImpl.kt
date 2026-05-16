@@ -741,7 +741,13 @@ class ProviderRepositoryImpl @Inject constructor(
                 val source = channel?.catchUpSource ?: return emptyList()
                 buildM3uCatchUpUrls(source, start, end)
             }
-            ProviderType.STALKER_PORTAL -> emptyList()
+            ProviderType.STALKER_PORTAL -> createStalkerProviderFromEntity(providerEntity).buildCatchUpUrls(
+                streamId = resolvedStreamId,
+                start = start,
+                end = end,
+                sourceStreamUrl = channel?.streamUrl,
+                sourceCatchUpSource = channel?.catchUpSource
+            )
         }
     }
 
@@ -778,6 +784,12 @@ class ProviderRepositoryImpl @Inject constructor(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        portalFingerprintHint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+        magPresetHint: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+        bootstrapRecipeHint: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+        endpointPreferenceHint: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+        cookieModeHint: StalkerCookieMode = StalkerCookieMode.NONE,
+        playbackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
         portalProfileHint: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
         preferredPlaybackMode: StalkerPlaybackMode? = null,
         deviceProfile: String,
@@ -796,6 +808,12 @@ class ProviderRepositoryImpl @Inject constructor(
             authMode = authMode,
             username = username,
             password = password,
+            portalFingerprintHint = portalFingerprintHint,
+            magPresetHint = magPresetHint,
+            bootstrapRecipeHint = bootstrapRecipeHint,
+            endpointPreferenceHint = endpointPreferenceHint,
+            cookieModeHint = cookieModeHint,
+            playbackBackendHint = playbackBackendHint,
             portalProfileHint = portalProfileHint,
             preferredPlaybackMode = preferredPlaybackMode,
             deviceProfile = deviceProfile,
@@ -820,6 +838,12 @@ class ProviderRepositoryImpl @Inject constructor(
             } catch (_: Throwable) {
                 ""
             },
+            portalFingerprintHint = entity.stalkerPortalFingerprint,
+            magPresetHint = entity.stalkerMagPreset,
+            bootstrapRecipeHint = entity.stalkerLastBootstrapRecipe,
+            endpointPreferenceHint = entity.stalkerEndpointPreference,
+            cookieModeHint = entity.stalkerCookieMode,
+            playbackBackendHint = entity.stalkerPlaybackBackendHint,
             portalProfileHint = entity.stalkerPortalProfile,
             preferredPlaybackMode = entity.stalkerLastPlaybackMode
                 ?.let { runCatching { StalkerPlaybackMode.valueOf(it) }.getOrNull() },
