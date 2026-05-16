@@ -589,7 +589,10 @@ class OkHttpStalkerApiService @Inject constructor(
                         "episode_id" to "0"
                     )
                 )
-                entry.toSeasonRecord(episodesPayload.extractItemEntries())
+                entry.toSeasonRecord(
+                    episodeEntries = episodesPayload.extractItemEntries(),
+                    fallbackSeasonNumber = seasonId.toIntOrNull()
+                )
             }
         } else if (shellSeasonRows.isNotEmpty()) {
             shellSeasonRows.map { (seasonId, entry) ->
@@ -607,7 +610,10 @@ class OkHttpStalkerApiService @Inject constructor(
                         "episode_id" to "0"
                     )
                 )
-                entry.toSeasonRecord(episodesPayload.extractItemEntries())
+                entry.toSeasonRecord(
+                    episodeEntries = episodesPayload.extractItemEntries(),
+                    fallbackSeasonNumber = seasonId.toIntOrNull()
+                )
             }
         } else {
             listOf(
@@ -1845,17 +1851,23 @@ class OkHttpStalkerApiService @Inject constructor(
         return id.contains(':') && isSeries.not() && cmd.isNullOrBlank().not()
     }
 
-    private fun JsonObject.toSeasonRecord(episodeEntries: List<JsonObject>): StalkerSeasonRecord {
+    private fun JsonObject.toSeasonRecord(
+        episodeEntries: List<JsonObject>,
+        fallbackSeasonNumber: Int? = null
+    ): StalkerSeasonRecord {
         val seasonNumber = findString("season_id")?.toIntOrNull()
             ?: findString("season_number")?.toIntOrNull()
             ?: extractSeasonNumberFromCmd(findString("cmd"))
+            ?: fallbackSeasonNumber
             ?: 1
         val seasonName = findString("title")
             ?: findString("name")
             ?: "Season $seasonNumber"
-        val explicitEpisodes = episodeEntries.mapIndexedNotNull { index, entry ->
+        val explicitEpisodes = episodeEntries
+            .filterNot { entry -> entry.looksLikeSeasonShellRow() }
+            .mapIndexedNotNull { index, entry ->
             entry.toEpisodeRecord(index + 1, seasonNumber)
-        }
+            }
         return StalkerSeasonRecord(
             seasonNumber = seasonNumber,
             name = seasonName,
@@ -1916,6 +1928,22 @@ class OkHttpStalkerApiService @Inject constructor(
                 ?: 0f,
             containerExtension = extractContainerExtension(findString("cmd"), findString("container_extension"))
         )
+    }
+
+    private fun JsonObject.looksLikeSeasonShellRow(): Boolean {
+        val episodeNumber = findString("series_number")?.toIntOrNull()
+            ?: findString("episode_number")?.toIntOrNull()
+        if (episodeNumber != null) {
+            return false
+        }
+        if (extractSeasonShellEpisodeNumbers().isNotEmpty()) {
+            return true
+        }
+        val title = findString("name") ?: findString("title") ?: ""
+        if (title.trim().startsWith("Season ", ignoreCase = true)) {
+            return true
+        }
+        return extractSeasonNumberFromCmd(findString("cmd")) != null
     }
 
     private fun JsonObject.buildEpisodesFromSeriesShell(

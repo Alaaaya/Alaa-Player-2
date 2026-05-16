@@ -872,6 +872,81 @@ class OkHttpStalkerApiServiceTest {
         assertThat(season.episodes.single().cmd).isEqualTo("ffmpeg http://example.com/episode1.mp4")
     }
 
+    @Test
+    fun getSeriesDetails_preserves_shell_season_numbers_when_followup_rows_omit_them() = runTest {
+        val requestedSeasonIds = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    val seasonId = request.url.queryParameter("season_id").orEmpty()
+                    val body = when {
+                        action != "get_ordered_list" -> error("Unexpected action '$action'")
+                        seasonId == "0" ->
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        seasonId == "1" -> {
+                            requestedSeasonIds += seasonId
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        }
+                        seasonId == "2" -> {
+                            requestedSeasonIds += seasonId
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        }
+                        else -> error("Unexpected season_id '$seasonId'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getSeriesDetails(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            seriesId = "55000:55000"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(requestedSeasonIds).containsExactly("1", "2")
+        assertThat(success.data.seasons.map { it.seasonNumber }).containsExactly(1, 2).inOrder()
+        assertThat(success.data.seasons.map { it.name }).containsExactly("Season 1", "Season 2").inOrder()
+        assertThat(success.data.seasons[0].episodes.map { it.episodeNumber }).containsExactly(1, 2).inOrder()
+        assertThat(success.data.seasons[1].episodes.map { it.episodeNumber }).containsExactly(1, 2, 3).inOrder()
+    }
+
     private fun fakeClient(vararg responses: Pair<String, String>): OkHttpClient {
         val byAction = responses.toMap()
         return OkHttpClient.Builder()
