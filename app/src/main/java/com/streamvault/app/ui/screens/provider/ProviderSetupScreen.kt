@@ -5,6 +5,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -73,6 +76,7 @@ import com.streamvault.app.ui.theme.*
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.StalkerAuthMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -109,12 +113,18 @@ fun ProviderSetupScreen(
     var httpUserAgent by rememberSaveable { mutableStateOf("") }
     var httpHeaders by rememberSaveable { mutableStateOf("") }
     var stalkerMacAddress by rememberSaveable { mutableStateOf("") }
+    var stalkerAuthMode by rememberSaveable { mutableStateOf(StalkerAuthMode.AUTO) }
     var stalkerDeviceProfile by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceTimezone by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceLocale by rememberSaveable { mutableStateOf("") }
+    var stalkerSerialNumber by rememberSaveable { mutableStateOf("") }
+    var stalkerDeviceId by rememberSaveable { mutableStateOf("") }
+    var stalkerDeviceId2 by rememberSaveable { mutableStateOf("") }
+    var stalkerSignature by rememberSaveable { mutableStateOf("") }
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
     var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
     var showDiscardDraftDialog by rememberSaveable { mutableStateOf(false) }
+    var showImportOptionsDialog by rememberSaveable { mutableStateOf(false) }
 
     // ?? File import helper ????????????????????????????????????????????????????
     fun importM3uUri(uri: android.net.Uri) {
@@ -216,9 +226,14 @@ fun ProviderSetupScreen(
             httpUserAgent = uiState.httpUserAgent
             httpHeaders = uiState.httpHeaders
             stalkerMacAddress = uiState.stalkerMacAddress
+            stalkerAuthMode = uiState.stalkerAuthMode
             stalkerDeviceProfile = uiState.stalkerDeviceProfile
             stalkerDeviceTimezone = uiState.stalkerDeviceTimezone
             stalkerDeviceLocale = uiState.stalkerDeviceLocale
+            stalkerSerialNumber = uiState.stalkerSerialNumber
+            stalkerDeviceId = uiState.stalkerDeviceId
+            stalkerDeviceId2 = uiState.stalkerDeviceId2
+            stalkerSignature = uiState.stalkerSignature
         }
     }
 
@@ -261,9 +276,14 @@ fun ProviderSetupScreen(
             httpUserAgent.isNotBlank() ||
             httpHeaders.isNotBlank() ||
             stalkerMacAddress.isNotBlank() ||
+            stalkerAuthMode != StalkerAuthMode.AUTO ||
             stalkerDeviceProfile.isNotBlank() ||
             stalkerDeviceTimezone.isNotBlank() ||
             stalkerDeviceLocale.isNotBlank() ||
+            stalkerSerialNumber.isNotBlank() ||
+            stalkerDeviceId.isNotBlank() ||
+            stalkerDeviceId2.isNotBlank() ||
+            stalkerSignature.isNotBlank() ||
             m3uUrl.isNotBlank()
         )
 
@@ -301,6 +321,7 @@ fun ProviderSetupScreen(
                         isEditLabel = if (uiState.isEditing) androidx.compose.ui.res.stringResource(R.string.setup_edit_provider)
                                       else androidx.compose.ui.res.stringResource(R.string.setup_provider_title),
                         onSelect = ::onSourceTypeSelected,
+                        onImportClick = { showImportOptionsDialog = true },
                         modifier = Modifier.width(200.dp).fillMaxHeight()
                     )
                     ProviderFormContent(
@@ -314,23 +335,22 @@ fun ProviderSetupScreen(
                         httpUserAgent = httpUserAgent, onHttpUserAgentChange = { httpUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
                         httpHeaders = httpHeaders, onHttpHeadersChange = { httpHeaders = ProviderInputSanitizer.sanitizeHttpHeadersForEditing(it) },
                         stalkerMacAddress = stalkerMacAddress, onStalkerMacAddressChange = { stalkerMacAddress = ProviderInputSanitizer.sanitizeMacAddressForEditing(it) },
+                        stalkerAuthMode = stalkerAuthMode, onStalkerAuthModeChange = { stalkerAuthMode = it },
                         stalkerDeviceProfile = stalkerDeviceProfile, onStalkerDeviceProfileChange = { stalkerDeviceProfile = ProviderInputSanitizer.sanitizeDeviceProfileForEditing(it) },
                         stalkerDeviceTimezone = stalkerDeviceTimezone, onStalkerDeviceTimezoneChange = { stalkerDeviceTimezone = ProviderInputSanitizer.sanitizeTimezoneForEditing(it) },
                         stalkerDeviceLocale = stalkerDeviceLocale, onStalkerDeviceLocaleChange = { stalkerDeviceLocale = ProviderInputSanitizer.sanitizeLocaleForEditing(it) },
+                        stalkerSerialNumber = stalkerSerialNumber, onStalkerSerialNumberChange = { stalkerSerialNumber = ProviderInputSanitizer.sanitizeStalkerSerialForEditing(it) },
+                        stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
-                        showImportBackupButton = !uiState.isEditing,
-                        isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
-                        onImportBackup = { backupImportLauncher.launch(arrayOf("application/json")) },
-                        driveSignedIn = uiState.driveSignedIn,
-                        onImportFromDrive = { viewModel.importBackupFromDrive() },
-                        onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -356,26 +376,36 @@ fun ProviderSetupScreen(
                         httpUserAgent = httpUserAgent, onHttpUserAgentChange = { httpUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
                         httpHeaders = httpHeaders, onHttpHeadersChange = { httpHeaders = ProviderInputSanitizer.sanitizeHttpHeadersForEditing(it) },
                         stalkerMacAddress = stalkerMacAddress, onStalkerMacAddressChange = { stalkerMacAddress = ProviderInputSanitizer.sanitizeMacAddressForEditing(it) },
+                        stalkerAuthMode = stalkerAuthMode, onStalkerAuthModeChange = { stalkerAuthMode = it },
                         stalkerDeviceProfile = stalkerDeviceProfile, onStalkerDeviceProfileChange = { stalkerDeviceProfile = ProviderInputSanitizer.sanitizeDeviceProfileForEditing(it) },
                         stalkerDeviceTimezone = stalkerDeviceTimezone, onStalkerDeviceTimezoneChange = { stalkerDeviceTimezone = ProviderInputSanitizer.sanitizeTimezoneForEditing(it) },
                         stalkerDeviceLocale = stalkerDeviceLocale, onStalkerDeviceLocaleChange = { stalkerDeviceLocale = ProviderInputSanitizer.sanitizeLocaleForEditing(it) },
+                        stalkerSerialNumber = stalkerSerialNumber, onStalkerSerialNumberChange = { stalkerSerialNumber = ProviderInputSanitizer.sanitizeStalkerSerialForEditing(it) },
+                        stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
+                        stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
-                        showImportBackupButton = !uiState.isEditing,
-                        isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
-                        onImportBackup = { backupImportLauncher.launch(arrayOf("application/json")) },
-                        driveSignedIn = uiState.driveSignedIn,
-                        onImportFromDrive = { viewModel.importBackupFromDrive() },
-                        onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
+            }
+
+            if (!uiState.isEditing && !isWide) {
+                ImportOptionsButton(
+                    text = stringResource(R.string.settings_restore_data),
+                    onClick = { showImportOptionsDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 10.dp, end = 6.dp)
+                        .zIndex(1f)
+                )
             }
         }
     }
@@ -421,6 +451,26 @@ fun ProviderSetupScreen(
                     },
                     emphasized = true
                 )
+            }
+        )
+    }
+
+    if (showImportOptionsDialog) {
+        ImportOptionsDialog(
+            isImportingBackup = uiState.isImportingBackup || uiState.syncProgress != null,
+            driveSignedIn = uiState.driveSignedIn,
+            onDismiss = { showImportOptionsDialog = false },
+            onImportBackup = {
+                showImportOptionsDialog = false
+                backupImportLauncher.launch(arrayOf("application/json"))
+            },
+            onImportFromDrive = {
+                showImportOptionsDialog = false
+                viewModel.importBackupFromDrive()
+            },
+            onDriveSignIn = {
+                showImportOptionsDialog = false
+                viewModel.beginDriveSignIn(driveSignInLauncher)
             }
         )
     }
@@ -509,9 +559,14 @@ private fun ProviderFormContent(
     httpUserAgent: String, onHttpUserAgentChange: (String) -> Unit,
     httpHeaders: String, onHttpHeadersChange: (String) -> Unit,
     stalkerMacAddress: String, onStalkerMacAddressChange: (String) -> Unit,
+    stalkerAuthMode: StalkerAuthMode, onStalkerAuthModeChange: (StalkerAuthMode) -> Unit,
     stalkerDeviceProfile: String, onStalkerDeviceProfileChange: (String) -> Unit,
     stalkerDeviceTimezone: String, onStalkerDeviceTimezoneChange: (String) -> Unit,
     stalkerDeviceLocale: String, onStalkerDeviceLocaleChange: (String) -> Unit,
+    stalkerSerialNumber: String, onStalkerSerialNumberChange: (String) -> Unit,
+    stalkerDeviceId: String, onStalkerDeviceIdChange: (String) -> Unit,
+    stalkerDeviceId2: String, onStalkerDeviceId2Change: (String) -> Unit,
+    stalkerSignature: String, onStalkerSignatureChange: (String) -> Unit,
     fileImportError: String?,
     onFilePick: () -> Unit,
     onLoginXtream: () -> Unit,
@@ -520,12 +575,6 @@ private fun ProviderFormContent(
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
-    showImportBackupButton: Boolean,
-    isImportingBackup: Boolean,
-    onImportBackup: () -> Unit,
-    driveSignedIn: Boolean,
-    onImportFromDrive: () -> Unit,
-    onDriveSignIn: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -597,12 +646,27 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        stalkerAuthMode = stalkerAuthMode,
+                        onStalkerAuthModeChange = onStalkerAuthModeChange,
+                        stalkerMacAddress = stalkerMacAddress,
                         stalkerDeviceProfile = stalkerDeviceProfile,
                         onStalkerDeviceProfileChange = onStalkerDeviceProfileChange,
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -629,7 +693,11 @@ private fun ProviderFormContent(
                     )
                     ProviderTextField(
                         value = stalkerMacAddress, onValueChange = onStalkerMacAddressChange,
-                        placeholder = "MAC address",
+                        placeholder = if (stalkerAuthMode == StalkerAuthMode.CREDENTIALS_ONLY) {
+                            "MAC address (optional)"
+                        } else {
+                            "MAC address"
+                        },
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.Characters,
                             autoCorrectEnabled = false,
@@ -647,12 +715,27 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        stalkerAuthMode = stalkerAuthMode,
+                        onStalkerAuthModeChange = onStalkerAuthModeChange,
+                        stalkerMacAddress = stalkerMacAddress,
                         stalkerDeviceProfile = stalkerDeviceProfile,
                         onStalkerDeviceProfileChange = onStalkerDeviceProfileChange,
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -682,12 +765,27 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        stalkerAuthMode = stalkerAuthMode,
+                        onStalkerAuthModeChange = onStalkerAuthModeChange,
+                        stalkerMacAddress = stalkerMacAddress,
                         stalkerDeviceProfile = stalkerDeviceProfile,
                         onStalkerDeviceProfileChange = onStalkerDeviceProfileChange,
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -722,12 +820,27 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        stalkerAuthMode = stalkerAuthMode,
+                        onStalkerAuthModeChange = onStalkerAuthModeChange,
+                        stalkerMacAddress = stalkerMacAddress,
                         stalkerDeviceProfile = stalkerDeviceProfile,
                         onStalkerDeviceProfileChange = onStalkerDeviceProfileChange,
                         stalkerDeviceTimezone = stalkerDeviceTimezone,
                         onStalkerDeviceTimezoneChange = onStalkerDeviceTimezoneChange,
                         stalkerDeviceLocale = stalkerDeviceLocale,
-                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange
+                        onStalkerDeviceLocaleChange = onStalkerDeviceLocaleChange,
+                        stalkerSerialNumber = stalkerSerialNumber,
+                        onStalkerSerialNumberChange = onStalkerSerialNumberChange,
+                        stalkerDeviceId = stalkerDeviceId,
+                        onStalkerDeviceIdChange = onStalkerDeviceIdChange,
+                        stalkerDeviceId2 = stalkerDeviceId2,
+                        onStalkerDeviceId2Change = onStalkerDeviceId2Change,
+                        stalkerSignature = stalkerSignature,
+                        onStalkerSignatureChange = onStalkerSignatureChange
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -741,29 +854,10 @@ private fun ProviderFormContent(
                     )
                 }
             }
-            if (showImportBackupButton) {
-                SmallActionButton(
-                    text = androidx.compose.ui.res.stringResource(R.string.setup_import_backup),
-                    isLoading = isImportingBackup,
-                    onClick = onImportBackup
-                )
-                if (driveSignedIn) {
-                    SmallActionButton(
-                        text = androidx.compose.ui.res.stringResource(R.string.setup_import_from_drive),
-                        isLoading = isImportingBackup,
-                        onClick = onImportFromDrive
-                    )
-                } else {
-                    SmallActionButton(
-                        text = androidx.compose.ui.res.stringResource(R.string.settings_drive_signin),
-                        isLoading = false,
-                        onClick = onDriveSignIn
-                    )
-                }
-            }
         }
     }
 }
+
 
 @Composable
 private fun AdvancedProviderOptionsSection(
@@ -776,12 +870,27 @@ private fun AdvancedProviderOptionsSection(
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    stalkerAuthMode: StalkerAuthMode,
+    onStalkerAuthModeChange: (StalkerAuthMode) -> Unit,
+    stalkerMacAddress: String,
     stalkerDeviceProfile: String,
     onStalkerDeviceProfileChange: (String) -> Unit,
     stalkerDeviceTimezone: String,
     onStalkerDeviceTimezoneChange: (String) -> Unit,
     stalkerDeviceLocale: String,
-    onStalkerDeviceLocaleChange: (String) -> Unit
+    onStalkerDeviceLocaleChange: (String) -> Unit,
+    stalkerSerialNumber: String,
+    onStalkerSerialNumberChange: (String) -> Unit,
+    stalkerDeviceId: String,
+    onStalkerDeviceIdChange: (String) -> Unit,
+    stalkerDeviceId2: String,
+    onStalkerDeviceId2Change: (String) -> Unit,
+    stalkerSignature: String,
+    onStalkerSignatureChange: (String) -> Unit
 ) {
     var showAdvancedOptions by rememberSaveable(sourceType) { mutableStateOf(false) }
     val defaultEpgSyncMode = when (sourceType) {
@@ -797,7 +906,19 @@ private fun AdvancedProviderOptionsSection(
             ((sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) && !uiState.m3uVodClassificationEnabled) ||
             ((sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
                 (httpUserAgent.isNotBlank() || httpHeaders.isNotBlank())) ||
-            (sourceType == SourceType.STALKER && (stalkerDeviceProfile.isNotBlank() || stalkerDeviceTimezone.isNotBlank() || stalkerDeviceLocale.isNotBlank()))
+            (sourceType == SourceType.STALKER && (
+                stalkerAuthMode != StalkerAuthMode.AUTO ||
+                    username.isNotBlank() ||
+                    password.isNotBlank() ||
+                    stalkerMacAddress.isBlank() ||
+                stalkerDeviceProfile.isNotBlank() ||
+                    stalkerDeviceTimezone.isNotBlank() ||
+                    stalkerDeviceLocale.isNotBlank() ||
+                    stalkerSerialNumber.isNotBlank() ||
+                    stalkerDeviceId.isNotBlank() ||
+                    stalkerDeviceId2.isNotBlank() ||
+                    stalkerSignature.isNotBlank()
+                ))
         if (uiState.isEditing && hasNonDefaultSelection) {
             showAdvancedOptions = true
         }
@@ -997,6 +1118,65 @@ private fun AdvancedProviderOptionsSection(
                 }
 
                 if (sourceType == SourceType.STALKER) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Surface, RoundedCornerShape(12.dp))
+                            .border(1.dp, SurfaceHighlight, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Stalker auth mode",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Auto-detect is the default. Override it only when the portal needs credentials or a mixed MAG + account login flow.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceDim
+                        )
+                        StalkerAuthMode.entries.forEach { mode ->
+                            StalkerAuthModeOptionRow(
+                                mode = mode,
+                                selected = stalkerAuthMode == mode,
+                                onSelect = { onStalkerAuthModeChange(mode) }
+                            )
+                        }
+                    }
+                    if (stalkerAuthMode != StalkerAuthMode.MAC_ONLY) {
+                        ProviderTextField(
+                            value = username,
+                            onValueChange = onUsernameChange,
+                            placeholder = if (stalkerAuthMode == StalkerAuthMode.AUTO) {
+                                "Portal username (optional)"
+                            } else {
+                                "Portal username"
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                                keyboardType = KeyboardType.Ascii,
+                                imeAction = ImeAction.Next
+                            )
+                        )
+                        ProviderTextField(
+                            value = password,
+                            onValueChange = onPasswordChange,
+                            placeholder = if (stalkerAuthMode == StalkerAuthMode.AUTO) {
+                                "Portal password (optional)"
+                            } else {
+                                "Portal password"
+                            },
+                            isPassword = true,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Next
+                            )
+                        )
+                    }
                     ProviderTextField(
                         value = stalkerDeviceProfile,
                         onValueChange = onStalkerDeviceProfileChange,
@@ -1011,6 +1191,26 @@ private fun AdvancedProviderOptionsSection(
                         value = stalkerDeviceLocale,
                         onValueChange = onStalkerDeviceLocaleChange,
                         placeholder = "Locale (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerSerialNumber,
+                        onValueChange = onStalkerSerialNumberChange,
+                        placeholder = "Serial number (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerDeviceId,
+                        onValueChange = onStalkerDeviceIdChange,
+                        placeholder = "Device ID (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerDeviceId2,
+                        onValueChange = onStalkerDeviceId2Change,
+                        placeholder = "Device ID2 (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerSignature,
+                        onValueChange = onStalkerSignatureChange,
+                        placeholder = "Signature (optional)"
                     )
                 }
             }
@@ -1072,6 +1272,70 @@ private fun XtreamLiveSyncModeOptionRow(
                 )
                 Text(
                     text = androidx.compose.ui.res.stringResource(descriptionRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceDim
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StalkerAuthModeOptionRow(
+    mode: StalkerAuthMode,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val title = when (mode) {
+        StalkerAuthMode.AUTO -> "Auto-detect"
+        StalkerAuthMode.MAC_ONLY -> "MAC only"
+        StalkerAuthMode.MAC_PLUS_CREDENTIALS -> "MAC + credentials"
+        StalkerAuthMode.CREDENTIALS_ONLY -> "Credentials only"
+    }
+    val description = when (mode) {
+        StalkerAuthMode.AUTO -> "Try the portal's likely auth flow first and retry once if a different Stalker mode fits better."
+        StalkerAuthMode.MAC_ONLY -> "Use MAG-style MAC authentication without a portal account login."
+        StalkerAuthMode.MAC_PLUS_CREDENTIALS -> "Keep the MAG identity and add portal account credentials for stricter portals."
+        StalkerAuthMode.CREDENTIALS_ONLY -> "Use portal account credentials even if the MAC address is optional or ignored."
+    }
+    Surface(
+        onClick = onSelect,
+        modifier = Modifier
+            .fillMaxWidth()
+            .mouseClickable(onClick = onSelect),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Primary.copy(alpha = 0.12f) else Color.Transparent,
+            focusedContainerColor = if (selected) Primary.copy(alpha = 0.26f) else SurfaceHighlight.copy(alpha = 0.9f)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                BorderStroke(
+                    1.dp,
+                    if (selected) Primary.copy(alpha = 0.45f) else Color.Transparent
+                )
+            ),
+            focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onSelect
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary
+                )
+                Text(
+                    text = description,
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurfaceDim
                 )
@@ -1173,6 +1437,7 @@ private fun SourceTypeSelectorPanel(
     isEditing: Boolean,
     isEditLabel: String,
     onSelect: (SourceType) -> Unit,
+    onImportClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -1234,6 +1499,14 @@ private fun SourceTypeSelectorPanel(
                     selected = sourceType == SourceType.M3U_FILE,
                     enabled = !isEditing,
                     onClick = { onSelect(SourceType.M3U_FILE) }
+                )
+            }
+            if (!isEditing) {
+                ImportOptionsButton(
+                    text = stringResource(R.string.settings_restore_data),
+                    onClick = onImportClick,
+                    compact = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
@@ -1741,22 +2014,19 @@ private fun ProviderActionButton(
     isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (isFocused) 1.03f else 1f, tween(150), label = "scale")
-
     TvClickableSurface(
         onClick = onClick,
         enabled = !isLoading,
         modifier = Modifier
             .fillMaxWidth()
-            .height(height)
-            .scale(scale)
-            .onFocusEvent { isFocused = it.hasFocus },
+            .height(height),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (!isLoading) Primary else SurfaceHighlight,
-            focusedContainerColor = if (!isLoading) PrimaryLight else SurfaceHighlight
+            focusedContainerColor = if (!isLoading) Primary else SurfaceHighlight
         ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow.None),
         border = ClickableSurfaceDefaults.border(
             border = Border(BorderStroke(1.dp, if (!isLoading) PrimaryLight else SurfaceHighlight)),
             focusedBorder = Border(BorderStroke(2.dp, FocusBorder))
@@ -1773,6 +2043,120 @@ private fun ProviderActionButton(
                 Text(text = text, style = MaterialTheme.typography.bodySmall, color = Color.White)
             }
         }
+    }
+}
+
+@Composable
+private fun ImportOptionsButton(
+    text: String,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    TvClickableSurface(
+        onClick = onClick,
+        modifier = modifier
+            .height(if (compact) 38.dp else 44.dp)
+            .onFocusEvent { isFocused = it.hasFocus }
+            .semantics { contentDescription = text },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Surface.copy(alpha = 0.9f),
+            focusedContainerColor = SurfaceHighlight
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, if (isFocused) PrimaryLight else SurfaceHighlight)),
+            focusedBorder = Border(BorderStroke(2.dp, FocusBorder))
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = if (compact) 10.dp else 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.SettingsBackupRestore,
+                contentDescription = null,
+                modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+                tint = if (isFocused) TextPrimary else OnSurface
+            )
+            Spacer(modifier = Modifier.width(if (compact) 6.dp else 8.dp))
+            Text(
+                text = text,
+                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
+                color = if (isFocused) TextPrimary else OnSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportOptionsDialog(
+    isImportingBackup: Boolean,
+    driveSignedIn: Boolean,
+    onDismiss: () -> Unit,
+    onImportBackup: () -> Unit,
+    onImportFromDrive: () -> Unit,
+    onDriveSignIn: () -> Unit
+) {
+    PremiumDialog(
+        title = stringResource(R.string.settings_backup_restore),
+        subtitle = stringResource(R.string.settings_restore_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.34f,
+        heightFraction = null,
+        bodyHeightFraction = 0.28f,
+        content = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ImportDialogActionButton(
+                    text = stringResource(R.string.setup_import_backup),
+                    isLoading = isImportingBackup,
+                    onClick = onImportBackup
+                )
+                if (driveSignedIn) {
+                    ImportDialogActionButton(
+                        text = stringResource(R.string.settings_drive_pull),
+                        isLoading = isImportingBackup,
+                        onClick = onImportFromDrive
+                    )
+                } else {
+                    ImportDialogActionButton(
+                        text = stringResource(R.string.settings_drive_signin),
+                        isLoading = false,
+                        onClick = onDriveSignIn
+                    )
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.add_group_cancel),
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+private fun ImportDialogActionButton(
+    text: String,
+    isLoading: Boolean,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth(0.72f)) {
+        SmallActionButton(
+            text = text,
+            isLoading = isLoading,
+            onClick = onClick
+        )
     }
 }
 

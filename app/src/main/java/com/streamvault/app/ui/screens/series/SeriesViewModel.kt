@@ -1184,28 +1184,28 @@ class SeriesViewModel @Inject constructor(
             LibraryFilterType.FAVORITES -> searched.filter { it.isFavorite }
             LibraryFilterType.IN_PROGRESS -> searched.filter { it.id in historyKeys }
             LibraryFilterType.UNWATCHED -> searched.filter { it.id !in completedSeriesIds }
-            LibraryFilterType.RECENTLY_UPDATED -> searched.filter { seriesFreshnessScore(it) > 0L }
+            LibraryFilterType.RECENTLY_UPDATED -> searched.filter { seriesUpdatedScore(it) > 0L }
             LibraryFilterType.TOP_RATED -> searched.filter { it.rating > 0f }
         }
         return when (sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::seriesFreshnessScore)
-            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesFreshnessScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::seriesReleaseScore)
+            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesUpdatedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { series -> watchCounts[series.id] ?: 0 }
         }
     }
 
-    private fun seriesFreshnessScore(series: Series): Long {
-        return series.lastModified
-            .takeIf { it > 0L }
-            ?: series.releaseDate
-                ?.filter { it.isDigit() }
-                ?.take(8)
-                ?.toLongOrNull()
-            ?: 0L
-    }
+    private fun seriesReleaseScore(series: Series): Long =
+        series.releaseDate
+            ?.filter { it.isDigit() }
+            ?.take(8)
+            ?.toLongOrNull()
+            ?: seriesUpdatedScore(series)
+
+    private fun seriesUpdatedScore(series: Series): Long =
+        series.lastModified.takeIf { it > 0L } ?: 0L
 }
 
 private data class SeriesCatalogParams(

@@ -10,6 +10,7 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.entity.EpisodeBrowseEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.SeriesEntity
@@ -75,6 +76,7 @@ class SeriesRepositoryImplTest {
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -261,7 +263,7 @@ class SeriesRepositoryImplTest {
             flowOf(
                 listOf(
                     SeriesBrowseEntity(id = 1L, seriesId = 101L, name = "Fresh Series", providerId = 7L, lastModified = 10_000L),
-                    SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Stale Series", providerId = 7L, lastModified = 0L)
+                    SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Stale Series", providerId = 7L, lastModified = 0L, releaseDate = "2025-01-01")
                 )
             )
         )
@@ -282,6 +284,53 @@ class SeriesRepositoryImplTest {
 
         assertThat(result.totalCount).isEqualTo(1)
         assertThat(result.items.map { it.name }).containsExactly("Fresh Series")
+    }
+
+    @Test
+    fun `browseSeries release uses release ordering while updated remains last modified`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(seriesDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(seriesDao.getReleasedPreview(7L, 100)).thenReturn(
+            flowOf(
+                listOf(
+                    SeriesBrowseEntity(
+                        id = 1L,
+                        seriesId = 101L,
+                        name = "Updated Later",
+                        providerId = 7L,
+                        releaseDate = "2020-01-01",
+                        lastModified = 20_000L
+                    ),
+                    SeriesBrowseEntity(
+                        id = 2L,
+                        seriesId = 102L,
+                        name = "Released Later",
+                        providerId = 7L,
+                        releaseDate = "2024-01-01",
+                        lastModified = 10_000L
+                    )
+                )
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.SERIES.name)).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryDao.getByProvider(7L)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseSeries(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.RELEASE,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Released Later", "Updated Later").inOrder()
+        verify(seriesDao).getReleasedPreview(7L, 100)
+        verify(seriesDao, never()).getFreshPreview(7L, 100)
     }
 
     @Test
@@ -614,6 +663,7 @@ class SeriesRepositoryImplTest {
         preferencesRepository = preferencesRepository,
         xtreamStreamUrlResolver = xtreamStreamUrlResolver,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         seriesCategoryHydrationDao = seriesCategoryHydrationDao
     )

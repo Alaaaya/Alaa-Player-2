@@ -4,13 +4,17 @@ import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerCommandVariant
 import com.streamvault.data.remote.stalker.StalkerCategoryRecord
 import com.streamvault.data.remote.stalker.StalkerDeviceProfile
 import com.streamvault.data.remote.stalker.StalkerEpisodeRecord
 import com.streamvault.data.remote.stalker.StalkerItemRecord
 import com.streamvault.data.remote.stalker.StalkerPagedItems
+import com.streamvault.data.remote.stalker.StalkerPlaybackDescriptor
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProgramRecord
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
+import com.streamvault.data.remote.stalker.StalkerPortalCapabilities
 import com.streamvault.data.remote.stalker.StalkerSeasonRecord
 import com.streamvault.data.remote.stalker.StalkerSeriesDetails
 import com.streamvault.data.remote.stalker.StalkerSession
@@ -344,6 +348,58 @@ class XtreamStreamUrlResolverTest {
     }
 
     @Test
+    fun resolveWithMetadata_uses_ranked_stalker_multi_command_candidates() = runBlocking {
+        val fakeStalkerApiService = FakeStalkerApiService()
+        val resolver = XtreamStreamUrlResolver(
+            providerDao = FakeProviderDao(
+                ProviderEntity(
+                    id = 14,
+                    name = "Stalker",
+                    type = ProviderType.STALKER_PORTAL,
+                    serverUrl = "https://portal.example.com",
+                    stalkerMacAddress = "00:1A:79:12:34:56",
+                    stalkerDeviceProfile = "MAG250",
+                    stalkerDeviceTimezone = "UTC",
+                    stalkerDeviceLocale = "en"
+                )
+            ),
+            credentialCrypto = credentialCrypto,
+            stalkerApiService = fakeStalkerApiService
+        )
+        val descriptor = StalkerPlaybackDescriptor(
+            primaryMode = StalkerPlaybackMode.MULTI_CMD,
+            candidates = listOf(
+                StalkerCommandVariant(
+                    cmd = "ffmpeg http://localhost/ch/77_",
+                    playbackMode = StalkerPlaybackMode.LOCALHOST_CMD,
+                    sourceKey = "cmd",
+                    priority = 2
+                ),
+                StalkerCommandVariant(
+                    cmd = "http://edge.example.com/live/77.m3u8",
+                    playbackMode = StalkerPlaybackMode.DIRECT_URL,
+                    sourceKey = "cmd_1",
+                    priority = 1
+                )
+            ),
+            capabilities = StalkerPortalCapabilities()
+        )
+        val internalUrl = StalkerUrlFactory.buildInternalStreamUrl(
+            providerId = 14,
+            kind = StalkerStreamKind.LIVE,
+            itemId = 77,
+            cmd = "ffmpeg http://localhost/ch/77_",
+            containerExtension = "ts",
+            playbackDescriptor = descriptor
+        )
+
+        val resolved = resolver.resolveWithMetadata(internalUrl)
+
+        assertThat(resolved?.url).isEqualTo("http://edge.example.com/live/77.m3u8")
+        assertThat(fakeStalkerApiService.createLinkCalls).isEqualTo(0)
+    }
+
+    @Test
     fun resolveWithMetadata_repairs_stale_direct_stalker_live_url_and_applies_headers() = runBlocking {
         val fakeStalkerApiService = FakeStalkerApiService()
         val resolver = XtreamStreamUrlResolver(
@@ -526,7 +582,9 @@ class XtreamStreamUrlResolverTest {
             profile: StalkerDeviceProfile,
             kind: StalkerStreamKind,
             cmd: String,
-            seriesNumber: Int?
+            seriesNumber: Int?,
+            archiveStartSeconds: Long?,
+            archiveEndSeconds: Long?
         ): Result<String> {
             createLinkCalls += 1
             lastCreateLinkSeriesNumber = seriesNumber

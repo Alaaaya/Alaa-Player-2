@@ -27,6 +27,12 @@ class PlayerErrorClassifierTest {
     }
 
     @Test
+    fun `204 maps to empty response`() {
+        assertThat(PlayerErrorClassifier.classify(IOException("HTTP 204")))
+            .isEqualTo(PlaybackErrorCategory.EMPTY_RESPONSE)
+    }
+
+    @Test
     fun `ssl exception maps to ssl`() {
         assertThat(PlayerErrorClassifier.classify(SSLHandshakeException("certificate verify failed")))
             .isEqualTo(PlaybackErrorCategory.SSL)

@@ -49,7 +49,7 @@ import com.streamvault.data.local.entity.*
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class
     ],
-    version = 52,
+    version = 57,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2576,6 +2576,86 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE providers ADD COLUMN xtream_live_sync_mode TEXT NOT NULL DEFAULT 'AUTO'")
                 validateForeignKeys(database, "providers")
             }
+        }
+
+        val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_portal_fingerprint TEXT NOT NULL DEFAULT 'BASIC_MAC'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_mag_preset TEXT NOT NULL DEFAULT 'GENERIC_SAFE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_last_bootstrap_recipe TEXT NOT NULL DEFAULT 'GENERIC_SAFE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_strict_fingerprint_required INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_recipe_fallback_used INTEGER NOT NULL DEFAULT 0"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_recipe_rediscovery_attempts INTEGER NOT NULL DEFAULT 0"
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_endpoint_preference TEXT NOT NULL DEFAULT 'AUTO'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_cookie_mode TEXT NOT NULL DEFAULT 'NONE'"
+                )
+                database.execSQL(
+                    "ALTER TABLE providers ADD COLUMN stalker_playback_backend_hint TEXT NOT NULL DEFAULT 'AUTO'"
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addStalkerHardeningColumns(database, "movie_category_hydration")
+                addStalkerHardeningColumns(database, "series_category_hydration")
+                validateForeignKeys(database, "movie_category_hydration")
+                validateForeignKeys(database, "series_category_hydration")
+            }
+        }
+
+        val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_serial_number TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_device_id2 TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_signature TEXT NOT NULL DEFAULT ''")
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_auth_mode TEXT NOT NULL DEFAULT 'AUTO'")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_portal_profile TEXT NOT NULL DEFAULT 'MAG_BASIC'")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_last_playback_mode TEXT")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_credentials_required INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_mac_required INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_uses_temp_links INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE providers ADD COLUMN stalker_module_restricted INTEGER NOT NULL DEFAULT 0")
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        private fun addStalkerHardeningColumns(database: SupportSQLiteDatabase, tableName: String) {
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_attempted_page INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_successful_page INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN retry_after_ms INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN retry_budget_remaining INTEGER NOT NULL DEFAULT 3")
+            database.execSQL("ALTER TABLE $tableName ADD COLUMN last_page_fingerprint TEXT")
         }
     }
 }

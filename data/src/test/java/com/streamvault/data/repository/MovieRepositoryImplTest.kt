@@ -9,6 +9,7 @@ import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
@@ -73,6 +74,7 @@ class MovieRepositoryImplTest {
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
     private val syncMetadataRepository: SyncMetadataRepository = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -596,6 +598,57 @@ class MovieRepositoryImplTest {
         assertThat(result.items.map { it.name }).containsExactly("Rated Movie")
     }
 
+    @Test
+    fun `browseMovies release uses release ordering instead of added order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(movieDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(movieDao.getReleasedPreview(7L, 100)).thenReturn(
+            flowOf(
+                listOf(
+                    MovieBrowseEntity(
+                        id = 1L,
+                        streamId = 1L,
+                        name = "Added Later",
+                        providerId = 7L,
+                        categoryId = 10L,
+                        releaseDate = "2020-01-01",
+                        addedAt = 20_000L,
+                        streamUrl = "https://example.com/1.m3u8"
+                    ),
+                    MovieBrowseEntity(
+                        id = 2L,
+                        streamId = 2L,
+                        name = "Released Later",
+                        providerId = 7L,
+                        categoryId = 10L,
+                        releaseDate = "2024-01-01",
+                        addedAt = 10_000L,
+                        streamUrl = "https://example.com/2.m3u8"
+                    )
+                )
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryDao.getByProvider(7L)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseMovies(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.RELEASE,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Released Later", "Added Later").inOrder()
+        verify(movieDao).getReleasedPreview(7L, 100)
+        verify(movieDao, never()).getFreshPreview(7L, 100)
+    }
+
     private fun createRepository() = MovieRepositoryImpl(
         movieDao = movieDao,
         categoryDao = categoryDao,
@@ -611,6 +664,7 @@ class MovieRepositoryImplTest {
         movieCategoryHydrationDao = movieCategoryHydrationDao,
         syncMetadataRepository = syncMetadataRepository,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         transactionRunner = transactionRunner
     )

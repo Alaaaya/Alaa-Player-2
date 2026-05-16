@@ -10,9 +10,11 @@ import com.streamvault.data.local.dao.CatalogSyncDao
 import com.streamvault.data.local.dao.ChannelStageCategorySummary
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
@@ -207,6 +209,8 @@ class SyncManagerTest {
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
     private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val xtreamLiveOnboardingDao: XtreamLiveOnboardingDao = mock()
+    private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
+    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
     private val epgRepo: EpgRepository = mock()
     private val epgSourceRepo: EpgSourceRepository = mock()
     private val preferencesRepo: PreferencesRepository = mock()
@@ -269,8 +273,12 @@ class SyncManagerTest {
         runBlocking {
             org.mockito.kotlin.whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(channelDao.getByProviderSync(any())).thenReturn(emptyList())
+            org.mockito.kotlin.whenever(movieDao.getCount(any())).thenReturn(flowOf(0))
+            org.mockito.kotlin.whenever(movieDao.getCountByCategory(any(), any())).thenReturn(flowOf(0))
             org.mockito.kotlin.whenever(movieDao.getByProviderSync(any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(movieDao.getTmdbIdsByProvider(any())).thenReturn(emptyList())
+            org.mockito.kotlin.whenever(seriesDao.getCount(any())).thenReturn(flowOf(0))
+            org.mockito.kotlin.whenever(seriesDao.getCountByCategory(any(), any())).thenReturn(flowOf(0))
             org.mockito.kotlin.whenever(seriesDao.getByProviderSync(any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(seriesDao.getTmdbIdsByProvider(any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(catalogSyncDao.getCategoryStages(any(), any(), any())).thenReturn(emptyList())
@@ -317,6 +325,8 @@ class SyncManagerTest {
         seriesDao = seriesDao,
         programDao = programDao,
         categoryDao = categoryDao,
+        movieCategoryHydrationDao = movieCategoryHydrationDao,
+        seriesCategoryHydrationDao = seriesCategoryHydrationDao,
         catalogSyncDao = catalogSyncDao,
         tmdbIdentityDao = tmdbIdentityDao,
         xtreamContentIndexDao = xtreamContentIndexDao,
@@ -1251,9 +1261,21 @@ class SyncManagerTest {
 
         assertThat(result).isInstanceOf(Result.Success::class.java)
         val metadata = syncMetadataRepo.getMetadata(1L)
-        assertThat(metadata?.movieSyncMode).isEqualTo(com.streamvault.domain.model.VodSyncMode.LAZY_BY_CATEGORY)
+        assertThat(metadata?.movieSyncMode).isEqualTo(com.streamvault.domain.model.VodSyncMode.PAGED)
         assertThat(metadata?.movieCount).isEqualTo(0)
         assertThat(metadata?.seriesCount).isEqualTo(0)
+        val queuedJobCaptor = argumentCaptor<XtreamIndexJobEntity>()
+        verify(xtreamIndexJobDao, atLeastOnce()).upsert(queuedJobCaptor.capture())
+        assertThat(queuedJobCaptor.allValues.any { job ->
+            job.providerId == 1L &&
+                job.section == ContentType.MOVIE.name &&
+                job.state == "QUEUED"
+        }).isTrue()
+        assertThat(queuedJobCaptor.allValues.any { job ->
+            job.providerId == 1L &&
+                job.section == ContentType.SERIES.name &&
+                job.state == "QUEUED"
+        }).isTrue()
         verify(stalkerApiService).getVodCategories(any(), any())
         verify(stalkerApiService).getSeriesCategories(any(), any())
         verify(stalkerApiService).streamLiveStreams(any(), any(), any())

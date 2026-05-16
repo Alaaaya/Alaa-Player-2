@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.settings
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.app.R
+import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.SyncMetadata
@@ -22,6 +23,7 @@ class SettingsDerivedStateObserversTest {
     private val syncMetadataRepository: SyncMetadataRepository = mock()
     private val movieRepository: MovieRepository = mock()
     private val seriesRepository: SeriesRepository = mock()
+    private val programDao: ProgramDao = mock()
     private val application: Application = mock()
 
     @Test
@@ -45,6 +47,7 @@ class SettingsDerivedStateObserversTest {
         )
         whenever(movieRepository.getLibraryCount(7L)).thenReturn(flowOf(140_484))
         whenever(seriesRepository.getLibraryCount(7L)).thenReturn(flowOf(32_037))
+        whenever(programDao.observeCountByProvider(7L)).thenReturn(flowOf(18_422))
         whenever(application.getString(R.string.settings_capability_xtream_without_epg))
             .thenReturn("Xtream without EPG")
 
@@ -53,6 +56,7 @@ class SettingsDerivedStateObserversTest {
             syncMetadataRepository = syncMetadataRepository,
             movieRepository = movieRepository,
             seriesRepository = seriesRepository,
+            programDao = programDao,
             application = application
         ).first()
 

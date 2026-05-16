@@ -62,6 +62,7 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.LIVE_WINDOW -> "refresh-live-window"
             PlaybackErrorCategory.NETWORK -> "transient-network"
             PlaybackErrorCategory.HTTP_SERVER -> "server-retryable"
+            PlaybackErrorCategory.EMPTY_RESPONSE -> "empty-http-response"
             else -> "retryable-source"
         }
     }
@@ -114,6 +115,7 @@ class PlayerRetryPolicy(
                 else -> 1
             }
 
+            PlaybackErrorCategory.EMPTY_RESPONSE,
             PlaybackErrorCategory.SOURCE_MALFORMED -> if (playbackStarted) 0 else 1
             PlaybackErrorCategory.UNKNOWN -> if (playbackStarted) 0 else 1
         }

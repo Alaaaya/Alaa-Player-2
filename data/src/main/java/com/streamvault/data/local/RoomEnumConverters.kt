@@ -6,6 +6,14 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
+import com.streamvault.domain.model.StalkerPortalFingerprint
+import com.streamvault.domain.model.StalkerPortalProfile
 import java.util.logging.Logger
 
 class RoomEnumConverters {
@@ -39,6 +47,62 @@ class RoomEnumConverters {
     @TypeConverter
     fun toProviderXtreamLiveSyncMode(value: String?): ProviderXtreamLiveSyncMode? =
         enumValueOrDefault(value, ProviderXtreamLiveSyncMode.AUTO, providerXtreamLiveSyncModeAliases())
+
+    @TypeConverter
+    fun fromStalkerAuthMode(value: StalkerAuthMode?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerAuthMode(value: String?): StalkerAuthMode? =
+        enumValueOrDefault(value, StalkerAuthMode.AUTO)
+
+    @TypeConverter
+    fun fromStalkerPortalProfile(value: StalkerPortalProfile?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerPortalProfile(value: String?): StalkerPortalProfile? =
+        enumValueOrDefault(value, StalkerPortalProfile.MAG_BASIC)
+
+    @TypeConverter
+    fun fromStalkerPortalFingerprint(value: StalkerPortalFingerprint?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerPortalFingerprint(value: String?): StalkerPortalFingerprint? =
+        enumValueOrDefault(value, StalkerPortalFingerprint.BASIC_MAC)
+
+    @TypeConverter
+    fun fromStalkerMagPreset(value: StalkerMagPreset?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerMagPreset(value: String?): StalkerMagPreset? =
+        enumValueOrDefault(value, StalkerMagPreset.GENERIC_SAFE)
+
+    @TypeConverter
+    fun fromStalkerBootstrapRecipe(value: StalkerBootstrapRecipe?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerBootstrapRecipe(value: String?): StalkerBootstrapRecipe? =
+        enumValueOrDefault(value, StalkerBootstrapRecipe.GENERIC_SAFE)
+
+    @TypeConverter
+    fun fromStalkerEndpointPreference(value: StalkerEndpointPreference?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerEndpointPreference(value: String?): StalkerEndpointPreference? =
+        enumValueOrDefault(value, StalkerEndpointPreference.AUTO)
+
+    @TypeConverter
+    fun fromStalkerCookieMode(value: StalkerCookieMode?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerCookieMode(value: String?): StalkerCookieMode? =
+        enumValueOrDefault(value, StalkerCookieMode.NONE)
+
+    @TypeConverter
+    fun fromStalkerPlaybackBackendHint(value: StalkerPlaybackBackendHint?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerPlaybackBackendHint(value: String?): StalkerPlaybackBackendHint? =
+        enumValueOrDefault(value, StalkerPlaybackBackendHint.AUTO)
 
     @TypeConverter
     fun fromContentType(value: ContentType?): String? = value?.name

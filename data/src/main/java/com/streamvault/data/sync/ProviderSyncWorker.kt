@@ -131,6 +131,8 @@ class ProviderSyncWorker(
                     )
                 } else if (provider.type == ProviderType.XTREAM_CODES) {
                     syncXtreamProviderIfStale(entryPoint, provider)
+                } else if (provider.type == ProviderType.STALKER_PORTAL) {
+                    syncStalkerProviderIfStale(entryPoint, provider)
                 } else {
                     entryPoint.syncManager().sync(provider.id, force = false)
                 }
@@ -166,6 +168,7 @@ class ProviderSyncWorker(
 
     companion object {
         private const val TAG = "ProviderSyncWorker"
+        private const val STALE_RUNNING_JOB_MILLIS = 15 * 60 * 1000L
         private const val UNIQUE_WORK_NAME = "provider-sync-worker"
         private const val UNIQUE_LAUNCH_STALE_WORK_NAME = "provider-sync-launch-stale-check"
         private const val UNIQUE_PROVIDER_WORK_PREFIX = "provider-sync-provider-"
@@ -305,7 +308,53 @@ class ProviderSyncWorker(
     ): Boolean {
         val job = entryPoint.xtreamIndexJobDao().get(providerId, section.name) ?: return true
         if (job.state in setOf("QUEUED", "PARTIAL", "STALE", "FAILED_RETRYABLE")) return true
+        if (job.state == "RUNNING" && (now - job.updatedAt) < STALE_RUNNING_JOB_MILLIS) return false
         return ContentCachePolicy.shouldRefresh(job.lastSuccessAt, ContentCachePolicy.CATALOG_TTL_MILLIS, now)
+    }
+
+    private suspend fun syncStalkerProviderIfStale(
+        entryPoint: ProviderSyncWorkerEntryPoint,
+        provider: com.streamvault.data.local.entity.ProviderEntity
+    ): com.streamvault.domain.model.Result<Unit> {
+        val now = System.currentTimeMillis()
+        val metadata = entryPoint.syncMetadataRepository().getMetadata(provider.id)
+        val liveStale = ContentCachePolicy.shouldRefresh(
+            metadata?.lastLiveSuccess ?: 0L,
+            ContentCachePolicy.CATALOG_TTL_MILLIS,
+            now
+        )
+        val epgStale = provider.epgSyncMode != ProviderEpgSyncMode.SKIP &&
+            ContentCachePolicy.shouldRefresh(
+                metadata?.lastEpgSuccess ?: 0L,
+                ContentCachePolicy.EPG_TTL_MILLIS,
+                now
+            )
+        val movieIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.MOVIE, now)
+        val seriesIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.SERIES, now)
+
+        if (!provider.isActive) {
+            return com.streamvault.domain.model.Result.success(Unit)
+        }
+
+        if (liveStale) {
+            when (val liveResult = entryPoint.syncManager().retrySection(provider.id, SyncRepairSection.LIVE)) {
+                is com.streamvault.domain.model.Result.Error -> return liveResult
+                else -> Unit
+            }
+        }
+        if (epgStale) {
+            when (val epgResult = entryPoint.syncManager().syncEpg(provider.id, force = false)) {
+                is com.streamvault.domain.model.Result.Error -> return epgResult
+                else -> Unit
+            }
+        }
+        if (movieIndexDue) {
+            entryPoint.syncManager().scheduleStalkerIndexSync(provider.id, ContentType.MOVIE)
+        }
+        if (seriesIndexDue) {
+            entryPoint.syncManager().scheduleStalkerIndexSync(provider.id, ContentType.SERIES)
+        }
+        return com.streamvault.domain.model.Result.success(Unit)
     }
 
     private suspend fun reconcileTargetedProviderStatus(

@@ -10,6 +10,7 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.flow.Flow
@@ -142,9 +143,16 @@ private class FakeSyncProviderRepository(
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?

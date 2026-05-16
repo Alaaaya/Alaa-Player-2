@@ -1189,6 +1189,23 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE provider_id = :providerId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     fun getFreshPreview(providerId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
 
+        @Query(
+            """
+            SELECT * FROM movies
+            WHERE provider_id = :providerId
+            ORDER BY
+                CASE WHEN COALESCE(release_date, '') != '' THEN 1 ELSE 0 END DESC,
+                release_date DESC,
+                CASE WHEN COALESCE(year, '') != '' THEN 1 ELSE 0 END DESC,
+                year DESC,
+                added_at DESC,
+                name ASC,
+                id ASC
+            LIMIT :limit
+            """
+        )
+        fun getReleasedPreview(providerId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
+
     @Query(
         """
         SELECT COUNT(*) FROM movies
@@ -1229,6 +1246,24 @@ interface MovieDao {
 
     @Query("SELECT * FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND added_at > 0 ORDER BY added_at DESC, name ASC, id ASC LIMIT :limit")
     fun getFreshByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
+
+        @Query(
+            """
+            SELECT * FROM movies
+            WHERE provider_id = :providerId
+              AND category_id = :categoryId
+            ORDER BY
+                CASE WHEN COALESCE(release_date, '') != '' THEN 1 ELSE 0 END DESC,
+                release_date DESC,
+                CASE WHEN COALESCE(year, '') != '' THEN 1 ELSE 0 END DESC,
+                year DESC,
+                added_at DESC,
+                name ASC,
+                id ASC
+            LIMIT :limit
+            """
+        )
+        fun getReleasedByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<MovieBrowseEntity>>
 
     @Query(
         """
@@ -2159,28 +2194,41 @@ interface SeriesDao {
         limit: Int
     ): List<SeriesBrowseEntity>
 
-    @Query("SELECT * FROM series WHERE provider_id = :providerId ORDER BY last_modified DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM series WHERE provider_id = :providerId AND last_modified > 0 ORDER BY last_modified DESC, name ASC LIMIT :limit")
     fun getFreshPreview(providerId: Long, limit: Int): Flow<List<SeriesBrowseEntity>>
 
     @Query(
         """
-        SELECT COUNT(*) FROM series
+        SELECT * FROM series
         WHERE provider_id = :providerId
-          AND (
-              last_modified > 0
-              OR COALESCE(release_date, '') != ''
-          )
+        ORDER BY
+            CASE WHEN COALESCE(release_date, '') != '' THEN 1 ELSE 0 END DESC,
+            release_date DESC,
+            last_modified DESC,
+            name ASC,
+            id ASC
+        LIMIT :limit
+        """
+    )
+    fun getReleasedPreview(providerId: Long, limit: Int): Flow<List<SeriesBrowseEntity>>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM series
+                WHERE provider_id = :providerId
+                    AND last_modified > 0
         """
     )
     fun getFreshCountByProvider(providerId: Long): Flow<Int>
 
-    @Query("SELECT * FROM series WHERE provider_id = :providerId ORDER BY last_modified DESC, name ASC, id ASC LIMIT :limit")
+        @Query("SELECT * FROM series WHERE provider_id = :providerId AND last_modified > 0 ORDER BY last_modified DESC, name ASC, id ASC LIMIT :limit")
     suspend fun getFreshCursorPage(providerId: Long, limit: Int): List<SeriesBrowseEntity>
 
     @Query(
         """
         SELECT * FROM series
         WHERE provider_id = :providerId
+                    AND last_modified > 0
           AND (
               last_modified < :lastModified
               OR (last_modified = :lastModified AND (name > :lastName OR (name = :lastName AND id > :lastId)))
@@ -2197,23 +2245,36 @@ interface SeriesDao {
         limit: Int
     ): List<SeriesBrowseEntity>
 
-    @Query("SELECT * FROM series WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY last_modified DESC, name ASC LIMIT :limit")
+    @Query("SELECT * FROM series WHERE provider_id = :providerId AND category_id = :categoryId AND last_modified > 0 ORDER BY last_modified DESC, name ASC LIMIT :limit")
     fun getFreshByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<SeriesBrowseEntity>>
 
     @Query(
         """
-        SELECT COUNT(*) FROM series
+        SELECT * FROM series
         WHERE provider_id = :providerId
           AND category_id = :categoryId
-          AND (
-              last_modified > 0
-              OR COALESCE(release_date, '') != ''
-          )
+        ORDER BY
+            CASE WHEN COALESCE(release_date, '') != '' THEN 1 ELSE 0 END DESC,
+            release_date DESC,
+            last_modified DESC,
+            name ASC,
+            id ASC
+        LIMIT :limit
+        """
+    )
+    fun getReleasedByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<SeriesBrowseEntity>>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM series
+                WHERE provider_id = :providerId
+                    AND category_id = :categoryId
+                    AND last_modified > 0
         """
     )
     fun getFreshCountByCategory(providerId: Long, categoryId: Long): Flow<Int>
 
-    @Query("SELECT * FROM series WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY last_modified DESC, name ASC, id ASC LIMIT :limit")
+        @Query("SELECT * FROM series WHERE provider_id = :providerId AND category_id = :categoryId AND last_modified > 0 ORDER BY last_modified DESC, name ASC, id ASC LIMIT :limit")
     suspend fun getFreshByCategoryCursorPage(providerId: Long, categoryId: Long, limit: Int): List<SeriesBrowseEntity>
 
     @Query(
@@ -2221,6 +2282,7 @@ interface SeriesDao {
         SELECT * FROM series
         WHERE provider_id = :providerId
           AND category_id = :categoryId
+                    AND last_modified > 0
           AND (
               last_modified < :lastModified
               OR (last_modified = :lastModified AND (name > :lastName OR (name = :lastName AND id > :lastId)))
@@ -2915,6 +2977,9 @@ interface ProgramDao {
 
     @Query("SELECT COUNT(*) FROM programs WHERE provider_id = :providerId")
     suspend fun countByProvider(providerId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM programs WHERE provider_id = :providerId")
+    fun observeCountByProvider(providerId: Long): kotlinx.coroutines.flow.Flow<Int>
 
     @Query("DELETE FROM programs WHERE end_time < :beforeTime")
     suspend fun deleteOld(beforeTime: Long): Int

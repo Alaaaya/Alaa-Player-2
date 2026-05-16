@@ -1,11 +1,20 @@
 package com.streamvault.app.ui.screens.player
 
+import com.streamvault.domain.model.ProviderType
+import java.net.URI
+import java.util.Locale
+
 internal data class PlaybackProbeFailure(
     val message: String,
     val recoveryType: PlayerRecoveryType
 )
 
 internal fun resolvePlaybackProbeFailure(responseCode: Int): PlaybackProbeFailure? = when (responseCode) {
+    204 -> PlaybackProbeFailure(
+        message = "Portal issued an empty temporary link for this stream (HTTP 204). Retrying the channel may refresh the portal session.",
+        recoveryType = PlayerRecoveryType.SOURCE
+    )
+
     401, 403 -> PlaybackProbeFailure(
         message = "This provider stream was rejected ($responseCode Unauthorized/Forbidden).",
         recoveryType = PlayerRecoveryType.SOURCE
@@ -27,4 +36,22 @@ internal fun resolvePlaybackProbeFailure(responseCode: Int): PlaybackProbeFailur
     )
 
     else -> null
+}
+
+internal fun shouldSkipPlaybackProbe(
+    providerType: ProviderType,
+    url: String
+): Boolean {
+    if (providerType != ProviderType.STALKER_PORTAL) {
+        return false
+    }
+    val normalizedPath = runCatching {
+        URI(url).path?.lowercase(Locale.ROOT).orEmpty()
+    }.getOrDefault("")
+    val normalizedQuery = runCatching {
+        URI(url).query?.lowercase(Locale.ROOT).orEmpty()
+    }.getOrDefault("")
+    return normalizedPath.endsWith("/play/live.php") ||
+        normalizedPath.endsWith("/play/movie.php") ||
+        "play_token=" in normalizedQuery
 }
