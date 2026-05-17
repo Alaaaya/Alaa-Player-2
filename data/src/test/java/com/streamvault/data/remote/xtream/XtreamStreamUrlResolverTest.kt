@@ -106,7 +106,9 @@ class XtreamStreamUrlResolverTest {
                     type = ProviderType.XTREAM_CODES,
                     serverUrl = "https://portal.example.com",
                     username = "alice",
-                    password = "secret"
+                    password = "secret",
+                    httpUserAgent = "ProviderAgent/2.0",
+                    httpHeaders = "Referer: https://portal.example.com/player"
                 )
             ),
             credentialCrypto = credentialCrypto,
@@ -124,6 +126,8 @@ class XtreamStreamUrlResolverTest {
 
         assertThat(resolved?.url).isEqualTo("https://portal.example.com/live/alice/secret/456.ts")
         assertThat(resolved?.expirationTime).isNull()
+        assertThat(resolved?.userAgent).isEqualTo("ProviderAgent/2.0")
+        assertThat(resolved?.headers).containsEntry("Referer", "https://portal.example.com/player")
     }
 
     @Test
@@ -153,6 +157,36 @@ class XtreamStreamUrlResolverTest {
         val resolved = resolver.resolveWithMetadata(url)
 
         assertThat(resolved?.url).isEqualTo("https://portal.example.com/live/alice/secret/456.m3u8")
+    }
+
+    @Test
+    fun resolveWithMetadata_applies_provider_request_profile_to_direct_m3u_urls() = runBlocking {
+        val resolver = XtreamStreamUrlResolver(
+            providerDao = FakeProviderDao(
+                ProviderEntity(
+                    id = 21,
+                    name = "Playlist",
+                    type = ProviderType.M3U,
+                    serverUrl = "https://playlist.example.com",
+                    httpUserAgent = "PlaylistAgent/5.0",
+                    httpHeaders = "Referer: https://playlist.example.com/app | Origin: https://playlist.example.com"
+                )
+            ),
+            credentialCrypto = credentialCrypto,
+            stalkerApiService = stalkerApiService
+        )
+
+        val resolved = resolver.resolveWithMetadata(
+            url = "https://cdn.example.com/live/news/index.m3u8",
+            fallbackProviderId = 21
+        )
+
+        assertThat(resolved?.url).isEqualTo("https://cdn.example.com/live/news/index.m3u8")
+        assertThat(resolved?.userAgent).isEqualTo("PlaylistAgent/5.0")
+        assertThat(resolved?.headers).containsExactly(
+            "Referer", "https://playlist.example.com/app",
+            "Origin", "https://playlist.example.com"
+        )
     }
 
     @Test
