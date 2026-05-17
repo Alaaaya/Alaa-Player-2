@@ -56,12 +56,28 @@ internal class ReflectiveFfmpegLibrary(
     fun supportsFormat(mimeType: String?): Boolean {
         if (mimeType.isNullOrBlank()) return false
         val libraryClass = libraryClassProvider() ?: return false
-        return invokeBooleanStatic(libraryClass, "supportsFormat", mimeType.trim()) ?: false
+        val normalizedMimeType = mimeType.trim()
+        return invokeBooleanStatic(
+            clazz = libraryClass,
+            methodName = "supportsFormat",
+            parameterTypes = arrayOf(String::class.java, String::class.java),
+            args = arrayOf(normalizedMimeType, null)
+        ) ?: invokeBooleanStatic(libraryClass, "supportsFormat", normalizedMimeType) ?: false
     }
 
     private fun invokeBooleanStatic(clazz: Class<*>, methodName: String, vararg args: Any): Boolean? =
         runCatching {
             val parameterTypes = args.map { it::class.java }.toTypedArray()
+            clazz.getMethod(methodName, *parameterTypes).invoke(null, *args) as? Boolean
+        }.getOrNull()
+
+    private fun invokeBooleanStatic(
+        clazz: Class<*>,
+        methodName: String,
+        parameterTypes: Array<Class<*>>,
+        args: Array<Any?>
+    ): Boolean? =
+        runCatching {
             clazz.getMethod(methodName, *parameterTypes).invoke(null, *args) as? Boolean
         }.getOrNull()
 
