@@ -766,6 +766,12 @@ class OkHttpStalkerApiService @Inject constructor(
         } else {
             "0"
         }
+        val forcedStorage = when (kind) {
+            StalkerStreamKind.LIVE,
+            StalkerStreamKind.ARCHIVE -> "undefined"
+            StalkerStreamKind.MOVIE,
+            StalkerStreamKind.EPISODE -> "0"
+        }
         val payload = requestJson(
             url = session.loadUrl,
             profile = profile,
@@ -777,7 +783,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 "JsHttpRequest" to "1-xml",
                 "cmd" to cmd,
                 "series" to seriesSelector,
-                "forced_storage" to "0",
+                "forced_storage" to forcedStorage,
                 "disable_ad" to "0",
                 "download" to "0"
             )

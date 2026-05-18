@@ -264,6 +264,40 @@ class StalkerProviderTest {
     }
 
     @Test
+    fun resolvePlaybackInfo_repairs_blank_live_stream_from_localhost_channel_command() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://fdox.org:8080/play/live.php?mac=00:1A:79:BA:73:FA&stream=&extension=ts&play_token=abc123"
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            playbackBackendHint = com.streamvault.domain.model.StalkerPlaybackBackendHint.TEMP_LINK_STRICT,
+            cookieModeHint = com.streamvault.domain.model.StalkerCookieMode.CREATE_LINK,
+            deviceProfile = "MAG322",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = checkNotNull(
+                buildStalkerPlaybackDescriptor(
+                    primaryCmd = "ffmpeg http://localhost/ch/61523_",
+                    capabilities = StalkerPortalCapabilities(useHttpTemporaryLink = true)
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.url).isEqualTo(
+            "http://fdox.org:8080/play/live.php?mac=00:1A:79:BA:73:FA&stream=61523&extension=ts&play_token=abc123"
+        )
+    }
+
+    @Test
     fun authenticate_persists_effective_learned_mag_identity() = runTest {
         val provider = StalkerProvider(
             providerId = 7,
