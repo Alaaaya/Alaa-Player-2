@@ -31,6 +31,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     decoderModeLabel: String,
     audioOutputPreferenceLabel: String,
     surfaceModeLabel: String,
+    vodHttpProtocolLabel: String,
     playbackSpeedLabel: String,
     defaultStopTimerLabel: String,
     defaultIdleTimerLabel: String,
@@ -52,6 +53,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     onShowSurfaceModeDialogChange: (Boolean) -> Unit,
+    onShowVodHttpProtocolDialogChange: (Boolean) -> Unit,
     onShowPlaybackSpeedDialogChange: (Boolean) -> Unit,
     onShowDefaultStopTimerDialogChange: (Boolean) -> Unit,
     onShowDefaultIdleTimerDialogChange: (Boolean) -> Unit,
@@ -244,6 +246,11 @@ internal fun LazyListScope.settingsPlaybackSection(
             label = stringResource(R.string.settings_surface_mode),
             value = surfaceModeLabel,
             onClick = { onShowSurfaceModeDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_vod_http_protocol_mode),
+            value = vodHttpProtocolLabel,
+            onClick = { onShowVodHttpProtocolDialogChange(true) }
         )
         HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
         ClickableSettingsRow(

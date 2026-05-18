@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.streamvault.domain.model.DrmInfo
 import com.streamvault.domain.model.DrmScheme
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import java.util.UUID
@@ -31,11 +32,13 @@ class PlayerMediaSourceFactory(
         streamInfo: StreamInfo,
         resolvedStreamType: ResolvedStreamType,
         retryPolicy: PlayerRetryPolicy,
+        vodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
         preload: Boolean = false
     ): Pair<PlayerTimeoutProfile, MediaSource> {
         val (timeoutProfile, dataSourceFactory) = dataSourceFactoryProvider.createFactory(
             streamInfo = streamInfo,
             resolvedStreamType = resolvedStreamType,
+            vodHttpProtocolMode = vodHttpProtocolMode,
             preload = preload
         )
         val mediaItem = buildMediaItem(streamInfo)

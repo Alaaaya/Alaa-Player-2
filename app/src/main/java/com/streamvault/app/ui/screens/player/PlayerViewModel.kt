@@ -650,6 +650,13 @@ class PlayerViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            preferencesRepository.playerVodHttpProtocolMode
+                .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
+                .collect { (engine, mode) ->
+                    engine.setVodHttpProtocolMode(mode)
+                }
+        }
+        viewModelScope.launch {
             var consecutiveLowBandwidthSeconds = 0
             var noticeShown = false
             activePlayerEngineFlow.flatMapLatest { it.playerStats }.collect { stats ->
@@ -1037,6 +1044,7 @@ class PlayerViewModel @Inject constructor(
             ethernetMaxHeight = preferencesRepository.playerEthernetMaxVideoHeight.first()
         )
         playerEngine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
+        playerEngine.setVodHttpProtocolMode(preferencesRepository.playerVodHttpProtocolMode.first())
         playerEngine.setAudioVideoOffsetMs(_audioVideoOffsetUiState.value.effectiveOffsetMs)
     }
 

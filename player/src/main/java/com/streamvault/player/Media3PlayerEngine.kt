@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackCompatibilityKey
 import com.streamvault.domain.model.PlaybackCompatibilityRecord
 import com.streamvault.domain.model.PlayerSurfaceMode
@@ -57,6 +58,7 @@ import com.streamvault.player.playback.PlayerRetryPolicy
 import com.streamvault.player.playback.PlayerTimeoutProfile
 import com.streamvault.player.playback.PreloadCoordinator
 import com.streamvault.player.playback.ResolvedStreamType
+import com.streamvault.player.playback.resolveRetryAttemptAfterPlaybackStarted
 import com.streamvault.player.playback.resolveRetryAttemptAfterReady
 import com.streamvault.player.playback.resolveRetrySeekPositionMs
 import com.streamvault.player.playback.StreamTypeResolver
@@ -147,6 +149,7 @@ class Media3PlayerEngine @Inject constructor(
     private var requestedDecoderMode: DecoderMode = DecoderMode.AUTO
     private var activeDecoderMode: DecoderMode = DecoderMode.HARDWARE
     private var requestedSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO
+    private var requestedVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1
     private var sessionSurfaceModeOverride: PlayerSurfaceMode? = null
     private var activeDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
     private var recoveryDecoderPolicyOverride: ActiveDecoderPolicy? = null
@@ -351,6 +354,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         ).second
 
@@ -447,6 +451,16 @@ class Media3PlayerEngine @Inject constructor(
         sessionSurfaceModeOverride = null
         textureViewSessionFallbackAttempted = false
         updateRenderSurfaceForMode()
+        lastStreamInfo?.let { streamInfo ->
+            val wasPlaying = exoPlayer?.playWhenReady == true
+            val position = exoPlayer?.currentPosition
+            prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = position, autoPlay = wasPlaying)
+        }
+    }
+
+    override fun setVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        if (requestedVodHttpProtocolMode == mode) return
+        requestedVodHttpProtocolMode = mode
         lastStreamInfo?.let { streamInfo ->
             val wasPlaying = exoPlayer?.playWhenReady == true
             val position = exoPlayer?.currentPosition
@@ -624,6 +638,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         )
         val subtitleConfig = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subtitleUri)
@@ -675,6 +690,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = playbackPlan.resolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = true
         )
         preloadCoordinator.store(mediaId, streamInfo, playbackPlan.resolvedStreamType, mediaSource)
@@ -880,6 +896,7 @@ class Media3PlayerEngine @Inject constructor(
                     streamInfo = streamInfo,
                     resolvedStreamType = currentResolvedStreamType,
                     retryPolicy = currentRetryPolicy!!,
+                    vodHttpProtocolMode = requestedVodHttpProtocolMode,
                     preload = false
                 ).second
             preloadCoordinator.onPlaybackStarted(mediaId)
@@ -1213,8 +1230,7 @@ class Media3PlayerEngine @Inject constructor(
                     _retryStatus.value = null
                     retryAttempt = resolveRetryAttemptAfterReady(
                         currentAttempt = retryAttempt,
-                        playbackStarted = playbackStarted,
-                        isCurrentMediaItemLive = exoPlayer?.isCurrentMediaItemLive == true
+                        playbackStarted = playbackStarted
                     )
                     if (isPlayingTimeshiftSnapshot && pendingTimeshiftSeekToEnd) {
                         pendingTimeshiftSeekToEnd = false
@@ -1363,6 +1379,7 @@ class Media3PlayerEngine @Inject constructor(
     private fun markPlaybackStarted(reason: String) {
         if (playbackStarted) return
         playbackStarted = true
+        retryAttempt = resolveRetryAttemptAfterPlaybackStarted(retryAttempt)
         Log.i(
             TAG,
             "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioPath=$audioOutputPath compatibilitySource=$compatibilityDecisionSource target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
@@ -1952,7 +1969,8 @@ class Media3PlayerEngine @Inject constructor(
                 resolvedStreamType = currentResolvedStreamType,
                 currentPositionMs = player?.currentPosition,
                 durationMs = player?.duration,
-                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true
+                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true,
+                playbackStarted = playbackStarted
             )
             // retryGeneration captured and checked on Main — safe with
             // Dispatchers.Main.immediate. If the scope dispatcher is ever changed

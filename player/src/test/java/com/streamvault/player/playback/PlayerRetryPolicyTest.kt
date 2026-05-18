@@ -1,7 +1,8 @@
 package com.streamvault.player.playback
 
-import com.google.common.truth.Truth.assertThat
+import androidx.media3.common.ParserException
 import androidx.media3.exoplayer.source.BehindLiveWindowException
+import com.google.common.truth.Truth.assertThat
 import java.io.IOException
 import javax.net.ssl.SSLHandshakeException
 import org.junit.Test
@@ -12,8 +13,13 @@ class PlayerRetryPolicyTest {
         resolvedStreamType = ResolvedStreamType.HLS,
         timeoutProfile = PlayerTimeoutProfile.LIVE
     )
+    private val progressiveContext = PlaybackRetryContext(
+        resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
+        timeoutProfile = PlayerTimeoutProfile.PROGRESSIVE
+    )
 
     private val policy = PlayerRetryPolicy(liveContext) { false }
+    private val progressivePolicy = PlayerRetryPolicy(progressiveContext) { true }
 
     @Test
     fun `500 before first frame retries 3 times with expected backoff`() {
@@ -65,5 +71,31 @@ class PlayerRetryPolicyTest {
     fun `decoder init failure after playback start still does not retry`() {
         val error = IllegalStateException("decoder init failed")
         assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isFalse()
+    }
+
+    @Test
+    fun `progressive movie server errors get tolerant recovery after playback start`() {
+        val error = IOException("HTTP 502")
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 1)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 2)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 3)).isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 4)).isFalse()
+        assertThat(progressivePolicy.maxAttempts(error, playbackStarted = true)).isEqualTo(3)
+    }
+
+    @Test
+    fun `malformed live segment after playback start retries as transient source failure`() {
+        val error = ParserException.createForMalformedContainer("bad live segment", null)
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isTrue()
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 2)).isTrue()
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 3)).isTrue()
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 4)).isFalse()
+        assertThat(policy.maxAttempts(error, playbackStarted = true)).isEqualTo(3)
+    }
+
+    @Test
+    fun `malformed progressive movie after playback start stays fatal`() {
+        val error = ParserException.createForMalformedContainer("bad movie segment", null)
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 1)).isFalse()
     }
 }

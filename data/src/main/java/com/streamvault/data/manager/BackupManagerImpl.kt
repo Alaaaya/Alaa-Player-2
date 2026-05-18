@@ -89,6 +89,7 @@ class BackupManagerImpl @Inject constructor(
                 put("playerAudioOutputPreference", preferencesRepository.playerAudioOutputPreference.first().name)
                 put("playerCompatibilityMemoryEnabled", preferencesRepository.playerCompatibilityMemoryEnabled.first().toString())
                 put("playerSurfaceMode", preferencesRepository.playerSurfaceMode.first().name)
+                put("playerVodHttpProtocolMode", preferencesRepository.playerVodHttpProtocolMode.first().name)
                 put("playerPlaybackSpeed", preferencesRepository.playerPlaybackSpeed.first().toString())
                 put("playerAudioVideoSyncEnabled", preferencesRepository.playerAudioVideoSyncEnabled.first().toString())
                 put("playerAudioVideoOffsetMs", preferencesRepository.playerAudioVideoOffsetMs.first().toString())
@@ -533,6 +534,13 @@ class BackupManagerImpl @Inject constructor(
                 .firstOrNull { entry -> entry.name == savedMode }
             if (surfaceMode != null) {
                 preferencesRepository.setPlayerSurfaceMode(surfaceMode)
+            }
+        }
+        (prefs["playerVodHttpProtocolMode"] ?: prefs["playerMovieHttpProtocolMode"])?.takeIf { it.isNotBlank() }?.let { savedMode ->
+            val protocolMode = com.streamvault.domain.model.VodHttpProtocolMode.entries
+                .firstOrNull { entry -> entry.name == savedMode }
+            if (protocolMode != null) {
+                preferencesRepository.setPlayerVodHttpProtocolMode(protocolMode)
             }
         }
         prefs["playerPlaybackSpeed"]?.toFloatOrNull()?.let { preferencesRepository.setPlayerPlaybackSpeed(it) }

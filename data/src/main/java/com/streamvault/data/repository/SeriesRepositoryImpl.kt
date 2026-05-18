@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.data.util.rankSearchResults
 import java.util.concurrent.ConcurrentHashMap
@@ -76,6 +77,7 @@ class SeriesRepositoryImpl @Inject constructor(
         const val STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD = 24
         const val STALKER_PREVIEW_MAX_REMOTE_PAGES = 2
         const val DETAIL_REFRESH_TTL_MILLIS = 14L * 24L * 60L * 60L * 1000L
+        const val XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS = 8_000L
         const val CACHE_STATE_SUMMARY_ONLY = "SUMMARY_ONLY"
         const val CACHE_STATE_DETAIL_HYDRATED = "DETAIL_HYDRATED"
     }
@@ -342,7 +344,17 @@ class SeriesRepositoryImpl @Inject constructor(
 
         val remoteResult = try {
             when (provider.type) {
-                ProviderType.XTREAM_CODES -> getOrCreateXtreamProvider(providerId, provider).getSeriesInfo(seriesEntity.seriesId)
+                ProviderType.XTREAM_CODES -> withTimeoutOrNull(XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS) {
+                    getOrCreateXtreamProvider(providerId, provider).getSeriesInfo(seriesEntity.seriesId)
+                } ?: run {
+                    xtreamContentIndexDao.markDetailHydrationError(
+                        providerId = providerId,
+                        contentType = ContentType.SERIES.name,
+                        remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
+                        errorState = "DETAIL_FAILED_TIMEOUT"
+                    )
+                    return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                }
                 ProviderType.STALKER_PORTAL -> createStalkerProvider(providerId, provider).getSeriesInfo(
                     seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString()
                 )

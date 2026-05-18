@@ -28,13 +28,13 @@ class PlaybackBufferPoliciesTest {
     }
 
     @Test
-    fun `vod uses larger stable buffer`() {
+    fun `vod uses deeper movie buffer`() {
         val policy = PlaybackBufferPolicies.forPlayback(isLive = false, compatibilityMode = false)
 
         assertThat(policy.label).isEqualTo("stable-vod")
-        assertThat(policy.minBufferMs).isEqualTo(50_000)
-        assertThat(policy.maxBufferMs).isEqualTo(120_000)
-        assertThat(policy.playbackBufferMs).isEqualTo(1_500)
-        assertThat(policy.rebufferMs).isEqualTo(5_000)
+        assertThat(policy.minBufferMs).isEqualTo(90_000)
+        assertThat(policy.maxBufferMs).isEqualTo(240_000)
+        assertThat(policy.playbackBufferMs).isEqualTo(8_000)
+        assertThat(policy.rebufferMs).isEqualTo(18_000)
     }
 }

@@ -523,6 +523,9 @@
     <string name="settings_surface_auto">Auto</string>
     <string name="settings_surface_surface_view">SurfaceView</string>
     <string name="settings_surface_texture_view">TextureView</string>
+    <string name="settings_vod_http_protocol_mode">VOD HTTP Protocol</string>
+    <string name="settings_vod_http_protocol_compatibility">Compatibility (HTTP/1.1)</string>
+    <string name="settings_vod_http_protocol_auto">Auto (HTTP/2 when supported)</string>
     <string name="settings_close_app">Close app</string>
     <string name="settings_select_decoder_mode">Select Decoder Mode</string>
     <string name="settings_buffer_duration">Buffer Duration</string>

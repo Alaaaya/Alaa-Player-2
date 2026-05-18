@@ -129,6 +129,8 @@ internal fun SettingsScreenDialogs(
         onShowAudioOutputPreferenceDialogChange = { dialogState.showAudioOutputPreferenceDialog = it },
         showSurfaceModeDialog = dialogState.showSurfaceModeDialog,
         onShowSurfaceModeDialogChange = { dialogState.showSurfaceModeDialog = it },
+        showVodHttpProtocolDialog = dialogState.showVodHttpProtocolDialog,
+        onShowVodHttpProtocolDialogChange = { dialogState.showVodHttpProtocolDialog = it },
         showTimeshiftDepthDialog = dialogState.showTimeshiftDepthDialog,
         onShowTimeshiftDepthDialogChange = { dialogState.showTimeshiftDepthDialog = it },
         showDefaultStopTimerDialog = dialogState.showDefaultStopTimerDialog,
