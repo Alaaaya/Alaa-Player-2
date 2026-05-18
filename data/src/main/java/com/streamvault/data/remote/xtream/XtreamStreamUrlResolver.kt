@@ -2,6 +2,7 @@ package com.streamvault.data.remote.xtream
 
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
@@ -110,9 +111,11 @@ class XtreamStreamUrlResolver @Inject constructor(
                     fallbackContainerExtension = fallbackContainerExtension
                 )?.let { return it }
             }
-            return ResolvedStreamUrl(
-                url = url,
-                expirationTime = extractStreamExpirationTime(url)
+            return provider.applyPlaybackRequestProfile(
+                ResolvedStreamUrl(
+                    url = url,
+                    expirationTime = extractStreamExpirationTime(url)
+                )
             )
         }
 
@@ -138,10 +141,12 @@ class XtreamStreamUrlResolver @Inject constructor(
                 )
                 val resolvedUrl = if (preferStableUrl) fallbackResolvedUrl else (directSource ?: fallbackResolvedUrl)
 
-                ResolvedStreamUrl(
+                resolvedProvider.applyPlaybackRequestProfile(
+                    ResolvedStreamUrl(
                     url = resolvedUrl,
                     expirationTime = extractStreamExpirationTime(resolvedUrl),
                     containerExtension = ext
+                    )
                 )
             }
             ProviderType.STALKER_PORTAL -> {
@@ -178,12 +183,25 @@ class XtreamStreamUrlResolver @Inject constructor(
                 )
             }
             ProviderType.M3U -> url.takeIf { it.isNotBlank() }?.let { passthroughUrl ->
-                ResolvedStreamUrl(
-                    url = passthroughUrl,
-                    expirationTime = extractStreamExpirationTime(passthroughUrl)
+                resolvedProvider.applyPlaybackRequestProfile(
+                    ResolvedStreamUrl(
+                        url = passthroughUrl,
+                        expirationTime = extractStreamExpirationTime(passthroughUrl)
+                    )
                 )
             }
         }
+    }
+
+    private fun ProviderEntity?.applyPlaybackRequestProfile(resolved: ResolvedStreamUrl): ResolvedStreamUrl {
+        if (this == null || type == ProviderType.STALKER_PORTAL) {
+            return resolved
+        }
+        val requestProfile = toGenericRequestProfile(ownerTag = "provider:$id/playback")
+        return resolved.copy(
+            headers = requestProfile.headers + resolved.headers,
+            userAgent = resolved.userAgent?.takeIf { it.isNotBlank() } ?: requestProfile.userAgent
+        )
     }
 
     private suspend fun resolveDirectStalkerUrl(

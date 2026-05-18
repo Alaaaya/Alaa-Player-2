@@ -188,6 +188,58 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun createLink_uses_mag_live_storage_selector_without_changing_vod() = runTest {
+        val requested = mutableListOf<Pair<String, String>>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requested += request.url.queryParameter("type").orEmpty() to
+                        request.url.queryParameter("forced_storage").orEmpty()
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://cdn.example.com/media.ts"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+        val session = StalkerSession(
+            loadUrl = "https://portal.example.com/server/load.php",
+            portalReferer = "https://portal.example.com/c/",
+            token = "token-123"
+        )
+        val profile = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://localhost/ch/301_"
+        )
+        service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "ffmpeg http://localhost/movie/401"
+        )
+
+        assertThat(requested).containsExactly("itv" to "undefined", "vod" to "0").inOrder()
+    }
+
+    @Test
     fun createLink_uses_episode_number_as_series_selector_for_stalker_shell_episode() = runTest {
         var requestedSeries: String? = null
         val service = OkHttpStalkerApiService(

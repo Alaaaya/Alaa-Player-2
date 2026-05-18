@@ -494,7 +494,8 @@ class StalkerProvider(
                                 TAG,
                                 "Resolved create_link playback provider=$providerId kind=${kind.name} mode=${adapter.adapterMode.name} " +
                                     "candidateMode=${variant.playbackMode.name} endpoint=${effectiveArchiveEndpointPreference(kind, session).name} " +
-                                    "cookie=${effectiveArchiveCookieMode(kind, session, resolvedUrl).name}"
+                                    "cookie=${effectiveArchiveCookieMode(kind, session, resolvedUrl).name} " +
+                                    "liveTarget=${livePlaybackTargetSummary(directUrl, resolvedUrl)}"
                             )
                             return Result.success(
                                 StalkerPlaybackInfo(
@@ -1027,35 +1028,58 @@ class StalkerProvider(
         }
 
         val resolvedUri = runCatching { URI(repairedArchive) }.getOrNull() ?: return repairedArchive
-        val sourceUri = runCatching { URI(sourceDirectUrl) }.getOrNull() ?: return resolvedUrl
-        if (!isSameLivePlayPath(resolvedUri, sourceUri)) {
+        if (!isLivePlayPath(resolvedUri)) {
             return repairedArchive
         }
-        if (hasUsableLiveStreamTarget(resolvedUri)) {
+        val resolvedStreamId = resolvedUri.queryParameter("stream")?.takeIf { it.isUsableStreamId() }
+        if (resolvedStreamId != null) {
             return repairedArchive
         }
 
-        val sourceStreamId = sourceUri.queryParameter("stream")?.takeIf { it.isNotBlank() } ?: return repairedArchive
-        return replaceQueryParameter(resolvedUri, "stream", sourceStreamId) ?: repairedArchive
+        val sourceUri = runCatching { URI(sourceDirectUrl) }.getOrNull()
+        val sourceStreamId = sourceUri?.liveStreamTargetId() ?: return repairedArchive
+        return upsertQueryParameter(resolvedUri, "stream", sourceStreamId) ?: repairedArchive
     }
 
     private fun hasUsableLiveStreamTarget(uri: URI): Boolean {
-        val path = uri.path?.lowercase(Locale.ROOT).orEmpty()
-        if (!path.endsWith("/play/live.php")) {
+        if (!isLivePlayPath(uri)) {
             return true
         }
-        return !uri.queryParameter("stream").isNullOrBlank()
+        return uri.queryParameter("stream")?.isUsableStreamId() == true
     }
 
-    private fun isSameLivePlayPath(first: URI, second: URI): Boolean {
-        val firstHost = first.host?.trim()?.lowercase(Locale.ROOT).orEmpty()
-        val secondHost = second.host?.trim()?.lowercase(Locale.ROOT).orEmpty()
-        val firstPath = first.path?.trim()?.lowercase(Locale.ROOT).orEmpty()
-        val secondPath = second.path?.trim()?.lowercase(Locale.ROOT).orEmpty()
-        return firstHost.isNotBlank() &&
-            firstHost == secondHost &&
-            firstPath == secondPath &&
-            firstPath.endsWith("/play/live.php")
+    private fun isLivePlayPath(uri: URI): Boolean =
+        uri.path?.trim()?.lowercase(Locale.ROOT).orEmpty().endsWith("/play/live.php")
+
+    private fun URI.liveStreamTargetId(): String? {
+        queryParameter("stream")?.takeIf { it.isUsableStreamId() }?.let { return it }
+        val path = path?.trim('/') ?: return null
+        val segments = path.split('/').filter { it.isNotBlank() }
+        val channelSegment = segments
+            .dropLast(1)
+            .zip(segments.drop(1))
+            .firstOrNull { (previous, _) -> previous.equals("ch", ignoreCase = true) }
+            ?.second
+            ?: return null
+        return channelSegment.trimEnd('_').takeIf { it.isUsableStreamId() }
+    }
+
+    private fun String.isUsableStreamId(): Boolean {
+        val value = trim()
+        return value.isNotBlank() &&
+            value != "0" &&
+            !value.equals("null", ignoreCase = true)
+    }
+
+    private fun livePlaybackTargetSummary(sourceDirectUrl: String?, resolvedUrl: String): String {
+        val sourceUri = sourceDirectUrl?.let { runCatching { URI(it) }.getOrNull() }
+        val resolvedUri = runCatching { URI(resolvedUrl) }.getOrNull()
+        if (sourceUri == null && resolvedUri == null) {
+            return "none"
+        }
+        val sourceTarget = sourceUri?.liveStreamTargetId().orEmpty()
+        val resolvedTarget = resolvedUri?.takeIf(::isLivePlayPath)?.queryParameter("stream").orEmpty()
+        return "source=${sourceTarget.ifBlank { "none" }} resolved=${resolvedTarget.ifBlank { "none" }}"
     }
 
     private fun URI.queryParameter(name: String): String? {
@@ -1071,19 +1095,25 @@ class StalkerProvider(
             ?.second
     }
 
-    private fun replaceQueryParameter(uri: URI, name: String, value: String): String? {
-        val rawQuery = uri.rawQuery ?: return null
-        val updated = rawQuery.split('&')
+    private fun upsertQueryParameter(uri: URI, name: String, value: String): String? {
+        val rawQuery = uri.rawQuery.orEmpty()
+        val parts = rawQuery.split('&')
             .filter { it.isNotBlank() }
-            .map { part ->
-                val key = part.substringBefore('=', missingDelimiterValue = "")
-                if (key.equals(name, ignoreCase = true)) {
-                    "$key=$value"
-                } else {
-                    part
-                }
+        var replaced = false
+        val updatedParts = parts.map { part ->
+            val key = part.substringBefore('=', missingDelimiterValue = "")
+            if (key.equals(name, ignoreCase = true)) {
+                replaced = true
+                "$key=$value"
+            } else {
+                part
             }
-            .joinToString("&")
+        }
+        val updated = if (replaced) {
+            updatedParts
+        } else {
+            updatedParts + "$name=$value"
+        }.joinToString("&")
         return URI(uri.scheme, uri.authority, uri.path, updated, uri.fragment).toString()
     }
 
