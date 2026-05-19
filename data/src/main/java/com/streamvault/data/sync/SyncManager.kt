@@ -865,7 +865,8 @@ class SyncManager @Inject constructor(
                     finalizeXtreamLiveCatalog(
                         providerId = provider.id,
                         liveSyncResult = liveSyncResult,
-                        hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                        hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                        onProgress = onProgress
                     ).also { commitResult ->
                         warnings += commitResult.warnings
                     }.acceptedCount
@@ -889,6 +890,7 @@ class SyncManager @Inject constructor(
                         providerId = provider.id,
                         liveSyncResult = liveSyncResult,
                         hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                        onProgress = onProgress,
                         partialCompletionWarning = "Live TV sync completed partially."
                     ).also { commitResult ->
                         warnings += commitResult.warnings
@@ -3576,7 +3578,8 @@ class SyncManager @Inject constructor(
                         val acceptedCount = finalizeXtreamLiveCatalog(
                             providerId = provider.id,
                             liveSyncResult = liveSyncResult,
-                            hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                            hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                            onProgress = onProgress
                         ).acceptedCount
                         syncMetadataRepository.updateMetadata(
                             currentMetadata.copy(
@@ -3594,6 +3597,7 @@ class SyncManager @Inject constructor(
                             providerId = provider.id,
                             liveSyncResult = liveSyncResult,
                             hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                            onProgress = onProgress,
                             partialCompletionWarning = "Live TV retry completed partially."
                         )
                         val acceptedCount = commitResult.acceptedCount
@@ -4040,8 +4044,10 @@ class SyncManager @Inject constructor(
         providerId: Long,
         liveSyncResult: CatalogSyncPayload<Channel>,
         hiddenLiveCategoryIds: Set<Long>,
+        onProgress: ((String) -> Unit)? = null,
         partialCompletionWarning: String? = null
     ): XtreamLiveCommitResult {
+        progress(providerId, onProgress, "Saving Live TV channels...")
         val warnings = buildList {
             addAll(liveSyncResult.warnings)
             addAll(catalogStrategySupport.strategyWarnings(liveSyncResult.catalogResult))
@@ -4663,6 +4669,8 @@ class SyncManager @Inject constructor(
     private suspend fun <T> continueFailedCategoryOutcomes(
         provider: Provider,
         timedOutcomes: List<TimedCategoryOutcome<T>>,
-        fetchSequentially: suspend (XtreamCategory) -> TimedCategoryOutcome<T>
-    ): List<TimedCategoryOutcome<T>> = xtreamSupport.continueFailedCategoryOutcomes(provider, timedOutcomes, fetchSequentially)
+        fetchSequentially: suspend (XtreamCategory) -> TimedCategoryOutcome<T>,
+        onCategoryRetried: ((completed: Int, total: Int, currentLabel: String) -> Unit)? = null
+    ): List<TimedCategoryOutcome<T>> =
+        xtreamSupport.continueFailedCategoryOutcomes(provider, timedOutcomes, fetchSequentially, onCategoryRetried)
 }
