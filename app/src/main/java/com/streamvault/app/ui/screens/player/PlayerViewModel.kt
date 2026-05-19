@@ -1062,6 +1062,12 @@ class PlayerViewModel @Inject constructor(
 
         val adoptedEngine = session.engine
         return runCatching {
+            val shouldRenewAdoptedPreview = shouldRenewAdoptedPreviewOnFullscreen(
+                playbackState = adoptedEngine.playbackState.value,
+                playerStats = adoptedEngine.playerStats.value
+            )
+            // Detach the Home preview surface before Player binds its own.
+            adoptedEngine.clearRenderBinding()
             // Media3 requires a globally unique session ID. Release the main engine's
             // session before the adopted live engine enables its own replacement.
             mainPlayerEngine.setMediaSessionEnabled(false)
@@ -1086,14 +1092,13 @@ class PlayerViewModel @Inject constructor(
                         url = session.streamInfo.url
                     )
                 )
-                // Re-prime the adopted engine against the fullscreen surface path.
-                // Preview-to-fullscreen handoff can temporarily leave the reused live
-                // player with a stale render target if the old view is detached before
-                // the new one attaches. The shared binder now switches PlayerViews in
-                // Media3's recommended order, and refreshing the live media source keeps
-                // the adopted engine synced to the fullscreen render path without
-                // re-resolving provider URLs or abandoning the engine instance.
-                playerEngine.renewStreamUrl(session.streamInfo)
+                if (shouldRenewAdoptedPreview) {
+                    // Re-prime when the preview has not produced video yet. This keeps
+                    // the previous audio-only/stale-surface recovery path without
+                    // rebuffering a preview that is already rendering after the
+                    // PlayerView handoff switches targets in Media3's recommended order.
+                    playerEngine.renewStreamUrl(session.streamInfo)
+                }
                 playerEngine.play()
                 startTokenRenewalMonitoring(session.streamInfo.expirationTime)
                 maybeStartLiveTimeshift(session.streamInfo)
