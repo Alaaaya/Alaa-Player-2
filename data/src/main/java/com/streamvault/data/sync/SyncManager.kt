@@ -213,6 +213,7 @@ class SyncManager @Inject constructor(
     val syncState: StateFlow<SyncState> = syncStateTracker.aggregateState
     val syncStatesByProvider: StateFlow<Map<Long, SyncState>> = syncStateTracker.statesByProvider
     private val providerSyncMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val providerEpgMutexes = ConcurrentHashMap<Long, Mutex>()
     private val syncAdmissionMutex = Mutex()
     private val xtreamCatalogHttpService: OkHttpXtreamApiService by lazy {
         OkHttpXtreamApiService(
@@ -268,7 +269,12 @@ class SyncManager @Inject constructor(
         syncStateTracker.current(providerId)
 
     /** Returns true if any provider sync mutex is currently held (used by DatabaseMaintenanceManager). */
-    fun isAnySyncActive(): Boolean = providerSyncMutexes.values.any { it.isLocked }
+    fun isAnySyncActive(): Boolean = isAnySyncMutexLocked()
+
+    private fun isAnySyncMutexLocked(): Boolean =
+        providerSyncMutexes.values.any { it.isLocked } ||
+            providerEpgMutexes.values.any { it.isLocked }
+
     private suspend fun <T> withProviderLock(providerId: Long, block: suspend () -> T): T {
         val mutex = syncAdmissionMutex.withLock {
             providerSyncMutexes.computeIfAbsent(providerId) { Mutex() }.also { providerMutex ->
@@ -282,9 +288,22 @@ class SyncManager @Inject constructor(
         }
     }
 
+    private suspend fun <T> withProviderEpgLock(providerId: Long, block: suspend () -> T): T {
+        val mutex = syncAdmissionMutex.withLock {
+            providerEpgMutexes.computeIfAbsent(providerId) { Mutex() }.also { providerMutex ->
+                providerMutex.lock()
+            }
+        }
+        try {
+            return block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
     suspend fun runWhenNoSyncActive(block: suspend () -> Boolean): Boolean =
         syncAdmissionMutex.withLock {
-            if (providerSyncMutexes.values.any { it.isLocked }) {
+            if (isAnySyncMutexLocked()) {
                 false
             } else {
                 block()
@@ -294,16 +313,23 @@ class SyncManager @Inject constructor(
     suspend fun onProviderDeleted(providerId: Long) {
         BackgroundEpgSyncWorker.cancel(applicationContext, providerId)
         withProviderLock(providerId) {
-            syncStateTracker.reset(providerId)
-            xtreamAdaptiveSyncPolicy.forgetProvider(providerId)
-            syncCatalogStore.clearProviderStaging(providerId)
-            epgRepository.onProviderDeleted(providerId)
-            providerSyncMutexes.remove(providerId)
+            withProviderEpgLock(providerId) {
+                syncStateTracker.reset(providerId)
+                xtreamAdaptiveSyncPolicy.forgetProvider(providerId)
+                syncCatalogStore.clearProviderStaging(providerId)
+                epgRepository.onProviderDeleted(providerId)
+                providerSyncMutexes.remove(providerId)
+                providerEpgMutexes.remove(providerId)
+            }
         }
     }
 
     fun scheduleBackgroundEpgSync(providerId: Long) {
-        BackgroundEpgSyncWorker.enqueue(applicationContext, providerId)
+        runCatching {
+            BackgroundEpgSyncWorker.enqueue(applicationContext, providerId)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to schedule background EPG sync for provider $providerId: ${sanitizeThrowableMessage(error)}")
+        }
     }
 
     fun scheduleProviderSyncResume(providerId: Long) {
@@ -370,13 +396,32 @@ class SyncManager @Inject constructor(
         providerId: Long,
         force: Boolean = true,
         onProgress: ((String) -> Unit)? = null
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> {
         val providerEntity = providerDao.getById(providerId)
-            ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+            ?: return com.streamvault.domain.model.Result.error("Provider $providerId not found")
 
+        return if (providerEntity.type == ProviderType.STALKER_PORTAL) {
+            withProviderEpgLock(providerId) {
+                syncEpgLocked(providerEntity, force, onProgress)
+            }
+        } else {
+            withProviderLock(providerId) {
+                val freshProviderEntity = providerDao.getById(providerId)
+                    ?: return@withProviderLock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+                syncEpgLocked(freshProviderEntity, force, onProgress)
+            }
+        }
+    }
+
+    private suspend fun syncEpgLocked(
+        providerEntity: com.streamvault.data.local.entity.ProviderEntity,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): com.streamvault.domain.model.Result<Unit> {
         val provider = providerEntity
             .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
             .toDomain()
+        val providerId = provider.id
 
         val startedAt = System.currentTimeMillis()
         updateXtreamEpgJobState(
@@ -388,7 +433,7 @@ class SyncManager @Inject constructor(
         )
         publishSyncState(providerId, SyncState.Syncing("Downloading EPG..."))
 
-        try {
+        return try {
             val epgResult = syncProviderEpg(
                 provider = provider,
                 metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
