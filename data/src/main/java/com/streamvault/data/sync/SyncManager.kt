@@ -91,6 +91,7 @@ import javax.inject.Singleton
 private const val TAG = "SyncManager"
 private const val XTREAM_FALLBACK_STAGE_BATCH_SIZE = 500
 private const val STALKER_INDEX_CATEGORY_SLICE_SIZE = 12
+private const val STALKER_WILDCARD_PAGE_SLICE_SIZE = 48
 private const val STALKER_CATEGORY_RETRY_BUDGET = 3
 private const val STALKER_CATEGORY_RETRY_COOLDOWN_MILLIS = 5 * 60 * 1000L
 private const val STALKER_RUNNING_JOB_STALE_MILLIS = 15 * 60 * 1000L
@@ -1508,6 +1509,30 @@ class SyncManager @Inject constructor(
         }
 
         val initialJob = xtreamIndexJobDao.get(provider.id, contentType.name)
+        val wildcardCategory = categories.firstOrNull { category ->
+            api.isWildcardCategory(contentType, category.categoryId)
+        }
+        if (
+            wildcardCategory != null &&
+            initialJob?.priorityCategoryId == null &&
+            canAttemptStalkerCategory(
+                getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId),
+                now
+            )
+        ) {
+            val wildcardCompleted = processStalkerWildcardIndexSection(
+                provider = provider,
+                api = api,
+                contentType = contentType,
+                wildcardCategory = wildcardCategory,
+                visibleCategories = visibleCategories,
+                maxPages = STALKER_WILDCARD_PAGE_SLICE_SIZE,
+                initialJob = initialJob,
+                onProgress = onProgress
+            )
+            if (wildcardCompleted) return
+        }
+
         val priorityCategoryId = initialJob?.priorityCategoryId
         val hydrationByCategory = visibleCategories.associate { category ->
             category.categoryId to getStalkerHydrationSnapshot(provider.id, contentType, category.categoryId)
@@ -1697,6 +1722,196 @@ class SyncManager @Inject constructor(
         if (hasMoreCategories) {
             scheduleStalkerIndexSync(provider.id, contentType, force = false)
         }
+    }
+
+    private suspend fun processStalkerWildcardIndexSection(
+        provider: Provider,
+        api: StalkerProvider,
+        contentType: ContentType,
+        wildcardCategory: CategoryEntity,
+        visibleCategories: List<CategoryEntity>,
+        maxPages: Int,
+        initialJob: XtreamIndexJobEntity?,
+        onProgress: ((String) -> Unit)?
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val normalVisibleCategoryIds = mutableSetOf<Long>()
+        visibleCategories.forEach { category ->
+            if (!api.isWildcardCategory(contentType, category.categoryId)) {
+                normalVisibleCategoryIds += category.categoryId
+            }
+        }
+        val visibleCategoryIds = normalVisibleCategoryIds.takeIf { it.isNotEmpty() }
+        val hydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+        if (!canAttemptStalkerCategory(hydration, now)) return false
+
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = "RUNNING",
+            now = now,
+            totalCategories = visibleCategories.size,
+            completedCategories = 0,
+            failedCategories = 0,
+            indexedRows = currentStalkerIndexedRowCount(provider.id, contentType),
+            lastAttemptAt = now,
+            lastError = null
+        )
+
+        var skippedMalformedRows = initialJob?.skippedMalformedRows ?: 0
+        val seenPageFingerprints = mutableSetOf<String>()
+        var pagesProcessed = 0
+        var lastError: String? = null
+
+        while (pagesProcessed < maxPages) {
+            val currentHydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+            if (!canAttemptStalkerCategory(currentHydration, System.currentTimeMillis())) break
+            val nextPage = nextStalkerAttemptPage(currentHydration)
+            progress(provider.id, onProgress, "Indexing ${xtreamIndexSectionLabel(contentType)}: All page $nextPage")
+            markStalkerAttemptStarted(
+                providerId = provider.id,
+                contentType = contentType,
+                categoryId = wildcardCategory.categoryId,
+                hydration = currentHydration,
+                attemptedPage = nextPage,
+                now = System.currentTimeMillis()
+            )
+            when (val result = fetchStalkerWildcardSummaryPageWithRecovery(api, contentType, wildcardCategory.categoryId, nextPage)) {
+                is Result.Success -> {
+                    val indexedAt = System.currentTimeMillis()
+                    val dedupedItems = dedupeStalkerPageItems(result.data.items, contentType)
+                    val visibleItems = filterStalkerItemsToCategories(dedupedItems, contentType, visibleCategoryIds)
+                    skippedMalformedRows += (result.data.items.size - visibleItems.size).coerceAtLeast(0)
+                    if (nextPage == 1 && visibleItems.isEmpty()) {
+                        val message = "Stalker wildcard catalog did not return usable visible ${xtreamIndexSectionLabel(contentType)} rows."
+                        markStalkerAttemptFailed(
+                            providerId = provider.id,
+                            contentType = contentType,
+                            categoryId = wildcardCategory.categoryId,
+                            hydration = currentHydration,
+                            attemptedPage = nextPage,
+                            now = indexedAt,
+                            message = message,
+                            retryable = false,
+                            pageFingerprint = null
+                        )
+                        Log.i(TAG, "$message Falling back to per-category indexing for provider ${provider.id}.")
+                        return false
+                    }
+
+                    val pageFingerprint = stalkerPageFingerprint(visibleItems, contentType)
+                    val anomaly = detectStalkerPageAnomaly(
+                        hydration = currentHydration,
+                        requestedPage = nextPage,
+                        pagedResult = com.streamvault.data.remote.stalker.StalkerPagedResult(
+                            items = visibleItems,
+                            page = result.data.page,
+                            totalPages = result.data.totalPages,
+                            pageSize = result.data.pageSize
+                        ),
+                        pageFingerprint = pageFingerprint
+                    ) ?: pageFingerprint
+                        ?.takeIf { !seenPageFingerprints.add(it) }
+                        ?.let { "Portal repeated a wildcard page payload." }
+
+                    if (anomaly != null) {
+                        markStalkerAttemptFailed(
+                            providerId = provider.id,
+                            contentType = contentType,
+                            categoryId = wildcardCategory.categoryId,
+                            hydration = currentHydration,
+                            attemptedPage = nextPage,
+                            now = indexedAt,
+                            message = anomaly,
+                            retryable = false,
+                            pageFingerprint = pageFingerprint
+                        )
+                        Log.i(TAG, "Stalker wildcard ${contentType.name} indexing disabled for provider ${provider.id}: $anomaly")
+                        return false
+                    }
+
+                    when (contentType) {
+                        ContentType.MOVIE -> upsertXtreamMovieSummaryBatch(provider.id, visibleItems.filterIsInstance<Movie>(), indexedAt)
+                        ContentType.SERIES -> upsertXtreamSeriesSummaryBatch(provider.id, visibleItems.filterIsInstance<Series>(), indexedAt)
+                        else -> Unit
+                    }
+
+                    val pageComplete = result.data.isComplete ||
+                        (result.data.items.isEmpty() && result.data.totalPages in 1..nextPage)
+                    markStalkerAttemptSucceeded(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = wildcardCategory.categoryId,
+                        hydration = currentHydration,
+                        attemptedPage = nextPage,
+                        now = indexedAt,
+                        itemCount = currentStalkerIndexedRowCount(provider.id, contentType),
+                        totalPages = result.data.totalPages,
+                        pageSize = result.data.pageSize,
+                        pageComplete = pageComplete,
+                        pageFingerprint = pageFingerprint
+                    )
+                    pagesProcessed += 1
+                    if (pageComplete) break
+                }
+                is Result.Error -> {
+                    val failedAt = System.currentTimeMillis()
+                    lastError = result.message
+                    val retryable = stalkerIndexFailureState(result.exception ?: IllegalStateException(result.message)) != "FAILED_PERMANENT"
+                    markStalkerAttemptFailed(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = wildcardCategory.categoryId,
+                        hydration = currentHydration,
+                        attemptedPage = nextPage,
+                        now = failedAt,
+                        message = result.message,
+                        retryable = retryable,
+                        pageFingerprint = currentHydration?.lastPageFingerprint
+                    )
+                    return false
+                }
+                is Result.Loading -> Unit
+            }
+        }
+
+        val finishedAt = System.currentTimeMillis()
+        val refreshedHydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+        val hasMorePages = canAttemptStalkerCategory(refreshedHydration, finishedAt)
+        val indexedRows = currentStalkerIndexedRowCount(provider.id, contentType)
+        val finalState = when {
+            hasMorePages -> "QUEUED"
+            refreshedHydration?.isTerminalFailure == true -> "PARTIAL"
+            refreshedHydration?.hasPruneSuppressionRisk == true -> "PARTIAL"
+            else -> "SUCCESS"
+        }
+        val deletedRows = if (finalState == "SUCCESS") {
+            xtreamContentIndexDao.pruneStaleLocalContentRows(provider.id, contentType.name)
+        } else {
+            0
+        }
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = finalState,
+            now = finishedAt,
+            totalCategories = visibleCategories.size,
+            completedCategories = if (finalState == "SUCCESS") visibleCategories.size else 0,
+            nextCategoryIndex = if (finalState == "SUCCESS") visibleCategories.size else 0,
+            failedCategories = if (finalState == "PARTIAL") 1 else 0,
+            indexedRows = indexedRows,
+            skippedMalformedRows = skippedMalformedRows,
+            deletedPrunedRows = deletedRows,
+            clearPriority = finalState == "SUCCESS",
+            lastAttemptAt = now,
+            lastSuccessAt = finishedAt.takeIf { finalState == "SUCCESS" },
+            lastError = lastError ?: refreshedHydration?.lastError
+        )
+        updateStalkerSummaryMetadata(provider.id, contentType, indexedRows, finalState, finishedAt)
+        if (hasMorePages) {
+            scheduleStalkerIndexSync(provider.id, contentType, force = false)
+        }
+        return true
     }
 
     private data class StalkerHydrationSnapshot(
@@ -1987,6 +2202,24 @@ class SyncManager @Inject constructor(
         return initial
     }
 
+    private suspend fun fetchStalkerWildcardSummaryPageWithRecovery(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> {
+        val initial = fetchStalkerWildcardSummaryPage(api, contentType, categoryId, page)
+        if (initial is Result.Error && isLikelyStalkerAuthFailure(initial.message, initial.exception)) {
+            Log.w(
+                TAG,
+                "Retrying Stalker wildcard ${contentType.name} page $page after auth refresh for category $categoryId"
+            )
+            api.invalidateAuthentication()
+            return fetchStalkerWildcardSummaryPage(api, contentType, categoryId, page)
+        }
+        return initial
+    }
+
     private fun detectStalkerPageAnomaly(
         hydration: StalkerHydrationSnapshot?,
         requestedPage: Int,
@@ -2042,6 +2275,20 @@ class SyncManager @Inject constructor(
         else -> items
     }
 
+    private fun filterStalkerItemsToCategories(
+        items: List<out Any>,
+        contentType: ContentType,
+        visibleCategoryIds: Set<Long>?
+    ): List<out Any> = when (contentType) {
+        ContentType.MOVIE -> items.filterIsInstance<Movie>().filter { movie ->
+            visibleCategoryIds == null || movie.categoryId in visibleCategoryIds
+        }
+        ContentType.SERIES -> items.filterIsInstance<Series>().filter { series ->
+            visibleCategoryIds == null || series.categoryId in visibleCategoryIds
+        }
+        else -> items
+    }
+
     private fun isLikelyStalkerAuthFailure(message: String, exception: Throwable?): Boolean {
         val normalizedMessage = message.lowercase()
         val exceptionMessage = exception?.message?.lowercase().orEmpty()
@@ -2082,6 +2329,17 @@ class SyncManager @Inject constructor(
         ContentType.MOVIE -> api.getVodStreamsPage(categoryId, page)
         ContentType.SERIES -> api.getSeriesListPage(categoryId, page)
         else -> Result.error("Unsupported Stalker summary page section: $contentType")
+    }
+
+    private suspend fun fetchStalkerWildcardSummaryPage(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> = when (contentType) {
+        ContentType.MOVIE -> api.getVodStreamsPageUsingItemCategories(categoryId, page)
+        ContentType.SERIES -> api.getSeriesListPage(categoryId, page)
+        else -> Result.error("Unsupported Stalker wildcard summary page section: $contentType")
     }
 
     private suspend fun visibleStalkerIndexCategories(

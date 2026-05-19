@@ -213,6 +213,18 @@ class StalkerProvider(
             )
         }
 
+    suspend fun getVodStreamsPageUsingItemCategories(categoryId: Long?, page: Int): Result<StalkerPagedResult<Movie>> =
+        mapPagedItems(ContentType.MOVIE, categoryId) { session, profile, rawCategoryId ->
+            api.getVodStreamsPage(session, profile, rawCategoryId, page)
+        }.mapData { paged ->
+            StalkerPagedResult(
+                items = paged.items.mapNotNull { item -> toMovie(item, requestedCategoryId = null) },
+                page = paged.page,
+                totalPages = paged.totalPages,
+                pageSize = paged.pageSize
+            )
+        }
+
     override suspend fun getVodInfo(vodId: Long): Result<Movie> {
         return when (val moviesResult = getVodStreams(null)) {
             is Result.Success -> moviesResult.data
