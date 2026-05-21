@@ -336,6 +336,36 @@ class SeriesRepositoryImplTest {
     }
 
     @Test
+    fun `browseSeries library order uses last modified freshness instead of title order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(seriesDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(seriesDao.getFreshCursorPage(7L, 40)).thenReturn(
+            listOf(
+                SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Zulu Series", providerId = 7L, lastModified = 20_000L),
+                SeriesBrowseEntity(id = 1L, seriesId = 101L, name = "Alpha Series", providerId = 7L, lastModified = 10_000L)
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.SERIES.name)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseSeries(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.LIBRARY,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Zulu Series", "Alpha Series").inOrder()
+        verify(seriesDao).getFreshCursorPage(7L, 40)
+        verify(seriesDao, never()).getByProviderCursorPage(any(), any())
+    }
+
+    @Test
     fun `getSeriesByCategory skips legacy xtream empty retry hydration`() = runTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))

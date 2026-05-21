@@ -649,6 +649,36 @@ class MovieRepositoryImplTest {
         verify(movieDao, never()).getFreshPreview(7L, 100)
     }
 
+    @Test
+    fun `browseMovies library order uses added at freshness instead of title order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(movieDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(movieDao.getFreshCursorPage(7L, 40)).thenReturn(
+            listOf(
+                MovieBrowseEntity(id = 2L, streamId = 102L, name = "Zulu Movie", providerId = 7L, addedAt = 20_000L),
+                MovieBrowseEntity(id = 1L, streamId = 101L, name = "Alpha Movie", providerId = 7L, addedAt = 10_000L)
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseMovies(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.LIBRARY,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Zulu Movie", "Alpha Movie").inOrder()
+        verify(movieDao).getFreshCursorPage(7L, 40)
+        verify(movieDao, never()).getByProviderCursorPage(any(), any())
+    }
+
     private fun createRepository() = MovieRepositoryImpl(
         movieDao = movieDao,
         categoryDao = categoryDao,

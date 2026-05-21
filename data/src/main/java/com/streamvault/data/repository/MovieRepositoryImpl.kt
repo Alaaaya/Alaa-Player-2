@@ -1023,7 +1023,15 @@ class MovieRepositoryImpl @Inject constructor(
 
         when {
             query.filterBy.type == LibraryFilterType.ALL &&
-                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.sortBy == LibrarySortBy.LIBRARY -> {
+                collectMoviePages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
+                    extractCursor = { FreshCursor(it.addedAt, it.name, it.id) }
+                ) { limit, cursor ->
+                    loadMovieFreshPage(query, limit, cursor)
+                }
+            }
+            query.filterBy.type == LibraryFilterType.ALL &&
+                query.sortBy == LibrarySortBy.TITLE -> {
                 collectMoviePages<NameCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { NameCursor(it.name, it.id) }
                 ) { limit, cursor ->
@@ -1130,7 +1138,7 @@ class MovieRepositoryImpl @Inject constructor(
                     LibrarySortBy.TITLE,
                     LibrarySortBy.UPDATED,
                     LibrarySortBy.RATING
-                ) -> query.categoryId == null || query.sortBy != LibrarySortBy.LIBRARY
+                ) -> true
             else -> false
         }
     }

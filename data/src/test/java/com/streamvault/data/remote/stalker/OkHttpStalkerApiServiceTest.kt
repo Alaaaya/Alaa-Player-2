@@ -15,6 +15,8 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 class OkHttpStalkerApiServiceTest {
 
@@ -885,6 +887,43 @@ class OkHttpStalkerApiServiceTest {
         assertThat(requestedUrls).containsExactly(
             "https://portal.example.com/server/load.php?type=series&action=get_ordered_list&JsHttpRequest=1-xml&category=147&p=3"
         )
+    }
+
+    @Test
+    fun getSeriesPage_parses_datetime_added_field_into_last_modified_source_timestamp() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """
+                    {"js":{"total_items":"1","max_page_items":"15","data":[{"id":"300","name":"Drama","category_id":"147","added":"2026-05-18 13:02:23","is_series":"1"}]}}
+                """.trimIndent()
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getSeriesPage(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            categoryId = "147",
+            page = 1
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        val item = success.data.items.single()
+        val expectedAddedAt = LocalDateTime.of(2026, 5, 18, 13, 2, 23)
+            .toInstant(ZoneOffset.UTC)
+            .toEpochMilli()
+        assertThat(item.addedAt).isEqualTo(expectedAddedAt)
     }
 
     @Test

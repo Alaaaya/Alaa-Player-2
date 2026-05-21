@@ -1753,7 +1753,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 findString("cmd"),
                 findString("container_extension")
             ),
-            addedAt = findString("added")?.toLongOrNull() ?: 0L,
+            addedAt = parseDateTime(findString("added")) ?: 0L,
             isAdult = findBoolean("censored") == true,
             isSeries = findBoolean("is_series") == true || findString("is_series") == "1"
         )
@@ -1829,7 +1829,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 findString("cmd"),
                 findString("container_extension")
             ),
-            addedAt = findString("added")?.toLongOrNull() ?: 0L,
+            addedAt = parseDateTime(findString("added")) ?: 0L,
             isAdult = findBoolean("censored") == true,
             isSeries = findBoolean("is_series") == true || findString("is_series") == "1"
         )

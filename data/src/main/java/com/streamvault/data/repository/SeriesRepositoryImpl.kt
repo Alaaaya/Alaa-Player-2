@@ -1012,7 +1012,15 @@ class SeriesRepositoryImpl @Inject constructor(
 
         when {
             query.filterBy.type == LibraryFilterType.ALL &&
-                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.sortBy == LibrarySortBy.LIBRARY -> {
+                collectSeriesPages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
+                    extractCursor = { FreshCursor(it.lastModified, it.name, it.id) }
+                ) { limit, cursor ->
+                    loadSeriesFreshPage(query, limit, cursor)
+                }
+            }
+            query.filterBy.type == LibraryFilterType.ALL &&
+                query.sortBy == LibrarySortBy.TITLE -> {
                 collectSeriesPages<NameCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { NameCursor(it.name, it.id) }
                 ) { limit, cursor ->
