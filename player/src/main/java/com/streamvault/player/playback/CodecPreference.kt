@@ -23,28 +23,49 @@ internal data class PlaybackRendererPlan(
     val useAudioVideoSyncSink: Boolean,
     val useVideoRendererWorkaround: Boolean,
     val useManagedCodecSelector: Boolean,
+    val extensionRendererMode: PlaybackExtensionRendererMode,
     val renderPath: String
 ) {
     val useStockRenderersFactory: Boolean
         get() = !useAudioVideoSyncSink && !useVideoRendererWorkaround
 }
 
+internal enum class PlaybackExtensionRendererMode {
+    PLATFORM_FIRST,
+    EXTENSIONS_FIRST
+}
+
+internal fun extensionRendererModeFor(activeDecoderMode: DecoderMode): PlaybackExtensionRendererMode {
+    return when (activeDecoderMode) {
+        DecoderMode.AUTO,
+        DecoderMode.HARDWARE -> PlaybackExtensionRendererMode.PLATFORM_FIRST
+        DecoderMode.SOFTWARE,
+        DecoderMode.COMPATIBILITY -> PlaybackExtensionRendererMode.EXTENSIONS_FIRST
+    }
+}
+
 internal fun buildPlaybackRendererPlan(
     requestedMode: DecoderMode,
+    activeDecoderMode: DecoderMode,
     decoderPolicy: ActiveDecoderPolicy,
     useAudioVideoSyncSink: Boolean,
     useVideoRendererWorkaround: Boolean
 ): PlaybackRendererPlan {
     val useManagedCodecSelector = shouldUseManagedCodecSelector(requestedMode, decoderPolicy)
+    val extensionRendererMode = extensionRendererModeFor(activeDecoderMode)
     val renderPath = buildList {
         if (useAudioVideoSyncSink) add("av-sync-sink")
         if (useVideoRendererWorkaround) add("decoder-reuse-workaround")
         if (useManagedCodecSelector) add("managed-codec-selector")
+        if (extensionRendererMode == PlaybackExtensionRendererMode.PLATFORM_FIRST) {
+            add("platform-first-extension-audio-fallback")
+        }
     }.ifEmpty { listOf("stock-media3") }.joinToString("+")
     return PlaybackRendererPlan(
         useAudioVideoSyncSink = useAudioVideoSyncSink,
         useVideoRendererWorkaround = useVideoRendererWorkaround,
         useManagedCodecSelector = useManagedCodecSelector,
+        extensionRendererMode = extensionRendererMode,
         renderPath = renderPath
     )
 }

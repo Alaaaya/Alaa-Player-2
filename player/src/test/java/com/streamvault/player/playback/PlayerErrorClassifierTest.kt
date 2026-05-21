@@ -27,6 +27,12 @@ class PlayerErrorClassifierTest {
     }
 
     @Test
+    fun `509 maps to provider limit`() {
+        assertThat(PlayerErrorClassifier.classify(IOException("HTTP 509")))
+            .isEqualTo(PlaybackErrorCategory.PROVIDER_LIMIT)
+    }
+
+    @Test
     fun `204 maps to empty response`() {
         assertThat(PlayerErrorClassifier.classify(IOException("HTTP 204")))
             .isEqualTo(PlaybackErrorCategory.EMPTY_RESPONSE)

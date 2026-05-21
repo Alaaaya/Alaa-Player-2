@@ -235,6 +235,8 @@ sealed class PlayerError(val message: String) {
                 PlaybackErrorCategory.NETWORK -> buildNetworkErrorMessage(chain)
                 PlaybackErrorCategory.HTTP_AUTH -> buildHttpErrorMessage(chain, "Access denied")
                 PlaybackErrorCategory.HTTP_SERVER -> buildHttpErrorMessage(chain, "Server error")
+                PlaybackErrorCategory.PROVIDER_LIMIT ->
+                    "Provider rejected playback, likely max connections or bandwidth limit (HTTP 509)."
                 PlaybackErrorCategory.EMPTY_RESPONSE ->
                     "Provider returned an empty stream response (HTTP 204)."
                 PlaybackErrorCategory.SSL -> "Secure connection failed (SSL/TLS error)."
@@ -256,6 +258,7 @@ sealed class PlayerError(val message: String) {
                 PlaybackErrorCategory.CLEAR_TEXT_BLOCKED,
                 PlaybackErrorCategory.SSL -> NetworkError(msg)
 
+                PlaybackErrorCategory.PROVIDER_LIMIT,
                 PlaybackErrorCategory.EMPTY_RESPONSE,
                 PlaybackErrorCategory.SOURCE_MALFORMED,
                 PlaybackErrorCategory.LIVE_WINDOW -> SourceError(msg)

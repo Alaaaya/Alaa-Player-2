@@ -40,6 +40,15 @@ class PlayerRetryPolicyTest {
     }
 
     @Test
+    fun `509 never retries`() {
+        val error = IOException("HTTP 509")
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = false, attempt = 1)).isFalse()
+        assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isFalse()
+        assertThat(policy.maxAttempts(error, playbackStarted = false)).isEqualTo(0)
+        assertThat(policy.maxAttempts(error, playbackStarted = true)).isEqualTo(0)
+    }
+
+    @Test
     fun `ssl error never retries`() {
         assertThat(policy.shouldRetry(SSLHandshakeException("bad cert"), liveContext, playbackStarted = false, attempt = 1))
             .isFalse()
