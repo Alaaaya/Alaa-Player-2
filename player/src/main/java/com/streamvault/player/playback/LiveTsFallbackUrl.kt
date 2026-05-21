@@ -28,7 +28,7 @@ internal fun shouldFallbackStalledHlsToLiveTs(
     recoveryAttempt: Int
 ): Boolean =
     resolvedStreamType == ResolvedStreamType.HLS &&
-        recoveryAttempt >= 3
+        recoveryAttempt >= 2
 
 internal fun buildLiveTsFallbackUrl(url: String): String? {
     val uri = runCatching { URI(url) }.getOrNull() ?: return null

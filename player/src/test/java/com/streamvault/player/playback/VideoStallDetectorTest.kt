@@ -164,6 +164,27 @@ class VideoStallDetectorTest {
     }
 
     @Test
+    fun `default live buffering recovery reports after buffering threshold`() {
+        val detector = VideoStallDetector(nowMs = { nowMs })
+        detector.reset()
+        nowMs = 1_000L
+        detector.onVideoFrameRendered(currentPositionMs = 500L)
+        nowMs = 9_000L
+
+        assertThat(
+            detector.shouldReportStall(
+                playbackState = PlaybackState.BUFFERING,
+                isPlaying = false,
+                playWhenReady = true,
+                playbackStarted = true,
+                currentPositionMs = 500L,
+                bufferedDurationMs = 0L,
+                recoverBufferingStalls = true
+            )
+        ).isTrue()
+    }
+
+    @Test
     fun `reports when playback is requested but exoplayer stops isPlaying updates`() {
         val detector = detector()
         detector.reset()

@@ -624,6 +624,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setPlayerFastRetryOnTransientFailures(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerFastRetryOnTransientFailures(enabled)
+        }
+    }
+
     fun setPlayerTimeshiftEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setPlayerTimeshiftEnabled(enabled)

@@ -170,6 +170,7 @@ class Media3PlayerEngine @Inject constructor(
     private var selectedAudioDecoderName: String = "Unknown"
     private var audioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO
     private var compatibilityMemoryEnabled: Boolean = true
+    private var fastRetryOnTransientFailures: Boolean = false
     private var audioOutputPath: String = "UNKNOWN"
     private var compatibilityDecisionSource: String = "DEFAULT"
     private var pendingLearnedAudioFallback: PendingLearnedAudioFallback? = null
@@ -500,6 +501,10 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun setMediaSessionEnabled(enabled: Boolean) {
         enableMediaSession = enabled
+    }
+
+    override fun setFastRetryOnTransientFailures(enabled: Boolean) {
+        fastRetryOnTransientFailures = enabled
     }
 
     override fun setVolume(volume: Float) {
@@ -1960,7 +1965,11 @@ class Media3PlayerEngine @Inject constructor(
             resolvedStreamType = resolvedStreamType,
             timeoutProfile = timeoutProfile,
             retryContext = retryContext,
-            retryPolicy = PlayerRetryPolicy(retryContext) { playbackStarted() }
+            retryPolicy = PlayerRetryPolicy(
+                streamContext = retryContext,
+                fastRetryOnTransientFailures = { fastRetryOnTransientFailures },
+                playbackStarted = { playbackStarted() }
+            )
         )
     }
 

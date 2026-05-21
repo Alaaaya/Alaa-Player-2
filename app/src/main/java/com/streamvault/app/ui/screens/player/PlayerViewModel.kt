@@ -547,6 +547,11 @@ class PlayerViewModel @Inject constructor(
                 .collect { (engine, enabled) -> engine.setMediaSessionEnabled(enabled) }
         }
         viewModelScope.launch {
+            preferencesRepository.playerFastRetryOnTransientFailures
+                .combine(activePlayerEngineFlow) { enabled, engine -> engine to enabled }
+                .collect { (engine, enabled) -> engine.setFastRetryOnTransientFailures(enabled) }
+        }
+        viewModelScope.launch {
             currentChannelFlow
                 .map { it?.id }
                 .distinctUntilChanged()
@@ -1065,6 +1070,7 @@ class PlayerViewModel @Inject constructor(
         )
         playerEngine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
         playerEngine.setVodHttpProtocolMode(preferencesRepository.playerVodHttpProtocolMode.first())
+        playerEngine.setFastRetryOnTransientFailures(preferencesRepository.playerFastRetryOnTransientFailures.first())
         playerEngine.setAudioVideoOffsetMs(_audioVideoOffsetUiState.value.effectiveOffsetMs)
     }
 

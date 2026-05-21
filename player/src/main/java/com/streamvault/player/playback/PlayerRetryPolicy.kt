@@ -10,7 +10,8 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
-private const val LIVE_WINDOW_RETRY_DELAY_MS = 500L
+private const val FAST_TRANSIENT_RETRY_DELAY_MS = 500L
+private const val LIVE_TRANSIENT_RETRY_ATTEMPTS = 10
 private const val LIVE_HLS_MALFORMED_RETRY_ATTEMPTS_AFTER_START = 12
 
 data class PlaybackRetryContext(
@@ -27,6 +28,7 @@ data class PlaybackRetryContext(
 @UnstableApi
 class PlayerRetryPolicy(
     private val streamContext: PlaybackRetryContext,
+    private val fastRetryOnTransientFailures: () -> Boolean = { false },
     private val playbackStarted: () -> Boolean
 ) : LoadErrorHandlingPolicy {
     fun maxAttempts(error: Throwable, playbackStarted: Boolean): Int {
@@ -48,14 +50,35 @@ class PlayerRetryPolicy(
     }
 
     fun retryDelayMs(error: Throwable, attempt: Int): Long {
-        if (PlayerErrorClassifier.classify(error) == PlaybackErrorCategory.LIVE_WINDOW) {
-            return LIVE_WINDOW_RETRY_DELAY_MS
+        val category = PlayerErrorClassifier.classify(error)
+        if (fastRetryOnTransientFailures() && isFastRetryEligible(category)) {
+            return FAST_TRANSIENT_RETRY_DELAY_MS
         }
+        return exponentialRetryDelayMs(attempt)
+    }
+
+    private fun exponentialRetryDelayMs(attempt: Int): Long {
         return when (attempt) {
             1 -> 1_000L
             2 -> 2_500L
             else -> 5_000L
         }.coerceAtMost(5_000L)
+    }
+
+    private fun isFastRetryEligible(category: PlaybackErrorCategory): Boolean {
+        return when (category) {
+            PlaybackErrorCategory.LIVE_WINDOW -> true
+            PlaybackErrorCategory.NETWORK,
+            PlaybackErrorCategory.HTTP_SERVER,
+            PlaybackErrorCategory.UNKNOWN -> streamContext.isLive
+            PlaybackErrorCategory.SOURCE_MALFORMED -> streamContext.resolvedStreamType == ResolvedStreamType.HLS
+            PlaybackErrorCategory.HTTP_AUTH,
+            PlaybackErrorCategory.SSL,
+            PlaybackErrorCategory.CLEAR_TEXT_BLOCKED,
+            PlaybackErrorCategory.DRM,
+            PlaybackErrorCategory.DECODER,
+            PlaybackErrorCategory.FORMAT_UNSUPPORTED -> false
+        }
     }
 
     fun retryReason(error: Throwable): String {
@@ -91,6 +114,8 @@ class PlayerRetryPolicy(
 
     override fun getMinimumLoadableRetryCount(dataType: Int): Int {
         return when {
+            streamContext.isLive && dataType == C.DATA_TYPE_MANIFEST -> LIVE_TRANSIENT_RETRY_ATTEMPTS
+            streamContext.isLive && dataType == C.DATA_TYPE_MEDIA -> LIVE_TRANSIENT_RETRY_ATTEMPTS
             dataType == C.DATA_TYPE_MANIFEST -> 3
             dataType == C.DATA_TYPE_MEDIA -> if (streamContext.resolvedStreamType == ResolvedStreamType.PROGRESSIVE) 2 else 2
             else -> 1
@@ -126,13 +151,17 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.LIVE_WINDOW -> 1
             PlaybackErrorCategory.HTTP_SERVER -> {
                 val isProgressive = streamContext.resolvedStreamType == ResolvedStreamType.PROGRESSIVE
-                if (streamContext.isLive || isProgressive) 3 else 2
+                when {
+                    streamContext.isLive -> LIVE_TRANSIENT_RETRY_ATTEMPTS
+                    isProgressive -> 3
+                    else -> 2
+                }
             }
             PlaybackErrorCategory.NETWORK -> when {
                 error.hasCause<UnknownHostException>() -> 1
                 error.hasCause<SocketTimeoutException>() || error.hasCause<ConnectException>() ->
-                    if (streamContext.isLive) 3 else 2
-                !playbackStarted -> if (streamContext.isLive) 3 else 2
+                    if (streamContext.isLive) LIVE_TRANSIENT_RETRY_ATTEMPTS else 2
+                !playbackStarted -> if (streamContext.isLive) LIVE_TRANSIENT_RETRY_ATTEMPTS else 2
                 else -> 1
             }
 
@@ -143,7 +172,7 @@ class PlayerRetryPolicy(
                 else -> 1
             }
             PlaybackErrorCategory.UNKNOWN -> when {
-                streamContext.isLive && playbackStarted -> 3
+                streamContext.isLive && playbackStarted -> LIVE_TRANSIENT_RETRY_ATTEMPTS
                 playbackStarted -> 0
                 else -> 1
             }

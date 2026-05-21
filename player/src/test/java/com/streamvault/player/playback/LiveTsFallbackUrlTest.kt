@@ -56,13 +56,13 @@ class LiveTsFallbackUrlTest {
         assertThat(
             shouldFallbackStalledHlsToLiveTs(
                 resolvedStreamType = ResolvedStreamType.HLS,
-                recoveryAttempt = 3
+                recoveryAttempt = 2
             )
         ).isTrue()
         assertThat(
             shouldFallbackStalledHlsToLiveTs(
                 resolvedStreamType = ResolvedStreamType.HLS,
-                recoveryAttempt = 2
+                recoveryAttempt = 1
             )
         ).isFalse()
         assertThat(
