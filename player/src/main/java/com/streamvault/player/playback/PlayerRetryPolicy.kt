@@ -160,7 +160,12 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.NETWORK -> when {
                 error.hasCause<UnknownHostException>() -> 1
                 error.hasCause<SocketTimeoutException>() || error.hasCause<ConnectException>() ->
-                    if (streamContext.isLive) LIVE_TRANSIENT_RETRY_ATTEMPTS else 2
+                    when {
+                        streamContext.isLive -> LIVE_TRANSIENT_RETRY_ATTEMPTS
+                        streamContext.resolvedStreamType == ResolvedStreamType.PROGRESSIVE && playbackStarted ->
+                            LIVE_TRANSIENT_RETRY_ATTEMPTS
+                        else -> 2
+                    }
                 !playbackStarted -> if (streamContext.isLive) LIVE_TRANSIENT_RETRY_ATTEMPTS else 2
                 else -> 1
             }

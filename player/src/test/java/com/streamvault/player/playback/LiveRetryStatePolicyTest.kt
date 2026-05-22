@@ -47,4 +47,52 @@ class LiveRetryStatePolicyTest {
             )
         ).isTrue()
     }
+
+    @Test
+    fun `retry reprepare after first frame carries effective playback started state`() {
+        assertThat(
+            shouldArmPlaybackStartedRecovery(
+                preserveRetryState = true,
+                mediaChanged = false,
+                playbackStarted = true,
+                playbackStartedRecoveryArmed = false
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `subsequent retry reprepare keeps carried playback started state`() {
+        assertThat(
+            shouldArmPlaybackStartedRecovery(
+                preserveRetryState = true,
+                mediaChanged = false,
+                playbackStarted = false,
+                playbackStartedRecoveryArmed = true
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `retry reprepare before first frame does not carry playback started state`() {
+        assertThat(
+            shouldArmPlaybackStartedRecovery(
+                preserveRetryState = true,
+                mediaChanged = false,
+                playbackStarted = false,
+                playbackStartedRecoveryArmed = false
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `retry reprepare for a new media item clears playback started state`() {
+        assertThat(
+            shouldArmPlaybackStartedRecovery(
+                preserveRetryState = true,
+                mediaChanged = true,
+                playbackStarted = true,
+                playbackStartedRecoveryArmed = false
+            )
+        ).isFalse()
+    }
 }

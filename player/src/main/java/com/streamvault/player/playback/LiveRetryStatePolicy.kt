@@ -15,3 +15,16 @@ internal fun hasEffectivePlaybackStarted(
     playbackStarted: Boolean,
     liveBufferingRecoveryArmed: Boolean
 ): Boolean = playbackStarted || liveBufferingRecoveryArmed
+
+internal fun shouldArmPlaybackStartedRecovery(
+    preserveRetryState: Boolean,
+    mediaChanged: Boolean,
+    playbackStarted: Boolean,
+    playbackStartedRecoveryArmed: Boolean
+): Boolean =
+    preserveRetryState &&
+        !mediaChanged &&
+        hasEffectivePlaybackStarted(
+            playbackStarted = playbackStarted,
+            liveBufferingRecoveryArmed = playbackStartedRecoveryArmed
+        )

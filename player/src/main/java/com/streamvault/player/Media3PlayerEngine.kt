@@ -66,6 +66,7 @@ import com.streamvault.player.playback.StreamTypeResolver
 import com.streamvault.player.playback.VideoStallDetector
 import com.streamvault.player.playback.buildLiveTsFallbackStreamInfo
 import com.streamvault.player.playback.hasEffectivePlaybackStarted
+import com.streamvault.player.playback.shouldArmPlaybackStartedRecovery
 import com.streamvault.player.playback.shouldFallbackMalformedHlsToLiveTs
 import com.streamvault.player.playback.shouldFallbackStalledHlsToLiveTs
 import com.streamvault.player.playback.shouldPreservePlaybackStateForRetry
@@ -187,6 +188,7 @@ class Media3PlayerEngine @Inject constructor(
     private var currentRetryContext: PlaybackRetryContext? = null
     private var playbackStarted = false
     private var liveBufferingRecoveryArmed = false
+    private var playbackStartedRecoveryArmed = false
     private var hasRenderedFirstVideoFrame = false
     private var prepareStartMs = 0L
     private var retryAttempt = 0
@@ -315,12 +317,12 @@ class Media3PlayerEngine @Inject constructor(
                 delay(1_000L)
                 val stats = _playerStats.value
                 val liveStream = isCurrentStreamLive()
-                val liveBufferingRecoveryEligible = liveStream &&
-                    (playbackStarted || liveBufferingRecoveryArmed)
+                val effectivePlaybackStarted = isEffectivelyPlaybackStarted()
+                val liveBufferingRecoveryEligible = liveStream && effectivePlaybackStarted
                 val stalled = videoStallDetector.shouldReportStall(
                     playbackState = _playbackState.value,
                     isPlaying = _isPlaying.value,
-                    playbackStarted = playbackStarted || liveBufferingRecoveryArmed,
+                    playbackStarted = effectivePlaybackStarted,
                     currentPositionMs = _currentPosition.value,
                     bufferedDurationMs = stats.bufferedDurationMs,
                     playWhenReady = exoPlayer?.playWhenReady == true,
@@ -366,7 +368,7 @@ class Media3PlayerEngine @Inject constructor(
         val playbackPlan = buildPlaybackPreparationPlan(
             streamInfo = streamInfo,
             preload = false,
-            playbackStarted = { playbackStarted }
+            playbackStarted = { isEffectivelyPlaybackStarted() }
         )
 
         lastStreamInfo = streamInfo
@@ -380,6 +382,7 @@ class Media3PlayerEngine @Inject constructor(
         _retryStatus.value = null
         playbackStarted = false
         liveBufferingRecoveryArmed = false
+        playbackStartedRecoveryArmed = false
 
         val mediaSource = mediaSourceFactory.create(
             streamInfo = streamInfo,
@@ -781,6 +784,7 @@ class Media3PlayerEngine @Inject constructor(
         currentRetryContext = null
         playbackStarted = false
         liveBufferingRecoveryArmed = false
+        playbackStartedRecoveryArmed = false
         hasRenderedFirstVideoFrame = false
         retryAttempt = 0
         lastRetryCategory = null
@@ -832,10 +836,13 @@ class Media3PlayerEngine @Inject constructor(
         lastStreamInfo = streamInfo
         val mediaId = mediaSourceFactory.mediaIdFor(streamInfo)
         val mediaChanged = lastMediaId != mediaId
-        val shouldArmLiveBufferingRecovery = preserveRetryState &&
-            !mediaChanged &&
-            (playbackStarted || liveBufferingRecoveryArmed) &&
-            isCurrentStreamLive()
+        val armPlaybackStartedRecovery = shouldArmPlaybackStartedRecovery(
+            preserveRetryState = preserveRetryState,
+            mediaChanged = mediaChanged,
+            playbackStarted = playbackStarted,
+            playbackStartedRecoveryArmed = liveBufferingRecoveryArmed || playbackStartedRecoveryArmed
+        )
+        val shouldArmLiveBufferingRecovery = armPlaybackStartedRecovery && isCurrentStreamLive()
         if (!preserveRetryState || mediaChanged) {
             retryAttempt = 0
             lastRetryCategory = null
@@ -851,6 +858,7 @@ class Media3PlayerEngine @Inject constructor(
         lastMediaId = mediaId
         playbackStarted = false
         liveBufferingRecoveryArmed = shouldArmLiveBufferingRecovery
+        playbackStartedRecoveryArmed = armPlaybackStartedRecovery && !shouldArmLiveBufferingRecovery
         hasRenderedFirstVideoFrame = false
         prepareStartMs = System.currentTimeMillis()
         audioCodecUnsupportedReported = false
@@ -863,6 +871,7 @@ class Media3PlayerEngine @Inject constructor(
         videoStallDetector.reset()
         if (!preserveRetryState) {
             liveBufferingRecoveryArmed = false
+            playbackStartedRecoveryArmed = false
             videoStallRecoveryAttempt = 0
             videoStallSafeRecoveryPerformed = false
         }
@@ -874,7 +883,7 @@ class Media3PlayerEngine @Inject constructor(
         val playbackPlan = buildPlaybackPreparationPlan(
             streamInfo = streamInfo,
             preload = false,
-            playbackStarted = { playbackStarted }
+            playbackStarted = { isEffectivelyPlaybackStarted() }
         )
         currentResolvedStreamType = playbackPlan.resolvedStreamType
         currentTimeoutProfile = playbackPlan.timeoutProfile
@@ -1439,6 +1448,7 @@ class Media3PlayerEngine @Inject constructor(
         if (playbackStarted) return
         playbackStarted = true
         liveBufferingRecoveryArmed = false
+        playbackStartedRecoveryArmed = false
         retryAttempt = resolveRetryAttemptAfterPlaybackStarted(retryAttempt)
         if (retryAttempt == 0) {
             lastRetryCategory = null
@@ -1530,12 +1540,18 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     private fun shouldUseCompatibilityHistory(): Boolean {
-        return playbackStarted ||
+        return isEffectivelyPlaybackStarted() ||
             retryAttempt > 0 ||
             videoStallRecoveryAttempt > 0 ||
             recoveryDecoderPolicyOverride != null ||
             textureViewSessionFallbackAttempted
     }
+
+    private fun isEffectivelyPlaybackStarted(): Boolean =
+        hasEffectivePlaybackStarted(
+            playbackStarted = playbackStarted,
+            liveBufferingRecoveryArmed = liveBufferingRecoveryArmed || playbackStartedRecoveryArmed
+        )
 
     private fun handleVideoStall() {
         val streamInfo = lastStreamInfo ?: return
@@ -1555,7 +1571,7 @@ class Media3PlayerEngine @Inject constructor(
             "video-stall count=$videoStallCount recovered=$videoStallSafeRecoveryPerformed decoder=$selectedVideoDecoderName policy=$activeDecoderPolicy surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
 
-        if (!playbackStarted && !liveBufferingRecoveryArmed) {
+        if (!isEffectivelyPlaybackStarted()) {
             Log.w(TAG, "video-stall ignored because playback has not started yet")
             return
         }
@@ -2044,10 +2060,7 @@ class Media3PlayerEngine @Inject constructor(
         val retryPolicy = currentRetryPolicy
         val retryContext = currentRetryContext
         val category = PlayerErrorClassifier.classify(error)
-        val effectivePlaybackStarted = hasEffectivePlaybackStarted(
-            playbackStarted = playbackStarted,
-            liveBufferingRecoveryArmed = liveBufferingRecoveryArmed
-        )
+        val effectivePlaybackStarted = isEffectivelyPlaybackStarted()
 
         if (streamInfo == null || mediaId == null || retryPolicy == null || retryContext == null) {
             _retryStatus.value = null
@@ -2146,8 +2159,8 @@ class Media3PlayerEngine @Inject constructor(
                     streamInfo,
                     preserveRetryState = shouldPreservePlaybackStateForRetry(
                         category = category,
-                        playbackStarted = playbackStarted,
-                        liveBufferingRecoveryArmed = liveBufferingRecoveryArmed
+                        playbackStarted = effectivePlaybackStarted,
+                        liveBufferingRecoveryArmed = false
                     ),
                     seekPositionMs = retrySeekPositionMs,
                     autoPlay = true

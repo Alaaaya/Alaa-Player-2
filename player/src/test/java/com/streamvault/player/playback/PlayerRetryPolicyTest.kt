@@ -168,6 +168,17 @@ class PlayerRetryPolicyTest {
     }
 
     @Test
+    fun `progressive network timeouts after playback start retry 10 times`() {
+        val error = SocketTimeoutException("timed out")
+
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 10))
+            .isTrue()
+        assertThat(progressivePolicy.shouldRetry(error, progressiveContext, playbackStarted = true, attempt = 11))
+            .isFalse()
+        assertThat(progressivePolicy.maxAttempts(error, playbackStarted = true)).isEqualTo(10)
+    }
+
+    @Test
     fun `malformed hls refresh after playback start retries before app recovery`() {
         val error = ParserException.createForMalformedContainer("bad live segment", null)
         assertThat(policy.shouldRetry(error, liveContext, playbackStarted = true, attempt = 1)).isTrue()
