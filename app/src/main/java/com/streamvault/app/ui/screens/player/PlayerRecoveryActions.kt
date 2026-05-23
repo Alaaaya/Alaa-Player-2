@@ -7,6 +7,7 @@ import com.streamvault.player.PlaybackState
 import com.streamvault.player.PlayerError
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private const val PROVIDER_AUTH_RETRY_GRACE_MS = 1_200L
 
@@ -23,6 +24,28 @@ internal fun shouldAttemptProviderAuthRetry(
     contentType: ContentType
 ): Boolean = contentType == ContentType.LIVE &&
     (providerType == ProviderType.XTREAM_CODES || providerType == ProviderType.STALKER_PORTAL)
+
+internal fun shouldCooldownLivePreloadAfterError(message: String?): Boolean {
+    val normalized = message.orEmpty().lowercase(Locale.ROOT)
+    return "401" in normalized ||
+        "403" in normalized ||
+        "429" in normalized ||
+        "509" in normalized ||
+        "forbidden" in normalized ||
+        "unauthorized" in normalized ||
+        "too many" in normalized ||
+        "max connection" in normalized ||
+        "provider limit" in normalized ||
+        "connection limit" in normalized
+}
+
+internal fun PlayerViewModel.cooldownLivePreloadForCurrentProvider(reason: String) {
+    val providerId = currentProviderId.takeIf { it > 0L } ?: return
+    if (livePreloadCooldownProviderIds.add(providerId)) {
+        appendRecoveryAction("Disabled live preload for provider: $reason")
+        playerEngine.preload(null)
+    }
+}
 
 internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
     error: PlayerError,
@@ -51,6 +74,7 @@ internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
         )
     )
     setLastFailureReason(error.message)
+    cooldownLivePreloadForCurrentProvider("auth or provider-limit response")
     appendRecoveryAction("Retrying provider playback from a fresh live URL")
     delay(PROVIDER_AUTH_RETRY_GRACE_MS)
     if (!isActivePlaybackSession(requestVersion, playbackUrl)) return true

@@ -240,6 +240,7 @@ class PlayerViewModel @Inject constructor(
     internal var hasRetriedWithSoftwareDecoder = false
     internal var hasRetriedXtreamAuthRefresh = false
     internal val probePassedPlaybackKeys = mutableSetOf<String>()
+    internal val livePreloadCooldownProviderIds = mutableSetOf<Long>()
     private val notifiedRecordingFailureIds = mutableSetOf<String>()
     internal var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
     private var currentStreamClassLabel: String = "Primary"
@@ -797,6 +798,9 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
+            if (shouldCooldownLivePreloadAfterError(error.message)) {
+                cooldownLivePreloadForCurrentProvider("playback error")
+            }
             markStreamFailure(currentStreamUrl)
             setLastFailureReason(error.message)
             logRepositoryFailure(

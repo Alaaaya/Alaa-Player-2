@@ -92,8 +92,18 @@ internal fun releaseOutgoingLiveZapPlayback(
 
 internal fun shouldPreloadAdjacentChannel(
     streamUrl: String,
-    providerType: ProviderType?
-): Boolean = streamUrl.isNotBlank() && providerType == ProviderType.M3U
+    providerType: ProviderType?,
+    maxConnections: Int,
+    preloadCoolingDown: Boolean
+): Boolean {
+    if (streamUrl.isBlank() || preloadCoolingDown) return false
+    return when (providerType) {
+        ProviderType.M3U -> true
+        ProviderType.XTREAM_CODES,
+        ProviderType.STALKER_PORTAL -> maxConnections >= 2
+        null -> false
+    }
+}
 
 fun PlayerViewModel.playNext() {
     clearNumericChannelInput()
@@ -269,8 +279,14 @@ internal fun PlayerViewModel.preloadAdjacentChannel(currentIndex: Int) {
         return
     }
     viewModelScope.launch {
-        val providerType = providerRepository.getProvider(nextChannel.providerId)?.type
-        if (!shouldPreloadAdjacentChannel(nextChannel.streamUrl, providerType)) {
+        val provider = providerRepository.getProvider(nextChannel.providerId)
+        if (!shouldPreloadAdjacentChannel(
+                streamUrl = nextChannel.streamUrl,
+                providerType = provider?.type,
+                maxConnections = provider?.maxConnections ?: 1,
+                preloadCoolingDown = nextChannel.providerId in livePreloadCooldownProviderIds
+            )
+        ) {
             playerEngine.preload(null)
             return@launch
         }

@@ -31,4 +31,16 @@ class PlayerPlaybackRecoverySupportTest {
         assertThat(shouldAttemptProviderAuthRetry(ProviderType.XTREAM_CODES, ContentType.MOVIE)).isFalse()
         assertThat(shouldAttemptProviderAuthRetry(ProviderType.STALKER_PORTAL, ContentType.SERIES_EPISODE)).isFalse()
     }
+
+    @Test
+    fun `live preload cools down after provider connection errors`() {
+        assertThat(shouldCooldownLivePreloadAfterError("HTTP 403 Forbidden")).isTrue()
+        assertThat(shouldCooldownLivePreloadAfterError("Provider rejected playback, likely max connections or bandwidth limit (HTTP 509).")).isTrue()
+        assertThat(shouldCooldownLivePreloadAfterError("Too many connections")).isTrue()
+    }
+
+    @Test
+    fun `live preload does not cool down after generic decoder error`() {
+        assertThat(shouldCooldownLivePreloadAfterError("Decoder initialization failed")).isFalse()
+    }
 }
