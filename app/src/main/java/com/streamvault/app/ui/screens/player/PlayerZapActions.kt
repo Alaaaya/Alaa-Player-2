@@ -1,11 +1,11 @@
 package com.streamvault.app.ui.screens.player
 
 import androidx.lifecycle.viewModelScope
-import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackHistory
+import com.streamvault.domain.model.ProviderType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.filter
@@ -92,8 +92,8 @@ internal fun releaseOutgoingLiveZapPlayback(
 
 internal fun shouldPreloadAdjacentChannel(
     streamUrl: String,
-    isStalkerInternalUrl: (String) -> Boolean
-): Boolean = streamUrl.isNotBlank() && !isStalkerInternalUrl(streamUrl)
+    providerType: ProviderType?
+): Boolean = streamUrl.isNotBlank() && providerType == ProviderType.M3U
 
 fun PlayerViewModel.playNext() {
     clearNumericChannelInput()
@@ -264,11 +264,16 @@ internal fun PlayerViewModel.preloadAdjacentChannel(currentIndex: Int) {
     if (channelList.size < 2) return
     val nextIndex = (currentIndex + 1) % channelList.size
     val nextChannel = channelList[nextIndex]
-    if (!shouldPreloadAdjacentChannel(nextChannel.streamUrl, StalkerUrlFactory::isInternalStreamUrl)) {
+    if (nextChannel.streamUrl.isBlank()) {
         playerEngine.preload(null)
         return
     }
     viewModelScope.launch {
+        val providerType = providerRepository.getProvider(nextChannel.providerId)?.type
+        if (!shouldPreloadAdjacentChannel(nextChannel.streamUrl, providerType)) {
+            playerEngine.preload(null)
+            return@launch
+        }
         val streamInfo = resolvePlaybackStreamInfo(
             nextChannel.streamUrl,
             nextChannel.id,

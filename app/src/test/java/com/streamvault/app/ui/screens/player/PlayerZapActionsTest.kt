@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.domain.model.ProviderType
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
@@ -70,17 +71,27 @@ class PlayerZapActionsTest {
     fun `shouldPreloadAdjacentChannel skips Stalker internal streams`() {
         val shouldPreload = shouldPreloadAdjacentChannel(
             streamUrl = "stalker://1/live/99?cmd=ffmpeg%20http%3A%2F%2Fportal.example.com%2Fch%2F99",
-            isStalkerInternalUrl = { it.startsWith("stalker://") }
+            providerType = ProviderType.STALKER_PORTAL
         )
 
         assertThat(shouldPreload).isFalse()
     }
 
     @Test
-    fun `shouldPreloadAdjacentChannel allows regular streams`() {
+    fun `shouldPreloadAdjacentChannel skips Xtream live streams`() {
         val shouldPreload = shouldPreloadAdjacentChannel(
             streamUrl = "http://cdn.example.com/live/stream.ts",
-            isStalkerInternalUrl = { it.startsWith("stalker://") }
+            providerType = ProviderType.XTREAM_CODES
+        )
+
+        assertThat(shouldPreload).isFalse()
+    }
+
+    @Test
+    fun `shouldPreloadAdjacentChannel allows M3U streams`() {
+        val shouldPreload = shouldPreloadAdjacentChannel(
+            streamUrl = "http://cdn.example.com/live/stream.ts",
+            providerType = ProviderType.M3U
         )
 
         assertThat(shouldPreload).isTrue()

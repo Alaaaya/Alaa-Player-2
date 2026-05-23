@@ -8,7 +8,7 @@ import com.streamvault.player.PlayerError
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val AUTH_REFRESH_RETRY_GRACE_MS = 1_500L
+private const val PROVIDER_AUTH_RETRY_GRACE_MS = 1_200L
 
 internal fun PlayerViewModel.buildRecoveryActions(recoveryType: PlayerRecoveryType): List<PlayerNoticeAction> {
     return buildPlayerRecoveryActions(
@@ -17,6 +17,12 @@ internal fun PlayerViewModel.buildRecoveryActions(recoveryType: PlayerRecoveryTy
         shouldOfferGuide = recoveryType == PlayerRecoveryType.CATCH_UP && currentContentType == ContentType.LIVE
     )
 }
+
+internal fun shouldAttemptProviderAuthRetry(
+    providerType: ProviderType,
+    contentType: ContentType
+): Boolean = contentType == ContentType.LIVE &&
+    (providerType == ProviderType.XTREAM_CODES || providerType == ProviderType.STALKER_PORTAL)
 
 internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
     error: PlayerError,
@@ -45,15 +51,12 @@ internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
         )
     )
     setLastFailureReason(error.message)
-    appendRecoveryAction("Refreshed provider playback URL after auth failure")
-    showPlayerNotice(
-        message = "Refreshing the provider playback URL…",
-        recoveryType = PlayerRecoveryType.NETWORK,
-        actions = buildRecoveryActions(PlayerRecoveryType.NETWORK),
-        isRetryNotice = true
-    )
-    delay(AUTH_REFRESH_RETRY_GRACE_MS)
+    appendRecoveryAction("Retrying provider playback from a fresh live URL")
+    delay(PROVIDER_AUTH_RETRY_GRACE_MS)
     if (!isActivePlaybackSession(requestVersion, playbackUrl)) return true
+    currentResolvedPlaybackUrl = ""
+    currentResolvedStreamInfo = null
+    playerEngine.preload(null)
     if (!preparePlayer(refreshedStreamInfo, requestVersion, probeBeforePlayback = false)) return true
     playerEngine.play()
     return true
@@ -62,14 +65,7 @@ internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
 internal suspend fun PlayerViewModel.isXtreamPlaybackSession(): Boolean {
     val providerId = currentProviderId.takeIf { it > 0L } ?: return false
     val provider = providerRepository.getProvider(providerId) ?: return false
-    if (
-        provider.type != ProviderType.XTREAM_CODES &&
-        provider.type != ProviderType.STALKER_PORTAL
-    ) {
-        return false
-    }
-    return xtreamStreamUrlResolver.isInternalStreamUrl(currentStreamUrl) ||
-        xtreamStreamUrlResolver.isInternalStreamUrl(currentResolvedPlaybackUrl)
+    return shouldAttemptProviderAuthRetry(provider.type, currentContentType)
 }
 
 internal fun PlayerViewModel.fallbackToPreviousChannel(reason: String): Boolean {

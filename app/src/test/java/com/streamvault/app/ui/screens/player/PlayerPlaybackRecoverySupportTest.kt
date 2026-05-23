@@ -1,6 +1,8 @@
 package com.streamvault.app.ui.screens.player
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.ProviderType
 import com.streamvault.player.PlayerError
 import org.junit.Test
 
@@ -15,5 +17,18 @@ class PlayerPlaybackRecoverySupportTest {
         assertThat(classifyPlaybackError(error)).isEqualTo(PlayerRecoveryType.SOURCE)
         assertThat(resolvePlaybackErrorMessage(error))
             .isEqualTo("Provider rejected playback, likely max connections or bandwidth limit.")
+    }
+
+    @Test
+    fun `live provider auth retry is limited to managed IPTV providers`() {
+        assertThat(shouldAttemptProviderAuthRetry(ProviderType.XTREAM_CODES, ContentType.LIVE)).isTrue()
+        assertThat(shouldAttemptProviderAuthRetry(ProviderType.STALKER_PORTAL, ContentType.LIVE)).isTrue()
+        assertThat(shouldAttemptProviderAuthRetry(ProviderType.M3U, ContentType.LIVE)).isFalse()
+    }
+
+    @Test
+    fun `provider auth retry does not run for non-live playback`() {
+        assertThat(shouldAttemptProviderAuthRetry(ProviderType.XTREAM_CODES, ContentType.MOVIE)).isFalse()
+        assertThat(shouldAttemptProviderAuthRetry(ProviderType.STALKER_PORTAL, ContentType.SERIES_EPISODE)).isFalse()
     }
 }
