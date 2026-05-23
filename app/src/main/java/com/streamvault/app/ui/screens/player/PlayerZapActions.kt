@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
 import androidx.lifecycle.viewModelScope
+import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
@@ -88,6 +89,11 @@ internal fun releaseOutgoingLiveZapPlayback(
     stopLiveTimeshift()
     clearPreload()
 }
+
+internal fun shouldPreloadAdjacentChannel(
+    streamUrl: String,
+    isStalkerInternalUrl: (String) -> Boolean
+): Boolean = streamUrl.isNotBlank() && !isStalkerInternalUrl(streamUrl)
 
 fun PlayerViewModel.playNext() {
     clearNumericChannelInput()
@@ -204,6 +210,8 @@ internal fun PlayerViewModel.changeChannel(index: Int, isAutoFallback: Boolean =
         stopLiveTimeshift = playerEngine::stopLiveTimeshift,
         clearPreload = { playerEngine.preload(null) }
     )
+    currentResolvedPlaybackUrl = ""
+    currentResolvedStreamInfo = null
     val channel = channelList[index]
     currentChannelIndex = index
     currentContentId = channel.id
@@ -256,6 +264,10 @@ internal fun PlayerViewModel.preloadAdjacentChannel(currentIndex: Int) {
     if (channelList.size < 2) return
     val nextIndex = (currentIndex + 1) % channelList.size
     val nextChannel = channelList[nextIndex]
+    if (!shouldPreloadAdjacentChannel(nextChannel.streamUrl, StalkerUrlFactory::isInternalStreamUrl)) {
+        playerEngine.preload(null)
+        return
+    }
     viewModelScope.launch {
         val streamInfo = resolvePlaybackStreamInfo(
             nextChannel.streamUrl,

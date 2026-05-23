@@ -65,4 +65,24 @@ class PlayerZapActionsTest {
 
         assertThat(calls).containsExactly("stopPlayback", "stopLiveTimeshift", "clearPreload").inOrder()
     }
+
+    @Test
+    fun `shouldPreloadAdjacentChannel skips Stalker internal streams`() {
+        val shouldPreload = shouldPreloadAdjacentChannel(
+            streamUrl = "stalker://1/live/99?cmd=ffmpeg%20http%3A%2F%2Fportal.example.com%2Fch%2F99",
+            isStalkerInternalUrl = { it.startsWith("stalker://") }
+        )
+
+        assertThat(shouldPreload).isFalse()
+    }
+
+    @Test
+    fun `shouldPreloadAdjacentChannel allows regular streams`() {
+        val shouldPreload = shouldPreloadAdjacentChannel(
+            streamUrl = "http://cdn.example.com/live/stream.ts",
+            isStalkerInternalUrl = { it.startsWith("stalker://") }
+        )
+
+        assertThat(shouldPreload).isTrue()
+    }
 }
