@@ -1127,7 +1127,8 @@ class PlayerViewModel @Inject constructor(
 
     internal suspend fun preparePlayer(
         streamInfo: com.streamvault.domain.model.StreamInfo,
-        requestVersion: Long
+        requestVersion: Long,
+        probeBeforePlayback: Boolean = true
     ): Boolean {
         if (!isActivePlaybackSession(requestVersion)) return false
 
@@ -1163,22 +1164,24 @@ class PlayerViewModel @Inject constructor(
             is Result.Success -> preparedStreamInfo = pluginPrepareResult.data
         }
 
-        probePlaybackUrl(preparedStreamInfo)?.let { failure ->
-            if (!isActivePlaybackSession(requestVersion)) return false
-            setLastFailureReason(failure.message)
-            showPlayerNotice(
-                message = failure.message,
-                recoveryType = failure.recoveryType,
-                actions = buildRecoveryActions(failure.recoveryType)
+        if (probeBeforePlayback) {
+            probePlaybackUrl(preparedStreamInfo)?.let { failure ->
+                if (!isActivePlaybackSession(requestVersion)) return false
+                setLastFailureReason(failure.message)
+                showPlayerNotice(
+                    message = failure.message,
+                    recoveryType = failure.recoveryType,
+                    actions = buildRecoveryActions(failure.recoveryType)
+                )
+                return false
+            }
+            probePassedPlaybackKeys.add(
+                resolvePlaybackProbeCacheKey(
+                    currentStreamUrl = currentStreamUrl,
+                    url = streamInfo.url
+                )
             )
-            return false
         }
-        probePassedPlaybackKeys.add(
-            resolvePlaybackProbeCacheKey(
-                currentStreamUrl = currentStreamUrl,
-                url = streamInfo.url
-            )
-        )
         applyPlaybackPreferences()
         if (!isActivePlaybackSession(requestVersion)) return false
         currentResolvedPlaybackUrl = preparedStreamInfo.url
@@ -1198,7 +1201,7 @@ class PlayerViewModel @Inject constructor(
             Log.i(
                 TAG,
                 "Skipping playback probe provider=${provider.type.name} host=${runCatching { java.net.URI(url).host }.getOrNull().orEmpty()} " +
-                    "path=${runCatching { java.net.URI(url).path }.getOrNull().orEmpty()} reason=single-use-temp-link"
+                    "path=${runCatching { java.net.URI(url).path }.getOrNull().orEmpty()} reason=connection-sensitive-provider-link"
             )
             return null
         }

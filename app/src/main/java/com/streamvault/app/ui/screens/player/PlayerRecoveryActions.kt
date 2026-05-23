@@ -8,6 +8,8 @@ import com.streamvault.player.PlayerError
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val AUTH_REFRESH_RETRY_GRACE_MS = 1_500L
+
 internal fun PlayerViewModel.buildRecoveryActions(recoveryType: PlayerRecoveryType): List<PlayerNoticeAction> {
     return buildPlayerRecoveryActions(
         hasAlternateStream = hasAlternateStream(),
@@ -50,7 +52,9 @@ internal suspend fun PlayerViewModel.tryRefreshXtreamPlaybackAfterAuthError(
         actions = buildRecoveryActions(PlayerRecoveryType.NETWORK),
         isRetryNotice = true
     )
-    if (!preparePlayer(refreshedStreamInfo, requestVersion)) return true
+    delay(AUTH_REFRESH_RETRY_GRACE_MS)
+    if (!isActivePlaybackSession(requestVersion, playbackUrl)) return true
+    if (!preparePlayer(refreshedStreamInfo, requestVersion, probeBeforePlayback = false)) return true
     playerEngine.play()
     return true
 }
