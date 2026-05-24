@@ -8,7 +8,9 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
@@ -160,8 +162,10 @@ class OkHttpXtreamApiServiceTest {
         }.exceptionOrNull()
 
         assertThat(failure).isNotNull()
-        withTimeout(500) {
-            cancellationObserved.await()
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(500) {
+                cancellationObserved.await()
+            }
         }
     }
 
