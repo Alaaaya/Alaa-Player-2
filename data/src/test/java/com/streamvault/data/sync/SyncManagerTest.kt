@@ -931,7 +931,7 @@ class SyncManagerTest {
     }
 
     @Test
-    fun `sync_xtream_partial_live_category_bulk_commits_staged_channels`() = runTest {
+    fun `sync_xtream_live_category_bulk_commits_staged_channels`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
         xtreamBackend.respond(
             action = "get_live_categories",
@@ -968,7 +968,7 @@ class SyncManagerTest {
         advanceUntilIdle()
 
         assertThat(result.isSuccess).isTrue()
-        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Success::class.java)
         assertThat(syncMetadataRepo.getMetadata(1L)?.liveCount).isEqualTo(1)
         val stagedSessionId = argumentCaptor<Long>()
         verify(catalogSyncDao).updateChangedChannelsFromStage(eq(1L), stagedSessionId.capture())
