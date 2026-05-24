@@ -2,6 +2,40 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.12] - 2026-05-15
+
+### Added
+
+- Added live-first Stalker sync with background Movies/Series indexing so providers become usable sooner while VOD keeps loading in the background.
+- Added advanced Stalker auth and MAG compatibility support, including MAC-only, credential-based, mixed auth, and stricter MAG identity presets.
+- Added variant-aware Stalker playback handling for direct URLs, multi-command entries, temp-link portals, and `play/live.php` / `play/movie.php` backends.
+- Added persisted Stalker portal learning for auth mode, portal profile, MAG preset, bootstrap recipe, endpoint preference, cookie mode, and last working playback path.
+- Added a Stalker replay-fixture matrix and HAR-to-fixture capture script for onboarding new portal families faster.
+
+### Changed
+
+- Changed Stalker bootstrap from a single happy-path flow into recipe-driven session setup with cookies, localization/modules support, portal fingerprinting, and fallback rediscovery.
+- Changed Stalker catalog parsing to preserve backend flags, command variants, archive/timeshift hints, and other portal capabilities for later playback decisions.
+- Changed Stalker playback resolution to choose backend-specific strategies instead of forcing everything through one `cmd -> create_link` path.
+- Changed Stalker sync recovery and manual sync to reuse indexed state, resume partial work, and avoid duplicate or blocking reloads.
+- Changed Stalker EPG refresh to update more safely channel-by-channel instead of wiping healthy guide data up front.
+
+### Fixed
+
+- Fixed delete provider dialog, not closing after deletion.
+- Fixed many Stalker portals that could browse catalogs but failed at playback because they needed different auth, bootstrap, cookie, endpoint, or temp-link behavior.
+- Fixed incorrect handling of ambiguous Stalker account states such as `status=0`, which could previously be treated too aggressively as expired.
+- Fixed Stalker temp-link and backend-family failures being reported too generically by surfacing clearer empty-link and session-rejection diagnostics, including HTTP `204` cases.
+- Fixed Stalker indexing and hydration reliability on large or unstable portals with persisted cursors, retries, cooldowns, and safer stale-data pruning.
+- Fixed Stalker setup and sync edge cases around wildcard categories, stale progress, provider diagnostics, explicit MAG identity overrides, and per-provider EPG counts.
+- Fixed Stalker series detail season selection when some portals returned season-shell rows again for per-season requests, which could make multiple seasons show the same pseudo-episode list instead of that season's episodes.
+- Fixed the Movies and Series Filter & Sort dialog layout so chip rows wrap cleanly instead of clipping or wasting space in the VOD modal.
+- Fixed VOD category browse sort wiring so `Newest` and `Recently Updated` no longer collapse to the same behavior; Movies now separate release-date ordering from provider-added ordering, while Series keeps `Recently Updated` based on `last_modified` and uses release metadata for `Newest` when available across both Xtream and Stalker category views.
+- Fixed top navbar unified search so mixed-case queries match live TV, movies, and series results case-insensitively.
+- Fixed `TextureView` live preview and fullscreen playback turning solid green by correcting the player-view handoff path and stale frame retention during render-surface reuse.
+- Fixed external XMLTV download URLs that return gzip-compressed MyEPG-style files without a `.gz` suffix so they refresh correctly instead of failing with stream reset or parse errors.
+- fixed diagnostics window, size and scrolling capabilities.
+
 ## [1.0.11] - 2026-05-13
 
 ### Added

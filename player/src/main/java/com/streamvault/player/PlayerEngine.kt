@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.DrmScheme
 import com.streamvault.domain.model.StreamInfo
@@ -63,12 +64,15 @@ interface PlayerEngine {
     fun renewStreamUrl(streamInfo: StreamInfo)
     fun play()
     fun pause()
+
+    /** Stop playback and release the active media source/network connection. */
     fun stop()
     fun seekTo(positionMs: Long)
     fun seekForward(ms: Long = 10_000)
     fun seekBackward(ms: Long = 10_000)
     fun setDecoderMode(mode: DecoderMode)
     fun setSurfaceMode(mode: PlayerSurfaceMode)
+    fun setVodHttpProtocolMode(mode: VodHttpProtocolMode)
     fun setMediaSessionEnabled(enabled: Boolean)
     fun setVolume(volume: Float)
     fun setMuted(muted: Boolean)
@@ -231,6 +235,10 @@ sealed class PlayerError(val message: String) {
                 PlaybackErrorCategory.NETWORK -> buildNetworkErrorMessage(chain)
                 PlaybackErrorCategory.HTTP_AUTH -> buildHttpErrorMessage(chain, "Access denied")
                 PlaybackErrorCategory.HTTP_SERVER -> buildHttpErrorMessage(chain, "Server error")
+                PlaybackErrorCategory.PROVIDER_LIMIT ->
+                    "Provider rejected playback, likely max connections or bandwidth limit (HTTP 509)."
+                PlaybackErrorCategory.EMPTY_RESPONSE ->
+                    "Provider returned an empty stream response (HTTP 204)."
                 PlaybackErrorCategory.SSL -> "Secure connection failed (SSL/TLS error)."
                 PlaybackErrorCategory.CLEAR_TEXT_BLOCKED ->
                     "This stream requires a secure (HTTPS) connection."
@@ -250,6 +258,8 @@ sealed class PlayerError(val message: String) {
                 PlaybackErrorCategory.CLEAR_TEXT_BLOCKED,
                 PlaybackErrorCategory.SSL -> NetworkError(msg)
 
+                PlaybackErrorCategory.PROVIDER_LIMIT,
+                PlaybackErrorCategory.EMPTY_RESPONSE,
                 PlaybackErrorCategory.SOURCE_MALFORMED,
                 PlaybackErrorCategory.LIVE_WINDOW -> SourceError(msg)
 

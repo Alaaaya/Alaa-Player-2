@@ -10,6 +10,7 @@ import com.streamvault.app.ui.time.createDateTimeFormat
 import com.streamvault.app.util.OfficialBuildStatus
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
+import com.streamvault.domain.model.VodHttpProtocolMode
 
 internal data class SettingsScreenLabels(
     val buildVerificationLabel: String,
@@ -21,6 +22,7 @@ internal data class SettingsScreenLabels(
     val decoderModeLabel: String,
     val audioOutputPreferenceLabel: String,
     val surfaceModeLabel: String,
+    val vodHttpProtocolLabel: String,
     val controlsTimeoutLabel: String,
     val liveOverlayTimeoutLabel: String,
     val noticeTimeoutLabel: String,
@@ -73,6 +75,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val surfaceModeLabel = remember(uiState.playerSurfaceMode, context) {
         formatSurfaceModeLabel(uiState.playerSurfaceMode, context)
+    }
+    val vodHttpProtocolLabel = remember(uiState.playerVodHttpProtocolMode, context) {
+        formatVodHttpProtocolModeLabel(uiState.playerVodHttpProtocolMode, context)
     }
     val controlsTimeoutLabel = remember(uiState.playerControlsTimeoutSeconds, context) {
         formatTimeoutSecondsLabel(uiState.playerControlsTimeoutSeconds, context)
@@ -154,6 +159,7 @@ internal fun rememberSettingsScreenLabels(
         decoderModeLabel = decoderModeLabel,
         audioOutputPreferenceLabel = audioOutputPreferenceLabel,
         surfaceModeLabel = surfaceModeLabel,
+        vodHttpProtocolLabel = vodHttpProtocolLabel,
         controlsTimeoutLabel = controlsTimeoutLabel,
         liveOverlayTimeoutLabel = liveOverlayTimeoutLabel,
         noticeTimeoutLabel = noticeTimeoutLabel,
@@ -210,4 +216,12 @@ private fun formatTimeshiftDepthLabel(
     15 -> context.getString(R.string.settings_live_timeshift_depth_15)
     60 -> context.getString(R.string.settings_live_timeshift_depth_60)
     else -> context.getString(R.string.settings_live_timeshift_depth_30)
+}
+
+internal fun formatVodHttpProtocolModeLabel(
+    mode: VodHttpProtocolMode,
+    context: Context
+): String = when (mode) {
+    VodHttpProtocolMode.COMPATIBILITY_HTTP1 -> context.getString(R.string.settings_vod_http_protocol_compatibility)
+    VodHttpProtocolMode.AUTO -> context.getString(R.string.settings_vod_http_protocol_auto)
 }

@@ -6,6 +6,7 @@ import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import kotlinx.coroutines.flow.Flow
 
 data class LiveStreamProgramRequest(
@@ -47,9 +48,16 @@ interface ProviderRepository {
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+        username: String = "",
+        password: String = "",
         deviceProfile: String = "",
         timezone: String = "",
         locale: String = "",
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = "",
         epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
         onProgress: ((String) -> Unit)? = null,
         id: Long? = null

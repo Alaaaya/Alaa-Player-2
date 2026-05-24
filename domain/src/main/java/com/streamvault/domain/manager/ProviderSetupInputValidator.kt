@@ -1,6 +1,7 @@
 package com.streamvault.domain.manager
 
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 
 data class ValidatedXtreamProviderInput(
     val serverUrl: String,
@@ -22,9 +23,16 @@ data class ValidatedStalkerProviderInput(
     val portalUrl: String,
     val macAddress: String,
     val name: String,
+    val authMode: StalkerAuthMode,
+    val username: String,
+    val password: String,
     val deviceProfile: String,
     val timezone: String,
-    val locale: String
+    val locale: String,
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = ""
 )
 
 interface ProviderSetupInputValidator {
@@ -49,8 +57,16 @@ interface ProviderSetupInputValidator {
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
+        allowBlankPassword: Boolean = false,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = ""
     ): Result<ValidatedStalkerProviderInput>
 }

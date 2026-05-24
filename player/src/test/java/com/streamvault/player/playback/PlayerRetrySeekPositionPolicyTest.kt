@@ -13,10 +13,25 @@ class PlayerRetrySeekPositionPolicyTest {
             resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
             currentPositionMs = 1_695_105L,
             durationMs = C.TIME_UNSET,
-            isCurrentMediaItemLive = false
+            isCurrentMediaItemLive = false,
+            playbackStarted = true
         )
 
         assertThat(seekPosition).isEqualTo(1_695_105L)
+    }
+
+    @Test
+    fun `startup retry for progressive movie does not preserve stuck resume position before first frame`() {
+        val seekPosition = resolveRetrySeekPositionMs(
+            category = PlaybackErrorCategory.NETWORK,
+            resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
+            currentPositionMs = 1_001_654L,
+            durationMs = C.TIME_UNSET,
+            isCurrentMediaItemLive = false,
+            playbackStarted = false
+        )
+
+        assertThat(seekPosition).isNull()
     }
 
     @Test
@@ -26,7 +41,8 @@ class PlayerRetrySeekPositionPolicyTest {
             resolvedStreamType = ResolvedStreamType.HLS,
             currentPositionMs = 1_695_105L,
             durationMs = 7_200_000L,
-            isCurrentMediaItemLive = false
+            isCurrentMediaItemLive = false,
+            playbackStarted = true
         )
 
         assertThat(seekPosition).isEqualTo(1_695_105L)
@@ -39,7 +55,8 @@ class PlayerRetrySeekPositionPolicyTest {
             resolvedStreamType = ResolvedStreamType.HLS,
             currentPositionMs = 1_695_105L,
             durationMs = 7_200_000L,
-            isCurrentMediaItemLive = true
+            isCurrentMediaItemLive = true,
+            playbackStarted = true
         )
 
         assertThat(seekPosition).isNull()
@@ -52,7 +69,8 @@ class PlayerRetrySeekPositionPolicyTest {
             resolvedStreamType = ResolvedStreamType.PROGRESSIVE,
             currentPositionMs = 1_695_105L,
             durationMs = 7_200_000L,
-            isCurrentMediaItemLive = false
+            isCurrentMediaItemLive = false,
+            playbackStarted = true
         )
 
         assertThat(seekPosition).isNull()
@@ -62,21 +80,26 @@ class PlayerRetrySeekPositionPolicyTest {
     fun `ready movie playback after retry restores transient retry budget`() {
         val nextAttempt = resolveRetryAttemptAfterReady(
             currentAttempt = 1,
-            playbackStarted = true,
-            isCurrentMediaItemLive = false
+            playbackStarted = true
         )
 
         assertThat(nextAttempt).isEqualTo(0)
     }
 
     @Test
-    fun `ready live playback keeps retry budget scoped to live recovery`() {
+    fun `ready live playback after retry restores transient retry budget`() {
         val nextAttempt = resolveRetryAttemptAfterReady(
             currentAttempt = 1,
-            playbackStarted = true,
-            isCurrentMediaItemLive = true
+            playbackStarted = true
         )
 
-        assertThat(nextAttempt).isEqualTo(1)
+        assertThat(nextAttempt).isEqualTo(0)
+    }
+
+    @Test
+    fun `first frame after retry restores transient retry budget`() {
+        val nextAttempt = resolveRetryAttemptAfterPlaybackStarted(currentAttempt = 1)
+
+        assertThat(nextAttempt).isEqualTo(0)
     }
 }

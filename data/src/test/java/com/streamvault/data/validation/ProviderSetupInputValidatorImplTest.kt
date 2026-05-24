@@ -2,6 +2,7 @@ package com.streamvault.data.validation
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import org.junit.Test
 
 class ProviderSetupInputValidatorImplTest {
@@ -55,14 +56,25 @@ class ProviderSetupInputValidatorImplTest {
     private fun stalkerResult(
         timezone: String = "UTC",
         locale: String = "en",
-        deviceProfile: String = "MAG250"
+        deviceProfile: String = "MAG250",
+        authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+        username: String = "",
+        password: String = "",
+        macAddress: String = "00:1A:79:12:34:56"
     ) = validator.validateStalker(
         portalUrl = "https://portal.example.com",
-        macAddress = "00:1A:79:12:34:56",
+        macAddress = macAddress,
         name = "MAG",
+        authMode = authMode,
+        username = username,
+        password = password,
         deviceProfile = deviceProfile,
         timezone = timezone,
-        locale = locale
+        locale = locale,
+        serialNumber = "",
+        deviceId = "",
+        deviceId2 = "",
+        signature = ""
     )
 
     @Test
@@ -141,5 +153,54 @@ class ProviderSetupInputValidatorImplTest {
         val result = stalkerResult(deviceProfile = "MAG 250")
         assertThat(result).isInstanceOf(Result.Error::class.java)
         assertThat((result as Result.Error).message).contains("Device profile must contain only")
+    }
+
+    @Test
+    fun `validateStalker auto mode accepts credentials without mac`() {
+        val result = stalkerResult(
+            authMode = StalkerAuthMode.AUTO,
+            username = "portalUser",
+            password = "portalPass",
+            macAddress = ""
+        )
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+    }
+
+    @Test
+    fun `validateStalker credentials only requires username and password`() {
+        val success = stalkerResult(
+            authMode = StalkerAuthMode.CREDENTIALS_ONLY,
+            username = "portalUser",
+            password = "portalPass",
+            macAddress = ""
+        )
+        assertThat(success).isInstanceOf(Result.Success::class.java)
+
+        val failure = stalkerResult(
+            authMode = StalkerAuthMode.CREDENTIALS_ONLY,
+            username = "portalUser",
+            password = "",
+            macAddress = ""
+        )
+        assertThat(failure).isInstanceOf(Result.Error::class.java)
+    }
+
+    @Test
+    fun `validateStalker mac plus credentials requires both identities`() {
+        val result = stalkerResult(
+            authMode = StalkerAuthMode.MAC_PLUS_CREDENTIALS,
+            username = "portalUser",
+            password = "portalPass",
+            macAddress = "00:1A:79:12:34:56"
+        )
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+
+        val missingMac = stalkerResult(
+            authMode = StalkerAuthMode.MAC_PLUS_CREDENTIALS,
+            username = "portalUser",
+            password = "portalPass",
+            macAddress = ""
+        )
+        assertThat(missingMac).isInstanceOf(Result.Error::class.java)
     }
 }

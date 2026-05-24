@@ -62,6 +62,8 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.LIVE_WINDOW -> "refresh-live-window"
             PlaybackErrorCategory.NETWORK -> "transient-network"
             PlaybackErrorCategory.HTTP_SERVER -> "server-retryable"
+            PlaybackErrorCategory.PROVIDER_LIMIT -> "provider-limit"
+            PlaybackErrorCategory.EMPTY_RESPONSE -> "empty-http-response"
             else -> "retryable-source"
         }
     }
@@ -104,8 +106,12 @@ class PlayerRetryPolicy(
             PlaybackErrorCategory.HTTP_AUTH,
             PlaybackErrorCategory.FORMAT_UNSUPPORTED -> if (playbackStarted) 1 else 0
 
+            PlaybackErrorCategory.PROVIDER_LIMIT -> 0
             PlaybackErrorCategory.LIVE_WINDOW -> 1
-            PlaybackErrorCategory.HTTP_SERVER -> if (streamContext.isLive) 3 else 2
+            PlaybackErrorCategory.HTTP_SERVER -> {
+                val isProgressive = streamContext.resolvedStreamType == ResolvedStreamType.PROGRESSIVE
+                if (streamContext.isLive || isProgressive) 3 else 2
+            }
             PlaybackErrorCategory.NETWORK -> when {
                 error.hasCause<UnknownHostException>() -> 1
                 error.hasCause<SocketTimeoutException>() || error.hasCause<ConnectException>() ->
@@ -114,7 +120,12 @@ class PlayerRetryPolicy(
                 else -> 1
             }
 
-            PlaybackErrorCategory.SOURCE_MALFORMED -> if (playbackStarted) 0 else 1
+            PlaybackErrorCategory.EMPTY_RESPONSE -> if (playbackStarted) 0 else 1
+            PlaybackErrorCategory.SOURCE_MALFORMED -> when {
+                streamContext.isLive && playbackStarted -> 3
+                playbackStarted -> 0
+                else -> 1
+            }
             PlaybackErrorCategory.UNKNOWN -> if (playbackStarted) 0 else 1
         }
     }

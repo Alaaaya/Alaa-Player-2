@@ -14,6 +14,7 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -426,6 +427,9 @@ class ValidateAndAddProviderTest {
                     ValidatedStalkerProviderInput(
                         portalUrl = "https://portal.example.com",
                         macAddress = "00:1A:79:12:34:56",
+                        authMode = StalkerAuthMode.AUTO,
+                        username = "",
+                        password = "",
                         name = "MAG",
                         deviceProfile = "MAG250",
                         timezone = "UTC",
@@ -440,6 +444,9 @@ class ValidateAndAddProviderTest {
             StalkerProviderSetupCommand(
                 portalUrl = " https://portal.example.com ",
                 macAddress = "00-1a-79-12-34-56",
+                authMode = StalkerAuthMode.AUTO,
+                username = "",
+                password = "",
                 name = " MAG ",
                 deviceProfile = " MAG250 ",
                 timezone = " UTC ",
@@ -454,6 +461,9 @@ class ValidateAndAddProviderTest {
             StalkerCall(
                 portalUrl = "https://portal.example.com",
                 macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                username = "",
+                password = "",
                 name = "MAG",
                 deviceProfile = "MAG250",
                 timezone = "UTC",
@@ -488,6 +498,9 @@ private class FakeProviderSetupInputValidator(
         ValidatedStalkerProviderInput(
             portalUrl = "https://portal.example.com",
             macAddress = "00:1A:79:12:34:56",
+            authMode = StalkerAuthMode.AUTO,
+            username = "",
+            password = "",
             name = "Provider",
             deviceProfile = "MAG250",
             timezone = "UTC",
@@ -516,9 +529,17 @@ private class FakeProviderSetupInputValidator(
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
+        allowBlankPassword: Boolean,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String
     ): Result<ValidatedStalkerProviderInput> = stalkerResult
 }
 
@@ -548,10 +569,17 @@ private data class M3uCall(
 private data class StalkerCall(
     val portalUrl: String,
     val macAddress: String,
+    val authMode: StalkerAuthMode,
+    val username: String,
+    val password: String,
     val name: String,
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = "",
     val epgSyncMode: ProviderEpgSyncMode,
     val id: Long?
 )
@@ -621,9 +649,16 @@ private class FakeProviderRepository : ProviderRepository {
         portalUrl: String,
         macAddress: String,
         name: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
+        serialNumber: String,
+        deviceId: String,
+        deviceId2: String,
+        signature: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -631,20 +666,34 @@ private class FakeProviderRepository : ProviderRepository {
         lastStalkerCall = StalkerCall(
             portalUrl = portalUrl,
             macAddress = macAddress,
+            authMode = authMode,
+            username = username,
+            password = password,
             name = name,
             deviceProfile = deviceProfile,
             timezone = timezone,
             locale = locale,
+            serialNumber = serialNumber,
+            deviceId = deviceId,
+            deviceId2 = deviceId2,
+            signature = signature,
             epgSyncMode = epgSyncMode,
             id = id
         )
         return stalkerResult ?: Result.success(
             provider(id = id ?: 3L, name = name, type = ProviderType.STALKER_PORTAL).copy(
                 serverUrl = portalUrl,
+                username = username,
+                password = password,
                 stalkerMacAddress = macAddress,
+                stalkerAuthMode = authMode,
                 stalkerDeviceProfile = deviceProfile,
                 stalkerDeviceTimezone = timezone,
-                stalkerDeviceLocale = locale
+                stalkerDeviceLocale = locale,
+                stalkerSerialNumber = serialNumber,
+                stalkerDeviceId = deviceId,
+                stalkerDeviceId2 = deviceId2,
+                stalkerSignature = signature
             )
         )
     }

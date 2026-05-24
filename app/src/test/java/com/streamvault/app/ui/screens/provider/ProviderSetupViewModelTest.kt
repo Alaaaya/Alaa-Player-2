@@ -6,6 +6,7 @@ import com.streamvault.domain.model.CombinedM3uProfile
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.manager.BackupImportPlan
@@ -390,6 +391,9 @@ class ProviderSetupViewModelTest {
         viewModel.loginStalker(
             portalUrl = "https://portal.example.com",
             macAddress = "00:1A:79:12:34:56",
+            authMode = StalkerAuthMode.AUTO,
+            username = "",
+            password = "",
             name = "MAG",
             deviceProfile = "MAG250",
             timezone = "UTC",

@@ -16,11 +16,11 @@ internal data class FfmpegAudioFallbackRequest(
     val fallbackMode: DecoderMode?
 )
 
+@Suppress("UNUSED_PARAMETER")
 internal fun shouldAttemptFfmpegAudioFallback(request: FfmpegAudioFallbackRequest): Boolean {
-    if (request.requestedMode != DecoderMode.AUTO) return false
-    if (!request.extensionAvailable) return false
-    if (request.fallbackMode != DecoderMode.SOFTWARE) return false
-    return request.supportedMimeTypes.isNotEmpty()
+    // FFmpeg audio is exposed through Media3's platform-first extension renderer
+    // chain. Retrying into software mode would reopen the provider URL.
+    return false
 }
 
 @UnstableApi
@@ -56,12 +56,28 @@ internal class ReflectiveFfmpegLibrary(
     fun supportsFormat(mimeType: String?): Boolean {
         if (mimeType.isNullOrBlank()) return false
         val libraryClass = libraryClassProvider() ?: return false
-        return invokeBooleanStatic(libraryClass, "supportsFormat", mimeType.trim()) ?: false
+        val normalizedMimeType = mimeType.trim()
+        return invokeBooleanStatic(
+            clazz = libraryClass,
+            methodName = "supportsFormat",
+            parameterTypes = arrayOf(String::class.java, String::class.java),
+            args = arrayOf(normalizedMimeType, null)
+        ) ?: invokeBooleanStatic(libraryClass, "supportsFormat", normalizedMimeType) ?: false
     }
 
     private fun invokeBooleanStatic(clazz: Class<*>, methodName: String, vararg args: Any): Boolean? =
         runCatching {
             val parameterTypes = args.map { it::class.java }.toTypedArray()
+            clazz.getMethod(methodName, *parameterTypes).invoke(null, *args) as? Boolean
+        }.getOrNull()
+
+    private fun invokeBooleanStatic(
+        clazz: Class<*>,
+        methodName: String,
+        parameterTypes: Array<Class<*>>,
+        args: Array<Any?>
+    ): Boolean? =
+        runCatching {
             clazz.getMethod(methodName, *parameterTypes).invoke(null, *args) as? Boolean
         }.getOrNull()
 

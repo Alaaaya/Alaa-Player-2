@@ -6,9 +6,11 @@ import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CatalogSyncDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
@@ -28,8 +30,10 @@ import com.streamvault.data.parser.M3uParser
 import com.streamvault.data.remote.http.buildAppRequestProfile
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
+import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.remote.dto.XtreamSeriesItem
 import com.streamvault.data.remote.dto.XtreamStream
@@ -59,16 +63,23 @@ import com.streamvault.domain.model.VodSyncMode
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.sync.Section
+import com.streamvault.domain.sync.SyncProgress
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -78,6 +89,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.URI
 import java.security.MessageDigest
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
@@ -85,6 +97,14 @@ import javax.inject.Singleton
 
 private const val TAG = "SyncManager"
 private const val XTREAM_FALLBACK_STAGE_BATCH_SIZE = 500
+private const val STALKER_INDEX_CATEGORY_SLICE_SIZE = 32
+private const val STALKER_WILDCARD_PAGE_SLICE_SIZE = 192
+private const val STALKER_MAX_PARALLEL_CATEGORY_FETCHES = 6
+private const val STALKER_MAX_SECTION_RUN_MILLIS = 240_000L
+private const val STALKER_CATEGORY_RETRY_BUDGET = 3
+private const val STALKER_CATEGORY_RETRY_COOLDOWN_MILLIS = 5 * 60 * 1000L
+private const val STALKER_RUNNING_JOB_STALE_MILLIS = 15 * 60 * 1000L
+private const val STALKER_MIN_HEALTHY_EPG_PROGRAMS = 3
 private const val LIVE_CATEGORY_SEQUENTIAL_MODE_WARNING =
     "Live category sync downgraded to sequential mode after provider stress signals."
 private const val XTREAM_RECOVERY_ABORT_WARNING_SUFFIX =
@@ -152,6 +172,8 @@ class SyncManager @Inject constructor(
     private val seriesDao: SeriesDao,
     private val programDao: ProgramDao,
     private val categoryDao: CategoryDao,
+    private val movieCategoryHydrationDao: MovieCategoryHydrationDao,
+    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
     private val catalogSyncDao: CatalogSyncDao,
     private val tmdbIdentityDao: TmdbIdentityDao,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
@@ -201,6 +223,10 @@ class SyncManager @Inject constructor(
     val syncState: StateFlow<SyncState> = syncStateTracker.aggregateState
     val syncStatesByProvider: StateFlow<Map<Long, SyncState>> = syncStateTracker.statesByProvider
     private val providerSyncMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val providerStalkerSummaryMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val providerStalkerIndexSectionMutexes = ConcurrentHashMap<String, Mutex>()
+    private val providerStalkerFetchSemaphores = ConcurrentHashMap<Long, Semaphore>()
+    private val providerEpgMutexes = ConcurrentHashMap<Long, Mutex>()
     private val syncAdmissionMutex = Mutex()
     private val xtreamCatalogHttpService: OkHttpXtreamApiService by lazy {
         OkHttpXtreamApiService(
@@ -256,7 +282,12 @@ class SyncManager @Inject constructor(
         syncStateTracker.current(providerId)
 
     /** Returns true if any provider sync mutex is currently held (used by DatabaseMaintenanceManager). */
-    fun isAnySyncActive(): Boolean = providerSyncMutexes.values.any { it.isLocked }
+    fun isAnySyncActive(): Boolean = isAnySyncMutexLocked()
+
+    private fun isAnySyncMutexLocked(): Boolean =
+        providerSyncMutexes.values.any { it.isLocked } ||
+            providerEpgMutexes.values.any { it.isLocked }
+
     private suspend fun <T> withProviderLock(providerId: Long, block: suspend () -> T): T {
         val mutex = syncAdmissionMutex.withLock {
             providerSyncMutexes.computeIfAbsent(providerId) { Mutex() }.also { providerMutex ->
@@ -270,9 +301,75 @@ class SyncManager @Inject constructor(
         }
     }
 
+    private suspend fun <T> withProviderEpgLock(providerId: Long, block: suspend () -> T): T {
+        val mutex = syncAdmissionMutex.withLock {
+            providerEpgMutexes.computeIfAbsent(providerId) { Mutex() }.also { providerMutex ->
+                providerMutex.lock()
+            }
+        }
+        try {
+            return block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun <T> withStalkerIndexSectionLock(
+        providerId: Long,
+        section: ContentType,
+        block: suspend () -> T
+    ): T {
+        val lockKey = "$providerId:${section.name}"
+        val mutex = syncAdmissionMutex.withLock {
+            providerStalkerIndexSectionMutexes.computeIfAbsent(lockKey) { Mutex() }.also { sectionMutex ->
+                sectionMutex.lock()
+            }
+        }
+        try {
+            return block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun <T> withStalkerSummaryProviderLock(providerId: Long, block: suspend () -> T): T {
+        val mutex = syncAdmissionMutex.withLock {
+            providerStalkerSummaryMutexes.computeIfAbsent(providerId) { Mutex() }.also { providerMutex ->
+                providerMutex.lock()
+            }
+        }
+        try {
+            return block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun <T> withStalkerSummaryLock(
+        providerId: Long,
+        section: ContentType?,
+        providerMaxConnections: Int,
+        block: suspend () -> T
+    ): T = when (section) {
+        ContentType.MOVIE,
+        ContentType.SERIES -> withStalkerSummaryProviderLock(providerId, block)
+        else -> withProviderLock(providerId, block)
+    }
+
+    private suspend fun <T> withStalkerFetchPermit(provider: Provider, block: suspend () -> T): T {
+        val permitCount = minOf(
+            provider.maxConnections.coerceAtLeast(1),
+            STALKER_MAX_PARALLEL_CATEGORY_FETCHES
+        ).coerceAtLeast(1)
+        val semaphore = syncAdmissionMutex.withLock {
+            providerStalkerFetchSemaphores.computeIfAbsent(provider.id) { Semaphore(permitCount) }
+        }
+        return semaphore.withPermit { block() }
+    }
+
     suspend fun runWhenNoSyncActive(block: suspend () -> Boolean): Boolean =
         syncAdmissionMutex.withLock {
-            if (providerSyncMutexes.values.any { it.isLocked }) {
+            if (isAnySyncMutexLocked()) {
                 false
             } else {
                 block()
@@ -282,16 +379,24 @@ class SyncManager @Inject constructor(
     suspend fun onProviderDeleted(providerId: Long) {
         BackgroundEpgSyncWorker.cancel(applicationContext, providerId)
         withProviderLock(providerId) {
-            syncStateTracker.reset(providerId)
-            xtreamAdaptiveSyncPolicy.forgetProvider(providerId)
-            syncCatalogStore.clearProviderStaging(providerId)
-            epgRepository.onProviderDeleted(providerId)
-            providerSyncMutexes.remove(providerId)
+            withProviderEpgLock(providerId) {
+                syncStateTracker.reset(providerId)
+                xtreamAdaptiveSyncPolicy.forgetProvider(providerId)
+                syncCatalogStore.clearProviderStaging(providerId)
+                epgRepository.onProviderDeleted(providerId)
+                providerSyncMutexes.remove(providerId)
+                providerStalkerSummaryMutexes.remove(providerId)
+                providerEpgMutexes.remove(providerId)
+            }
         }
     }
 
     fun scheduleBackgroundEpgSync(providerId: Long) {
-        BackgroundEpgSyncWorker.enqueue(applicationContext, providerId)
+        runCatching {
+            BackgroundEpgSyncWorker.enqueue(applicationContext, providerId)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to schedule background EPG sync for provider $providerId: ${sanitizeThrowableMessage(error)}")
+        }
     }
 
     fun scheduleProviderSyncResume(providerId: Long) {
@@ -313,6 +418,35 @@ class SyncManager @Inject constructor(
         }.onFailure { error ->
             Log.w(TAG, "Failed to schedule Xtream index work for provider $providerId (${section?.name ?: "all"}): ${sanitizeThrowableMessage(error)}")
         }
+    }
+
+    fun scheduleStalkerIndexSync(
+        providerId: Long,
+        section: ContentType? = null,
+        force: Boolean = false,
+        initialDelaySeconds: Long = 0L
+    ) {
+        val effectiveSection: ContentType? = null
+        runCatching {
+            StalkerIndexWorker.enqueue(
+                context = applicationContext,
+                providerId = providerId,
+                section = effectiveSection?.name,
+                force = force,
+                initialDelaySeconds = initialDelaySeconds
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to schedule Stalker index work for provider $providerId (${effectiveSection?.name ?: "all"}): ${sanitizeThrowableMessage(error)}")
+        }
+    }
+
+    fun noteStalkerPlaybackStarted(providerId: Long) {
+        StalkerTrafficCoordinator.notePlaybackStarted(providerId)
+    }
+
+    fun noteStalkerPlaybackStopped(providerId: Long) {
+        StalkerTrafficCoordinator.notePlaybackStopped(providerId)
+        scheduleStalkerIndexSync(providerId = providerId)
     }
 
     suspend fun prioritizeXtreamIndexCategory(
@@ -341,17 +475,77 @@ class SyncManager @Inject constructor(
         scheduleXtreamIndexSync(providerId, section, force = false)
     }
 
+    suspend fun prioritizeStalkerIndexCategory(
+        providerId: Long,
+        section: ContentType,
+        categoryId: Long
+    ) {
+        if (section != ContentType.MOVIE && section != ContentType.SERIES) return
+        val now = System.currentTimeMillis()
+        val updated = xtreamIndexJobDao.requestCategoryPriority(
+            providerId = providerId,
+            section = section.name,
+            categoryId = categoryId,
+            requestedAt = now
+        )
+        if (updated == 0) {
+            upsertXtreamIndexJob(
+                providerId = providerId,
+                section = section.name,
+                state = "QUEUED",
+                now = now,
+                priorityCategoryId = categoryId,
+                priorityRequestedAt = now
+            )
+        }
+        val provider = providerDao.getById(providerId)?.toDomain()
+        if (provider != null) {
+            scheduleStalkerIndexContinuation(provider, section, force = false)
+        } else {
+            scheduleStalkerIndexSync(providerId, section, force = false)
+        }
+    }
+
     suspend fun syncEpg(
         providerId: Long,
         force: Boolean = true,
         onProgress: ((String) -> Unit)? = null
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> {
         val providerEntity = providerDao.getById(providerId)
-            ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+            ?: return com.streamvault.domain.model.Result.error("Provider $providerId not found")
 
+        return if (providerEntity.type == ProviderType.STALKER_PORTAL) {
+            withProviderEpgLock(providerId) {
+                syncEpgLocked(providerEntity, force, onProgress)
+            }
+        } else {
+            withProviderLock(providerId) {
+                val freshProviderEntity = providerDao.getById(providerId)
+                    ?: return@withProviderLock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+                syncEpgLocked(freshProviderEntity, force, onProgress)
+            }
+        }
+    }
+
+    private suspend fun syncEpgLocked(
+        providerEntity: com.streamvault.data.local.entity.ProviderEntity,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): com.streamvault.domain.model.Result<Unit> {
         val provider = providerEntity
             .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
             .toDomain()
+        val providerId = provider.id
+
+        if (!force && provider.type == ProviderType.STALKER_PORTAL && hasPendingStalkerCatalogIndex(provider.id)) {
+            updateXtreamEpgJobState(
+                provider = provider,
+                state = "QUEUED",
+                now = System.currentTimeMillis(),
+                lastError = null
+            )
+            return com.streamvault.domain.model.Result.success(Unit)
+        }
 
         val startedAt = System.currentTimeMillis()
         updateXtreamEpgJobState(
@@ -363,7 +557,7 @@ class SyncManager @Inject constructor(
         )
         publishSyncState(providerId, SyncState.Syncing("Downloading EPG..."))
 
-        try {
+        return try {
             val epgResult = syncProviderEpg(
                 provider = provider,
                 metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
@@ -434,7 +628,13 @@ class SyncManager @Inject constructor(
         lastSuccessAt: Long? = null,
         lastError: String? = null
     ) {
-        if (provider.type != ProviderType.XTREAM_CODES || provider.epgSyncMode == ProviderEpgSyncMode.SKIP) return
+        if (
+            provider.type != ProviderType.XTREAM_CODES &&
+            provider.type != ProviderType.STALKER_PORTAL
+        ) {
+            return
+        }
+        if (provider.epgSyncMode == ProviderEpgSyncMode.SKIP) return
         upsertXtreamIndexJob(
             providerId = provider.id,
             section = "EPG",
@@ -688,6 +888,8 @@ class SyncManager @Inject constructor(
             updateSyncStatusMetadata(providerId = providerId, status = "ERROR")
             publishSyncState(providerId, SyncState.Error(safeMessage, e))
             com.streamvault.domain.model.Result.error(safeMessage, e)
+        } finally {
+            syncProgressBus.reset()
         }
     }
 
@@ -832,7 +1034,8 @@ class SyncManager @Inject constructor(
                     finalizeXtreamLiveCatalog(
                         providerId = provider.id,
                         liveSyncResult = liveSyncResult,
-                        hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                        hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                        onProgress = onProgress
                     ).also { commitResult ->
                         warnings += commitResult.warnings
                     }.acceptedCount
@@ -856,6 +1059,7 @@ class SyncManager @Inject constructor(
                         providerId = provider.id,
                         liveSyncResult = liveSyncResult,
                         hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                        onProgress = onProgress,
                         partialCompletionWarning = "Live TV sync completed partially."
                     ).also { commitResult ->
                         warnings += commitResult.warnings
@@ -1273,6 +1477,7 @@ class SyncManager @Inject constructor(
 
         var sawRetryableFailure = false
         val warnings = mutableListOf<String>()
+        val failures = mutableListOf<Throwable>()
         sections.forEach { contentType ->
             val job = xtreamIndexJobDao.get(providerId, contentType.name)
             if (!force && !shouldRunXtreamSummaryIndex(job)) {
@@ -1300,6 +1505,7 @@ class SyncManager @Inject constructor(
                         lastError = sanitizeThrowableMessage(failure)
                     )
                 }
+                failures += failure
                 sawRetryableFailure = sawRetryableFailure || state != "FAILED_PERMANENT"
                 warnings += "${contentType.name.lowercase().replaceFirstChar { it.titlecase() }} indexing failed: ${sanitizeThrowableMessage(failure)}"
             }
@@ -1307,7 +1513,8 @@ class SyncManager @Inject constructor(
 
         if (warnings.isNotEmpty()) {
             val message = warnings.joinToString("; ")
-            val exception = if (sawRetryableFailure) IOException(message) else IllegalStateException(message)
+            val cause = failures.firstOrNull()
+            val exception = if (sawRetryableFailure) IOException(message, cause) else IllegalStateException(message, cause)
             com.streamvault.domain.model.Result.error(warnings.first(), exception)
         } else {
             com.streamvault.domain.model.Result.success(Unit)
@@ -1318,6 +1525,1509 @@ class SyncManager @Inject constructor(
         if (job == null) return true
         if (job.state in setOf("QUEUED", "RUNNING", "PARTIAL", "STALE", "FAILED_RETRYABLE")) return true
         return ContentCachePolicy.shouldRefresh(job.lastSuccessAt, ContentCachePolicy.CATALOG_TTL_MILLIS)
+    }
+
+    suspend fun processQueuedStalkerIndexJobs(
+        providerId: Long,
+        section: ContentType? = null,
+        force: Boolean = false,
+        maxCategoriesPerSection: Int? = null,
+        onProgress: ((String) -> Unit)? = null
+    ): com.streamvault.domain.model.Result<Unit> {
+        val providerMaxConnections = providerDao.getById(providerId)?.maxConnections ?: Int.MAX_VALUE
+        return withStalkerSummaryLock(providerId, section, providerMaxConnections) lock@{
+        val playbackDelayMillis = StalkerTrafficCoordinator.deferCatalogFetchMillis(providerId)
+        if (playbackDelayMillis > 0L) {
+            Log.i(TAG, "Deferring Stalker catalog work for provider $providerId because playback is active.")
+            scheduleStalkerIndexSync(
+                providerId = providerId,
+                section = null,
+                force = force,
+                initialDelaySeconds = ((playbackDelayMillis + 999L) / 1000L).coerceAtLeast(1L)
+            )
+            return@lock com.streamvault.domain.model.Result.success(Unit)
+        }
+
+        val providerEntity = providerDao.getById(providerId)
+            ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
+        if (providerEntity.type != ProviderType.STALKER_PORTAL) {
+            return@lock com.streamvault.domain.model.Result.success(Unit)
+        }
+
+        val provider = providerEntity
+            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
+            .toDomain()
+        val api = createStalkerSyncProvider(provider)
+        val decision = chooseNextStalkerCatalogSection(
+            provider = provider,
+            api = api,
+            requestedSection = section,
+            force = force,
+            now = System.currentTimeMillis()
+        )
+        val contentType = decision.contentType
+        if (contentType == null) {
+            Log.i(TAG, "Stalker catalog worker skipped provider $providerId: ${decision.reason}")
+            if (decision.retryDelaySeconds > 0L) {
+                scheduleStalkerIndexSync(
+                    providerId = providerId,
+                    section = null,
+                    force = false,
+                    initialDelaySeconds = decision.retryDelaySeconds
+                )
+            } else {
+                scheduleStalkerEpgIfCatalogIdle(provider)
+            }
+            return@lock com.streamvault.domain.model.Result.success(Unit)
+        }
+        Log.i(TAG, "Stalker catalog worker selected ${contentType.name} for provider $providerId: ${decision.reason}")
+
+        val warnings = mutableListOf<String>()
+        val failures = mutableListOf<Throwable>()
+        var sawRetryableFailure = false
+        val categoryLimit = maxCategoriesPerSection?.coerceAtLeast(1) ?: STALKER_INDEX_CATEGORY_SLICE_SIZE
+        val failure = runCatching {
+            processStalkerSummaryIndexSection(
+                provider = provider,
+                api = api,
+                contentType = contentType,
+                maxCategories = categoryLimit,
+                onProgress = onProgress
+            )
+        }.exceptionOrNull()
+        if (failure != null) {
+            val failedAt = System.currentTimeMillis()
+            val state = stalkerIndexFailureState(failure)
+            upsertXtreamIndexJob(
+                providerId = providerId,
+                section = contentType.name,
+                state = state,
+                now = failedAt,
+                lastAttemptAt = failedAt,
+                lastError = sanitizeThrowableMessage(failure)
+            )
+            failures += failure
+            sawRetryableFailure = sawRetryableFailure || state != "FAILED_PERMANENT"
+            warnings += "${contentType.name.lowercase().replaceFirstChar { it.titlecase() }} indexing failed: ${sanitizeThrowableMessage(failure)}"
+        }
+
+        if (warnings.isNotEmpty()) {
+            val message = warnings.joinToString("; ")
+            val cause = failures.firstOrNull()
+            val exception = if (sawRetryableFailure) IOException(message, cause) else IllegalStateException(message, cause)
+            com.streamvault.domain.model.Result.error(warnings.first(), exception)
+        } else {
+            scheduleNextStalkerCatalogStep(provider, api)
+            scheduleStalkerEpgIfCatalogIdle(provider)
+            com.streamvault.domain.model.Result.success(Unit)
+        }
+        }
+    }
+
+    private data class StalkerCatalogDecision(
+        val contentType: ContentType?,
+        val retryDelaySeconds: Long = 0L,
+        val reason: String
+    )
+
+    private data class StalkerCatalogSectionState(
+        val contentType: ContentType,
+        val runnable: Boolean,
+        val retryDelaySeconds: Long,
+        val pending: Boolean,
+        val jobState: String?
+    )
+
+    private suspend fun chooseNextStalkerCatalogSection(
+        provider: Provider,
+        api: StalkerProvider,
+        requestedSection: ContentType?,
+        force: Boolean,
+        now: Long
+    ): StalkerCatalogDecision {
+        val movie = stalkerCatalogSectionState(provider, api, ContentType.MOVIE, force, now)
+        if (movie.runnable) {
+            return StalkerCatalogDecision(ContentType.MOVIE, reason = "movies are runnable (${movie.jobState ?: "no job"})")
+        }
+
+        val series = stalkerCatalogSectionState(provider, api, ContentType.SERIES, force, now)
+        if (series.runnable) {
+            val reason = if (movie.pending && movie.retryDelaySeconds > 0L) {
+                "movies are waiting ${movie.retryDelaySeconds}s for retry; series is runnable"
+            } else {
+                "movies are complete or terminal; series is runnable (${series.jobState ?: "no job"})"
+            }
+            return StalkerCatalogDecision(ContentType.SERIES, reason = reason)
+        }
+
+        val retryDelaySeconds = listOf(movie.retryDelaySeconds, series.retryDelaySeconds)
+            .filter { it > 0L }
+            .minOrNull()
+            ?: 0L
+        return StalkerCatalogDecision(
+            contentType = null,
+            retryDelaySeconds = retryDelaySeconds,
+            reason = when {
+                retryDelaySeconds > 0L -> "catalog is waiting ${retryDelaySeconds}s for retry"
+                movie.pending || series.pending -> "catalog has no attemptable work"
+                requestedSection == ContentType.MOVIE -> "requested movie section is not pending"
+                requestedSection == ContentType.SERIES -> "requested series section is not pending"
+                else -> "catalog is idle"
+            }
+        )
+    }
+
+    private suspend fun stalkerCatalogSectionState(
+        provider: Provider,
+        api: StalkerProvider,
+        contentType: ContentType,
+        force: Boolean,
+        now: Long
+    ): StalkerCatalogSectionState {
+        val job = xtreamIndexJobDao.get(provider.id, contentType.name)
+        if (!force && !shouldRunXtreamSummaryIndex(job)) {
+            return StalkerCatalogSectionState(
+                contentType = contentType,
+                runnable = false,
+                retryDelaySeconds = 0L,
+                pending = false,
+                jobState = job?.state
+            )
+        }
+
+        val categories = categoryDao.getByProviderAndTypeSync(provider.id, contentType.name)
+        val visibleCategories = visibleStalkerIndexCategories(
+            contentType,
+            allVisibleStalkerIndexCategories(provider.id, contentType, categories),
+            api
+        )
+        if (visibleCategories.isEmpty()) {
+            return StalkerCatalogSectionState(
+                contentType = contentType,
+                runnable = true,
+                retryDelaySeconds = 0L,
+                pending = true,
+                jobState = job?.state
+            )
+        }
+
+        val hydrations = visibleCategories.map { category ->
+            getStalkerHydrationSnapshot(provider.id, contentType, category.categoryId)
+        }
+        val hasAttemptableWork = hydrations.any { hydration -> canAttemptStalkerCategory(hydration, now) }
+        val retryDelaySeconds = nextRetryDelaySeconds(hydrations, now)
+        val hasUnresolvedWork = hydrations.any { hydration ->
+            hydration == null ||
+                (!hydration.isComplete && !hydration.isTerminalFailure && hydration.retryBudgetRemaining > 0)
+        }
+        val needsStateReconciliation = job?.state in setOf("QUEUED", "RUNNING", "STALE", "FAILED_RETRYABLE") &&
+            !hasUnresolvedWork
+        return StalkerCatalogSectionState(
+            contentType = contentType,
+            runnable = hasAttemptableWork || needsStateReconciliation,
+            retryDelaySeconds = retryDelaySeconds,
+            pending = hasUnresolvedWork || needsStateReconciliation,
+            jobState = job?.state
+        )
+    }
+
+    private suspend fun scheduleNextStalkerCatalogStep(provider: Provider, api: StalkerProvider) {
+        val decision = chooseNextStalkerCatalogSection(
+            provider = provider,
+            api = api,
+            requestedSection = null,
+            force = false,
+            now = System.currentTimeMillis()
+        )
+        when {
+            decision.contentType != null -> {
+                Log.i(TAG, "Scheduling next Stalker catalog step for provider ${provider.id}: ${decision.contentType.name}")
+                scheduleStalkerIndexSync(provider.id, section = null, force = false)
+            }
+            decision.retryDelaySeconds > 0L -> {
+                Log.i(TAG, "Scheduling Stalker catalog retry for provider ${provider.id} in ${decision.retryDelaySeconds}s")
+                scheduleStalkerIndexSync(
+                    providerId = provider.id,
+                    section = null,
+                    force = false,
+                    initialDelaySeconds = decision.retryDelaySeconds
+                )
+            }
+        }
+    }
+
+    private suspend fun scheduleStalkerEpgIfCatalogIdle(provider: Provider) {
+        if (provider.type != ProviderType.STALKER_PORTAL || provider.epgSyncMode == ProviderEpgSyncMode.SKIP) return
+        if (!hasPendingStalkerCatalogIndex(provider.id)) {
+            Log.i(TAG, "Scheduling Stalker EPG for provider ${provider.id}: catalog is idle.")
+            scheduleBackgroundEpgSync(provider.id)
+        } else {
+            Log.i(TAG, "Deferring Stalker EPG for provider ${provider.id}: catalog indexing is still pending.")
+        }
+    }
+
+    private suspend fun hasPendingStalkerCatalogIndex(providerId: Long): Boolean {
+        val now = System.currentTimeMillis()
+        return listOf(ContentType.MOVIE, ContentType.SERIES).any { contentType ->
+            when (xtreamIndexJobDao.get(providerId, contentType.name)?.state) {
+                "QUEUED",
+                "RUNNING",
+                "STALE",
+                "FAILED_RETRYABLE" -> true
+                "PARTIAL" -> hasRetryableStalkerCategoryWork(providerId, contentType, now)
+                else -> false
+            }
+        }
+    }
+
+    private suspend fun hasRetryableStalkerCategoryWork(
+        providerId: Long,
+        contentType: ContentType,
+        now: Long
+    ): Boolean =
+        categoryDao.getByProviderAndTypeSync(providerId, contentType.name).any { category ->
+            val hydration = getStalkerHydrationSnapshot(providerId, contentType, category.categoryId)
+            hydration == null ||
+                (!hydration.isComplete &&
+                    !hydration.isTerminalFailure &&
+                    hydration.retryBudgetRemaining > 0)
+        }
+
+    private fun scheduleStalkerIndexContinuation(
+        provider: Provider,
+        section: ContentType,
+        force: Boolean = false,
+        initialDelaySeconds: Long = 0L
+    ) {
+        scheduleStalkerIndexSync(
+            providerId = provider.id,
+            section = null,
+            force = force,
+            initialDelaySeconds = initialDelaySeconds
+        )
+    }
+
+    private fun nextRetryDelaySeconds(
+        hydrations: Iterable<StalkerHydrationSnapshot?>,
+        now: Long
+    ): Long {
+        val retryAt = hydrations
+            .filterNotNull()
+            .filter { hydration ->
+                !hydration.isComplete &&
+                    !hydration.isTerminalFailure &&
+                    hydration.retryBudgetRemaining > 0 &&
+                    hydration.retryAfterMs > now
+            }
+            .minOfOrNull { it.retryAfterMs }
+            ?: return 0L
+        return ((retryAt - now + 999L) / 1000L).coerceAtLeast(1L)
+    }
+
+    private suspend fun processStalkerSummaryIndexSection(
+        provider: Provider,
+        api: StalkerProvider,
+        contentType: ContentType,
+        maxCategories: Int,
+        onProgress: ((String) -> Unit)?
+    ) {
+        require(contentType == ContentType.MOVIE || contentType == ContentType.SERIES) {
+            "Unsupported Stalker summary index section: $contentType"
+        }
+        val now = System.currentTimeMillis()
+        val categories = categoryDao.getByProviderAndTypeSync(provider.id, contentType.name)
+        val allVisibleCategories = allVisibleStalkerIndexCategories(provider.id, contentType, categories)
+        val visibleCategories = visibleStalkerIndexCategories(contentType, allVisibleCategories, api)
+        val wildcardCategory = allVisibleCategories.firstOrNull { category ->
+            api.isWildcardCategory(contentType, category.categoryId)
+        }
+        if (visibleCategories.isEmpty()) {
+            val deletedRows = xtreamContentIndexDao.pruneStaleLocalContentRows(provider.id, contentType.name)
+            val indexedRows = currentStalkerIndexedRowCount(provider.id, contentType)
+            upsertXtreamIndexJob(
+                providerId = provider.id,
+                section = contentType.name,
+                state = "SUCCESS",
+                now = now,
+                totalCategories = 0,
+                completedCategories = 0,
+                nextCategoryIndex = 0,
+                failedCategories = 0,
+                indexedRows = indexedRows,
+                deletedPrunedRows = deletedRows,
+                clearPriority = true,
+                lastAttemptAt = now,
+                lastSuccessAt = now,
+                lastError = null
+            )
+            updateStalkerSummaryMetadata(provider.id, contentType, indexedRows, "SUCCESS", now)
+            return
+        }
+
+        val initialJob = xtreamIndexJobDao.get(provider.id, contentType.name)
+
+        if (wildcardCategory != null && visibleCategories.size == 1 && visibleCategories.first().categoryId == wildcardCategory.categoryId) {
+            if (processStalkerWildcardIndexSection(
+                    provider = provider,
+                    api = api,
+                    contentType = contentType,
+                    wildcardCategory = wildcardCategory,
+                    visibleCategories = allVisibleCategories,
+                    maxPages = STALKER_WILDCARD_PAGE_SLICE_SIZE,
+                    initialJob = initialJob,
+                    onProgress = onProgress
+                )) {
+                return
+            }
+        }
+
+        val priorityCategoryId = initialJob?.priorityCategoryId
+        val hydrationByCategory = visibleCategories.associate { category ->
+            category.categoryId to getStalkerHydrationSnapshot(provider.id, contentType, category.categoryId)
+        }
+        val completedBefore = hydrationByCategory.values.count { it?.isComplete == true }
+        val failedBefore = hydrationByCategory.values.count { it?.isTerminalFailure == true }
+        val indexedBefore = currentStalkerIndexedRowCount(provider.id, contentType)
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = "RUNNING",
+            now = now,
+            totalCategories = visibleCategories.size,
+            completedCategories = completedBefore,
+            failedCategories = failedBefore,
+            indexedRows = indexedBefore,
+            lastAttemptAt = now,
+            lastError = null
+        )
+
+        var restoreMovieWatchProgressPending = false
+
+        try {
+        val pending = buildList {
+            priorityCategoryId
+                ?.takeIf { requestedId -> visibleCategories.any { it.categoryId == requestedId } }
+                ?.let { requestedId ->
+                    val hydration = hydrationByCategory[requestedId]
+                    if (canAttemptStalkerCategory(hydration, now)) {
+                        visibleCategories.firstOrNull { it.categoryId == requestedId }?.let(::add)
+                    }
+                }
+            visibleCategories.forEach { category ->
+                if (size >= maxCategories) return@forEach
+                if (any { it.categoryId == category.categoryId }) return@forEach
+                val hydration = hydrationByCategory[category.categoryId]
+                if (!canAttemptStalkerCategory(hydration, now)) return@forEach
+                add(category)
+            }
+        }
+
+        data class StalkerCategoryFetchAttempt(
+            val category: CategoryEntity,
+            val hydration: StalkerHydrationSnapshot?,
+            val nextPage: Int
+        )
+
+        data class StalkerCategoryFetchResult(
+            val attempt: StalkerCategoryFetchAttempt,
+            val result: Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>>
+        )
+
+        data class StalkerSuccessfulPage(
+            val category: CategoryEntity,
+            val hydration: StalkerHydrationSnapshot?,
+            val requestedPage: Int,
+            val items: List<Any>,
+            val totalPages: Int,
+            val pageSize: Int,
+            val isComplete: Boolean,
+            val pageFingerprint: String?
+        )
+
+        var clearPriority = false
+        var skippedMalformedRows = initialJob?.skippedMalformedRows ?: 0
+        var pagesCommitted = 0
+        var rowsCommitted = 0
+        val sectionStartedAt = System.currentTimeMillis()
+        val runtimeProfile = CatalogSyncRuntimeProfile.from(applicationContext)
+        val parallelFetchLimit = stalkerCategoryFetchConcurrencyLimit(
+            provider = provider,
+            runtimeProfile = runtimeProfile,
+            maxCategories = maxCategories
+        )
+        val runDeadlineAt = System.currentTimeMillis() + STALKER_MAX_SECTION_RUN_MILLIS
+        val pendingQueue = ArrayDeque(pending)
+        var forceSequential = parallelFetchLimit <= 1
+        val retriedImmediately = mutableSetOf<Long>()
+        while (pendingQueue.isNotEmpty() && System.currentTimeMillis() < runDeadlineAt) {
+            if (StalkerTrafficCoordinator.shouldDeferCatalogFetch(provider.id)) {
+                break
+            }
+            val windowSize = minOf(
+                if (forceSequential) 1 else parallelFetchLimit,
+                pendingQueue.size
+            )
+            val window = buildList {
+                repeat(windowSize) {
+                    add(pendingQueue.removeFirst())
+                }
+            }
+            val attempts = window.mapNotNull { category ->
+                val hydration = getStalkerHydrationSnapshot(provider.id, contentType, category.categoryId)
+                if (!canAttemptStalkerCategory(hydration, System.currentTimeMillis())) {
+                    return@mapNotNull null
+                }
+                val nextPage = nextStalkerAttemptPage(hydration)
+                progress(
+                    provider.id,
+                    onProgress,
+                    "Indexing ${xtreamIndexSectionLabel(contentType)}: ${category.name} page $nextPage"
+                )
+                markStalkerAttemptStarted(
+                    providerId = provider.id,
+                    contentType = contentType,
+                    categoryId = category.categoryId,
+                    hydration = hydration,
+                    attemptedPage = nextPage,
+                    now = System.currentTimeMillis()
+                )
+                StalkerCategoryFetchAttempt(
+                    category = category,
+                    hydration = hydration,
+                    nextPage = nextPage
+                )
+            }
+            if (attempts.isEmpty()) {
+                continue
+            }
+            val fetchedResults = coroutineScope {
+                attempts.map { attempt ->
+                    async {
+                        StalkerCategoryFetchResult(
+                            attempt = attempt,
+                            result = withStalkerFetchPermit(provider) {
+                                fetchStalkerSummaryPageWithRecovery(
+                                    api = api,
+                                    contentType = contentType,
+                                    categoryId = attempt.category.categoryId,
+                                    page = attempt.nextPage
+                                )
+                            }
+                        )
+                    }
+                }.awaitAll()
+            }
+
+            var windowRetryableFailures = 0
+            val successfulPages = mutableListOf<StalkerSuccessfulPage>()
+            for (fetched in fetchedResults) {
+                val category = fetched.attempt.category
+                val hydration = fetched.attempt.hydration
+                val nextPage = fetched.attempt.nextPage
+                when (val result = fetched.result) {
+                is Result.Success -> {
+                    val pageFingerprint = stalkerPageFingerprint(result.data.items, contentType)
+                    val anomaly = detectStalkerPageAnomaly(
+                        hydration = hydration,
+                        requestedPage = nextPage,
+                        pagedResult = result.data,
+                        pageFingerprint = pageFingerprint
+                    )
+                    if (anomaly != null) {
+                        val indexedAt = System.currentTimeMillis()
+                        skippedMalformedRows += result.data.items.size
+                        val shouldRetryImmediately = category.categoryId !in retriedImmediately &&
+                            ((hydration?.failureCount ?: 0) == 0)
+                        markStalkerAttemptFailed(
+                            providerId = provider.id,
+                            contentType = contentType,
+                            categoryId = category.categoryId,
+                            hydration = hydration,
+                            attemptedPage = nextPage,
+                            now = indexedAt,
+                            message = anomaly,
+                            retryable = true,
+                            pageFingerprint = pageFingerprint
+                        )
+                        if (shouldRetryImmediately) {
+                            retriedImmediately += category.categoryId
+                            pendingQueue.addLast(category)
+                        }
+                        upsertXtreamIndexJob(
+                            providerId = provider.id,
+                            section = contentType.name,
+                            state = "RUNNING",
+                            now = indexedAt,
+                            skippedMalformedRows = skippedMalformedRows,
+                            lastAttemptAt = indexedAt,
+                            lastError = anomaly
+                        )
+                        continue
+                    }
+                    val dedupedItems = dedupeStalkerPageItems(result.data.items, contentType)
+                    skippedMalformedRows += (result.data.items.size - dedupedItems.size).coerceAtLeast(0)
+                    successfulPages += StalkerSuccessfulPage(
+                        category = category,
+                        hydration = hydration,
+                        requestedPage = nextPage,
+                        items = dedupedItems,
+                        totalPages = result.data.totalPages,
+                        pageSize = result.data.pageSize,
+                        isComplete = result.data.isComplete,
+                        pageFingerprint = pageFingerprint
+                    )
+                }
+                is Result.Error -> {
+                    val failedAt = System.currentTimeMillis()
+                    val retryable = stalkerIndexFailureState(result.exception ?: IllegalStateException(result.message)) != "FAILED_PERMANENT"
+                    if (retryable) {
+                        windowRetryableFailures += 1
+                    }
+                    val shouldRetryImmediately = retryable &&
+                        category.categoryId !in retriedImmediately &&
+                        ((hydration?.failureCount ?: 0) == 0)
+                    markStalkerAttemptFailed(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = category.categoryId,
+                        hydration = hydration,
+                        attemptedPage = nextPage,
+                        now = failedAt,
+                        message = result.message,
+                        retryable = retryable,
+                        pageFingerprint = hydration?.lastPageFingerprint
+                    )
+                    if (shouldRetryImmediately) {
+                        retriedImmediately += category.categoryId
+                        pendingQueue.addLast(category)
+                    }
+                    if (!retryable) {
+                        throw IllegalStateException(result.message, result.exception)
+                    }
+                    upsertXtreamIndexJob(
+                        providerId = provider.id,
+                        section = contentType.name,
+                        state = "RUNNING",
+                        now = failedAt,
+                        skippedMalformedRows = skippedMalformedRows,
+                        lastAttemptAt = now,
+                        lastError = result.message
+                    )
+                }
+                is Result.Loading -> Unit
+                }
+                if (priorityCategoryId == category.categoryId) {
+                    clearPriority = true
+                }
+            }
+            if (successfulPages.isNotEmpty()) {
+                val indexedAt = System.currentTimeMillis()
+                when (contentType) {
+                    ContentType.MOVIE -> upsertXtreamMovieSummaryBatch(
+                        provider.id,
+                        successfulPages.flatMap { page -> page.items.filterIsInstance<Movie>() },
+                        indexedAt,
+                        restoreWatchProgress = false
+                    )
+                    ContentType.SERIES -> upsertXtreamSeriesSummaryBatch(
+                        provider.id,
+                        successfulPages.flatMap { page -> page.items.filterIsInstance<Series>() },
+                        indexedAt
+                    )
+                    else -> Unit
+                }
+                if (contentType == ContentType.MOVIE) {
+                    restoreMovieWatchProgressPending = true
+                }
+                for (page in successfulPages) {
+                    pagesCommitted += 1
+                    rowsCommitted += page.items.size
+                    val pageComplete = page.isComplete ||
+                        (page.items.isEmpty() && page.totalPages in 1..page.requestedPage)
+                    val categoryCount = (page.hydration?.itemCount ?: 0) + page.items.size
+                    markStalkerAttemptSucceeded(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = page.category.categoryId,
+                        hydration = page.hydration,
+                        attemptedPage = page.requestedPage,
+                        now = indexedAt,
+                        itemCount = categoryCount,
+                        totalPages = page.totalPages,
+                        pageSize = page.pageSize,
+                        pageComplete = pageComplete,
+                        pageFingerprint = page.pageFingerprint
+                    )
+                    if (!pageComplete && System.currentTimeMillis() < runDeadlineAt) {
+                        pendingQueue.addLast(page.category)
+                    }
+                }
+            }
+            if (!forceSequential && windowRetryableFailures >= minOf(2, attempts.size)) {
+                forceSequential = true
+                Log.w(
+                    TAG,
+                    "Stalker ${contentType.name} category fetch downgraded to sequential mode for provider ${provider.id} after retryable parallel failures."
+                )
+            }
+        }
+
+        val refreshedHydration = visibleCategories.associate { category ->
+            category.categoryId to getStalkerHydrationSnapshot(provider.id, contentType, category.categoryId)
+        }
+        val finishedAt = System.currentTimeMillis()
+        val completedCategories = refreshedHydration.values.count { it?.isComplete == true }
+        val failedCategories = refreshedHydration.values.count { it?.isTerminalFailure == true }
+        val hasMoreCategories = refreshedHydration.values.any { hydration ->
+            canAttemptStalkerCategory(hydration, finishedAt)
+        }
+        val retryDelaySeconds = nextRetryDelaySeconds(refreshedHydration.values, finishedAt)
+        val indexedRows = currentStalkerIndexedRowCount(provider.id, contentType)
+        val pruneSuppressed = refreshedHydration.values.any { hydration ->
+            hydration?.hasPruneSuppressionRisk == true
+        }
+        val deletedRows = if (!hasMoreCategories && failedCategories == 0 && !pruneSuppressed) {
+            xtreamContentIndexDao.pruneStaleLocalContentRows(provider.id, contentType.name)
+        } else {
+            0
+        }
+        val finalState = when {
+            hasMoreCategories -> "QUEUED"
+            failedCategories > 0 -> "PARTIAL"
+            pruneSuppressed -> "PARTIAL"
+            else -> "SUCCESS"
+        }
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = finalState,
+            now = finishedAt,
+            totalCategories = visibleCategories.size,
+            completedCategories = completedCategories,
+            nextCategoryIndex = completedCategories,
+            failedCategories = failedCategories,
+            indexedRows = indexedRows,
+            skippedMalformedRows = skippedMalformedRows,
+            deletedPrunedRows = deletedRows,
+            clearPriority = clearPriority || finalState == "SUCCESS",
+            lastAttemptAt = now,
+            lastSuccessAt = finishedAt.takeIf { finalState == "SUCCESS" },
+            lastError = refreshedHydration.values.firstOrNull { it?.lastStatus == "ERROR" }?.lastError
+        )
+        updateStalkerSummaryMetadata(provider.id, contentType, indexedRows, finalState, finishedAt)
+        Log.i(
+            TAG,
+            "Stalker ${contentType.name} indexing finished for provider ${provider.id}: state=$finalState completed=$completedCategories failed=$failedCategories rows=$indexedRows committedPages=$pagesCommitted committedRows=$rowsCommitted throughput=${stalkerThroughputSummary(sectionStartedAt, pagesCommitted, rowsCommitted)} retryDelay=${retryDelaySeconds}s"
+        )
+        when {
+            hasMoreCategories -> scheduleStalkerIndexContinuation(provider, contentType, force = false)
+            finalState == "PARTIAL" -> {
+                if (retryDelaySeconds > 0L) {
+                    scheduleStalkerIndexContinuation(
+                        provider = provider,
+                        section = contentType,
+                        force = false,
+                        initialDelaySeconds = retryDelaySeconds
+                    )
+                }
+            }
+        }
+        } finally {
+            if (contentType == ContentType.MOVIE && restoreMovieWatchProgressPending) {
+                movieDao.restoreWatchProgress(provider.id)
+            }
+        }
+    }
+
+    private fun stalkerCategoryFetchConcurrencyLimit(
+        provider: Provider,
+        runtimeProfile: CatalogSyncRuntimeProfile,
+        maxCategories: Int
+    ): Int {
+        val runtimeLimit = runtimeProfile.maxCategoryConcurrency.coerceAtLeast(1)
+        val providerLimit = provider.maxConnections.coerceAtLeast(1)
+        val effectiveLimit = minOf(runtimeLimit, providerLimit)
+        return minOf(
+            maxCategories.coerceAtLeast(1),
+            effectiveLimit,
+            STALKER_MAX_PARALLEL_CATEGORY_FETCHES
+        ).coerceAtLeast(1)
+    }
+
+    private fun stalkerThroughputSummary(
+        startedAt: Long,
+        pages: Int,
+        rows: Int
+    ): String {
+        val elapsedSeconds = ((System.currentTimeMillis() - startedAt).coerceAtLeast(1L)) / 1000.0
+        val pagesPerSecond = pages / elapsedSeconds
+        val rowsPerSecond = rows / elapsedSeconds
+        return "%.2f pages/s, %.2f rows/s".format(java.util.Locale.US, pagesPerSecond, rowsPerSecond)
+    }
+
+    private suspend fun processStalkerWildcardIndexSection(
+        provider: Provider,
+        api: StalkerProvider,
+        contentType: ContentType,
+        wildcardCategory: CategoryEntity,
+        visibleCategories: List<CategoryEntity>,
+        maxPages: Int,
+        initialJob: XtreamIndexJobEntity?,
+        onProgress: ((String) -> Unit)?
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val normalVisibleCategoryIds = mutableSetOf<Long>()
+        visibleCategories.forEach { category ->
+            if (!api.isWildcardCategory(contentType, category.categoryId)) {
+                normalVisibleCategoryIds += category.categoryId
+            }
+        }
+        val visibleCategoryIds = normalVisibleCategoryIds.takeIf { it.isNotEmpty() }
+        val hydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+        if (!canAttemptStalkerCategory(hydration, now)) return false
+
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = "RUNNING",
+            now = now,
+            totalCategories = visibleCategories.size,
+            completedCategories = 0,
+            failedCategories = 0,
+            indexedRows = currentStalkerIndexedRowCount(provider.id, contentType),
+            lastAttemptAt = now,
+            lastError = null
+        )
+
+        var skippedMalformedRows = initialJob?.skippedMalformedRows ?: 0
+        val seenPageFingerprints = mutableSetOf<String>()
+        var pagesProcessed = 0
+        var rowsCommitted = 0
+        var lastError: String? = null
+        var restoreMovieWatchProgressPending = false
+        var indexedRowsEstimate = currentStalkerIndexedRowCount(provider.id, contentType)
+        val sectionStartedAt = System.currentTimeMillis()
+
+        try {
+        while (pagesProcessed < maxPages) {
+            if (StalkerTrafficCoordinator.shouldDeferCatalogFetch(provider.id)) break
+            val currentHydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+            if (!canAttemptStalkerCategory(currentHydration, System.currentTimeMillis())) break
+            val nextPage = nextStalkerAttemptPage(currentHydration)
+            progress(provider.id, onProgress, "Indexing ${xtreamIndexSectionLabel(contentType)}: All page $nextPage")
+            markStalkerAttemptStarted(
+                providerId = provider.id,
+                contentType = contentType,
+                categoryId = wildcardCategory.categoryId,
+                hydration = currentHydration,
+                attemptedPage = nextPage,
+                now = System.currentTimeMillis()
+            )
+            when (val result = fetchStalkerWildcardSummaryPageWithRecovery(api, contentType, wildcardCategory.categoryId, nextPage)) {
+                is Result.Success -> {
+                    val indexedAt = System.currentTimeMillis()
+                    val dedupedItems = dedupeStalkerPageItems(result.data.items, contentType)
+                    val visibleItems = filterStalkerItemsToCategories(dedupedItems, contentType, visibleCategoryIds)
+                    skippedMalformedRows += (result.data.items.size - visibleItems.size).coerceAtLeast(0)
+                    if (nextPage == 1 && visibleItems.isEmpty()) {
+                        val message = "Stalker wildcard catalog did not return usable visible ${xtreamIndexSectionLabel(contentType)} rows."
+                        markStalkerAttemptFailed(
+                            providerId = provider.id,
+                            contentType = contentType,
+                            categoryId = wildcardCategory.categoryId,
+                            hydration = currentHydration,
+                            attemptedPage = nextPage,
+                            now = indexedAt,
+                            message = message,
+                            retryable = false,
+                            pageFingerprint = null
+                        )
+                        Log.i(TAG, "$message Falling back to per-category indexing for provider ${provider.id}.")
+                        return false
+                    }
+
+                    val pageFingerprint = stalkerPageFingerprint(visibleItems, contentType)
+                    val anomaly = detectStalkerPageAnomaly(
+                        hydration = currentHydration,
+                        requestedPage = nextPage,
+                        pagedResult = com.streamvault.data.remote.stalker.StalkerPagedResult(
+                            items = visibleItems,
+                            page = result.data.page,
+                            totalPages = result.data.totalPages,
+                            pageSize = result.data.pageSize
+                        ),
+                        pageFingerprint = pageFingerprint
+                    ) ?: pageFingerprint
+                        ?.takeIf { !seenPageFingerprints.add(it) }
+                        ?.let { "Portal repeated a wildcard page payload." }
+
+                    if (anomaly != null) {
+                        markStalkerAttemptFailed(
+                            providerId = provider.id,
+                            contentType = contentType,
+                            categoryId = wildcardCategory.categoryId,
+                            hydration = currentHydration,
+                            attemptedPage = nextPage,
+                            now = indexedAt,
+                            message = anomaly,
+                            retryable = false,
+                            pageFingerprint = pageFingerprint
+                        )
+                        Log.i(TAG, "Stalker wildcard ${contentType.name} indexing disabled for provider ${provider.id}: $anomaly")
+                        return false
+                    }
+
+                    when (contentType) {
+                        ContentType.MOVIE -> upsertXtreamMovieSummaryBatch(
+                            provider.id,
+                            visibleItems.filterIsInstance<Movie>(),
+                            indexedAt,
+                            restoreWatchProgress = false
+                        )
+                        ContentType.SERIES -> upsertXtreamSeriesSummaryBatch(provider.id, visibleItems.filterIsInstance<Series>(), indexedAt)
+                        else -> Unit
+                    }
+                    if (contentType == ContentType.MOVIE && visibleItems.isNotEmpty()) {
+                        restoreMovieWatchProgressPending = true
+                    }
+                    indexedRowsEstimate += visibleItems.size
+                    rowsCommitted += visibleItems.size
+
+                    val pageComplete = result.data.isComplete ||
+                        (result.data.items.isEmpty() && result.data.totalPages in 1..nextPage)
+                    markStalkerAttemptSucceeded(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = wildcardCategory.categoryId,
+                        hydration = currentHydration,
+                        attemptedPage = nextPage,
+                        now = indexedAt,
+                        itemCount = indexedRowsEstimate,
+                        totalPages = result.data.totalPages,
+                        pageSize = result.data.pageSize,
+                        pageComplete = pageComplete,
+                        pageFingerprint = pageFingerprint
+                    )
+                    pagesProcessed += 1
+                    if (pageComplete) break
+                }
+                is Result.Error -> {
+                    val failedAt = System.currentTimeMillis()
+                    lastError = result.message
+                    val retryable = stalkerIndexFailureState(result.exception ?: IllegalStateException(result.message)) != "FAILED_PERMANENT"
+                    markStalkerAttemptFailed(
+                        providerId = provider.id,
+                        contentType = contentType,
+                        categoryId = wildcardCategory.categoryId,
+                        hydration = currentHydration,
+                        attemptedPage = nextPage,
+                        now = failedAt,
+                        message = result.message,
+                        retryable = retryable,
+                        pageFingerprint = currentHydration?.lastPageFingerprint
+                    )
+                    return false
+                }
+                is Result.Loading -> Unit
+            }
+        }
+
+        val finishedAt = System.currentTimeMillis()
+        val refreshedHydration = getStalkerHydrationSnapshot(provider.id, contentType, wildcardCategory.categoryId)
+        val hasMorePages = canAttemptStalkerCategory(refreshedHydration, finishedAt)
+        val indexedRows = currentStalkerIndexedRowCount(provider.id, contentType)
+        val finalState = when {
+            hasMorePages -> "QUEUED"
+            refreshedHydration?.isTerminalFailure == true -> "PARTIAL"
+            refreshedHydration?.hasPruneSuppressionRisk == true -> "PARTIAL"
+            else -> "SUCCESS"
+        }
+        val deletedRows = if (finalState == "SUCCESS") {
+            xtreamContentIndexDao.pruneStaleLocalContentRows(provider.id, contentType.name)
+        } else {
+            0
+        }
+        upsertXtreamIndexJob(
+            providerId = provider.id,
+            section = contentType.name,
+            state = finalState,
+            now = finishedAt,
+            totalCategories = visibleCategories.size,
+            completedCategories = if (finalState == "SUCCESS") visibleCategories.size else 0,
+            nextCategoryIndex = if (finalState == "SUCCESS") visibleCategories.size else 0,
+            failedCategories = if (finalState == "PARTIAL") 1 else 0,
+            indexedRows = indexedRows,
+            skippedMalformedRows = skippedMalformedRows,
+            deletedPrunedRows = deletedRows,
+            clearPriority = finalState == "SUCCESS",
+            lastAttemptAt = now,
+            lastSuccessAt = finishedAt.takeIf { finalState == "SUCCESS" },
+            lastError = lastError ?: refreshedHydration?.lastError
+        )
+        updateStalkerSummaryMetadata(provider.id, contentType, indexedRows, finalState, finishedAt)
+        Log.i(
+            TAG,
+            "Stalker wildcard ${contentType.name} indexing finished for provider ${provider.id}: state=$finalState pages=$pagesProcessed rows=$rowsCommitted totalRows=$indexedRows throughput=${stalkerThroughputSummary(sectionStartedAt, pagesProcessed, rowsCommitted)}"
+        )
+        when {
+            hasMorePages -> scheduleStalkerIndexContinuation(provider, contentType, force = false)
+            finalState == "PARTIAL" -> {
+                val delaySeconds = nextRetryDelaySeconds(listOf(refreshedHydration), finishedAt)
+                if (delaySeconds > 0L) {
+                    scheduleStalkerIndexContinuation(
+                        provider = provider,
+                        section = contentType,
+                        force = false,
+                        initialDelaySeconds = delaySeconds
+                    )
+                }
+            }
+        }
+        return true
+        } finally {
+            if (contentType == ContentType.MOVIE && restoreMovieWatchProgressPending) {
+                movieDao.restoreWatchProgress(provider.id)
+            }
+        }
+    }
+
+    private data class StalkerHydrationSnapshot(
+        val lastHydratedAt: Long,
+        val itemCount: Int,
+        val lastStatus: String,
+        val lastError: String?,
+        val lastLoadedPage: Int,
+        val lastAttemptedPage: Int,
+        val lastSuccessfulPage: Int,
+        val totalPages: Int,
+        val isComplete: Boolean,
+        val pageSize: Int,
+        val retryAfterMs: Long,
+        val failureCount: Int,
+        val retryBudgetRemaining: Int,
+        val lastPageFingerprint: String?
+    )
+
+    private val StalkerHydrationSnapshot.isTerminalFailure: Boolean
+        get() = lastStatus in setOf("FAILED_PERMANENT", "FAILED_BUDGET_EXHAUSTED")
+
+    private val StalkerHydrationSnapshot.hasPruneSuppressionRisk: Boolean
+        get() = lastStatus in setOf("ANOMALY", "FAILED_RETRYABLE", "COOLDOWN")
+
+    private suspend fun getStalkerHydrationSnapshot(
+        providerId: Long,
+        contentType: ContentType,
+        categoryId: Long
+    ): StalkerHydrationSnapshot? = when (contentType) {
+        ContentType.MOVIE -> movieCategoryHydrationDao.get(providerId, categoryId)?.let { hydration ->
+            StalkerHydrationSnapshot(
+                lastHydratedAt = hydration.lastHydratedAt,
+                itemCount = hydration.itemCount,
+                lastStatus = hydration.lastStatus,
+                lastError = hydration.lastError,
+                lastLoadedPage = hydration.lastLoadedPage,
+                lastAttemptedPage = hydration.lastAttemptedPage,
+                lastSuccessfulPage = hydration.lastSuccessfulPage,
+                totalPages = hydration.totalPages,
+                isComplete = hydration.isComplete,
+                pageSize = hydration.pageSize,
+                retryAfterMs = hydration.retryAfterMs,
+                failureCount = hydration.failureCount,
+                retryBudgetRemaining = hydration.retryBudgetRemaining,
+                lastPageFingerprint = hydration.lastPageFingerprint
+            )
+        }
+        ContentType.SERIES -> seriesCategoryHydrationDao.get(providerId, categoryId)?.let { hydration ->
+            StalkerHydrationSnapshot(
+                lastHydratedAt = hydration.lastHydratedAt,
+                itemCount = hydration.itemCount,
+                lastStatus = hydration.lastStatus,
+                lastError = hydration.lastError,
+                lastLoadedPage = hydration.lastLoadedPage,
+                lastAttemptedPage = hydration.lastAttemptedPage,
+                lastSuccessfulPage = hydration.lastSuccessfulPage,
+                totalPages = hydration.totalPages,
+                isComplete = hydration.isComplete,
+                pageSize = hydration.pageSize,
+                retryAfterMs = hydration.retryAfterMs,
+                failureCount = hydration.failureCount,
+                retryBudgetRemaining = hydration.retryBudgetRemaining,
+                lastPageFingerprint = hydration.lastPageFingerprint
+            )
+        }
+        else -> null
+    }
+
+    private fun canAttemptStalkerCategory(
+        hydration: StalkerHydrationSnapshot?,
+        finishedAt: Long
+    ): Boolean {
+        if (hydration == null) return true
+        if (hydration.isComplete) return false
+        if (hydration.isTerminalFailure) return false
+        if (hydration.retryBudgetRemaining <= 0) return false
+        if (hydration.retryAfterMs > finishedAt) return false
+        return true
+    }
+
+    private fun nextStalkerAttemptPage(hydration: StalkerHydrationSnapshot?): Int {
+        if (hydration == null) return 1
+        if (hydration.lastStatus in setOf("FAILED_RETRYABLE", "COOLDOWN", "ANOMALY")) {
+            return hydration.lastAttemptedPage.coerceAtLeast(1)
+        }
+        return (hydration.lastSuccessfulPage + 1).coerceAtLeast(1)
+    }
+
+    private suspend fun markStalkerAttemptStarted(
+        providerId: Long,
+        contentType: ContentType,
+        categoryId: Long,
+        hydration: StalkerHydrationSnapshot?,
+        attemptedPage: Int,
+        now: Long
+    ) {
+        when (contentType) {
+            ContentType.MOVIE -> movieCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = hydration?.lastHydratedAt ?: 0L,
+                    itemCount = hydration?.itemCount ?: 0,
+                    lastStatus = "RUNNING",
+                    lastError = null,
+                    lastLoadedPage = hydration?.lastLoadedPage ?: 0,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
+                    totalPages = hydration?.totalPages ?: 0,
+                    isComplete = hydration?.isComplete ?: false,
+                    pageSize = hydration?.pageSize ?: 0,
+                    retryAfterMs = 0L,
+                    failureCount = hydration?.failureCount ?: 0,
+                    retryBudgetRemaining = hydration?.retryBudgetRemaining ?: STALKER_CATEGORY_RETRY_BUDGET,
+                    lastPageFingerprint = hydration?.lastPageFingerprint
+                )
+            )
+            ContentType.SERIES -> seriesCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.SeriesCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = hydration?.lastHydratedAt ?: 0L,
+                    itemCount = hydration?.itemCount ?: 0,
+                    lastStatus = "RUNNING",
+                    lastError = null,
+                    lastLoadedPage = hydration?.lastLoadedPage ?: 0,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
+                    totalPages = hydration?.totalPages ?: 0,
+                    isComplete = hydration?.isComplete ?: false,
+                    pageSize = hydration?.pageSize ?: 0,
+                    retryAfterMs = 0L,
+                    failureCount = hydration?.failureCount ?: 0,
+                    retryBudgetRemaining = hydration?.retryBudgetRemaining ?: STALKER_CATEGORY_RETRY_BUDGET,
+                    lastPageFingerprint = hydration?.lastPageFingerprint
+                )
+            )
+            else -> Unit
+        }
+    }
+
+    private suspend fun markStalkerAttemptSucceeded(
+        providerId: Long,
+        contentType: ContentType,
+        categoryId: Long,
+        hydration: StalkerHydrationSnapshot?,
+        attemptedPage: Int,
+        now: Long,
+        itemCount: Int,
+        totalPages: Int,
+        pageSize: Int,
+        pageComplete: Boolean,
+        pageFingerprint: String?
+    ) {
+        when (contentType) {
+            ContentType.MOVIE -> movieCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = now,
+                    itemCount = itemCount,
+                    lastStatus = "SUCCESS",
+                    lastError = null,
+                    lastLoadedPage = attemptedPage,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = attemptedPage,
+                    totalPages = totalPages,
+                    isComplete = pageComplete,
+                    pageSize = pageSize,
+                    retryAfterMs = 0L,
+                    failureCount = 0,
+                    retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
+                    lastPageFingerprint = pageFingerprint
+                )
+            )
+            ContentType.SERIES -> seriesCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.SeriesCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = now,
+                    itemCount = itemCount,
+                    lastStatus = "SUCCESS",
+                    lastError = null,
+                    lastLoadedPage = attemptedPage,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = attemptedPage,
+                    totalPages = totalPages,
+                    isComplete = pageComplete,
+                    pageSize = pageSize,
+                    retryAfterMs = 0L,
+                    failureCount = 0,
+                    retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
+                    lastPageFingerprint = pageFingerprint
+                )
+            )
+            else -> Unit
+        }
+    }
+
+    private suspend fun markStalkerAttemptFailed(
+        providerId: Long,
+        contentType: ContentType,
+        categoryId: Long,
+        hydration: StalkerHydrationSnapshot?,
+        attemptedPage: Int,
+        now: Long,
+        message: String,
+        retryable: Boolean,
+        pageFingerprint: String?
+    ) {
+        val priorFailures = hydration?.failureCount ?: 0
+        val remainingBudget = if (retryable) {
+            ((hydration?.retryBudgetRemaining ?: STALKER_CATEGORY_RETRY_BUDGET) - 1).coerceAtLeast(0)
+        } else {
+            0
+        }
+        val nextStatus = when {
+            !retryable -> "FAILED_PERMANENT"
+            remainingBudget <= 0 -> "FAILED_BUDGET_EXHAUSTED"
+            else -> "FAILED_RETRYABLE"
+        }
+        val retryAfterMs = if (nextStatus == "FAILED_RETRYABLE" && priorFailures > 0) {
+            now + STALKER_CATEGORY_RETRY_COOLDOWN_MILLIS * (priorFailures + 1).coerceAtLeast(1)
+        } else {
+            0L
+        }
+        when (contentType) {
+            ContentType.MOVIE -> movieCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = hydration?.lastHydratedAt ?: 0L,
+                    itemCount = hydration?.itemCount ?: 0,
+                    lastStatus = nextStatus,
+                    lastError = message,
+                    lastLoadedPage = hydration?.lastLoadedPage ?: 0,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
+                    totalPages = hydration?.totalPages ?: 0,
+                    isComplete = hydration?.isComplete ?: false,
+                    pageSize = hydration?.pageSize ?: 0,
+                    retryAfterMs = retryAfterMs,
+                    failureCount = priorFailures + 1,
+                    retryBudgetRemaining = remainingBudget,
+                    lastPageFingerprint = pageFingerprint
+                )
+            )
+            ContentType.SERIES -> seriesCategoryHydrationDao.upsert(
+                com.streamvault.data.local.entity.SeriesCategoryHydrationEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    lastHydratedAt = hydration?.lastHydratedAt ?: 0L,
+                    itemCount = hydration?.itemCount ?: 0,
+                    lastStatus = nextStatus,
+                    lastError = message,
+                    lastLoadedPage = hydration?.lastLoadedPage ?: 0,
+                    lastAttemptedPage = attemptedPage,
+                    lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
+                    totalPages = hydration?.totalPages ?: 0,
+                    isComplete = hydration?.isComplete ?: false,
+                    pageSize = hydration?.pageSize ?: 0,
+                    retryAfterMs = retryAfterMs,
+                    failureCount = priorFailures + 1,
+                    retryBudgetRemaining = remainingBudget,
+                    lastPageFingerprint = pageFingerprint
+                )
+            )
+            else -> Unit
+        }
+    }
+
+    private suspend fun fetchStalkerSummaryPageWithRecovery(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> {
+        val initial = fetchStalkerSummaryPage(api, contentType, categoryId, page)
+        val recovered = if (initial is Result.Error && isLikelyStalkerAuthFailure(initial.message, initial.exception)) {
+            Log.w(
+                TAG,
+                "Retrying Stalker ${contentType.name} page $page after auth refresh for category $categoryId"
+            )
+            api.invalidateAuthentication()
+            fetchStalkerSummaryPage(api, contentType, categoryId, page)
+        } else {
+            initial
+        }
+        if (page != 1 || recovered !is Result.Success || recovered.data.items.isNotEmpty()) {
+            return recovered
+        }
+        val fallback = fetchStalkerSummaryFirstPageFallback(api, contentType, categoryId)
+        return if (fallback is Result.Success && fallback.data.items.isNotEmpty()) {
+            Log.i(
+                TAG,
+                "Recovered empty paged Stalker ${contentType.name} first page with non-paged fallback for category $categoryId"
+            )
+            fallback
+        } else {
+            recovered
+        }
+    }
+
+    private suspend fun fetchStalkerSummaryFirstPageFallback(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> = when (contentType) {
+        ContentType.MOVIE -> when (val result = api.getVodStreams(categoryId)) {
+            is Result.Success -> Result.success(
+                com.streamvault.data.remote.stalker.StalkerPagedResult(
+                    items = result.data,
+                    page = 1,
+                    totalPages = 1,
+                    pageSize = result.data.size
+                )
+            )
+            is Result.Error -> Result.error(result.message, result.exception)
+            is Result.Loading -> Result.error("Unexpected loading state from Stalker movie first-page fallback")
+        }
+        ContentType.SERIES -> when (val result = api.getSeriesList(categoryId)) {
+            is Result.Success -> Result.success(
+                com.streamvault.data.remote.stalker.StalkerPagedResult(
+                    items = result.data,
+                    page = 1,
+                    totalPages = 1,
+                    pageSize = result.data.size
+                )
+            )
+            is Result.Error -> Result.error(result.message, result.exception)
+            is Result.Loading -> Result.error("Unexpected loading state from Stalker series first-page fallback")
+        }
+        else -> Result.error("Unsupported Stalker summary first-page fallback section: $contentType")
+    }
+
+    private suspend fun fetchStalkerWildcardSummaryPageWithRecovery(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> {
+        val initial = fetchStalkerWildcardSummaryPage(api, contentType, categoryId, page)
+        if (initial is Result.Error && isLikelyStalkerAuthFailure(initial.message, initial.exception)) {
+            Log.w(
+                TAG,
+                "Retrying Stalker wildcard ${contentType.name} page $page after auth refresh for category $categoryId"
+            )
+            api.invalidateAuthentication()
+            return fetchStalkerWildcardSummaryPage(api, contentType, categoryId, page)
+        }
+        return initial
+    }
+
+    private fun detectStalkerPageAnomaly(
+        hydration: StalkerHydrationSnapshot?,
+        requestedPage: Int,
+        pagedResult: com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>,
+        pageFingerprint: String?
+    ): String? {
+        if (pagedResult.page != requestedPage) {
+            return "Portal returned page ${pagedResult.page} while page $requestedPage was requested."
+        }
+        if (hydration != null && hydration.totalPages > 0 && pagedResult.totalPages > 0) {
+            if (pagedResult.totalPages < hydration.lastSuccessfulPage) {
+                return "Portal page count regressed below the last successful page."
+            }
+            if (
+                hydration.lastAttemptedPage == requestedPage &&
+                hydration.lastPageFingerprint != null &&
+                hydration.lastPageFingerprint == pageFingerprint &&
+                hydration.lastStatus in setOf("FAILED_RETRYABLE", "RUNNING", "ANOMALY")
+            ) {
+                return "Portal repeated the same page payload for page $requestedPage."
+            }
+        }
+        if (pagedResult.items.isEmpty() && pagedResult.totalPages > requestedPage) {
+            return "Portal returned an empty mid-catalog page for page $requestedPage."
+        }
+        return null
+    }
+
+    private fun stalkerPageFingerprint(
+        items: List<out Any>,
+        contentType: ContentType
+    ): String? {
+        if (items.isEmpty()) return "empty"
+        val seeds = when (contentType) {
+            ContentType.MOVIE -> items.filterIsInstance<Movie>().map { movie ->
+                "${movie.streamId}:${movie.categoryId}:${movie.addedAt}"
+            }
+            ContentType.SERIES -> items.filterIsInstance<Series>().map { series ->
+                "${series.providerSeriesId ?: series.seriesId}:${series.categoryId}:${series.lastModified}"
+            }
+            else -> emptyList()
+        }
+        if (seeds.isEmpty()) return null
+        return sha1Hex(seeds.joinToString("|"))
+    }
+
+    private fun dedupeStalkerPageItems(
+        items: List<out Any>,
+        contentType: ContentType
+    ): List<out Any> = when (contentType) {
+        ContentType.MOVIE -> items.filterIsInstance<Movie>().distinctBy(Movie::streamId)
+        ContentType.SERIES -> items.filterIsInstance<Series>().distinctBy { it.providerSeriesId ?: it.seriesId.toString() }
+        else -> items
+    }
+
+    private fun filterStalkerItemsToCategories(
+        items: List<out Any>,
+        contentType: ContentType,
+        visibleCategoryIds: Set<Long>?
+    ): List<out Any> = when (contentType) {
+        ContentType.MOVIE -> items.filterIsInstance<Movie>().filter { movie ->
+            visibleCategoryIds == null || movie.categoryId in visibleCategoryIds
+        }
+        ContentType.SERIES -> items.filterIsInstance<Series>().filter { series ->
+            visibleCategoryIds == null || series.categoryId in visibleCategoryIds
+        }
+        else -> items
+    }
+
+    private fun isLikelyStalkerAuthFailure(message: String, exception: Throwable?): Boolean {
+        val normalizedMessage = message.lowercase()
+        val exceptionMessage = exception?.message?.lowercase().orEmpty()
+        return normalizedMessage.contains("http 401") ||
+            normalizedMessage.contains("http 403") ||
+            normalizedMessage.contains("token") ||
+            normalizedMessage.contains("authorization") ||
+            exceptionMessage.contains("http 401") ||
+            exceptionMessage.contains("http 403") ||
+            exceptionMessage.contains("token") ||
+            exceptionMessage.contains("authorization")
+    }
+
+    private fun sha1Hex(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-1").digest(value.toByteArray(Charsets.UTF_8))
+        return buildString(bytes.size * 2) {
+            bytes.forEach { byte -> append("%02x".format(byte)) }
+        }
+    }
+
+    private fun stalkerIndexFailureState(error: Throwable): String {
+        if (isLikelyStalkerAuthFailure(sanitizeThrowableMessage(error), error)) {
+            return "FAILED_PERMANENT"
+        }
+        val message = sanitizeThrowableMessage(error).lowercase()
+        if (message.contains("not accessible") || message.contains("no accessible catalog")) {
+            return "FAILED_PERMANENT"
+        }
+        return "FAILED_RETRYABLE"
+    }
+
+    private suspend fun fetchStalkerSummaryPage(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> = when (contentType) {
+        ContentType.MOVIE -> api.getVodStreamsPage(categoryId, page)
+        ContentType.SERIES -> api.getSeriesListPage(categoryId, page)
+        else -> Result.error("Unsupported Stalker summary page section: $contentType")
+    }
+
+    private suspend fun fetchStalkerWildcardSummaryPage(
+        api: StalkerProvider,
+        contentType: ContentType,
+        categoryId: Long,
+        page: Int
+    ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> = when (contentType) {
+        ContentType.MOVIE -> api.getVodStreamsPageUsingItemCategories(categoryId, page)
+        ContentType.SERIES -> api.getSeriesListPage(categoryId, page)
+        else -> Result.error("Unsupported Stalker wildcard summary page section: $contentType")
+    }
+
+    private suspend fun allVisibleStalkerIndexCategories(
+        providerId: Long,
+        contentType: ContentType,
+        categories: List<CategoryEntity>
+    ): List<CategoryEntity> {
+        val hiddenCategoryIds = preferencesRepository.getHiddenCategoryIds(providerId, contentType).first()
+        return categories.filterNot { category -> category.categoryId in hiddenCategoryIds }
+    }
+
+    private suspend fun visibleStalkerIndexCategories(
+        contentType: ContentType,
+        categories: List<CategoryEntity>,
+        api: StalkerProvider
+    ): List<CategoryEntity> {
+        val visible = categories
+        if (visible.isEmpty()) return emptyList()
+        val normalCategories = visible.filterNot { category -> api.isWildcardCategory(contentType, category.categoryId) }
+        return if (normalCategories.isNotEmpty()) normalCategories else visible
+    }
+
+    private suspend fun currentStalkerIndexedRowCount(providerId: Long, contentType: ContentType): Int =
+        when (contentType) {
+            ContentType.MOVIE -> movieDao.getCount(providerId).first()
+            ContentType.SERIES -> seriesDao.getCount(providerId).first()
+            else -> 0
+        }
+
+    private suspend fun currentStalkerCategoryCount(providerId: Long, contentType: ContentType, categoryId: Long): Int =
+        when (contentType) {
+            ContentType.MOVIE -> movieDao.getCountByCategory(providerId, categoryId).first()
+            ContentType.SERIES -> seriesDao.getCountByCategory(providerId, categoryId).first()
+            else -> 0
+        }
+
+    private suspend fun updateStalkerSummaryMetadata(
+        providerId: Long,
+        contentType: ContentType,
+        indexedRows: Int,
+        finalState: String,
+        now: Long
+    ) {
+        val metadata = syncMetadataRepository.getMetadata(providerId) ?: SyncMetadata(providerId)
+        when (contentType) {
+            ContentType.MOVIE -> syncMetadataRepository.updateMetadata(
+                metadata.copy(
+                    lastMovieSync = now,
+                    lastMovieAttempt = now,
+                    lastMovieSuccess = if (finalState == "SUCCESS") now else metadata.lastMovieSuccess,
+                    lastMoviePartial = if (finalState != "SUCCESS") now else metadata.lastMoviePartial,
+                    movieCount = if (finalState == "SUCCESS") indexedRows else metadata.movieCount.coerceAtLeast(indexedRows),
+                    movieCatalogStale = finalState != "SUCCESS",
+                    movieSyncMode = VodSyncMode.PAGED
+                )
+            )
+            ContentType.SERIES -> syncMetadataRepository.updateMetadata(
+                metadata.copy(
+                    lastSeriesSync = now,
+                    lastSeriesSuccess = if (finalState == "SUCCESS") now else metadata.lastSeriesSuccess,
+                    seriesCount = if (finalState == "SUCCESS") indexedRows else metadata.seriesCount.coerceAtLeast(indexedRows)
+                )
+            )
+            else -> Unit
+        }
     }
 
     private suspend fun processXtreamSummaryIndexSection(
@@ -1348,6 +3058,8 @@ class SyncManager @Inject constructor(
         val resumeJob = initialJob?.takeIf { it.state in setOf("QUEUED", "RUNNING", "PARTIAL") }
         val categoryLimit = maxCategories?.coerceAtLeast(1) ?: Int.MAX_VALUE
         var nextCategoryIndex = resumeJob?.nextCategoryIndex?.coerceIn(0, indexedCategories.size) ?: 0
+        var restoreMovieWatchProgressPending = false
+        try {
         if (shouldAttemptFullXtreamSummaryStream(resumeJob, priorityCategoryId)) {
             when (val streamed = streamFullXtreamSummaryIndex(
                 provider = provider,
@@ -1443,7 +3155,8 @@ class SyncManager @Inject constructor(
                         ContentType.MOVIE -> upsertXtreamMovieSummaryBatch(
                             providerId = provider.id,
                             movies = categoryOutcome.items.filterIsInstance<Movie>(),
-                            indexedAt = System.currentTimeMillis()
+                            indexedAt = System.currentTimeMillis(),
+                            restoreWatchProgress = false
                         )
                         ContentType.SERIES -> upsertXtreamSeriesSummaryBatch(
                             providerId = provider.id,
@@ -1456,6 +3169,9 @@ class SyncManager @Inject constructor(
                         indexedRows += accepted
                         skippedMalformedRows += (categoryOutcome.rawCount - categoryOutcome.items.size).coerceAtLeast(0)
                         completedCategories++
+                    }
+                    if (contentType == ContentType.MOVIE && accepted > 0) {
+                        restoreMovieWatchProgressPending = true
                     }
                     if (category.categoryId == priorityCategoryId) {
                         priorityHandled = true
@@ -1541,6 +3257,11 @@ class SyncManager @Inject constructor(
                 lastError
             )
         }
+        } finally {
+            if (contentType == ContentType.MOVIE && restoreMovieWatchProgressPending) {
+                movieDao.restoreWatchProgress(provider.id)
+            }
+        }
     }
 
     private fun shouldAttemptFullXtreamSummaryStream(
@@ -1581,16 +3302,22 @@ class SyncManager @Inject constructor(
         )
 
         var indexedRows = 0
+        var restoreMovieWatchProgressPending = false
         val categoryNamesById = categories.associate { it.categoryId to it.name }
         val adultCategoryIds = categories.filter { it.isAdult }.mapTo(mutableSetOf()) { it.categoryId }
+        try {
         val streamResult = when (contentType) {
             ContentType.MOVIE -> api.streamVodSummaries(adultCategoryIds = adultCategoryIds) { batch ->
                 val accepted = upsertXtreamMovieSummaryBatch(
                     providerId = provider.id,
                     movies = batch.withMovieCategoryNames(categoryNamesById),
-                    indexedAt = System.currentTimeMillis()
+                    indexedAt = System.currentTimeMillis(),
+                    restoreWatchProgress = false
                 )
                 indexedRows += accepted
+                if (accepted > 0) {
+                    restoreMovieWatchProgressPending = true
+                }
                 upsertXtreamIndexJob(
                     providerId = provider.id,
                     section = contentType.name,
@@ -1653,6 +3380,11 @@ class SyncManager @Inject constructor(
             is Result.Error -> streamResult
             Result.Loading -> Result.error("Xtream summary stream did not complete")
         }
+        } finally {
+            if (contentType == ContentType.MOVIE && restoreMovieWatchProgressPending) {
+                movieDao.restoreWatchProgress(provider.id)
+            }
+        }
     }
 
     private fun List<Movie>.withMovieCategoryNames(categoryNamesById: Map<Long, String>): List<Movie> =
@@ -1670,7 +3402,8 @@ class SyncManager @Inject constructor(
     private suspend fun upsertXtreamMovieSummaryBatch(
         providerId: Long,
         movies: List<Movie>,
-        indexedAt: Long
+        indexedAt: Long,
+        restoreWatchProgress: Boolean = true
     ): Int {
         if (movies.isEmpty()) return 0
         val incoming = movies.map { movie -> movie.toEntity().copy(cacheState = "SUMMARY_ONLY", detailHydratedAt = 0L, remoteStaleAt = 0L) }
@@ -1689,7 +3422,9 @@ class SyncManager @Inject constructor(
                 }
             )
         }
-        movieDao.restoreWatchProgress(providerId)
+        if (restoreWatchProgress) {
+            movieDao.restoreWatchProgress(providerId)
+        }
         return merged.size
     }
 
@@ -2032,16 +3767,85 @@ class SyncManager @Inject constructor(
         }
 
         if (shouldSyncEpgUpfront(provider)) {
-            warnings += syncProviderEpg(
+            updateXtreamEpgJobState(
+                provider = provider,
+                state = "RUNNING",
+                now = now,
+                lastAttemptAt = now,
+                lastError = null
+            )
+            val epgResult = syncProviderEpg(
                 provider = provider,
                 metadata = metadata,
                 now = now,
                 force = force,
                 onProgress = onProgress
-            ).warnings
+            )
+            val finishedAt = System.currentTimeMillis()
+            updateXtreamEpgJobState(
+                provider = provider,
+                state = when {
+                    epgResult.warnings.isEmpty() -> "SUCCESS"
+                    epgResult.hasRetryableFailure -> "FAILED_RETRYABLE"
+                    else -> "PARTIAL"
+                },
+                now = finishedAt,
+                indexedRows = programDao.countByProvider(provider.id),
+                lastAttemptAt = now,
+                lastSuccessAt = finishedAt.takeIf { epgResult.warnings.isEmpty() },
+                lastError = epgResult.warnings.takeIf { it.isNotEmpty() }?.joinToString("; ")
+            )
+            warnings += epgResult.warnings
+        } else if (provider.epgSyncMode != ProviderEpgSyncMode.SKIP) {
+            upsertXtreamIndexJob(
+                providerId = provider.id,
+                section = "EPG",
+                state = "QUEUED",
+                now = now,
+                totalCategories = 1,
+                completedCategories = 0,
+                nextCategoryIndex = 0,
+                failedCategories = 0,
+                lastAttemptAt = now,
+                lastError = null
+            )
+            scheduleBackgroundEpgSync(provider.id)
         }
 
-        return if (warnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = warnings)
+        return if (warnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = warnings.distinct())
+    }
+
+    private suspend fun queueStalkerIndexSection(
+        providerId: Long,
+        contentType: ContentType,
+        totalCategories: Int,
+        now: Long
+    ) {
+        require(contentType == ContentType.MOVIE || contentType == ContentType.SERIES) {
+            "Unsupported Stalker index section: $contentType"
+        }
+        when (contentType) {
+            ContentType.MOVIE -> movieCategoryHydrationDao.deleteByProvider(providerId)
+            ContentType.SERIES -> seriesCategoryHydrationDao.deleteByProvider(providerId)
+            else -> Unit
+        }
+        xtreamContentIndexDao.markRowsStaleForProviderAndType(providerId, contentType.name)
+        upsertXtreamIndexJob(
+            providerId = providerId,
+            section = contentType.name,
+            state = "QUEUED",
+            now = now,
+            totalCategories = totalCategories,
+            completedCategories = 0,
+            nextCategoryIndex = 0,
+            failedCategories = 0,
+            indexedRows = 0,
+            skippedMalformedRows = 0,
+            deletedPrunedRows = 0,
+            clearPriority = true,
+            lastAttemptAt = now,
+            lastError = null
+        )
     }
 
     private suspend fun syncStalker(
@@ -2053,29 +3857,65 @@ class SyncManager @Inject constructor(
         UrlSecurityPolicy.validateStalkerPortalUrl(provider.serverUrl)?.let { message ->
             throw IllegalStateException(message)
         }
+        emitCatalogSyncProgress(section = Section.LIVE)
         progress(provider.id, onProgress, "Connecting to portal...")
         val api = createStalkerSyncProvider(provider)
         requireResult(api.authenticate(), "Failed to authenticate with portal")
 
         var metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)
         val now = System.currentTimeMillis()
+        var queuedMovieIndex = false
+        var queuedSeriesIndex = false
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastLiveSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
+            upsertXtreamIndexJob(
+                providerId = provider.id,
+                section = ContentType.LIVE.name,
+                state = "RUNNING",
+                now = now,
+                lastAttemptAt = now,
+                lastError = null
+            )
             progress(provider.id, onProgress, "Downloading Live TV...")
             val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
             val liveCatalogResult = syncStalkerLiveCatalogStaged(api, provider, hiddenLiveCategoryIds, onProgress)
+            val liveCategoryCount = categoryDao.getByProviderAndTypeSync(provider.id, ContentType.LIVE.name).size
+            val liveFinishedAt = System.currentTimeMillis()
             metadata = metadata.copy(
                 lastLiveSync = now,
                 lastLiveSuccess = now,
                 liveCount = liveCatalogResult.acceptedCount
             )
             syncMetadataRepository.updateMetadata(metadata)
+            emitCatalogSyncProgress(
+                section = Section.LIVE,
+                itemsIndexed = liveCatalogResult.acceptedCount
+            )
+            upsertXtreamIndexJob(
+                providerId = provider.id,
+                section = ContentType.LIVE.name,
+                state = "SUCCESS",
+                now = liveFinishedAt,
+                totalCategories = liveCategoryCount,
+                completedCategories = liveCategoryCount,
+                nextCategoryIndex = liveCategoryCount,
+                failedCategories = 0,
+                indexedRows = liveCatalogResult.acceptedCount,
+                lastAttemptAt = now,
+                lastSuccessAt = liveFinishedAt,
+                lastError = null
+            )
             warnings += liveCatalogResult.warnings
         }
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastMovieSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
-            progress(provider.id, onProgress, "Downloading Movies...")
+            progress(provider.id, onProgress, "Preparing Movies...")
             val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
+            emitCatalogSyncProgress(
+                section = Section.VOD,
+                total = categories.size,
+                itemsIndexed = metadata.liveCount
+            )
             // Stalker uses lazy-by-category VoD loading — only categories are persisted up
             // front. Using replaceMovieCatalog with an empty sequence would run full stale
             // deletion and destroy any movies already hydrated via on-demand category loads.
@@ -2094,21 +3934,32 @@ class SyncManager @Inject constructor(
                     )
                 }
             )
+            queueStalkerIndexSection(
+                providerId = provider.id,
+                contentType = ContentType.MOVIE,
+                totalCategories = categories.size,
+                now = now
+            )
             metadata = metadata.copy(
                 lastMovieSync = now,
                 lastMovieAttempt = now,
-                lastMovieSuccess = now,
-                movieCount = 0,
-                movieSyncMode = VodSyncMode.LAZY_BY_CATEGORY,
+                movieCount = movieDao.getCount(provider.id).first(),
+                movieSyncMode = VodSyncMode.PAGED,
                 movieWarningsCount = 0,
                 movieCatalogStale = true
             )
             syncMetadataRepository.updateMetadata(metadata)
+            queuedMovieIndex = true
         }
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastSeriesSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
-            progress(provider.id, onProgress, "Downloading Series...")
+            progress(provider.id, onProgress, "Preparing Series...")
             val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
+            emitCatalogSyncProgress(
+                section = Section.SERIES,
+                total = categories.size,
+                itemsIndexed = metadata.liveCount
+            )
             // Same rationale as movies: use replaceCategories to avoid destroying any
             // already-hydrated series rows when running a category-only Stalker sync.
             syncCatalogStore.replaceCategories(
@@ -2125,22 +3976,40 @@ class SyncManager @Inject constructor(
                     )
                 }
             )
+            queueStalkerIndexSection(
+                providerId = provider.id,
+                contentType = ContentType.SERIES,
+                totalCategories = categories.size,
+                now = now
+            )
             metadata = metadata.copy(
                 lastSeriesSync = now,
-                lastSeriesSuccess = now,
-                seriesCount = 0
+                seriesCount = seriesDao.getCount(provider.id).first()
             )
             syncMetadataRepository.updateMetadata(metadata)
+            queuedSeriesIndex = true
         }
 
-        if (shouldSyncEpgUpfront(provider)) {
-            warnings += syncProviderEpg(
-                provider = provider,
-                metadata = metadata,
+        if (provider.epgSyncMode != ProviderEpgSyncMode.SKIP) {
+            upsertXtreamIndexJob(
+                providerId = provider.id,
+                section = "EPG",
+                state = "QUEUED",
                 now = now,
-                force = force,
-                onProgress = onProgress
-            ).warnings
+                totalCategories = 1,
+                completedCategories = 0,
+                nextCategoryIndex = 0,
+                failedCategories = 0,
+                lastAttemptAt = now,
+                lastError = null
+            )
+        }
+
+        when {
+            queuedMovieIndex && queuedSeriesIndex -> scheduleStalkerIndexSync(provider.id, force = force)
+            queuedMovieIndex -> scheduleStalkerIndexContinuation(provider, ContentType.MOVIE, force = force)
+            queuedSeriesIndex -> scheduleStalkerIndexContinuation(provider, ContentType.SERIES, force = force)
+            else -> scheduleStalkerEpgIfCatalogIdle(provider)
         }
 
         return if (warnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = warnings)
@@ -2440,6 +4309,7 @@ class SyncManager @Inject constructor(
             return listOf("Stalker portal guide sync skipped because no valid guide channel IDs were available.")
         }
 
+        val previousProgramCount = programDao.countByProvider(provider.id)
         val api = createStalkerSyncProvider(provider)
         val aliasToChannelKey = buildMap {
             guideRequests.forEach { request ->
@@ -2448,19 +4318,27 @@ class SyncManager @Inject constructor(
         }
         val failedChannels = mutableListOf<String>()
         val insertBuffer = ArrayList<com.streamvault.data.local.entity.ProgramEntity>(STALKER_GUIDE_PROGRAM_BATCH_SIZE)
-        var replacedExistingGuide = false
+        val replacedChannelKeys = linkedSetOf<String>()
         val bulkCoveredChannelKeys = linkedSetOf<String>()
+        var importedProgramCount = 0
 
         suspend fun flushPrograms() {
             if (insertBuffer.isEmpty()) return
             val chunk = insertBuffer.toList()
             insertBuffer.clear()
             transactionRunner.inTransaction {
-                if (!replacedExistingGuide) {
-                    programDao.deleteByProvider(provider.id)
-                    replacedExistingGuide = true
+                chunk
+                    .map { it.channelId }
+                    .distinct()
+                    .forEach { channelId ->
+                        if (replacedChannelKeys.add(channelId)) {
+                            programDao.deleteForChannel(provider.id, channelId)
+                        }
+                    }
+                if (chunk.isNotEmpty()) {
+                    programDao.insertAll(chunk)
+                    importedProgramCount += chunk.size
                 }
-                programDao.insertAll(chunk)
             }
         }
 
@@ -2546,23 +4424,19 @@ class SyncManager @Inject constructor(
 
         flushPrograms()
 
-        if (!replacedExistingGuide && failedChannels.isNotEmpty()) {
+        if (replacedChannelKeys.isEmpty() && failedChannels.isNotEmpty()) {
             return listOf(
                 "Stalker portal guide sync failed for all ${failedChannels.size} channels; keeping existing guide data."
             )
         }
 
-        if (!replacedExistingGuide) {
-            transactionRunner.inTransaction {
-                programDao.deleteByProvider(provider.id)
-            }
-        }
-
         val epgCount = programDao.countByProvider(provider.id)
+        val guideLooksHealthy = epgCount >= STALKER_MIN_HEALTHY_EPG_PROGRAMS || previousProgramCount == 0
+        val existingMetadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)
         syncMetadataRepository.updateMetadata(
-            (syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)).copy(
+            existingMetadata.copy(
                 lastEpgSync = now,
-                lastEpgSuccess = now,
+                lastEpgSuccess = if (guideLooksHealthy) now else existingMetadata.lastEpgSuccess,
                 epgCount = epgCount
             )
         )
@@ -2574,6 +4448,11 @@ class SyncManager @Inject constructor(
         if (failedChannels.isNotEmpty()) {
             warnings.add(
                 "Stalker portal guide imported $epgCount programs, but ${failedChannels.size} channels failed (${summarizeChannelNames(failedChannels)})."
+            )
+        }
+        if (!guideLooksHealthy && previousProgramCount >= STALKER_MIN_HEALTHY_EPG_PROGRAMS) {
+            warnings.add(
+                "Stalker portal guide import looked incomplete ($importedProgramCount programs across ${replacedChannelKeys.size} channels); preserved untouched prior guide data for the rest."
             )
         }
         return warnings
@@ -2671,7 +4550,8 @@ class SyncManager @Inject constructor(
                         val acceptedCount = finalizeXtreamLiveCatalog(
                             providerId = provider.id,
                             liveSyncResult = liveSyncResult,
-                            hiddenLiveCategoryIds = hiddenLiveCategoryIds
+                            hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                            onProgress = onProgress
                         ).acceptedCount
                         syncMetadataRepository.updateMetadata(
                             currentMetadata.copy(
@@ -2689,6 +4569,7 @@ class SyncManager @Inject constructor(
                             providerId = provider.id,
                             liveSyncResult = liveSyncResult,
                             hiddenLiveCategoryIds = hiddenLiveCategoryIds,
+                            onProgress = onProgress,
                             partialCompletionWarning = "Live TV retry completed partially."
                         )
                         val acceptedCount = commitResult.acceptedCount
@@ -2752,17 +4633,46 @@ class SyncManager @Inject constructor(
                 syncMetadataRepository.updateMetadata(metadata)
             }
             ProviderType.STALKER_PORTAL -> {
+                emitCatalogSyncProgress(section = Section.LIVE)
                 progress(provider.id, onProgress, "Retrying Live TV...")
+                upsertXtreamIndexJob(
+                    providerId = provider.id,
+                    section = ContentType.LIVE.name,
+                    state = "RUNNING",
+                    now = now,
+                    lastAttemptAt = now,
+                    lastError = null
+                )
                 val api = createStalkerSyncProvider(provider)
                 val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
                 val liveCatalogResult = syncStalkerLiveCatalogStaged(api, provider, hiddenLiveCategoryIds, onProgress)
+                val liveCategoryCount = categoryDao.getByProviderAndTypeSync(provider.id, ContentType.LIVE.name).size
+                val liveFinishedAt = System.currentTimeMillis()
                 val metadata = (syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id))
                     .copy(
                         lastLiveSync = now,
                         lastLiveSuccess = now,
                         liveCount = liveCatalogResult.acceptedCount
-                    )
+                )
                 syncMetadataRepository.updateMetadata(metadata)
+                emitCatalogSyncProgress(
+                    section = Section.LIVE,
+                    itemsIndexed = liveCatalogResult.acceptedCount
+                )
+                upsertXtreamIndexJob(
+                    providerId = provider.id,
+                    section = ContentType.LIVE.name,
+                    state = "SUCCESS",
+                    now = liveFinishedAt,
+                    totalCategories = liveCategoryCount,
+                    completedCategories = liveCategoryCount,
+                    nextCategoryIndex = liveCategoryCount,
+                    failedCategories = 0,
+                    indexedRows = liveCatalogResult.acceptedCount,
+                    lastAttemptAt = now,
+                    lastSuccessAt = liveFinishedAt,
+                    lastError = null
+                )
                 sectionWarnings += liveCatalogResult.warnings
             }
         }
@@ -2834,12 +4744,17 @@ class SyncManager @Inject constructor(
                 syncMetadataRepository.updateMetadata(metadata)
             }
             ProviderType.STALKER_PORTAL -> {
-                progress(provider.id, onProgress, "Retrying Movies...")
+                progress(provider.id, onProgress, "Queueing Movies index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
-                val movies = loadStalkerMoviesByCategory(api, categories, onProgress)
-                val acceptedCount = syncCatalogStore.replaceMovieCatalog(
+                emitCatalogSyncProgress(
+                    section = Section.VOD,
+                    total = categories.size,
+                    itemsIndexed = movieDao.getCount(provider.id).first()
+                )
+                syncCatalogStore.replaceCategories(
                     providerId = provider.id,
+                    type = "MOVIE",
                     categories = categories.map { category ->
                         CategoryEntity(
                             providerId = provider.id,
@@ -2849,20 +4764,25 @@ class SyncManager @Inject constructor(
                             type = ContentType.MOVIE,
                             isAdult = category.isAdult
                         )
-                    },
-                    movies = movies.asSequence().map { it.toEntity() }
+                    }
+                )
+                queueStalkerIndexSection(
+                    providerId = provider.id,
+                    contentType = ContentType.MOVIE,
+                    totalCategories = categories.size,
+                    now = now
                 )
                 val metadata = (syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id))
                     .copy(
                         lastMovieSync = now,
                         lastMovieAttempt = now,
-                        lastMovieSuccess = now,
-                        movieCount = acceptedCount,
-                        movieSyncMode = VodSyncMode.FULL,
+                        movieCount = movieDao.getCount(provider.id).first(),
+                        movieSyncMode = VodSyncMode.PAGED,
                         movieWarningsCount = 0,
-                        movieCatalogStale = false
+                        movieCatalogStale = true
                     )
                 syncMetadataRepository.updateMetadata(metadata)
+                scheduleStalkerIndexContinuation(provider, ContentType.MOVIE, force = true)
             }
         }
         return if (sectionWarnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = sectionWarnings)
@@ -2911,12 +4831,17 @@ class SyncManager @Inject constructor(
                 Log.i(TAG, "Queued Xtream series index for provider ${provider.id}: $categoryCount categories.")
             }
             ProviderType.STALKER_PORTAL -> {
-                progress(provider.id, onProgress, "Retrying Series...")
+                progress(provider.id, onProgress, "Queueing Series index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
-                val series = loadStalkerSeriesByCategory(api, categories, onProgress)
-                val acceptedCount = syncCatalogStore.replaceSeriesCatalog(
+                emitCatalogSyncProgress(
+                    section = Section.SERIES,
+                    total = categories.size,
+                    itemsIndexed = seriesDao.getCount(provider.id).first()
+                )
+                syncCatalogStore.replaceCategories(
                     providerId = provider.id,
+                    type = "SERIES",
                     categories = categories.map { category ->
                         CategoryEntity(
                             providerId = provider.id,
@@ -2926,17 +4851,22 @@ class SyncManager @Inject constructor(
                             type = ContentType.SERIES,
                             isAdult = category.isAdult
                         )
-                    },
-                    series = series.asSequence().map { it.toEntity() }
+                    }
                 )
                 val now = System.currentTimeMillis()
+                queueStalkerIndexSection(
+                    providerId = provider.id,
+                    contentType = ContentType.SERIES,
+                    totalCategories = categories.size,
+                    now = now
+                )
                 val metadata = (syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id))
                     .copy(
                         lastSeriesSync = now,
-                        lastSeriesSuccess = now,
-                        seriesCount = acceptedCount
+                        seriesCount = seriesDao.getCount(provider.id).first()
                     )
                 syncMetadataRepository.updateMetadata(metadata)
+                scheduleStalkerIndexContinuation(provider, ContentType.SERIES, force = true)
             }
             ProviderType.M3U -> {
                 throw IllegalStateException("Series retry is unavailable for this provider")
@@ -3086,8 +5016,10 @@ class SyncManager @Inject constructor(
         providerId: Long,
         liveSyncResult: CatalogSyncPayload<Channel>,
         hiddenLiveCategoryIds: Set<Long>,
+        onProgress: ((String) -> Unit)? = null,
         partialCompletionWarning: String? = null
     ): XtreamLiveCommitResult {
+        progress(providerId, onProgress, "Saving Live TV channels...")
         val warnings = buildList {
             addAll(liveSyncResult.warnings)
             addAll(catalogStrategySupport.strategyWarnings(liveSyncResult.catalogResult))
@@ -3226,6 +5158,24 @@ class SyncManager @Inject constructor(
         callback?.invoke(message)
     }
 
+    private fun emitCatalogSyncProgress(
+        section: Section,
+        current: Int = 0,
+        total: Int = 0,
+        currentLabel: String = "",
+        itemsIndexed: Int = 0
+    ) {
+        syncProgressBus.emit(
+            SyncProgress(
+                section = section,
+                current = current,
+                total = total,
+                currentLabel = currentLabel,
+                itemsIndexed = itemsIndexed
+            )
+        )
+    }
+
     private fun publishSyncState(providerId: Long, state: SyncState) {
         syncStateTracker.publish(providerId, state)
     }
@@ -3347,9 +5297,25 @@ class SyncManager @Inject constructor(
             api = stalkerApiService,
             portalUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = provider.password,
+            portalFingerprintHint = provider.stalkerPortalFingerprint,
+            magPresetHint = provider.stalkerMagPreset,
+            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
+            endpointPreferenceHint = provider.stalkerEndpointPreference,
+            cookieModeHint = provider.stalkerCookieMode,
+            playbackBackendHint = provider.stalkerPlaybackBackendHint,
+            portalProfileHint = provider.stalkerPortalProfile,
+            preferredPlaybackMode = provider.stalkerLastPlaybackMode
+                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale
+            locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature
         )
     }
 
@@ -3357,23 +5323,38 @@ class SyncManager @Inject constructor(
         api: StalkerProvider,
         categories: List<com.streamvault.domain.model.Category>,
         onProgress: ((String) -> Unit)?
-    ): List<Channel> {
+    ): StalkerLiveCategoryLoadResult {
         progress(api.providerId, onProgress, "Loading live channels...")
         val bulkChannels = requireResult(api.getLiveStreams(null), "Failed to load live channels")
         if (categories.isEmpty()) {
-            return bulkChannels
+            return StalkerLiveCategoryLoadResult(channels = bulkChannels)
         }
 
         val hasResolvedCategories = bulkChannels.any { channel -> channel.categoryId != null }
         if (bulkChannels.isNotEmpty() && hasResolvedCategories) {
-            return bulkChannels.distinctBy { it.streamId }
+            return StalkerLiveCategoryLoadResult(channels = bulkChannels.distinctBy { it.streamId })
         }
 
-        return categories.flatMap { category ->
-            progress(api.providerId, onProgress, "Loading ${category.name}...")
-            requireResult(api.getLiveStreams(category.id), "Failed to load live channels for ${category.name}")
-        }.distinctBy { it.streamId }
+        return fetchStalkerLiveChannelsByCategory(
+            provider = requireNotNull(providerDao.getById(api.providerId)) {
+                "Provider ${api.providerId} not found while loading live channels"
+            }.toDomain(),
+            api = api,
+            categories = categories.map { category ->
+                XtreamCategory(
+                    categoryId = category.id.toString(),
+                    categoryName = category.name,
+                    isAdult = category.isAdult
+                )
+            },
+            onProgress = onProgress
+        )
     }
+
+    private data class StalkerLiveCategoryLoadResult(
+        val channels: List<Channel>,
+        val warnings: List<String> = emptyList()
+    )
 
     private data class StalkerLiveCatalogResult(
         val categories: List<CategoryEntity>,
@@ -3432,40 +5413,10 @@ class SyncManager @Inject constructor(
             batch.clear()
         }
 
-        try {
-            when (val streamResult = api.streamLiveStreams { channel ->
-                if (channel.categoryId != null && channel.categoryId in hiddenLiveCategoryIds) {
-                    return@streamLiveStreams
-                }
-                batch += channel
-                if (batch.size >= XTREAM_FALLBACK_STAGE_BATCH_SIZE) {
-                    flushBatch()
-                }
-            }) {
-                is com.streamvault.domain.model.Result.Success -> flushBatch()
-                is com.streamvault.domain.model.Result.Error -> {
-                    val profileDiagnostic = stalkerCatalogAccessDiagnostic(
-                        api = api,
-                        primaryMessage = categoriesErrorMessage.orEmpty(),
-                        fallbackMessage = streamResult.message
-                    )
-                    throw IllegalStateException(
-                        buildString {
-                            append(streamResult.message.ifBlank { "Failed to load live channels" })
-                            profileDiagnostic?.let {
-                                append(' ')
-                                append(it)
-                            }
-                        },
-                        streamResult.exception
-                    )
-                }
-                is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
-            }
-
+        suspend fun finalizeStagedImport(): StagedStalkerLiveCatalogResult {
             val sessionId = stagedSessionId
             if (acceptedCount == 0 || sessionId == null) {
-                throw IllegalStateException("Stalker bulk live catalog returned no usable channels.")
+                throw IllegalStateException("Stalker live catalog returned no usable channels.")
             }
 
             if (hiddenLiveCategoryIds.isNotEmpty()) {
@@ -3487,6 +5438,85 @@ class SyncManager @Inject constructor(
                 .takeIf { it.isNotEmpty() }
             syncCatalogStore.applyStagedLiveCatalog(provider.id, sessionId, categories)
             return StagedStalkerLiveCatalogResult(acceptedCount, warnings)
+        }
+
+        try {
+            var bulkFailure: Exception? = null
+            when (val streamResult = api.streamLiveStreams { channel ->
+                    if (channel.categoryId != null && channel.categoryId in hiddenLiveCategoryIds) {
+                        return@streamLiveStreams
+                    }
+                    batch += channel
+                    if (batch.size >= XTREAM_FALLBACK_STAGE_BATCH_SIZE) {
+                        flushBatch()
+                    }
+                }) {
+                is com.streamvault.domain.model.Result.Success -> {
+                    flushBatch()
+                    return finalizeStagedImport()
+                }
+                is com.streamvault.domain.model.Result.Error -> {
+                    val profileDiagnostic = stalkerCatalogAccessDiagnostic(
+                        api = api,
+                        primaryMessage = categoriesErrorMessage.orEmpty(),
+                        fallbackMessage = streamResult.message
+                    )
+                    bulkFailure = IllegalStateException(
+                        buildString {
+                            append(streamResult.message.ifBlank { "Failed to load live channels" })
+                            profileDiagnostic?.let {
+                                append(' ')
+                                append(it)
+                            }
+                        },
+                        streamResult.exception
+                    )
+                }
+                is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
+            }
+
+            stagedSessionId?.let { syncCatalogStore.discardStagedImport(provider.id, it) }
+            stagedSessionId = null
+            acceptedCount = 0
+            batch.clear()
+            seenStreamIds.clear()
+
+            val fallbackCategories = preferredCategories.orEmpty()
+            if (fallbackCategories.isEmpty()) {
+                throw bulkFailure ?: IllegalStateException("Failed to load live channels")
+            }
+
+            Log.w(
+                TAG,
+                "Stalker bulk live sync failed for provider ${provider.id}; falling back to category live fetches.",
+                bulkFailure
+            )
+            warnings += "Bulk live request failed; recovered using per-category live fetches."
+
+            val fallbackResult = fetchStalkerLiveChannelsByCategory(
+                provider = provider,
+                api = api,
+                categories = fallbackCategories.map { category ->
+                    XtreamCategory(
+                        categoryId = category.categoryId.toString(),
+                        categoryName = category.name,
+                        isAdult = category.isAdult
+                    )
+                },
+                onProgress = onProgress
+            )
+            warnings += fallbackResult.warnings
+            fallbackResult.channels.forEach { channel ->
+                if (channel.categoryId != null && channel.categoryId in hiddenLiveCategoryIds) {
+                    return@forEach
+                }
+                batch += channel
+                if (batch.size >= XTREAM_FALLBACK_STAGE_BATCH_SIZE) {
+                    flushBatch()
+                }
+            }
+            flushBatch()
+            return finalizeStagedImport()
         } catch (error: CancellationException) {
             stagedSessionId?.let { syncCatalogStore.discardStagedImport(provider.id, it) }
             throw error
@@ -3503,10 +5533,11 @@ class SyncManager @Inject constructor(
     ): StalkerLiveCatalogResult {
         return when (val categoriesResult = api.getLiveCategories()) {
             is com.streamvault.domain.model.Result.Success -> {
-                val channels = loadStalkerChannelsByCategory(api, categoriesResult.data, onProgress)
+                val channelResult = loadStalkerChannelsByCategory(api, categoriesResult.data, onProgress)
                 StalkerLiveCatalogResult(
                     categories = categoriesResult.data.map { it.toEntity(provider.id) },
-                    channels = channels
+                    channels = channelResult.channels,
+                    warnings = channelResult.warnings
                 )
             }
             is com.streamvault.domain.model.Result.Error -> {
@@ -3558,6 +5589,87 @@ class SyncManager @Inject constructor(
         }
     }
 
+    private suspend fun fetchStalkerLiveChannelsByCategory(
+        provider: Provider,
+        api: StalkerProvider,
+        categories: List<XtreamCategory>,
+        onProgress: ((String) -> Unit)?
+    ): StalkerLiveCategoryLoadResult {
+        if (categories.isEmpty()) {
+            return StalkerLiveCategoryLoadResult(emptyList())
+        }
+
+        val runtimeProfile = CatalogSyncRuntimeProfile.from(applicationContext)
+        val concurrency = minOf(
+            categories.size,
+            runtimeProfile.maxCategoryConcurrency,
+            STALKER_MAX_PARALLEL_CATEGORY_FETCHES
+        ).coerceAtLeast(1)
+        val executionPlan = executeCategoryRecoveryPlan(
+            provider = provider,
+            categories = categories,
+            initialConcurrency = concurrency,
+            sectionLabel = "Live TV",
+            sequentialModeWarning = LIVE_CATEGORY_SEQUENTIAL_MODE_WARNING,
+            onProgress = onProgress,
+            fetch = { category -> fetchStalkerLiveCategoryOutcome(api, category) }
+        )
+        var timedOutcomes = executionPlan.outcomes
+
+        val categoryOutcomes = timedOutcomes.map { it.outcome }
+        val failureCount = timedOutcomes.count { it.outcome is CategoryFetchOutcome.Failure }
+        val fastFailureCount = timedOutcomes.count {
+            it.elapsedMs <= 5_000L && it.outcome is CategoryFetchOutcome.Failure
+        }
+        val downgradeRecommended = catalogStrategySupport.shouldDowngradeCategorySync(
+            categories.size,
+            failureCount,
+            fastFailureCount,
+            categoryOutcomes
+        )
+        var warnings = executionPlan.warnings
+
+        if (concurrency > 1 && catalogStrategySupport.shouldRetryFailedCategories(
+                categories.size,
+                failureCount,
+                downgradeRecommended,
+                categoryOutcomes
+            )
+        ) {
+            val failedRetryTotal = timedOutcomes.count { it.outcome is CategoryFetchOutcome.Failure }
+            Log.w(
+                TAG,
+                "Stalker live category sync is continuing in sequential mode for failed categories on provider ${provider.id}."
+            )
+            progress(provider.id, onProgress, "Retrying failed Live TV categories 0/$failedRetryTotal...")
+            timedOutcomes = continueFailedCategoryOutcomes(
+                provider = provider,
+                timedOutcomes = timedOutcomes,
+                fetchSequentially = { category -> fetchStalkerLiveCategoryOutcome(api, category) },
+                onCategoryRetried = { completed, total, _ ->
+                    progress(provider.id, onProgress, "Retrying failed Live TV categories $completed/$total...")
+                }
+            )
+            warnings = (
+                warnings + if (downgradeRecommended) listOf(LIVE_CATEGORY_SEQUENTIAL_MODE_WARNING) else emptyList()
+            ).distinct()
+        }
+
+        val finalOutcomes = timedOutcomes.map { it.outcome }
+        val channels = finalOutcomes
+            .filterIsInstance<CategoryFetchOutcome.Success<Channel>>()
+            .flatMap { outcome -> outcome.items }
+            .distinctBy { channel -> channel.streamId }
+        val outcomeWarnings = finalOutcomes
+            .filterIsInstance<CategoryFetchOutcome.Failure>()
+            .map { failure -> categoryFailureWarning("Live TV", failure.categoryName, failure.error) }
+
+        return StalkerLiveCategoryLoadResult(
+            channels = channels,
+            warnings = (outcomeWarnings + warnings).distinct()
+        )
+    }
+
     private suspend fun stalkerCatalogAccessDiagnostic(
         api: StalkerProvider,
         primaryMessage: String,
@@ -3569,6 +5681,9 @@ class SyncManager @Inject constructor(
         val profile = when (val profileResult = api.getAccountProfile()) {
             is com.streamvault.domain.model.Result.Success -> profileResult.data
             else -> return null
+        }
+        if (profile.ambiguousState) {
+            return "Portal profile is ambiguous; playback/session validation failed. Check that the MAC is activated and that this portal supports MAG-style playback for the assigned account."
         }
         if (!profile.hasLikelyMissingCatalogAccess()) {
             return null
@@ -3657,6 +5772,40 @@ class SyncManager @Inject constructor(
         category: XtreamCategory
     ): TimedCategoryOutcome<Channel> = xtreamFetcher.fetchLiveCategoryOutcome(provider, api, category)
 
+    private suspend fun fetchStalkerLiveCategoryOutcome(
+        api: StalkerProvider,
+        category: XtreamCategory
+    ): TimedCategoryOutcome<Channel> {
+        val startedAt = System.currentTimeMillis()
+        val outcome = try {
+            val categoryId = category.categoryId.toLongOrNull()
+                ?: throw IllegalArgumentException("Invalid Stalker live category id '${category.categoryId}'")
+            val channels = requireResult(
+                api.getLiveStreams(categoryId),
+                "Failed to load live channels for ${category.categoryName}"
+            ).distinctBy { it.streamId }
+            if (channels.isEmpty()) {
+                CategoryFetchOutcome.Empty(category.categoryName)
+            } else {
+                CategoryFetchOutcome.Success(
+                    categoryName = category.categoryName,
+                    items = channels,
+                    rawCount = channels.size
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            CategoryFetchOutcome.Failure(category.categoryName, error)
+        }
+
+        return TimedCategoryOutcome(
+            category = category,
+            outcome = outcome,
+            elapsedMs = System.currentTimeMillis() - startedAt
+        )
+    }
+
     private suspend fun fetchMovieCategoryOutcome(
         provider: Provider,
         api: XtreamProvider,
@@ -3672,6 +5821,8 @@ class SyncManager @Inject constructor(
     private suspend fun <T> continueFailedCategoryOutcomes(
         provider: Provider,
         timedOutcomes: List<TimedCategoryOutcome<T>>,
-        fetchSequentially: suspend (XtreamCategory) -> TimedCategoryOutcome<T>
-    ): List<TimedCategoryOutcome<T>> = xtreamSupport.continueFailedCategoryOutcomes(provider, timedOutcomes, fetchSequentially)
+        fetchSequentially: suspend (XtreamCategory) -> TimedCategoryOutcome<T>,
+        onCategoryRetried: ((completed: Int, total: Int, currentLabel: String) -> Unit)? = null
+    ): List<TimedCategoryOutcome<T>> =
+        xtreamSupport.continueFailedCategoryOutcomes(provider, timedOutcomes, fetchSequentially, onCategoryRetried)
 }

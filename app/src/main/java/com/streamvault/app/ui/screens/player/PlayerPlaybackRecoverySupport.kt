@@ -8,7 +8,10 @@ internal fun classifyPlaybackError(error: PlayerError): PlayerRecoveryType = whe
             PlayerRecoveryType.BUFFER_TIMEOUT
         } else if (
             error.message.contains("HTTP 456", ignoreCase = true) ||
-            error.message.contains("access denied", ignoreCase = true)
+            error.message.contains("HTTP 509", ignoreCase = true) ||
+            error.message.contains("access denied", ignoreCase = true) ||
+            error.message.contains("temporary link", ignoreCase = true) ||
+            error.message.contains("playback path", ignoreCase = true)
         ) {
             PlayerRecoveryType.SOURCE
         } else {
@@ -34,6 +37,15 @@ internal fun resolvePlaybackErrorMessage(error: PlayerError): String = when (cla
         error.message.contains("HTTP 456", ignoreCase = true) ||
             error.message.contains("access denied", ignoreCase = true) ->
             "This provider rejected playback for this channel. The MAC or subscription may not have access to this stream."
+
+        error.message.contains("HTTP 509", ignoreCase = true) ->
+            "Provider rejected playback, likely max connections or bandwidth limit."
+
+        error.message.contains("temporary link", ignoreCase = true) ->
+            "This portal issued an empty or invalid temporary link for playback."
+
+        error.message.contains("playback path", ignoreCase = true) ->
+            "This portal requires a different playback path than the default stream command."
 
         else -> "We couldn't start this stream on the available paths."
     }

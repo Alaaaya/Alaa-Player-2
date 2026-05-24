@@ -7,7 +7,7 @@ import org.junit.Test
 class FfmpegAudioFallbackPolicyTest {
 
     @Test
-    fun `auto with supported mime and available extension retries once in software`() {
+    fun `auto with supported mime and available extension does not reprepare in software`() {
         assertThat(
             shouldAttemptFfmpegAudioFallback(
                 FfmpegAudioFallbackRequest(
@@ -17,7 +17,7 @@ class FfmpegAudioFallbackPolicyTest {
                     fallbackMode = DecoderMode.SOFTWARE
                 )
             )
-        ).isTrue()
+        ).isFalse()
     }
 
     @Test

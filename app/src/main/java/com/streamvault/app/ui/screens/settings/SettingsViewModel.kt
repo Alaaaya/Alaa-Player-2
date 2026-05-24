@@ -19,6 +19,7 @@ import com.streamvault.app.update.AppUpdateDownloadStatus
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.app.update.GitHubReleaseInfo
+import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
@@ -44,6 +45,7 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageConfig
@@ -78,7 +80,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 import javax.inject.Inject
 
-private const val XTREAM_INDEX_STATUS_PREFIX = "Xtream index:"
+private const val BACKGROUND_INDEX_STATUS_PREFIX = "Background index:"
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -90,6 +92,7 @@ class SettingsViewModel @Inject constructor(
     private val channelRepository: ChannelRepository,
     private val movieRepository: MovieRepository,
     private val seriesRepository: SeriesRepository,
+    private val programDao: ProgramDao,
     private val preferencesRepository: PreferencesRepository,
     private val internetSpeedTestRunner: InternetSpeedTestRunner,
     private val backupManager: BackupManager,
@@ -188,6 +191,7 @@ class SettingsViewModel @Inject constructor(
             syncMetadataRepository = syncMetadataRepository,
             movieRepository = movieRepository,
             seriesRepository = seriesRepository,
+            programDao = programDao,
             application = appContext,
             preferencesRepository = preferencesRepository,
             activeProviderIdFlow = activeProviderIdFlow,
@@ -288,7 +292,7 @@ class SettingsViewModel @Inject constructor(
                     val preservedWarnings = state.syncWarningsByProvider
                         .filterKeys { it in providerIds }
                         .mapValues { (_, warnings) ->
-                            warnings.filterNot { warning -> warning.startsWith(XTREAM_INDEX_STATUS_PREFIX) }
+                            warnings.filterNot { warning -> warning.startsWith(BACKGROUND_INDEX_STATUS_PREFIX) }
                         }
                         .filterValues { it.isNotEmpty() }
                     state.copy(
@@ -351,9 +355,9 @@ class SettingsViewModel @Inject constructor(
             else -> section.lowercase().replaceFirstChar { it.titlecase() }
         }
         return when (state) {
-            "PARTIAL" -> "$XTREAM_INDEX_STATUS_PREFIX $label partial: ${indexedRows} indexed"
-            "FAILED_RETRYABLE" -> "$XTREAM_INDEX_STATUS_PREFIX $label retryable failed${lastError?.let { ": $it" }.orEmpty()}"
-            "FAILED_PERMANENT" -> "$XTREAM_INDEX_STATUS_PREFIX $label permanently failed${lastError?.let { ": $it" }.orEmpty()}"
+            "PARTIAL" -> "$BACKGROUND_INDEX_STATUS_PREFIX $label partial: ${indexedRows} indexed"
+            "FAILED_RETRYABLE" -> "$BACKGROUND_INDEX_STATUS_PREFIX $label retryable failed${lastError?.let { ": $it" }.orEmpty()}"
+            "FAILED_PERMANENT" -> "$BACKGROUND_INDEX_STATUS_PREFIX $label permanently failed${lastError?.let { ": $it" }.orEmpty()}"
             else -> null
         }
     }
@@ -699,6 +703,12 @@ class SettingsViewModel @Inject constructor(
     fun setPlayerSurfaceMode(mode: com.streamvault.domain.model.PlayerSurfaceMode) {
         viewModelScope.launch {
             preferencesRepository.setPlayerSurfaceMode(mode)
+        }
+    }
+
+    fun setPlayerVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerVodHttpProtocolMode(mode)
         }
     }
 

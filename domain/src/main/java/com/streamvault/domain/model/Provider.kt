@@ -15,6 +15,26 @@ data class Provider(
     val stalkerDeviceProfile: String = "",
     val stalkerDeviceTimezone: String = "",
     val stalkerDeviceLocale: String = "",
+    val stalkerSerialNumber: String = "",
+    val stalkerDeviceId: String = "",
+    val stalkerDeviceId2: String = "",
+    val stalkerSignature: String = "",
+    val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+    val stalkerMagPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    val stalkerLastBootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+    val stalkerEndpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+    val stalkerCookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
+    val stalkerPlaybackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
+    val stalkerLastPlaybackMode: String? = null,
+    val stalkerCredentialsRequired: Boolean = false,
+    val stalkerMacRequired: Boolean = true,
+    val stalkerUsesTemporaryLinks: Boolean = false,
+    val stalkerModuleRestricted: Boolean = false,
+    val stalkerStrictFingerprintRequired: Boolean = false,
+    val stalkerRecipeFallbackUsed: Boolean = false,
+    val stalkerRecipeRediscoveryAttempts: Int = 0,
     val isActive: Boolean = true,
     val maxConnections: Int = 1,
     val expirationDate: Long? = null,
@@ -54,6 +74,70 @@ enum class ProviderXtreamLiveSyncMode {
     AUTO,
     CATEGORY_BY_CATEGORY,
     STREAM_ALL
+}
+
+enum class StalkerAuthMode {
+    AUTO,
+    MAC_ONLY,
+    MAC_PLUS_CREDENTIALS,
+    CREDENTIALS_ONLY
+}
+
+enum class StalkerPortalProfile {
+    MAG_BASIC,
+    MAG_STRICT,
+    AUTH_REQUIRED,
+    AUTH_PLUS_MAG,
+    MODULE_GATED
+}
+
+enum class StalkerPortalFingerprint {
+    BASIC_MAC,
+    STRICT_MAG,
+    AUTH_ONLY,
+    AUTH_STRICT_MAG,
+    MODULE_GATED,
+    TEMP_LINK_STRICT
+}
+
+enum class StalkerMagPreset {
+    GENERIC_SAFE,
+    MAG250_LEGACY,
+    MAG254_STRICT,
+    MINISTRA_MODERN
+}
+
+enum class StalkerBootstrapRecipe {
+    GENERIC_SAFE,
+    LEGACY_MAG,
+    STRICT_MAG,
+    PORTAL_PREFERRED,
+    LOCALIZATION_STRICT,
+    AUTH_ONLY,
+    AUTH_STRICT_MAG,
+    MODULE_GATED
+}
+
+enum class StalkerEndpointPreference {
+    AUTO,
+    SERVER_LOAD,
+    PORTAL
+}
+
+enum class StalkerCookieMode {
+    NONE,
+    CREATE_LINK,
+    PLAYBACK,
+    BOTH
+}
+
+enum class StalkerPlaybackBackendHint {
+    AUTO,
+    DIRECT,
+    PLAY_LIVE,
+    PLAY_MOVIE,
+    TEMP_LINK,
+    TEMP_LINK_STRICT
 }
 
 enum class ProviderStatus {

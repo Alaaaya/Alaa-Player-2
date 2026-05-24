@@ -2,6 +2,10 @@ package com.streamvault.data.remote.stalker
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
@@ -11,8 +15,67 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 
 class OkHttpStalkerApiServiceTest {
+
+    @Test
+    fun authenticate_retries_with_legacy_recipe_and_updates_profile_metadata() = runTest {
+        val requestedVersions = mutableListOf<String>()
+        val requestedImages = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedVersions += request.url.queryParameter("ver").orEmpty()
+                        requestedImages += request.url.queryParameter("image_version").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> if (requestedVersions.size <= 2) {
+                            ""
+                        } else {
+                            """{"js":{"id":"42","name":"Legacy Box","status":"1","auth_access":true}}"""
+                        }
+                        "get_main_info" -> """{"js":{"id":"42","name":"Legacy Box","status":"1","auth_access":true}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.first.magPreset).isEqualTo(StalkerMagPreset.MAG250_LEGACY)
+        assertThat(success.data.first.bootstrapRecipe).isEqualTo(StalkerBootstrapRecipe.LEGACY_MAG)
+        assertThat(success.data.second.magPreset).isEqualTo(StalkerMagPreset.MAG250_LEGACY)
+        assertThat(success.data.second.bootstrapRecipe).isEqualTo(StalkerBootstrapRecipe.LEGACY_MAG)
+        assertThat(success.data.first.recipeEvidence).containsAtLeast("fallback_recipe", "rediscovery_attempted")
+        assertThat(requestedImages).containsExactly("218", "218", "216").inOrder()
+        assertThat(requestedVersions.last()).contains("0.2.16-r17-250")
+    }
 
     @Test
     fun authenticate_reads_token_and_profile_from_js_wrapper() = runTest {
@@ -39,6 +102,61 @@ class OkHttpStalkerApiServiceTest {
         assertThat(success.data.first.token).isEqualTo("token-123")
         assertThat(success.data.second.accountName).isEqualTo("Living Room")
         assertThat(success.data.second.maxConnections).isEqualTo(2)
+    }
+
+    @Test
+    fun authenticate_module_gated_recipe_rebuilds_profile_for_modern_mag_preset() = runTest {
+        val requestedStbTypes = mutableListOf<String>()
+        val requestedAgents = mutableListOf<String>()
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedStbTypes += request.url.queryParameter("stb_type").orEmpty()
+                        requestedAgents += request.header("X-User-Agent").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"id":"55","name":"Module Portal","status":"1","auth_access":true}}"""
+                        "get_main_info" -> """{"js":{"id":"55","name":"Module Portal","status":"1","auth_access":true}}"""
+                        "get_localization" -> """{"js":{"lang":"en","timezone":"UTC"}}"""
+                        "get_modules" -> """{"js":{"modules":{"itv":1,"vod":1}}}"""
+                        "get_events" -> """{"js":[] }"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                magPresetHint = StalkerMagPreset.GENERIC_SAFE,
+                portalFingerprintHint = com.streamvault.domain.model.StalkerPortalFingerprint.MODULE_GATED,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths.first()).isEqualTo("/portal.php")
+        assertThat(requestedStbTypes).contains("MAG322")
+        assertThat(requestedAgents.last()).contains("MAG322")
     }
 
     @Test
@@ -70,6 +188,152 @@ class OkHttpStalkerApiServiceTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         val success = result as Result.Success
         assertThat(success.data).isEqualTo("http://cdn.example.com/live/stream.ts")
+    }
+
+    @Test
+    fun createLink_uses_mag_live_storage_selector_without_changing_vod() = runTest {
+        val requested = mutableListOf<Pair<String, String>>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requested += request.url.queryParameter("type").orEmpty() to
+                        request.url.queryParameter("forced_storage").orEmpty()
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://cdn.example.com/media.ts"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+        val session = StalkerSession(
+            loadUrl = "https://portal.example.com/server/load.php",
+            portalReferer = "https://portal.example.com/c/",
+            token = "token-123"
+        )
+        val profile = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://localhost/ch/301_"
+        )
+        service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "ffmpeg http://localhost/movie/401"
+        )
+
+        assertThat(requested).containsExactly("itv" to "undefined", "vod" to "0").inOrder()
+    }
+
+    @Test
+    fun createLink_prefers_portal_endpoint_for_strict_live_temp_links() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://portal.example.com/play/live.php?stream=301&play_token=abc"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123",
+                fingerprintEvidence = StalkerFingerprintEvidence(
+                    playbackBackendHint = StalkerPlaybackBackendHint.TEMP_LINK_STRICT
+                )
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG322",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://localhost/ch/301_"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths).containsExactly("/portal.php")
+    }
+
+    @Test
+    fun createLink_keeps_server_endpoint_for_strict_vod_links() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://portal.example.com/play/movie.php?stream=401.mkv&play_token=abc"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123",
+                fingerprintEvidence = StalkerFingerprintEvidence(
+                    playbackBackendHint = StalkerPlaybackBackendHint.TEMP_LINK_STRICT
+                )
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG322",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "ffmpeg http://localhost/movie/401"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths).containsExactly("/server/load.php")
     }
 
     @Test
@@ -120,6 +384,91 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun createLink_appends_archive_window_for_archive_streams() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"cmd":"ffmpeg http://portal.example.com/play/live.php?stream=301&play_token=abc"}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.ARCHIVE,
+            cmd = "ffmpeg http://localhost/ch/301_",
+            archiveStartSeconds = 1000L,
+            archiveEndSeconds = 1300L
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data).contains("utc=1000")
+        assertThat(success.data).contains("lutc=1300")
+    }
+
+    @Test
+    fun buildStalkerDeviceProfile_sanitizes_impossible_auth_mode_hints() {
+        val credentialsOnly = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.MAC_PLUS_CREDENTIALS,
+            username = "alice",
+            password = "secret",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val macOnly = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.CREDENTIALS_ONLY,
+            username = "",
+            password = "",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val strictProfile = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            authMode = com.streamvault.domain.model.StalkerAuthMode.MAC_ONLY,
+            magPresetHint = com.streamvault.domain.model.StalkerMagPreset.MAG254_STRICT,
+            username = "",
+            password = "",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(credentialsOnly.authMode).isEqualTo(com.streamvault.domain.model.StalkerAuthMode.CREDENTIALS_ONLY)
+        assertThat(macOnly.authMode).isEqualTo(com.streamvault.domain.model.StalkerAuthMode.MAC_ONLY)
+        assertThat(strictProfile.deviceProfile).isEqualTo("MAG254")
+        assertThat(strictProfile.userAgent).contains("MAG254")
+    }
+
+    @Test
     fun authenticate_reads_json_from_callback_wrapper_and_control_char_noise() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
@@ -143,6 +492,66 @@ class OkHttpStalkerApiServiceTest {
         val success = result as Result.Success
         assertThat(success.data.first.token).isEqualTo("token-123")
         assertThat(success.data.second.accountName).isEqualTo("Living Room")
+    }
+
+    @Test
+    fun authenticate_retains_server_cookies_for_follow_up_playback_requests() = runTest {
+        val observedCookies = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "create_link") {
+                        observedCookies += request.header("Cookie").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        "create_link" -> """{"js":{"cmd":"ffmpeg http://cdn.example.com/live/stream.ts"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    val responseBuilder = Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                    if (action == "handshake") {
+                        responseBuilder.addHeader("Set-Cookie", "PHPSESSID=session-42; Path=/; HttpOnly")
+                    }
+                    responseBuilder.build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val authResult = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        ) as Result.Success
+
+        val createLinkResult = service.createLink(
+            session = authResult.data.first,
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://localhost/ch/1234_"
+        )
+
+        assertThat(createLinkResult).isInstanceOf(Result.Success::class.java)
+        assertThat(authResult.data.first.serverCookieHeader).contains("PHPSESSID=session-42")
+        assertThat(observedCookies.single()).contains("PHPSESSID=session-42")
     }
 
     @Test
@@ -269,6 +678,61 @@ class OkHttpStalkerApiServiceTest {
         val success = result as Result.Success
         assertThat(success.data.map { it.name }).containsExactly("News")
         assertThat(requestedActions).containsExactly("get_all_channels")
+    }
+
+    @Test
+    fun getLiveStreams_preserves_command_variants_and_temp_link_flags() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_all_channels" to """
+                    {"js":{"data":[
+                        {
+                            "id":"100",
+                            "name":"News",
+                            "tv_genre_id":"10",
+                            "cmd":"ffmpeg http://localhost/ch/100_",
+                            "cmd_1":"ffmpeg http://backup.example.com/play/live.php?stream=100",
+                            "cmd_2":"ffmpeg http://edge.example.com/live/news.m3u8",
+                            "mc_cmd":"ffmpeg http://mc.example.com/live/100.ts",
+                            "cmds":[{"url":"ffmpeg http://multi.example.com/live/100.ts"}],
+                            "use_http_tmp_link":"1",
+                            "nginx_secure_link":"1",
+                            "allow_local_timeshift":"1",
+                            "archive":"1"
+                        }
+                    ]}}
+                """.trimIndent()
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getLiveStreams(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            categoryId = null
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val item = (result as Result.Success).data.single()
+        assertThat(item.commandVariants.map { it.sourceKey })
+            .containsAtLeast("cmd", "cmd_1", "cmd_2", "mc_cmd", "cmds[0]")
+        assertThat(item.commandVariants.map { it.cmd })
+            .contains("ffmpeg http://edge.example.com/live/news.m3u8")
+        assertThat(item.playbackDescriptor?.primaryMode).isEqualTo(StalkerPlaybackMode.MULTI_CMD)
+        assertThat(item.portalCapabilities.useHttpTemporaryLink).isTrue()
+        assertThat(item.portalCapabilities.nginxSecureLink).isTrue()
+        assertThat(item.portalCapabilities.allowLocalTimeshift).isTrue()
+        assertThat(item.portalCapabilities.archiveAvailable).isTrue()
     }
 
     @Test
@@ -426,6 +890,43 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun getSeriesPage_parses_datetime_added_field_into_last_modified_source_timestamp() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """
+                    {"js":{"total_items":"1","max_page_items":"15","data":[{"id":"300","name":"Drama","category_id":"147","added":"2026-05-18 13:02:23","is_series":"1"}]}}
+                """.trimIndent()
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getSeriesPage(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            categoryId = "147",
+            page = 1
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        val item = success.data.items.single()
+        val expectedAddedAt = LocalDateTime.of(2026, 5, 18, 13, 2, 23)
+            .toInstant(ZoneOffset.UTC)
+            .toEpochMilli()
+        assertThat(item.addedAt).isEqualTo(expectedAddedAt)
+    }
+
+    @Test
     fun getBulkEpg_parses_channel_ids_from_bulk_response_rows() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
@@ -555,6 +1056,81 @@ class OkHttpStalkerApiServiceTest {
         val season = success.data.seasons.single()
         assertThat(season.episodes).hasSize(1)
         assertThat(season.episodes.single().cmd).isEqualTo("ffmpeg http://example.com/episode1.mp4")
+    }
+
+    @Test
+    fun getSeriesDetails_preserves_shell_season_numbers_when_followup_rows_omit_them() = runTest {
+        val requestedSeasonIds = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    val seasonId = request.url.queryParameter("season_id").orEmpty()
+                    val body = when {
+                        action != "get_ordered_list" -> error("Unexpected action '$action'")
+                        seasonId == "0" ->
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        seasonId == "1" -> {
+                            requestedSeasonIds += seasonId
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        }
+                        seasonId == "2" -> {
+                            requestedSeasonIds += seasonId
+                            """
+                                {"js":{"total_items":2,"max_page_items":14,"data":[
+                                    {"id":"55000:alpha","name":"Season 1","description":"Alpha","series":[1,2],"cmd":"shell-cmd-1"},
+                                    {"id":"55000:beta","name":"Season 2","description":"Beta","series":[1,2,3],"cmd":"shell-cmd-2"}
+                                ]}}
+                            """.trimIndent()
+                        }
+                        else -> error("Unexpected season_id '$seasonId'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getSeriesDetails(
+            session = StalkerSession(
+                loadUrl = "https://portal.example.com/server/load.php",
+                portalReferer = "https://portal.example.com/c/",
+                token = "token-123"
+            ),
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            seriesId = "55000:55000"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(requestedSeasonIds).containsExactly("1", "2")
+        assertThat(success.data.seasons.map { it.seasonNumber }).containsExactly(1, 2).inOrder()
+        assertThat(success.data.seasons.map { it.name }).containsExactly("Season 1", "Season 2").inOrder()
+        assertThat(success.data.seasons[0].episodes.map { it.episodeNumber }).containsExactly(1, 2).inOrder()
+        assertThat(success.data.seasons[1].episodes.map { it.episodeNumber }).containsExactly(1, 2, 3).inOrder()
     }
 
     private fun fakeClient(vararg responses: Pair<String, String>): OkHttpClient {

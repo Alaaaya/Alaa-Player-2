@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.cast.CastConnectionState
@@ -16,6 +17,7 @@ import com.streamvault.app.tv.WatchNextManager
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.security.CredentialDecryptionException
+import com.streamvault.data.sync.SyncManager
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.ChannelNumberingMode
@@ -97,9 +99,11 @@ class PlayerViewModel @Inject constructor(
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
+    internal val syncManager: SyncManager,
     private val okHttpClient: OkHttpClient,
 ) : ViewModel() {
     companion object {
+        private const val TAG = "PlayerViewModel"
         private const val MAX_PROGRAM_HISTORY_ITEMS = 18
         private const val MAX_UPCOMING_PROGRAM_ITEMS = 24
         private const val PLAYER_EPG_REFRESH_INTERVAL_MS = 30_000L
@@ -236,6 +240,7 @@ class PlayerViewModel @Inject constructor(
     internal var hasRetriedWithSoftwareDecoder = false
     internal var hasRetriedXtreamAuthRefresh = false
     internal val probePassedPlaybackKeys = mutableSetOf<String>()
+    internal val livePreloadCooldownProviderIds = mutableSetOf<Long>()
     private val notifiedRecordingFailureIds = mutableSetOf<String>()
     internal var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
     private var currentStreamClassLabel: String = "Primary"
@@ -334,6 +339,7 @@ class PlayerViewModel @Inject constructor(
     private var defaultIdleStandbyTimerMinutes: Int = 0
     internal var playbackTimerDefaultsApplied = false
     internal var sleepTimerExitEmitted = false
+    internal var activeStalkerPlaybackProviderId: Long? = null
 
     val castConnectionState: StateFlow<CastConnectionState> = castManager.connectionState
 
@@ -464,6 +470,14 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
             }
+        }
+        viewModelScope.launch {
+            activePlayerEngineFlow
+                .flatMapLatest { it.isPlaying }
+                .distinctUntilChanged()
+                .collect { isPlaying ->
+                    synchronizeStalkerPlaybackFetchDeferral(isPlaying)
+                }
         }
         viewModelScope.launch {
             activePlayerEngineFlow.flatMapLatest { it.retryStatus }.collect { status ->
@@ -648,6 +662,13 @@ class PlayerViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            preferencesRepository.playerVodHttpProtocolMode
+                .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
+                .collect { (engine, mode) ->
+                    engine.setVodHttpProtocolMode(mode)
+                }
+        }
+        viewModelScope.launch {
             var consecutiveLowBandwidthSeconds = 0
             var noticeShown = false
             activePlayerEngineFlow.flatMapLatest { it.playerStats }.collect { stats ->
@@ -777,6 +798,9 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
 
+            if (shouldCooldownLivePreloadAfterError(error.message)) {
+                cooldownLivePreloadForCurrentProvider("playback error")
+            }
             markStreamFailure(currentStreamUrl)
             setLastFailureReason(error.message)
             logRepositoryFailure(
@@ -1035,6 +1059,7 @@ class PlayerViewModel @Inject constructor(
             ethernetMaxHeight = preferencesRepository.playerEthernetMaxVideoHeight.first()
         )
         playerEngine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
+        playerEngine.setVodHttpProtocolMode(preferencesRepository.playerVodHttpProtocolMode.first())
         playerEngine.setAudioVideoOffsetMs(_audioVideoOffsetUiState.value.effectiveOffsetMs)
     }
 
@@ -1052,6 +1077,10 @@ class PlayerViewModel @Inject constructor(
 
         val adoptedEngine = session.engine
         return runCatching {
+            val shouldRenewAdoptedPreview = shouldRenewAdoptedPreviewOnFullscreen(
+                playbackState = adoptedEngine.playbackState.value,
+                playerStats = adoptedEngine.playerStats.value
+            )
             // Detach the Home preview surface before Player binds its own.
             adoptedEngine.clearRenderBinding()
             // Media3 requires a globally unique session ID. Release the main engine's
@@ -1078,13 +1107,13 @@ class PlayerViewModel @Inject constructor(
                         url = session.streamInfo.url
                     )
                 )
-                // Re-prime the adopted engine against the fullscreen surface path.
-                // Preview-to-fullscreen handoff can temporarily leave the reused live
-                // player with an audio-only pipeline until the new render view binds.
-                // Refreshing the current live media source makes the handoff more
-                // robust without re-resolving provider URLs or abandoning the adopted
-                // engine instance.
-                playerEngine.renewStreamUrl(session.streamInfo)
+                if (shouldRenewAdoptedPreview) {
+                    // Re-prime when the preview has not produced video yet. This keeps
+                    // the previous audio-only/stale-surface recovery path without
+                    // rebuffering a preview that is already rendering after the
+                    // PlayerView handoff switches targets in Media3's recommended order.
+                    playerEngine.renewStreamUrl(session.streamInfo)
+                }
                 playerEngine.play()
                 startTokenRenewalMonitoring(session.streamInfo.expirationTime)
                 maybeStartLiveTimeshift(session.streamInfo)
@@ -1102,7 +1131,8 @@ class PlayerViewModel @Inject constructor(
 
     internal suspend fun preparePlayer(
         streamInfo: com.streamvault.domain.model.StreamInfo,
-        requestVersion: Long
+        requestVersion: Long,
+        probeBeforePlayback: Boolean = true
     ): Boolean {
         if (!isActivePlaybackSession(requestVersion)) return false
 
@@ -1138,22 +1168,24 @@ class PlayerViewModel @Inject constructor(
             is Result.Success -> preparedStreamInfo = pluginPrepareResult.data
         }
 
-        probePlaybackUrl(preparedStreamInfo)?.let { failure ->
-            if (!isActivePlaybackSession(requestVersion)) return false
-            setLastFailureReason(failure.message)
-            showPlayerNotice(
-                message = failure.message,
-                recoveryType = failure.recoveryType,
-                actions = buildRecoveryActions(failure.recoveryType)
+        if (probeBeforePlayback) {
+            probePlaybackUrl(preparedStreamInfo)?.let { failure ->
+                if (!isActivePlaybackSession(requestVersion)) return false
+                setLastFailureReason(failure.message)
+                showPlayerNotice(
+                    message = failure.message,
+                    recoveryType = failure.recoveryType,
+                    actions = buildRecoveryActions(failure.recoveryType)
+                )
+                return false
+            }
+            probePassedPlaybackKeys.add(
+                resolvePlaybackProbeCacheKey(
+                    currentStreamUrl = currentStreamUrl,
+                    url = streamInfo.url
+                )
             )
-            return false
         }
-        probePassedPlaybackKeys.add(
-            resolvePlaybackProbeCacheKey(
-                currentStreamUrl = currentStreamUrl,
-                url = streamInfo.url
-            )
-        )
         applyPlaybackPreferences()
         if (!isActivePlaybackSession(requestVersion)) return false
         currentResolvedPlaybackUrl = preparedStreamInfo.url
@@ -1166,7 +1198,26 @@ class PlayerViewModel @Inject constructor(
 
     private suspend fun probePlaybackUrl(streamInfo: com.streamvault.domain.model.StreamInfo): PlaybackProbeFailure? {
         val url = streamInfo.url
-        if (!shouldProbePlaybackUrl(url)) return null
+        val providerId = currentProviderId.takeIf { it > 0L } ?: return null
+        val provider = providerRepository.getProvider(providerId) ?: return null
+        if (!shouldProbePlaybackUrl(url, provider)) return null
+        if (shouldSkipPlaybackProbe(provider.type, url)) {
+            Log.i(
+                TAG,
+                "Skipping playback probe provider=${provider.type.name} host=${runCatching { java.net.URI(url).host }.getOrNull().orEmpty()} " +
+                    "path=${runCatching { java.net.URI(url).path }.getOrNull().orEmpty()} reason=connection-sensitive-provider-link"
+            )
+            return null
+        }
+
+        Log.d(
+            TAG,
+            "Playback probe request provider=${provider.type.name} host=${runCatching { java.net.URI(url).host }.getOrNull().orEmpty()} " +
+                "path=${runCatching { java.net.URI(url).path }.getOrNull().orEmpty()} range=true " +
+                "ua=${!streamInfo.userAgent.isNullOrBlank()} referer=${streamInfo.headers.containsKey("Referer")} " +
+                "cookie=${streamInfo.headers.containsKey("Cookie")} auth=${streamInfo.headers.containsKey("Authorization")} " +
+                "xua=${streamInfo.headers.containsKey("X-User-Agent")}"
+        )
 
         return runCatching {
             withContext(Dispatchers.IO) {
@@ -1188,10 +1239,11 @@ class PlayerViewModel @Inject constructor(
         }.getOrNull()
     }
 
-    private suspend fun shouldProbePlaybackUrl(url: String): Boolean {
+    private fun shouldProbePlaybackUrl(
+        url: String,
+        provider: com.streamvault.domain.model.Provider
+    ): Boolean {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return false
-        val providerId = currentProviderId.takeIf { it > 0L } ?: return false
-        val provider = providerRepository.getProvider(providerId) ?: return false
         val cacheKey = resolvePlaybackProbeCacheKey(
             currentStreamUrl = currentStreamUrl,
             url = url
@@ -1536,6 +1588,11 @@ class PlayerViewModel @Inject constructor(
             xtreamStreamUrlResolver = xtreamStreamUrlResolver
         )
         resolution.credentialFailureMessage?.let { message ->
+            setLastFailureReason(message)
+            showPlayerNotice(message = message, recoveryType = PlayerRecoveryType.SOURCE)
+            return null
+        }
+        resolution.resolutionFailureMessage?.let { message ->
             setLastFailureReason(message)
             showPlayerNotice(message = message, recoveryType = PlayerRecoveryType.SOURCE)
             return null

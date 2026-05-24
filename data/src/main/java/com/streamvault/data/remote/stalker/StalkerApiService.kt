@@ -1,10 +1,27 @@
 package com.streamvault.data.remote.stalker
 
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
+import com.streamvault.domain.model.StalkerPortalFingerprint
+import com.streamvault.domain.model.StalkerPortalProfile
 
 data class StalkerDeviceProfile(
     val portalUrl: String,
     val macAddress: String,
+    val authMode: StalkerAuthMode,
+    val magPreset: StalkerMagPreset,
+    val portalFingerprint: StalkerPortalFingerprint,
+    val bootstrapRecipe: StalkerBootstrapRecipe,
+    val endpointPreference: StalkerEndpointPreference,
+    val cookieMode: StalkerCookieMode,
+    val playbackBackendHint: StalkerPlaybackBackendHint,
+    val username: String,
+    val password: String,
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
@@ -19,7 +36,33 @@ data class StalkerDeviceProfile(
 data class StalkerSession(
     val loadUrl: String,
     val portalReferer: String,
-    val token: String
+    val token: String,
+    val serverCookieHeader: String = "",
+    val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val portalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+    val magPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    val bootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+    val fingerprintEvidence: StalkerFingerprintEvidence = StalkerFingerprintEvidence(),
+    val bootstrapEvidence: List<String> = emptyList(),
+    val recipeEvidence: List<String> = emptyList(),
+    val rediscoveryAttempted: Boolean = false
+)
+
+data class StalkerFingerprintEvidence(
+    val endpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+    val cookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
+    val playbackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
+    val localizationRequired: Boolean = false,
+    val modulesRequired: Boolean = false,
+    val alternateEndpointAccepted: Boolean = false,
+    val genericPresetRejected: Boolean = false,
+    val strictPresetAccepted: Boolean = false,
+    val archiveViaCreateLink: Boolean = false,
+    val archiveViaDirectUrl: Boolean = false,
+    val archiveRequiresBootstrapPrep: Boolean = false,
+    val archiveRequiresStrictCookies: Boolean = false,
+    val archiveEndpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO
 )
 
 data class StalkerProviderProfile(
@@ -28,7 +71,24 @@ data class StalkerProviderProfile(
     val maxConnections: Int? = null,
     val expirationDate: Long? = null,
     val statusLabel: String? = null,
-    val authAccess: Boolean? = null
+    val authAccess: Boolean? = null,
+    val moduleNames: List<String> = emptyList(),
+    val bootstrapStrategy: StalkerBootstrapStrategy = StalkerBootstrapStrategy.AUTO,
+    val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    val portalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+    val magPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    val bootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+    val fingerprintEvidence: StalkerFingerprintEvidence = StalkerFingerprintEvidence(),
+    val portalCapabilities: StalkerPortalCapabilities = StalkerPortalCapabilities(),
+    val credentialRequired: Boolean = false,
+    val macRequired: Boolean = true,
+    val bootstrapEvidence: List<String> = emptyList(),
+    val recipeEvidence: List<String> = emptyList(),
+    val strictFingerprintRequired: Boolean = false,
+    val fallbackRecipeUsed: Boolean = false,
+    val rediscoveryAttempted: Boolean = false,
+    val ambiguousState: Boolean = false
 )
 
 data class StalkerCategoryRecord(
@@ -57,6 +117,19 @@ data class StalkerItemRecord(
     val youtubeTrailer: String? = null,
     val backdropUrl: String? = null,
     val containerExtension: String? = null,
+    val playbackDescriptor: StalkerPlaybackDescriptor? = null,
+    val commandVariants: List<StalkerCommandVariant> = emptyList(),
+    val portalCapabilities: StalkerPortalCapabilities = StalkerPortalCapabilities(),
+    val mcCmd: String? = null,
+    val useHttpTemporaryLink: Boolean? = null,
+    val nginxSecureLink: Boolean? = null,
+    val flussonicTemporaryLink: Boolean? = null,
+    val wowzaTemporaryLink: Boolean? = null,
+    val useLoadBalancing: Boolean? = null,
+    val allowLocalTimeshift: Boolean? = null,
+    val allowLocalPvr: Boolean? = null,
+    val allowRemotePvr: Boolean? = null,
+    val archiveAvailable: Boolean? = null,
     val addedAt: Long = 0L,
     val isAdult: Boolean = false,
     val isSeries: Boolean = false
@@ -221,6 +294,10 @@ interface StalkerApiService {
         profile: StalkerDeviceProfile,
         kind: StalkerStreamKind,
         cmd: String,
-        seriesNumber: Int? = null
+        seriesNumber: Int? = null,
+        archiveStartSeconds: Long? = null,
+        archiveEndSeconds: Long? = null
     ): Result<String>
+
+    fun currentCookieHeader(session: StalkerSession): String = session.serverCookieHeader
 }

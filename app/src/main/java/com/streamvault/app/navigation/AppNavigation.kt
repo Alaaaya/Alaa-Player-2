@@ -1,6 +1,7 @@
 package com.streamvault.app.navigation
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
@@ -37,6 +38,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 
 private const val PLAYER_REQUEST_KEY = "player_request"
+private const val TAG = "AppNavigation"
 
 data class PlayerNavigationRequest(
     val streamUrl: String,
@@ -207,8 +209,11 @@ object Routes {
 private fun isStreamUrlSafe(url: String?): Boolean {
     if (url.isNullOrBlank()) return false
     val scheme = url.substringBefore("://").lowercase()
-    return scheme in setOf("http", "https", "rtsp", "rtmp", "rtsps", "mms", "xtream", "content", "file")
+    return scheme in setOf("http", "https", "rtsp", "rtmp", "rtsps", "mms", "xtream", "stalker", "content", "file")
 }
+
+internal fun safePlayerNavigationRequest(request: PlayerNavigationRequest?): PlayerNavigationRequest? =
+    request?.takeIf { isStreamUrlSafe(it.streamUrl) }
 
 /** Navigate only when the current destination is fully resumed – prevents double-navigation during transitions. */
 private fun NavHostController.navigateIfResumed(route: String, builder: NavOptionsBuilder.() -> Unit = {}): Boolean {
@@ -629,50 +634,62 @@ fun AppNavigation(mainActivity: MainActivity) {
                 ?: navController.previousBackStackEntry?.savedStateHandle?.get<PlayerNavigationRequest>(PLAYER_REQUEST_KEY)?.also {
                     backStackEntry.savedStateHandle[PLAYER_REQUEST_KEY] = it
                 }
-            val streamUrl = if (isStreamUrlSafe(playerRequest?.streamUrl)) playerRequest?.streamUrl.orEmpty() else ""
-            PlayerScreen(
-                streamUrl = streamUrl,
-                title = playerRequest?.title.orEmpty(),
-                epgChannelId = playerRequest?.channelId,
-                internalChannelId = playerRequest?.internalId ?: -1L,
-                categoryId = playerRequest?.categoryId,
-                providerId = playerRequest?.providerId,
-                isVirtual = playerRequest?.isVirtual ?: false,
-                combinedProfileId = playerRequest?.combinedProfileId,
-                combinedSourceFilterProviderId = playerRequest?.combinedSourceFilterProviderId,
-                contentType = playerRequest?.contentType ?: "LIVE",
-                artworkUrl = playerRequest?.artworkUrl,
-                archiveStartMs = playerRequest?.archiveStartMs,
-                archiveEndMs = playerRequest?.archiveEndMs,
-                archiveTitle = playerRequest?.archiveTitle,
-                returnRoute = playerRequest?.returnRoute,
-                seriesId = playerRequest?.seriesId,
-                seasonNumber = playerRequest?.seasonNumber,
-                episodeNumber = playerRequest?.episodeNumber,
-                episodeId = playerRequest?.episodeId,
-                onBack = {
-                    val route = playerRequest?.returnRoute
-                    if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
-                        Unit
-                    } else if (!route.isNullOrBlank()) {
-                        navController.navigate(route) {
+            val safePlayerRequest = safePlayerNavigationRequest(playerRequest)
+            if (safePlayerRequest == null) {
+                LaunchedEffect(playerRequest) {
+                    Log.w(TAG, "Missing or invalid player request; returning to previous destination")
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Routes.HOME) {
                             popUpTo(Routes.PLAYER) { inclusive = true }
                             launchSingleTop = true
-                            restoreState = true
-                        }
-                    } else {
-                        navController.popBackStack()
-                    }
-                },
-                onNavigate = { route ->
-                    navController.navigateIfResumed(route) {
-                        launchSingleTop = true
-                        if (route == Routes.MULTI_VIEW) {
-                            popUpTo(Routes.PLAYER) { inclusive = true }
                         }
                     }
                 }
-            )
+            } else {
+                PlayerScreen(
+                    streamUrl = safePlayerRequest.streamUrl,
+                    title = safePlayerRequest.title,
+                    epgChannelId = safePlayerRequest.channelId,
+                    internalChannelId = safePlayerRequest.internalId,
+                    categoryId = safePlayerRequest.categoryId,
+                    providerId = safePlayerRequest.providerId,
+                    isVirtual = safePlayerRequest.isVirtual,
+                    combinedProfileId = safePlayerRequest.combinedProfileId,
+                    combinedSourceFilterProviderId = safePlayerRequest.combinedSourceFilterProviderId,
+                    contentType = safePlayerRequest.contentType,
+                    artworkUrl = safePlayerRequest.artworkUrl,
+                    archiveStartMs = safePlayerRequest.archiveStartMs,
+                    archiveEndMs = safePlayerRequest.archiveEndMs,
+                    archiveTitle = safePlayerRequest.archiveTitle,
+                    returnRoute = safePlayerRequest.returnRoute,
+                    seriesId = safePlayerRequest.seriesId,
+                    seasonNumber = safePlayerRequest.seasonNumber,
+                    episodeNumber = safePlayerRequest.episodeNumber,
+                    episodeId = safePlayerRequest.episodeId,
+                    onBack = {
+                        val route = safePlayerRequest.returnRoute
+                        if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
+                            Unit
+                        } else if (!route.isNullOrBlank()) {
+                            navController.navigate(route) {
+                                popUpTo(Routes.PLAYER) { inclusive = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        } else {
+                            navController.popBackStack()
+                        }
+                    },
+                    onNavigate = { route ->
+                        navController.navigateIfResumed(route) {
+                            launchSingleTop = true
+                            if (route == Routes.MULTI_VIEW) {
+                                popUpTo(Routes.PLAYER) { inclusive = true }
+                            }
+                        }
+                    }
+                )
+            }
         }
 
         composable(

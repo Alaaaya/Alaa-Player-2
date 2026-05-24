@@ -269,6 +269,78 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate52To53_addsStalkerHardeningHydrationColumns() {
+        migrationTestHelper.createDatabase("streamvault-52-53-test", 52).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-52-53-test",
+            53,
+            true,
+            StreamVaultDatabase.MIGRATION_52_53
+        )
+
+        val movieTable = "movie_category_hydration"
+        val seriesTable = "series_category_hydration"
+        listOf(
+            "last_attempted_page",
+            "last_successful_page",
+            "retry_after_ms",
+            "failure_count",
+            "retry_budget_remaining",
+            "last_page_fingerprint"
+        ).forEach { column ->
+            assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('$movieTable') WHERE name = '$column'"))
+            assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('$seriesTable') WHERE name = '$column'"))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate53To54_addsStalkerIdentityColumns() {
+        migrationTestHelper.createDatabase("streamvault-53-54-test", 53).apply {
+            execSQL(
+                """
+                INSERT INTO providers (
+                    id, name, type, server_url, username, password, m3u_url, epg_url,
+                    http_user_agent, http_headers, stalker_mac_address, stalker_device_profile,
+                    stalker_device_timezone, stalker_device_locale, is_active, max_connections,
+                    expiration_date, api_version, allowed_output_formats_json, epg_sync_mode,
+                    xtream_fast_sync_enabled, xtream_live_sync_mode, m3u_vod_classification_enabled,
+                    status, last_synced_at, created_at
+                ) VALUES (
+                    1, 'Portal', 'STALKER_PORTAL', 'https://portal.example.com', '', '', '', '',
+                    '', '', '00:1A:79:12:34:56', 'MAG250', 'UTC', 'en', 1, 1,
+                    NULL, NULL, '[]', 'BACKGROUND', 0, 'AUTO', 0, 'ACTIVE', 0, 0
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-53-54-test",
+            54,
+            true,
+            StreamVaultDatabase.MIGRATION_53_54
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_serial_number'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_device_id'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_device_id2'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_signature'"))
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM providers WHERE id = 1 AND stalker_serial_number = '' AND stalker_device_id = '' AND stalker_device_id2 = '' AND stalker_signature = ''"
+            )
+        )
+
+        migratedDb.close()
+    }
+
+    @Test
     fun migrate40To41_addsAudioVideoOffsetColumn() {
         migrationTestHelper.createDatabase("streamvault-40-41-test", 40).close()
 

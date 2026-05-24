@@ -19,6 +19,7 @@ import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.ImportBackup
@@ -196,9 +197,14 @@ class ProviderSetupViewModel @Inject constructor(
                         httpUserAgent = provider.httpUserAgent,
                         httpHeaders = provider.httpHeaders,
                         stalkerMacAddress = provider.stalkerMacAddress,
+                        stalkerAuthMode = provider.stalkerAuthMode,
                         stalkerDeviceProfile = provider.stalkerDeviceProfile,
                         stalkerDeviceTimezone = provider.stalkerDeviceTimezone,
                         stalkerDeviceLocale = provider.stalkerDeviceLocale,
+                        stalkerSerialNumber = provider.stalkerSerialNumber,
+                        stalkerDeviceId = provider.stalkerDeviceId,
+                        stalkerDeviceId2 = provider.stalkerDeviceId2,
+                        stalkerSignature = provider.stalkerSignature,
                         epgSyncMode = provider.epgSyncMode,
                         xtreamLiveSyncMode = provider.xtreamLiveSyncMode,
                         hasCustomizedEpgSyncMode = true,
@@ -246,10 +252,17 @@ class ProviderSetupViewModel @Inject constructor(
     fun loginStalker(
         portalUrl: String,
         macAddress: String,
+        authMode: StalkerAuthMode,
+        username: String,
+        password: String,
         name: String,
         deviceProfile: String,
         timezone: String,
-        locale: String
+        locale: String,
+        serialNumber: String = "",
+        deviceId: String = "",
+        deviceId2: String = "",
+        signature: String = ""
     ) {
         _uiState.update {
             it.copy(
@@ -269,10 +282,17 @@ class ProviderSetupViewModel @Inject constructor(
                 StalkerProviderSetupCommand(
                     portalUrl = portalUrl,
                     macAddress = macAddress,
+                    authMode = authMode,
+                    username = username,
+                    password = password,
                     name = name,
                     deviceProfile = deviceProfile,
                     timezone = timezone,
                     locale = locale,
+                    serialNumber = serialNumber,
+                    deviceId = deviceId,
+                    deviceId2 = deviceId2,
+                    signature = signature,
                     epgSyncMode = _uiState.value.epgSyncMode,
                     existingProviderId = existingId
                 ),
@@ -734,6 +754,27 @@ class ProviderSetupViewModel @Inject constructor(
         }
         val failure = result.exception
         return when {
+            result.message.contains("requires account credentials", ignoreCase = true) ->
+                "Portal requires account credentials - switch the Stalker auth mode or add the username and password"
+
+            result.message.contains("partially accepted MAC identity", ignoreCase = true) ->
+                "Portal accepted the MAC address, but playback entitlement is incomplete for this session"
+
+            result.message.contains("stricter MAG emulation", ignoreCase = true) ->
+                "Portal requires stricter MAG emulation - keep the MAC and advanced device identity fields aligned with the working device"
+
+            result.message.contains("legacy MAG recipe", ignoreCase = true) ->
+                "Portal matched a legacy MAG recipe and was retried automatically, but playback still failed"
+
+            result.message.contains("rediscovery attempted", ignoreCase = true) ->
+                "The saved Stalker portal recipe failed, and the app already retried discovery automatically"
+
+            result.message.contains("unsupported portal profile", ignoreCase = true) ->
+                "Portal authenticated, but this Stalker profile is not supported yet"
+
+            result.message.contains("no working recipe succeeded", ignoreCase = true) ->
+                "Portal family was detected, but none of the known Stalker recipes worked for this connection"
+
             failure.hasCause<CredentialDecryptionException>() ->
                 failure.findCause<CredentialDecryptionException>()?.message
                     ?: CredentialDecryptionException.MESSAGE
@@ -794,9 +835,14 @@ data class ProviderSetupState(
     val httpUserAgent: String = "",
     val httpHeaders: String = "",
     val stalkerMacAddress: String = "",
+    val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     val stalkerDeviceProfile: String = "",
     val stalkerDeviceTimezone: String = "",
     val stalkerDeviceLocale: String = "",
+    val stalkerSerialNumber: String = "",
+    val stalkerDeviceId: String = "",
+    val stalkerDeviceId2: String = "",
+    val stalkerSignature: String = "",
     val createdProviderId: Long? = null,
     val createdProviderName: String? = null,
     val pendingCombinedAttachProfileId: Long? = null,

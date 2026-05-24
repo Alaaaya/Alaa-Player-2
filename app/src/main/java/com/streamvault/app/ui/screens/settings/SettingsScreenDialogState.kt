@@ -26,6 +26,7 @@ internal class SettingsScreenDialogState(
     private val showDecoderModeDialogState: MutableState<Boolean>,
     private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
     private val showSurfaceModeDialogState: MutableState<Boolean>,
+    private val showVodHttpProtocolDialogState: MutableState<Boolean>,
     private val showTimeshiftDepthDialogState: MutableState<Boolean>,
     private val showDefaultStopTimerDialogState: MutableState<Boolean>,
     private val showDefaultIdleTimerDialogState: MutableState<Boolean>,
@@ -79,6 +80,7 @@ internal class SettingsScreenDialogState(
     var showDecoderModeDialog by showDecoderModeDialogState
     var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
     var showSurfaceModeDialog by showSurfaceModeDialogState
+    var showVodHttpProtocolDialog by showVodHttpProtocolDialogState
     var showTimeshiftDepthDialog by showTimeshiftDepthDialogState
     var showDefaultStopTimerDialog by showDefaultStopTimerDialogState
     var showDefaultIdleTimerDialog by showDefaultIdleTimerDialogState
@@ -200,6 +202,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showVodHttpProtocolDialogState = rememberSaveable { mutableStateOf(false) }
     val showTimeshiftDepthDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultStopTimerDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultIdleTimerDialogState = rememberSaveable { mutableStateOf(false) }
@@ -262,6 +265,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showDecoderModeDialogState = showDecoderModeDialogState,
         showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
         showSurfaceModeDialogState = showSurfaceModeDialogState,
+        showVodHttpProtocolDialogState = showVodHttpProtocolDialogState,
         showTimeshiftDepthDialogState = showTimeshiftDepthDialogState,
         showDefaultStopTimerDialogState = showDefaultStopTimerDialogState,
         showDefaultIdleTimerDialogState = showDefaultIdleTimerDialogState,

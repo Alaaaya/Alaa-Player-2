@@ -180,7 +180,7 @@ internal fun ProviderSettingsCard(
                     value = model.movieCatalogCount(xtreamIndexSectionStatuses["MOVIE"]),
                     syncingLabel = stringResource(R.string.settings_catalog_count_indexing)
                 )
-                if (provider.type == ProviderType.XTREAM_CODES) {
+                if (provider.type != ProviderType.M3U) {
                     ProviderCompactStat(
                         title = stringResource(R.string.settings_diagnostic_series),
                         value = model.seriesCatalogCount(xtreamIndexSectionStatuses["SERIES"]),

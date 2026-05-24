@@ -10,11 +10,13 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.entity.EpisodeBrowseEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.local.entity.SeriesBrowseEntity
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.dto.XtreamSeason
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
@@ -47,11 +49,13 @@ import com.streamvault.domain.repository.PlaybackHistoryRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -75,6 +79,7 @@ class SeriesRepositoryImplTest {
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -108,6 +113,37 @@ class SeriesRepositoryImplTest {
         verify(syncManager).prioritizeXtreamIndexCategory(7L, ContentType.SERIES, 77L)
         verify(seriesDao, never()).replaceCategory(eq(7L), eq(77L), any())
         verify(xtreamApiService, never()).getSeriesList(any(), any())
+        verify(episodeDao, never()).deleteOrphans()
+    }
+
+    @Test
+    fun `getSeriesByCategory prioritizes stalker category when background fetch is already running`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0))
+        whenever(seriesDao.getByCategory(7L, 77L)).thenReturn(flowOf(emptyList()))
+        whenever(seriesCategoryHydrationDao.get(7L, 77L)).thenReturn(null)
+        whenever(xtreamIndexJobDao.get(7L, ContentType.SERIES.name)).thenReturn(
+            XtreamIndexJobEntity(providerId = 7L, section = ContentType.SERIES.name, state = "RUNNING")
+        )
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Stalker",
+                type = ProviderType.STALKER_PORTAL,
+                serverUrl = "http://example.com",
+                username = "",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        val repository = createRepository()
+
+        val result = repository.getSeriesByCategory(7L, 77L).first()
+
+        assertThat(result).isEmpty()
+        verify(syncManager).prioritizeStalkerIndexCategory(7L, ContentType.SERIES, 77L)
+        verify(stalkerApiService, never()).getSeriesPage(any(), any(), anyOrNull(), any())
         verify(episodeDao, never()).deleteOrphans()
     }
 
@@ -261,7 +297,7 @@ class SeriesRepositoryImplTest {
             flowOf(
                 listOf(
                     SeriesBrowseEntity(id = 1L, seriesId = 101L, name = "Fresh Series", providerId = 7L, lastModified = 10_000L),
-                    SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Stale Series", providerId = 7L, lastModified = 0L)
+                    SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Stale Series", providerId = 7L, lastModified = 0L, releaseDate = "2025-01-01")
                 )
             )
         )
@@ -282,6 +318,83 @@ class SeriesRepositoryImplTest {
 
         assertThat(result.totalCount).isEqualTo(1)
         assertThat(result.items.map { it.name }).containsExactly("Fresh Series")
+    }
+
+    @Test
+    fun `browseSeries release uses release ordering while updated remains last modified`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(seriesDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(seriesDao.getReleasedPreview(7L, 100)).thenReturn(
+            flowOf(
+                listOf(
+                    SeriesBrowseEntity(
+                        id = 1L,
+                        seriesId = 101L,
+                        name = "Updated Later",
+                        providerId = 7L,
+                        releaseDate = "2020-01-01",
+                        lastModified = 20_000L
+                    ),
+                    SeriesBrowseEntity(
+                        id = 2L,
+                        seriesId = 102L,
+                        name = "Released Later",
+                        providerId = 7L,
+                        releaseDate = "2024-01-01",
+                        lastModified = 10_000L
+                    )
+                )
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.SERIES.name)).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryDao.getByProvider(7L)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseSeries(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.RELEASE,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Released Later", "Updated Later").inOrder()
+        verify(seriesDao).getReleasedPreview(7L, 100)
+        verify(seriesDao, never()).getFreshPreview(7L, 100)
+    }
+
+    @Test
+    fun `browseSeries library order uses last modified freshness instead of title order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(seriesDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(seriesDao.getFreshCursorPage(7L, 40)).thenReturn(
+            listOf(
+                SeriesBrowseEntity(id = 2L, seriesId = 102L, name = "Zulu Series", providerId = 7L, lastModified = 20_000L),
+                SeriesBrowseEntity(id = 1L, seriesId = 101L, name = "Alpha Series", providerId = 7L, lastModified = 10_000L)
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.SERIES.name)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseSeries(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.LIBRARY,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Zulu Series", "Alpha Series").inOrder()
+        verify(seriesDao).getFreshCursorPage(7L, 40)
+        verify(seriesDao, never()).getByProviderCursorPage(any(), any())
     }
 
     @Test
@@ -382,6 +495,50 @@ class SeriesRepositoryImplTest {
         assertThat(series.id).isEqualTo(15L)
         assertThat(series.name).isEqualTo("Stored Series")
         assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
+    }
+
+    @Test
+    fun `getSeriesDetails returns local series when xtream details hang`() = runTest {
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        val seriesEntity = SeriesEntity(
+            id = 15L,
+            seriesId = 301L,
+            name = "Stored Series",
+            posterUrl = "https://img.example.test/poster.jpg",
+            providerId = 7L
+        )
+        whenever(seriesDao.getById(301L)).thenReturn(null)
+        whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Xtream",
+                type = ProviderType.XTREAM_CODES,
+                serverUrl = "http://example.com",
+                username = "user",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(episodeDao.getBySeriesSync(15L)).thenReturn(emptyList())
+        whenever(xtreamApiService.getSeriesInfo(any(), any())).doSuspendableAnswer {
+            delay(30_000L)
+            XtreamSeriesInfoResponse()
+        }
+
+        val result = createRepository().getSeriesDetails(7L, 301L)
+
+        assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
+        val series = (result as com.streamvault.domain.model.Result.Success).data
+        assertThat(series.id).isEqualTo(15L)
+        assertThat(series.name).isEqualTo("Stored Series")
+        assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
+        verify(xtreamContentIndexDao).markDetailHydrationError(
+            providerId = eq(7L),
+            contentType = eq(ContentType.SERIES.name),
+            remoteId = eq("301"),
+            errorState = eq("DETAIL_FAILED_TIMEOUT")
+        )
     }
 
     @Test
@@ -614,6 +771,7 @@ class SeriesRepositoryImplTest {
         preferencesRepository = preferencesRepository,
         xtreamStreamUrlResolver = xtreamStreamUrlResolver,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         seriesCategoryHydrationDao = seriesCategoryHydrationDao
     )

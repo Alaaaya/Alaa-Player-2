@@ -2,13 +2,25 @@ package com.streamvault.data.remote.xtream
 
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
+import com.streamvault.data.remote.stalker.StalkerPlaybackResolutionException
 import com.streamvault.data.remote.stalker.StalkerStreamKind
+import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
+import com.streamvault.data.remote.stalker.buildStalkerPlaybackDescriptor
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
+import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.ProviderType
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
@@ -32,9 +44,22 @@ class XtreamStreamUrlResolver @Inject constructor(
     private data class CachedStalkerProvider(
         val serverUrl: String,
         val macAddress: String,
+        val authMode: StalkerAuthMode,
+        val username: String,
+        val password: String,
+        val portalFingerprint: StalkerPortalFingerprint,
+        val magPreset: StalkerMagPreset,
+        val bootstrapRecipe: StalkerBootstrapRecipe,
+        val endpointPreference: StalkerEndpointPreference,
+        val cookieMode: StalkerCookieMode,
+        val playbackBackendHint: StalkerPlaybackBackendHint,
         val deviceProfile: String,
         val timezone: String,
         val locale: String,
+        val serialNumber: String,
+        val deviceId: String,
+        val deviceId2: String,
+        val signature: String,
         val provider: StalkerProvider
     )
 
@@ -78,6 +103,15 @@ class XtreamStreamUrlResolver @Inject constructor(
         val provider = providerId?.let { id -> providerDao.getById(id) }
 
         if (url.isNotBlank() && !XtreamUrlFactory.isInternalStreamUrl(url) && !StalkerUrlFactory.isInternalStreamUrl(url)) {
+            if (provider?.type == ProviderType.XTREAM_CODES) {
+                resolveDirectXtreamUrl(
+                    provider = provider,
+                    url = url,
+                    fallbackStreamId = fallbackStreamId,
+                    fallbackContentType = fallbackContentType,
+                    fallbackContainerExtension = fallbackContainerExtension
+                )?.let { return it }
+            }
             if (provider?.type == ProviderType.STALKER_PORTAL) {
                 resolveDirectStalkerUrl(
                     provider = provider,
@@ -87,9 +121,11 @@ class XtreamStreamUrlResolver @Inject constructor(
                     fallbackContainerExtension = fallbackContainerExtension
                 )?.let { return it }
             }
-            return ResolvedStreamUrl(
-                url = url,
-                expirationTime = extractStreamExpirationTime(url)
+            return provider.applyPlaybackRequestProfile(
+                ResolvedStreamUrl(
+                    url = url,
+                    expirationTime = extractStreamExpirationTime(url)
+                )
             )
         }
 
@@ -115,10 +151,12 @@ class XtreamStreamUrlResolver @Inject constructor(
                 )
                 val resolvedUrl = if (preferStableUrl) fallbackResolvedUrl else (directSource ?: fallbackResolvedUrl)
 
-                ResolvedStreamUrl(
+                resolvedProvider.applyPlaybackRequestProfile(
+                    ResolvedStreamUrl(
                     url = resolvedUrl,
                     expirationTime = extractStreamExpirationTime(resolvedUrl),
                     containerExtension = ext
+                    )
                 )
             }
             ProviderType.STALKER_PORTAL -> {
@@ -130,11 +168,22 @@ class XtreamStreamUrlResolver @Inject constructor(
                 }
                 val playbackInfo = when (
                     val resolvedResult = getOrCreateStalkerProvider(resolvedProvider)
-                        .resolvePlaybackInfo(token.kind, token.cmd, token.seriesNumber)
+                        .resolvePlaybackInfo(
+                            kind = token.kind,
+                            descriptor = token.playbackDescriptor,
+                            seriesNumber = token.seriesNumber,
+                            archiveStartSeconds = token.archiveStartSeconds,
+                            archiveEndSeconds = token.archiveEndSeconds
+                        )
                 ) {
                     is com.streamvault.domain.model.Result.Success -> resolvedResult.data
+                    is com.streamvault.domain.model.Result.Error -> throw StalkerPlaybackResolutionException(
+                        resolvedResult.message,
+                        resolvedResult.exception
+                    )
                     else -> return null
                 }
+                persistStalkerPlaybackLearning(resolvedProvider, playbackInfo)
                 ResolvedStreamUrl(
                     url = playbackInfo.url,
                     expirationTime = extractStreamExpirationTime(playbackInfo.url),
@@ -144,12 +193,57 @@ class XtreamStreamUrlResolver @Inject constructor(
                 )
             }
             ProviderType.M3U -> url.takeIf { it.isNotBlank() }?.let { passthroughUrl ->
-                ResolvedStreamUrl(
-                    url = passthroughUrl,
-                    expirationTime = extractStreamExpirationTime(passthroughUrl)
+                resolvedProvider.applyPlaybackRequestProfile(
+                    ResolvedStreamUrl(
+                        url = passthroughUrl,
+                        expirationTime = extractStreamExpirationTime(passthroughUrl)
+                    )
                 )
             }
         }
+    }
+
+    private fun ProviderEntity?.applyPlaybackRequestProfile(resolved: ResolvedStreamUrl): ResolvedStreamUrl {
+        if (this == null || type == ProviderType.STALKER_PORTAL) {
+            return resolved
+        }
+        val requestProfile = toGenericRequestProfile(ownerTag = "provider:$id/playback")
+        return resolved.copy(
+            headers = requestProfile.headers + resolved.headers,
+            userAgent = resolved.userAgent?.takeIf { it.isNotBlank() } ?: requestProfile.userAgent
+        )
+    }
+
+    private fun resolveDirectXtreamUrl(
+        provider: ProviderEntity,
+        url: String,
+        fallbackStreamId: Long?,
+        fallbackContentType: ContentType?,
+        fallbackContainerExtension: String?
+    ): ResolvedStreamUrl? {
+        val parsed = XtreamUrlFactory.parseCredentialedStreamUrl(url, provider.id)
+        val kind = parsed?.kind ?: fallbackContentType?.let(XtreamUrlFactory::kindForContentType) ?: return null
+        if (kind != XtreamStreamKind.LIVE) {
+            return null
+        }
+        val streamId = parsed?.streamId ?: fallbackStreamId?.takeIf { it > 0L } ?: return null
+        val ext = parsed?.containerExtension ?: fallbackContainerExtension
+        val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
+        val resolvedUrl = XtreamUrlFactory.buildPlaybackUrl(
+            serverUrl = provider.serverUrl,
+            username = provider.username,
+            password = decryptedPassword,
+            kind = kind,
+            streamId = streamId,
+            containerExtension = ext
+        )
+        return provider.applyPlaybackRequestProfile(
+            ResolvedStreamUrl(
+                url = resolvedUrl,
+                expirationTime = extractStreamExpirationTime(resolvedUrl),
+                containerExtension = ext
+            )
+        )
     }
 
     private suspend fun resolveDirectStalkerUrl(
@@ -169,10 +263,19 @@ class XtreamStreamUrlResolver @Inject constructor(
         if (!UrlSecurityPolicy.isAllowedStreamEntryUrl(repairedUrl)) {
             return null
         }
-        val playbackInfo = when (val resolvedResult = getOrCreateStalkerProvider(provider).resolvePlaybackInfo(kind, repairedUrl)) {
+        val descriptor = buildStalkerPlaybackDescriptor(
+            primaryCmd = repairedUrl,
+            capabilities = com.streamvault.data.remote.stalker.StalkerPortalCapabilities()
+        )
+        val playbackInfo = when (val resolvedResult = getOrCreateStalkerProvider(provider).resolvePlaybackInfo(kind, descriptor)) {
             is com.streamvault.domain.model.Result.Success -> resolvedResult.data
+            is com.streamvault.domain.model.Result.Error -> throw StalkerPlaybackResolutionException(
+                resolvedResult.message,
+                resolvedResult.exception
+            )
             else -> return null
         }
+        persistStalkerPlaybackLearning(provider, playbackInfo)
         return ResolvedStreamUrl(
             url = playbackInfo.url,
             expirationTime = extractStreamExpirationTime(playbackInfo.url),
@@ -242,31 +345,90 @@ class XtreamStreamUrlResolver @Inject constructor(
         if (cached != null &&
             cached.serverUrl == provider.serverUrl &&
             cached.macAddress == provider.stalkerMacAddress &&
+            cached.authMode == provider.stalkerAuthMode &&
+            cached.username == provider.username &&
+            cached.password == provider.password &&
+            cached.portalFingerprint == provider.stalkerPortalFingerprint &&
+            cached.magPreset == provider.stalkerMagPreset &&
+            cached.bootstrapRecipe == provider.stalkerLastBootstrapRecipe &&
+            cached.endpointPreference == provider.stalkerEndpointPreference &&
+            cached.cookieMode == provider.stalkerCookieMode &&
+            cached.playbackBackendHint == provider.stalkerPlaybackBackendHint &&
             cached.deviceProfile == provider.stalkerDeviceProfile &&
             cached.timezone == provider.stalkerDeviceTimezone &&
-            cached.locale == provider.stalkerDeviceLocale
+            cached.locale == provider.stalkerDeviceLocale &&
+            cached.serialNumber == provider.stalkerSerialNumber &&
+            cached.deviceId == provider.stalkerDeviceId &&
+            cached.deviceId2 == provider.stalkerDeviceId2 &&
+            cached.signature == provider.stalkerSignature
         ) {
             return cached.provider
         }
 
+        val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
         val resolvedProvider = StalkerProvider(
             providerId = provider.id,
             api = stalkerApiService,
             portalUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = decryptedPassword,
+            portalFingerprintHint = provider.stalkerPortalFingerprint,
+            magPresetHint = provider.stalkerMagPreset,
+            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
+            endpointPreferenceHint = provider.stalkerEndpointPreference,
+            cookieModeHint = provider.stalkerCookieMode,
+            playbackBackendHint = provider.stalkerPlaybackBackendHint,
+            portalProfileHint = provider.stalkerPortalProfile,
+            preferredPlaybackMode = provider.stalkerLastPlaybackMode
+                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale
+            locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature
         )
         stalkerProviders[providerId] = CachedStalkerProvider(
             serverUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = provider.password,
+            portalFingerprint = provider.stalkerPortalFingerprint,
+            magPreset = provider.stalkerMagPreset,
+            bootstrapRecipe = provider.stalkerLastBootstrapRecipe,
+            endpointPreference = provider.stalkerEndpointPreference,
+            cookieMode = provider.stalkerCookieMode,
+            playbackBackendHint = provider.stalkerPlaybackBackendHint,
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
             locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature,
             provider = resolvedProvider
         )
         return resolvedProvider
+    }
+
+    private suspend fun persistStalkerPlaybackLearning(
+        provider: ProviderEntity,
+        playbackInfo: com.streamvault.data.remote.stalker.StalkerPlaybackInfo
+    ) {
+        val updated = provider.copy(
+            stalkerLastPlaybackMode = playbackInfo.playbackMode.name,
+            stalkerEndpointPreference = playbackInfo.endpointPreference,
+            stalkerCookieMode = playbackInfo.cookieMode,
+            stalkerPlaybackBackendHint = playbackInfo.backendHint
+        )
+        if (updated == provider) {
+            return
+        }
+        providerDao.update(updated)
     }
 }
 

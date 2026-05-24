@@ -7,7 +7,9 @@ import com.streamvault.data.local.entity.*
 import com.streamvault.data.mapper.*
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.data.util.rankSearchResults
 import java.util.concurrent.ConcurrentHashMap
@@ -59,6 +62,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
+    private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao
 ) : SeriesRepository {
@@ -74,6 +78,7 @@ class SeriesRepositoryImpl @Inject constructor(
         const val STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD = 24
         const val STALKER_PREVIEW_MAX_REMOTE_PAGES = 2
         const val DETAIL_REFRESH_TTL_MILLIS = 14L * 24L * 60L * 60L * 1000L
+        const val XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS = 8_000L
         const val CACHE_STATE_SUMMARY_ONLY = "SUMMARY_ONLY"
         const val CACHE_STATE_DETAIL_HYDRATED = "DETAIL_HYDRATED"
     }
@@ -340,7 +345,17 @@ class SeriesRepositoryImpl @Inject constructor(
 
         val remoteResult = try {
             when (provider.type) {
-                ProviderType.XTREAM_CODES -> getOrCreateXtreamProvider(providerId, provider).getSeriesInfo(seriesEntity.seriesId)
+                ProviderType.XTREAM_CODES -> withTimeoutOrNull(XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS) {
+                    getOrCreateXtreamProvider(providerId, provider).getSeriesInfo(seriesEntity.seriesId)
+                } ?: run {
+                    xtreamContentIndexDao.markDetailHydrationError(
+                        providerId = providerId,
+                        contentType = ContentType.SERIES.name,
+                        remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
+                        errorState = "DETAIL_FAILED_TIMEOUT"
+                    )
+                    return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                }
                 ProviderType.STALKER_PORTAL -> createStalkerProvider(providerId, provider).getSeriesInfo(
                     seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString()
                 )
@@ -593,7 +608,27 @@ class SeriesRepositoryImpl @Inject constructor(
                             }
                         } ?: getTopRatedPreview(query.providerId, fetchLimit)
                     }
-                    query.sortBy == LibrarySortBy.RELEASE || query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
+                    query.sortBy == LibrarySortBy.RELEASE -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchLimit)
+                                emitAll(
+                                    combine(
+                                        seriesDao.getReleasedByCategoryPreview(query.providerId, categoryId, fetchLimit),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: combine(
+                            seriesDao.getReleasedPreview(query.providerId, fetchLimit),
+                            preferencesRepository.parentalControlLevel
+                        ) { entities, level ->
+                            if (level >= 3) entities.filter { !it.isUserProtected } else entities
+                        }.map { entities -> entities.map { it.toDomain() } }
+                    }
+                    query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                         query.categoryId?.let { categoryId ->
                             flow {
                                 ensureXtreamCategoryLoaded(query.providerId, categoryId, fetchLimit)
@@ -978,7 +1013,15 @@ class SeriesRepositoryImpl @Inject constructor(
 
         when {
             query.filterBy.type == LibraryFilterType.ALL &&
-                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.sortBy == LibrarySortBy.LIBRARY -> {
+                collectSeriesPages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
+                    extractCursor = { FreshCursor(it.lastModified, it.name, it.id) }
+                ) { limit, cursor ->
+                    loadSeriesFreshPage(query, limit, cursor)
+                }
+            }
+            query.filterBy.type == LibraryFilterType.ALL &&
+                query.sortBy == LibrarySortBy.TITLE -> {
                 collectSeriesPages<NameCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { NameCursor(it.name, it.id) }
                 ) { limit, cursor ->
@@ -992,8 +1035,7 @@ class SeriesRepositoryImpl @Inject constructor(
                     loadSeriesRatingPage(query, limit, cursor)
                 }
             }
-            query.sortBy == LibrarySortBy.RELEASE ||
-                query.sortBy == LibrarySortBy.UPDATED ||
+            query.sortBy == LibrarySortBy.UPDATED ||
                 query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
                 collectSeriesPages<FreshCursor>(query, parentalLevel, collected, favoriteIds,
                     extractCursor = { FreshCursor(it.lastModified, it.name, it.id) }
@@ -1077,7 +1119,6 @@ class SeriesRepositoryImpl @Inject constructor(
                 query.sortBy in setOf(
                     LibrarySortBy.LIBRARY,
                     LibrarySortBy.TITLE,
-                    LibrarySortBy.RELEASE,
                     LibrarySortBy.UPDATED,
                     LibrarySortBy.RATING
                 ) -> true
@@ -1101,7 +1142,8 @@ class SeriesRepositoryImpl @Inject constructor(
         val sorted = when (query.sortBy) {
             LibrarySortBy.LIBRARY -> filtered
             LibrarySortBy.TITLE -> filtered.sortedBy { it.name.lowercase() }
-            LibrarySortBy.RELEASE, LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesFreshnessScore)
+            LibrarySortBy.RELEASE -> filtered.sortedByDescending(::seriesReleaseScore)
+            LibrarySortBy.UPDATED -> filtered.sortedByDescending(::seriesUpdatedScore)
             LibrarySortBy.RATING -> filtered.sortedByDescending { it.rating }
             LibrarySortBy.WATCH_COUNT -> filtered.sortedByDescending { watchCounts[it.id] ?: 0 }
         }
@@ -1128,7 +1170,7 @@ class SeriesRepositoryImpl @Inject constructor(
         LibraryFilterType.IN_PROGRESS -> series.id in inProgressIds
         LibraryFilterType.UNWATCHED -> series.id !in completedSeriesIds
         LibraryFilterType.TOP_RATED -> series.rating > 0f
-        LibraryFilterType.RECENTLY_UPDATED -> seriesFreshnessScore(series) > 0L
+        LibraryFilterType.RECENTLY_UPDATED -> seriesUpdatedScore(series) > 0L
     }
 
     private fun seriesMatchesSearch(series: Series, searchQuery: String): Boolean {
@@ -1204,6 +1246,12 @@ class SeriesRepositoryImpl @Inject constructor(
             return
         }
         if (provider.type == ProviderType.STALKER_PORTAL) {
+            if (localCount <= 0) {
+                syncManager.prioritizeStalkerIndexCategory(providerId, ContentType.SERIES, categoryId)
+            }
+            if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+                return
+            }
             hydrateStalkerSeriesCategoryToCount(
                 providerId = providerId,
                 categoryId = categoryId,
@@ -1235,6 +1283,12 @@ class SeriesRepositoryImpl @Inject constructor(
                 val hydration = seriesCategoryHydrationDao.get(providerId, categoryId)
                 if (localCount == 0 && hydration?.isEmptyRetryCoolingDown() == true) return@launch
                 if (provider.type == ProviderType.STALKER_PORTAL) {
+                    if (localCount <= 0) {
+                        syncManager.prioritizeStalkerIndexCategory(providerId, ContentType.SERIES, categoryId)
+                    }
+                    if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+                        return@launch
+                    }
                     hydrateStalkerSeriesCategoryToCount(
                         providerId = providerId,
                         categoryId = categoryId,
@@ -1248,6 +1302,22 @@ class SeriesRepositoryImpl @Inject constructor(
             } finally {
                 backgroundRefreshes.remove(key)
             }
+        }
+    }
+
+    private suspend fun shouldUseStalkerLazyFallback(
+        providerId: Long,
+        hydration: SeriesCategoryHydrationEntity?,
+        localCount: Int
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        if (localCount > 0) return false
+        if (hydration?.isComplete == true) return false
+        if (hydration?.lastStatus in setOf("FAILED_PERMANENT", "FAILED_BUDGET_EXHAUSTED")) return true
+        if (hydration?.retryBudgetRemaining == 0 && hydration.retryAfterMs <= now) return true
+        return when (xtreamIndexJobDao.get(providerId, ContentType.SERIES.name)?.state) {
+            null, "FAILED_PERMANENT" -> true
+            else -> false
         }
     }
 
@@ -1271,13 +1341,18 @@ class SeriesRepositoryImpl @Inject constructor(
             if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return
 
             val isPreviewLoad = requiredCount <= STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD
-            var nextPage = ((currentHydration?.lastLoadedPage ?: 0) + 1).coerceAtLeast(1)
+            var nextPage = when (currentHydration?.lastStatus) {
+                "FAILED_RETRYABLE", "COOLDOWN", "ANOMALY" -> currentHydration?.lastAttemptedPage?.coerceAtLeast(1) ?: 1
+                else -> ((currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0) + 1).coerceAtLeast(1)
+            }
             // The cached totalPages can under-report when the preview hydrate stored
             // it from a partial response. Skip the pre-fetch guard on the first
             // iteration so we always perform at least one real fetch that refreshes
             // totalPages; subsequent iterations use the in-loop updated value.
             var firstIteration = true
             while (currentCount < requiredCount) {
+                if (StalkerTrafficCoordinator.shouldDeferCatalogFetch(providerId)) break
+                val attemptStartedAt = System.currentTimeMillis()
                 if (isPreviewLoad && nextPage > STALKER_PREVIEW_MAX_REMOTE_PAGES) break
                 val totalPages = currentHydration?.totalPages ?: 0
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
@@ -1291,32 +1366,54 @@ class SeriesRepositoryImpl @Inject constructor(
                         currentHydration = SeriesCategoryHydrationEntity(
                             providerId = providerId,
                             categoryId = categoryId,
-                            lastHydratedAt = System.currentTimeMillis(),
+                            lastHydratedAt = attemptStartedAt,
                             itemCount = currentCount,
                             lastStatus = "SUCCESS",
                             lastError = null,
                             lastLoadedPage = result.data.page,
+                            lastAttemptedPage = result.data.page,
+                            lastSuccessfulPage = result.data.page,
                             totalPages = result.data.totalPages,
                             isComplete = pageComplete,
-                            pageSize = result.data.pageSize
+                            pageSize = result.data.pageSize,
+                            retryAfterMs = 0L,
+                            failureCount = 0,
+                            retryBudgetRemaining = 3,
+                            lastPageFingerprint = null
                         )
                         seriesCategoryHydrationDao.upsert(currentHydration!!)
                         if (pageComplete) break
                         nextPage = result.data.page + 1
                     }
                     is Result.Error -> {
+                        val priorFailureCount = currentHydration?.failureCount ?: 0
+                        val remainingBudget = ((currentHydration?.retryBudgetRemaining ?: 3) - 1).coerceAtLeast(0)
+                        val nextStatus = when {
+                            remainingBudget <= 0 -> "FAILED_BUDGET_EXHAUSTED"
+                            else -> "FAILED_RETRYABLE"
+                        }
                         seriesCategoryHydrationDao.upsert(
                             SeriesCategoryHydrationEntity(
                                 providerId = providerId,
                                 categoryId = categoryId,
                                 lastHydratedAt = currentHydration?.lastHydratedAt ?: 0L,
                                 itemCount = currentCount,
-                                lastStatus = "ERROR",
+                                lastStatus = nextStatus,
                                 lastError = result.message,
                                 lastLoadedPage = currentHydration?.lastLoadedPage ?: 0,
+                                lastAttemptedPage = nextPage,
+                                lastSuccessfulPage = currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0,
                                 totalPages = currentHydration?.totalPages ?: 0,
                                 isComplete = currentHydration?.isComplete ?: false,
-                                pageSize = currentHydration?.pageSize ?: 0
+                                pageSize = currentHydration?.pageSize ?: 0,
+                                retryAfterMs = if (nextStatus == "FAILED_RETRYABLE") {
+                                    attemptStartedAt + XTREAM_EMPTY_CATEGORY_RETRY_COOLDOWN_MILLIS * (priorFailureCount + 1)
+                                } else {
+                                    0L
+                                },
+                                failureCount = priorFailureCount + 1,
+                                retryBudgetRemaining = remainingBudget,
+                                lastPageFingerprint = currentHydration?.lastPageFingerprint
                             )
                         )
                         break
@@ -1345,14 +1442,15 @@ class SeriesRepositoryImpl @Inject constructor(
         return true
     }
 
-    private fun seriesFreshnessScore(series: Series): Long =
-        series.lastModified
-            .takeIf { it > 0L }
-            ?: series.releaseDate
-                ?.filter { it.isDigit() }
-                ?.take(8)
-                ?.toLongOrNull()
-            ?: 0L
+    private fun seriesReleaseScore(series: Series): Long =
+        series.releaseDate
+            ?.filter { it.isDigit() }
+            ?.take(8)
+            ?.toLongOrNull()
+            ?: seriesUpdatedScore(series)
+
+    private fun seriesUpdatedScore(series: Series): Long =
+        series.lastModified.takeIf { it > 0L } ?: 0L
 
     private suspend fun getOrCreateXtreamProvider(providerId: Long, provider: ProviderEntity): XtreamProvider {
         val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
@@ -1392,9 +1490,25 @@ class SeriesRepositoryImpl @Inject constructor(
             api = stalkerApiService,
             portalUrl = provider.serverUrl,
             macAddress = provider.stalkerMacAddress,
+            authMode = provider.stalkerAuthMode,
+            username = provider.username,
+            password = credentialCrypto.decryptIfNeeded(provider.password),
+            portalFingerprintHint = provider.stalkerPortalFingerprint,
+            magPresetHint = provider.stalkerMagPreset,
+            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
+            endpointPreferenceHint = provider.stalkerEndpointPreference,
+            cookieModeHint = provider.stalkerCookieMode,
+            playbackBackendHint = provider.stalkerPlaybackBackendHint,
+            portalProfileHint = provider.stalkerPortalProfile,
+            preferredPlaybackMode = provider.stalkerLastPlaybackMode
+                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
             deviceProfile = provider.stalkerDeviceProfile,
             timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale
+            locale = provider.stalkerDeviceLocale,
+            serialNumber = provider.stalkerSerialNumber,
+            deviceId = provider.stalkerDeviceId,
+            deviceId2 = provider.stalkerDeviceId2,
+            signature = provider.stalkerSignature
         )
     }
 }

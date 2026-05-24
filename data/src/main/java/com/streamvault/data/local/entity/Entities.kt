@@ -10,6 +10,14 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerMagPreset
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
+import com.streamvault.domain.model.StalkerPortalFingerprint
+import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 
 @Entity(
@@ -32,6 +40,26 @@ data class ProviderEntity(
     @ColumnInfo(name = "stalker_device_profile") val stalkerDeviceProfile: String = "",
     @ColumnInfo(name = "stalker_device_timezone") val stalkerDeviceTimezone: String = "",
     @ColumnInfo(name = "stalker_device_locale") val stalkerDeviceLocale: String = "",
+    @ColumnInfo(name = "stalker_serial_number") val stalkerSerialNumber: String = "",
+    @ColumnInfo(name = "stalker_device_id") val stalkerDeviceId: String = "",
+    @ColumnInfo(name = "stalker_device_id2") val stalkerDeviceId2: String = "",
+    @ColumnInfo(name = "stalker_signature") val stalkerSignature: String = "",
+    @ColumnInfo(name = "stalker_auth_mode") val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    @ColumnInfo(name = "stalker_portal_profile") val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
+    @ColumnInfo(name = "stalker_portal_fingerprint") val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
+    @ColumnInfo(name = "stalker_mag_preset") val stalkerMagPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    @ColumnInfo(name = "stalker_last_bootstrap_recipe") val stalkerLastBootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+    @ColumnInfo(name = "stalker_endpoint_preference") val stalkerEndpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
+    @ColumnInfo(name = "stalker_cookie_mode") val stalkerCookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
+    @ColumnInfo(name = "stalker_playback_backend_hint") val stalkerPlaybackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
+    @ColumnInfo(name = "stalker_last_playback_mode") val stalkerLastPlaybackMode: String? = null,
+    @ColumnInfo(name = "stalker_credentials_required") val stalkerCredentialsRequired: Boolean = false,
+    @ColumnInfo(name = "stalker_mac_required") val stalkerMacRequired: Boolean = true,
+    @ColumnInfo(name = "stalker_uses_temp_links") val stalkerUsesTemporaryLinks: Boolean = false,
+    @ColumnInfo(name = "stalker_module_restricted") val stalkerModuleRestricted: Boolean = false,
+    @ColumnInfo(name = "stalker_strict_fingerprint_required") val stalkerStrictFingerprintRequired: Boolean = false,
+    @ColumnInfo(name = "stalker_recipe_fallback_used") val stalkerRecipeFallbackUsed: Boolean = false,
+    @ColumnInfo(name = "stalker_recipe_rediscovery_attempts") val stalkerRecipeRediscoveryAttempts: Int = 0,
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
     @ColumnInfo(name = "max_connections") val maxConnections: Int = 1,
     @ColumnInfo(name = "expiration_date") val expirationDate: Long? = null,
@@ -829,9 +857,15 @@ data class MovieCategoryHydrationEntity(
     @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
     @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "last_loaded_page") val lastLoadedPage: Int = 0,
+    @ColumnInfo(name = "last_attempted_page") val lastAttemptedPage: Int = 0,
+    @ColumnInfo(name = "last_successful_page") val lastSuccessfulPage: Int = 0,
     @ColumnInfo(name = "total_pages") val totalPages: Int = 0,
     @ColumnInfo(name = "is_complete") val isComplete: Boolean = false,
-    @ColumnInfo(name = "page_size") val pageSize: Int = 0
+    @ColumnInfo(name = "page_size") val pageSize: Int = 0,
+    @ColumnInfo(name = "retry_after_ms") val retryAfterMs: Long = 0L,
+    @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
+    @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
+    @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
 )
 
 @Entity(
@@ -853,9 +887,15 @@ data class SeriesCategoryHydrationEntity(
     @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
     @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "last_loaded_page") val lastLoadedPage: Int = 0,
+    @ColumnInfo(name = "last_attempted_page") val lastAttemptedPage: Int = 0,
+    @ColumnInfo(name = "last_successful_page") val lastSuccessfulPage: Int = 0,
     @ColumnInfo(name = "total_pages") val totalPages: Int = 0,
     @ColumnInfo(name = "is_complete") val isComplete: Boolean = false,
-    @ColumnInfo(name = "page_size") val pageSize: Int = 0
+    @ColumnInfo(name = "page_size") val pageSize: Int = 0,
+    @ColumnInfo(name = "retry_after_ms") val retryAfterMs: Long = 0L,
+    @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
+    @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
+    @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
 )
 
 // ── External EPG Source ────────────────────────────────────────────

@@ -24,11 +24,13 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackCompatibilityKey
 import com.streamvault.domain.model.PlaybackCompatibilityRecord
 import com.streamvault.domain.model.PlayerSurfaceMode
@@ -37,6 +39,7 @@ import com.streamvault.domain.model.VideoFormat
 import com.streamvault.domain.repository.PlaybackCompatibilityRepository
 import com.streamvault.player.audio.PlayerAudioFocusController
 import com.streamvault.player.playback.ActiveDecoderPolicy
+import com.streamvault.player.playback.AutomaticRecoveryAction
 import com.streamvault.player.playback.DefaultDecoderPreferencePolicy
 import com.streamvault.player.playback.DefaultPlaybackCompatibilityProfile
 import com.streamvault.player.playback.AudioVideoOffsetAudioSink
@@ -44,11 +47,10 @@ import com.streamvault.player.playback.PlaybackCodecSelector
 import com.streamvault.player.playback.PlaybackCompatibilityProfile
 import com.streamvault.player.playback.PlaybackBufferPolicies
 import com.streamvault.player.playback.PlaybackErrorCategory
-import com.streamvault.player.playback.FfmpegAudioFallbackRequest
 import com.streamvault.player.playback.FfmpegExtensionSupport
+import com.streamvault.player.playback.PlaybackExtensionRendererMode
 import com.streamvault.player.playback.PlaybackLogSanitizer
 import com.streamvault.player.playback.PlaybackPreparationPlan
-import com.streamvault.player.playback.PlaybackRendererPlan
 import com.streamvault.player.playback.PlaybackRetryContext
 import com.streamvault.player.playback.PlayerDataSourceFactoryProvider
 import com.streamvault.player.playback.PlayerErrorClassifier
@@ -57,8 +59,11 @@ import com.streamvault.player.playback.PlayerRetryPolicy
 import com.streamvault.player.playback.PlayerTimeoutProfile
 import com.streamvault.player.playback.PreloadCoordinator
 import com.streamvault.player.playback.ResolvedStreamType
+import com.streamvault.player.playback.buildPlaybackRendererPlan
+import com.streamvault.player.playback.resolveRetryAttemptAfterPlaybackStarted
 import com.streamvault.player.playback.resolveRetryAttemptAfterReady
 import com.streamvault.player.playback.resolveRetrySeekPositionMs
+import com.streamvault.player.playback.shouldAttemptAutomaticRecovery
 import com.streamvault.player.playback.StreamTypeResolver
 import com.streamvault.player.playback.VideoStallDetector
 import com.streamvault.player.stats.PlayerStatsCollector
@@ -106,6 +111,12 @@ class Media3PlayerEngine @Inject constructor(
         private const val KNOWN_BAD_FAILURE_THRESHOLD = 3
         private const val MEDIA_SESSION_ID_PREFIX = "streamvault"
         private val nextMediaSessionInstanceId = AtomicLong(1L)
+        private val LIVE_RESOLVED_STREAM_TYPES = setOf(
+            ResolvedStreamType.HLS,
+            ResolvedStreamType.SMOOTH_STREAMING,
+            ResolvedStreamType.MPEG_TS_LIVE,
+            ResolvedStreamType.RTSP
+        )
     }
 
     var constrainResolutionForMultiView: Boolean = false
@@ -147,6 +158,7 @@ class Media3PlayerEngine @Inject constructor(
     private var requestedDecoderMode: DecoderMode = DecoderMode.AUTO
     private var activeDecoderMode: DecoderMode = DecoderMode.HARDWARE
     private var requestedSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO
+    private var requestedVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1
     private var sessionSurfaceModeOverride: PlayerSurfaceMode? = null
     private var activeDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
     private var recoveryDecoderPolicyOverride: ActiveDecoderPolicy? = null
@@ -158,7 +170,6 @@ class Media3PlayerEngine @Inject constructor(
     private var compatibilityMemoryEnabled: Boolean = true
     private var audioOutputPath: String = "UNKNOWN"
     private var compatibilityDecisionSource: String = "DEFAULT"
-    private var pendingLearnedAudioFallback: PendingLearnedAudioFallback? = null
     private var videoStallCount = 0
     private var videoStallRecoveryAttempt = 0
     private var videoStallSafeRecoveryPerformed = false
@@ -270,13 +281,6 @@ class Media3PlayerEngine @Inject constructor(
     private var pendingTimeshiftAutoPlay: Boolean = false
     private var lastAudioRendererRecoveryAtMs: Long = 0L
 
-    private data class PendingLearnedAudioFallback(
-        val mediaId: String,
-        val streamType: String,
-        val audioMimeTypes: List<String>,
-        val detail: String?
-    )
-
     init {
         startEngineCollectors()
     }
@@ -336,6 +340,9 @@ class Media3PlayerEngine @Inject constructor(
             preload = false,
             playbackStarted = { playbackStarted }
         )
+        val resumePositionMs = player.currentPosition.takeIf {
+            it > 0L && playbackPlan.resolvedStreamType !in LIVE_RESOLVED_STREAM_TYPES
+        }
 
         lastStreamInfo = streamInfo
         lastMediaId = mediaSourceFactory.mediaIdFor(streamInfo)
@@ -351,11 +358,13 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         ).second
 
-        player.setMediaSource(mediaSource, /* resetPosition= */ false)
+        replaceMediaSource(player, mediaSource, resetPosition = false, reason = "renew-url")
         player.prepare()
+        resumePositionMs?.let(player::seekTo)
 
         Log.i(
             TAG,
@@ -378,8 +387,20 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun stop() {
         retryJob?.cancel()
-        exoPlayer?.stop()
+        retryJob = null
+        preloadCoordinator.invalidate("stop")
+        exoPlayer?.let { player ->
+            releaseCurrentMedia(player, reason = "stop")
+        }
+        playbackStarted = false
+        hasRenderedFirstVideoFrame = false
+        lastStreamInfo = null
+        lastMediaId = null
         _playbackState.value = PlaybackState.IDLE
+        _isPlaying.value = false
+        _mediaTitle.value = null
+        statsCollector.stop()
+        statsCollector.reset()
         audioFocusController.onPauseOrStop()
     }
 
@@ -447,6 +468,16 @@ class Media3PlayerEngine @Inject constructor(
         sessionSurfaceModeOverride = null
         textureViewSessionFallbackAttempted = false
         updateRenderSurfaceForMode()
+        lastStreamInfo?.let { streamInfo ->
+            val wasPlaying = exoPlayer?.playWhenReady == true
+            val position = exoPlayer?.currentPosition
+            prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = position, autoPlay = wasPlaying)
+        }
+    }
+
+    override fun setVodHttpProtocolMode(mode: VodHttpProtocolMode) {
+        if (requestedVodHttpProtocolMode == mode) return
+        requestedVodHttpProtocolMode = mode
         lastStreamInfo?.let { streamInfo ->
             val wasPlaying = exoPlayer?.playWhenReady == true
             val position = exoPlayer?.currentPosition
@@ -624,6 +655,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = currentResolvedStreamType,
             retryPolicy = retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = false
         )
         val subtitleConfig = androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(subtitleUri)
@@ -675,6 +707,7 @@ class Media3PlayerEngine @Inject constructor(
             streamInfo = streamInfo,
             resolvedStreamType = playbackPlan.resolvedStreamType,
             retryPolicy = playbackPlan.retryPolicy,
+            vodHttpProtocolMode = requestedVodHttpProtocolMode,
             preload = true
         )
         preloadCoordinator.store(mediaId, streamInfo, playbackPlan.resolvedStreamType, mediaSource)
@@ -794,7 +827,6 @@ class Media3PlayerEngine @Inject constructor(
         hasRenderedFirstVideoFrame = false
         prepareStartMs = System.currentTimeMillis()
         audioCodecUnsupportedReported = false
-        pendingLearnedAudioFallback = null
         lastSupportErrorMessage = null
         _error.tryEmit(null)
         _mediaTitle.value = null
@@ -822,30 +854,18 @@ class Media3PlayerEngine @Inject constructor(
         if (!preserveRetryState) {
             recoveryDecoderPolicyOverride = null
         }
-        val learnedAudioCompatibility = if (requestedDecoderMode == DecoderMode.AUTO && compatibilityMemoryEnabled) {
-            audioCompatibilityMemoryStore.lookup(mediaId, currentResolvedStreamType.name)
-        } else {
-            null
-        }
         val preferredDecoderMode = when {
             requestedDecoderMode != DecoderMode.AUTO -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
-            learnedAudioCompatibility?.decision == AudioCompatibilityMemoryStore.DECISION_SOFTWARE_FFMPEG -> DecoderMode.SOFTWARE
             else -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
         }
         compatibilityDecisionSource = when {
             requestedDecoderMode != DecoderMode.AUTO -> "USER_SELECTED"
-            learnedAudioCompatibility != null -> "LEARNED_AUDIO_FALLBACK"
             else -> "DEFAULT"
         }
         val nextDecoderPolicy = recoveryDecoderPolicyOverride ?: resolveActiveDecoderPolicy(
             policyModeFor(requestedDecoderMode, preferredDecoderMode)
         )
-        val isLiveBuffer = currentResolvedStreamType in setOf(
-            ResolvedStreamType.HLS,
-            ResolvedStreamType.SMOOTH_STREAMING,
-            ResolvedStreamType.MPEG_TS_LIVE,
-            ResolvedStreamType.RTSP
-        )
+        val isLiveBuffer = currentResolvedStreamType in LIVE_RESOLVED_STREAM_TYPES
         val previousDecoderPolicy = activeDecoderPolicy
         val needsRecreate = activeDecoderMode != preferredDecoderMode ||
             previousDecoderPolicy != nextDecoderPolicy ||
@@ -880,19 +900,15 @@ class Media3PlayerEngine @Inject constructor(
                     streamInfo = streamInfo,
                     resolvedStreamType = currentResolvedStreamType,
                     retryPolicy = currentRetryPolicy!!,
+                    vodHttpProtocolMode = requestedVodHttpProtocolMode,
                     preload = false
                 ).second
             preloadCoordinator.onPlaybackStarted(mediaId)
-            player.setMediaSource(mediaSource)
+            replaceMediaSource(player, mediaSource, resetPosition = true, reason = "prepare")
             player.prepare()
             seekPositionMs?.takeIf { it > 0L }?.let(player::seekTo)
 
-            val isLive = currentResolvedStreamType in setOf(
-                ResolvedStreamType.HLS,
-                ResolvedStreamType.SMOOTH_STREAMING,
-                ResolvedStreamType.MPEG_TS_LIVE,
-                ResolvedStreamType.RTSP
-            )
+            val isLive = currentResolvedStreamType in LIVE_RESOLVED_STREAM_TYPES
             val osContentType = if (isLive) {
                 android.media.AudioAttributes.CONTENT_TYPE_MUSIC
             } else {
@@ -925,6 +941,24 @@ class Media3PlayerEngine @Inject constructor(
         exoPlayer = null
         viewBinder.attachPlayer(null)
         // The caller (prepareInternal) will create a fresh player and set it up fully.
+    }
+
+    private fun replaceMediaSource(
+        player: ExoPlayer,
+        mediaSource: MediaSource,
+        resetPosition: Boolean,
+        reason: String
+    ) {
+        releaseCurrentMedia(player, reason)
+        player.setMediaSource(mediaSource, resetPosition)
+    }
+
+    private fun releaseCurrentMedia(player: ExoPlayer, reason: String) {
+        if (player.mediaItemCount == 0 && player.playbackState == Player.STATE_IDLE) return
+        player.playWhenReady = false
+        player.stop()
+        player.clearMediaItems()
+        Log.i(TAG, "released current media reason=$reason")
     }
 
     private fun getOrCreatePlayer(): ExoPlayer {
@@ -990,6 +1024,7 @@ class Media3PlayerEngine @Inject constructor(
         val requestedMode = requestedDecoderMode
         val rendererPlan = buildPlaybackRendererPlan(
             requestedMode = requestedMode,
+            activeDecoderMode = activeDecoderMode,
             decoderPolicy = decoderPolicy,
             useAudioVideoSyncSink = _audioVideoSyncEnabled.value,
             useVideoRendererWorkaround = compatibilityProfile.shouldDisableDecoderReuseWorkaround()
@@ -1083,9 +1118,11 @@ class Media3PlayerEngine @Inject constructor(
                 )
             }
             setExtensionRendererMode(
-                when (activeDecoderMode) {
-                    DecoderMode.AUTO, DecoderMode.HARDWARE -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                    DecoderMode.SOFTWARE, DecoderMode.COMPATIBILITY -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                when (rendererPlan.extensionRendererMode) {
+                    PlaybackExtensionRendererMode.PLATFORM_FIRST ->
+                        DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                    PlaybackExtensionRendererMode.EXTENSIONS_FIRST ->
+                        DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                 }
             )
         }
@@ -1213,8 +1250,7 @@ class Media3PlayerEngine @Inject constructor(
                     _retryStatus.value = null
                     retryAttempt = resolveRetryAttemptAfterReady(
                         currentAttempt = retryAttempt,
-                        playbackStarted = playbackStarted,
-                        isCurrentMediaItemLive = exoPlayer?.isCurrentMediaItemLive == true
+                        playbackStarted = playbackStarted
                     )
                     if (isPlayingTimeshiftSnapshot && pendingTimeshiftSeekToEnd) {
                         pendingTimeshiftSeekToEnd = false
@@ -1277,9 +1313,6 @@ class Media3PlayerEngine @Inject constructor(
                     }
                     if (hasAudioGroups && trackController.availableAudioTracks.value.isEmpty()) {
                         val mimeTypes = audioMimeTypes(tracks)
-                        if (tryFfmpegAudioFallback("audio-track-missing", mimeTypes, detail = null)) {
-                            return
-                        }
                         audioCodecUnsupportedReported = true
                         val mimeTypeLabel = mimeTypes.joinToString()
                         Log.w(
@@ -1363,21 +1396,11 @@ class Media3PlayerEngine @Inject constructor(
     private fun markPlaybackStarted(reason: String) {
         if (playbackStarted) return
         playbackStarted = true
+        retryAttempt = resolveRetryAttemptAfterPlaybackStarted(retryAttempt)
         Log.i(
             TAG,
             "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioPath=$audioOutputPath compatibilitySource=$compatibilityDecisionSource target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
         )
-        pendingLearnedAudioFallback?.let { learned ->
-            if (compatibilityMemoryEnabled && activeDecoderMode == DecoderMode.SOFTWARE) {
-                audioCompatibilityMemoryStore.rememberSoftwareAudioFallback(
-                    mediaId = learned.mediaId,
-                    streamType = learned.streamType,
-                    audioMimeTypes = learned.audioMimeTypes,
-                    detail = learned.detail
-                )
-            }
-            pendingLearnedAudioFallback = null
-        }
         recordCompatibilitySuccess()
         refreshKnownBadCompatibilityRecords()
     }
@@ -1478,6 +1501,23 @@ class Media3PlayerEngine @Inject constructor(
         videoStallRecoveryAttempt++
         if (!videoStallSafeRecoveryPerformed) {
             videoStallSafeRecoveryPerformed = true
+            if (!shouldAttemptAutomaticRecovery(
+                    action = AutomaticRecoveryAction.FULL_REPREPARE,
+                    resolvedStreamType = currentResolvedStreamType,
+                    playbackStarted = playbackStarted
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "video-stall reprepare suppressed after playback start for provider streamType=$currentResolvedStreamType"
+                )
+                _error.tryEmit(
+                    PlayerError.DecoderError(
+                        "Video playback stalled. Automatic recovery was not attempted to avoid opening another provider connection."
+                    )
+                )
+                return
+            }
             Log.w(TAG, "video-stall safe reprepare attempt=$videoStallRecoveryAttempt")
             prepareInternal(
                 streamInfo = streamInfo,
@@ -1512,6 +1552,18 @@ class Media3PlayerEngine @Inject constructor(
         val mediaId = lastMediaId ?: return false
         val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId) ?: return false
         val fallbackPolicy = resolveActiveDecoderPolicy(policyModeFor(requestedDecoderMode, fallbackMode))
+        if (!shouldAttemptAutomaticRecovery(
+                action = AutomaticRecoveryAction.DECODER_FALLBACK,
+                resolvedStreamType = currentResolvedStreamType,
+                playbackStarted = playbackStarted
+            )
+        ) {
+            Log.w(
+                TAG,
+                "video-stall decoder fallback suppressed after playback start fallback=$fallbackMode streamType=$currentResolvedStreamType mediaId=$mediaId"
+            )
+            return false
+        }
         recoveryDecoderPolicyOverride = fallbackPolicy
         Log.w(
             TAG,
@@ -1656,17 +1708,6 @@ class Media3PlayerEngine @Inject constructor(
             return
         }
 
-        if (
-            source == "audio-codec" &&
-            tryFfmpegAudioFallback(
-                trigger = "audio-renderer-$source",
-                mimeTypes = audioMimeTypes(),
-                detail = error.message
-            )
-        ) {
-            return
-        }
-
         val now = System.currentTimeMillis()
         if (now - lastAudioRendererRecoveryAtMs < AUDIO_RENDERER_RECOVERY_COOLDOWN_MS) {
             Log.e(
@@ -1687,6 +1728,25 @@ class Media3PlayerEngine @Inject constructor(
         val seekPosition = exoPlayer?.currentPosition
             ?.takeIf { currentResolvedStreamType == ResolvedStreamType.PROGRESSIVE && it > 0L }
 
+        if (!shouldAttemptAutomaticRecovery(
+                action = AutomaticRecoveryAction.FULL_REPREPARE,
+                resolvedStreamType = currentResolvedStreamType,
+                playbackStarted = playbackStarted
+            )
+        ) {
+            Log.e(
+                TAG,
+                "audio-renderer-recover suppressed after playback start source=$source streamType=$currentResolvedStreamType target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
+            )
+            lastSupportErrorMessage = error.message ?: "Audio playback failed for this stream."
+            _error.tryEmit(
+                PlayerError.DecoderError(
+                    error.message ?: "Audio playback failed for this stream."
+                )
+            )
+            return
+        }
+
         Log.w(
             TAG,
             "audio-renderer-recover source=$source target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
@@ -1701,75 +1761,6 @@ class Media3PlayerEngine @Inject constructor(
             seekPositionMs = seekPosition,
             autoPlay = wasPlaying
         )
-    }
-
-    private fun tryFfmpegAudioFallback(
-        trigger: String,
-        mimeTypes: List<String>,
-        detail: String?
-    ): Boolean {
-        val streamInfo = lastStreamInfo ?: return false
-        val mediaId = lastMediaId ?: return false
-        val availability = ffmpegExtensionSupport.availability()
-        ffmpegAvailability = availability
-        if (!availability.available) {
-            compatibilityDecisionSource = "FFMPEG_UNAVAILABLE"
-            Log.w(
-                TAG,
-                "ffmpeg-audio-fallback unavailable trigger=$trigger target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
-            )
-            return false
-        }
-        val supportedMimeTypes = ffmpegExtensionSupport.supportedAudioMimeTypes(mimeTypes)
-        val effectiveSupportedMimeTypes = if (mimeTypes.isEmpty()) listOf("<unknown>") else supportedMimeTypes
-        if (mimeTypes.isNotEmpty() && supportedMimeTypes.isEmpty()) {
-            compatibilityDecisionSource = "FFMPEG_UNSUPPORTED_AUDIO"
-            Log.w(
-                TAG,
-                "ffmpeg-audio-fallback unsupported trigger=$trigger mimeTypes=${mimeTypes.joinToString()} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
-            )
-            return false
-        }
-        val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
-        if (
-            !shouldAttemptFfmpegAudioFallback(
-                FfmpegAudioFallbackRequest(
-                    requestedMode = requestedDecoderMode,
-                    extensionAvailable = availability.available,
-                    supportedMimeTypes = effectiveSupportedMimeTypes,
-                    fallbackMode = fallbackMode
-                )
-            )
-        ) {
-            return false
-        }
-        compatibilityDecisionSource = "FFMPEG_RETRY:$trigger"
-        pendingLearnedAudioFallback = PendingLearnedAudioFallback(
-            mediaId = mediaId,
-            streamType = currentResolvedStreamType.name,
-            audioMimeTypes = supportedMimeTypes,
-            detail = detail
-        )
-        audioOutputPath = "FFMPEG_RETRY_PENDING"
-
-        val wasPlaying = exoPlayer?.playWhenReady ?: true
-        val seekPosition = exoPlayer?.currentPosition
-            ?.takeIf { currentResolvedStreamType == ResolvedStreamType.PROGRESSIVE && it > 0L }
-        Log.w(
-            TAG,
-            "ffmpeg-audio-fallback retry trigger=$trigger supportedMimeTypes=${effectiveSupportedMimeTypes.joinToString()} version=${availability.version ?: "unknown"} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} detail=${PlaybackLogSanitizer.sanitizeMessage(detail)}"
-        )
-
-        retryJob?.cancel()
-        retryJob = null
-        _retryStatus.value = null
-        prepareInternal(
-            streamInfo = streamInfo,
-            preserveRetryState = false,
-            seekPositionMs = seekPosition,
-            autoPlay = wasPlaying
-        )
-        return true
     }
 
     private fun audioMimeTypes(
@@ -1850,34 +1841,6 @@ class Media3PlayerEngine @Inject constructor(
         )
     }
 
-    private fun buildPlaybackRendererPlan(
-        requestedMode: DecoderMode,
-        decoderPolicy: ActiveDecoderPolicy,
-        useAudioVideoSyncSink: Boolean,
-        useVideoRendererWorkaround: Boolean
-    ): PlaybackRendererPlan {
-        val useManagedCodecSelector = requestedMode != DecoderMode.AUTO && decoderPolicy != ActiveDecoderPolicy.AUTO
-        val useEffectiveVideoRendererWorkaround = useVideoRendererWorkaround && requestedMode != DecoderMode.AUTO
-        val renderPath = buildList {
-            if (useAudioVideoSyncSink) add("av-sync-sink")
-            if (useEffectiveVideoRendererWorkaround) add("decoder-reuse-workaround")
-            if (useManagedCodecSelector) add("managed-codec-selector")
-        }.ifEmpty { listOf("stock-media3") }.joinToString("+")
-        return PlaybackRendererPlan(
-            useAudioVideoSyncSink = useAudioVideoSyncSink,
-            useVideoRendererWorkaround = useEffectiveVideoRendererWorkaround,
-            useManagedCodecSelector = useManagedCodecSelector,
-            renderPath = renderPath
-        )
-    }
-
-    private fun shouldAttemptFfmpegAudioFallback(request: FfmpegAudioFallbackRequest): Boolean {
-        if (request.requestedMode != DecoderMode.AUTO) return false
-        if (!request.extensionAvailable) return false
-        if (request.fallbackMode != DecoderMode.SOFTWARE) return false
-        return request.supportedMimeTypes.isNotEmpty()
-    }
-
     private fun handlePlaybackSetupFailure(
         error: Exception,
         streamInfo: StreamInfo,
@@ -1933,6 +1896,22 @@ class Media3PlayerEngine @Inject constructor(
         if (category == PlaybackErrorCategory.DECODER || category == PlaybackErrorCategory.FORMAT_UNSUPPORTED) {
             val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
             if (fallbackMode != null) {
+                if (!shouldAttemptAutomaticRecovery(
+                        action = AutomaticRecoveryAction.DECODER_FALLBACK,
+                        resolvedStreamType = currentResolvedStreamType,
+                        playbackStarted = playbackStarted
+                    )
+                ) {
+                    Log.w(
+                        TAG,
+                        "decoder-preference fallback suppressed after playback start fallback=$fallbackMode streamType=$currentResolvedStreamType mediaId=$mediaId"
+                    )
+                    _retryStatus.value = null
+                    lastSupportErrorMessage = error.message
+                    _error.tryEmit(PlayerError.fromException(error))
+                    _playbackState.value = PlaybackState.ERROR
+                    return
+                }
                 Log.w(
                     TAG,
                     "decoder-preference fallback=$fallbackMode mediaId=$mediaId target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
@@ -1944,6 +1923,22 @@ class Media3PlayerEngine @Inject constructor(
         }
 
         val nextAttempt = retryAttempt + 1
+        if (!shouldAttemptAutomaticRecovery(
+                action = AutomaticRecoveryAction.FULL_REPREPARE,
+                resolvedStreamType = currentResolvedStreamType,
+                playbackStarted = playbackStarted
+            )
+        ) {
+            _retryStatus.value = null
+            Log.e(
+                TAG,
+                "retry suppressed after playback start category=$category streamType=$currentResolvedStreamType target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
+            )
+            lastSupportErrorMessage = error.message
+            _error.tryEmit(PlayerError.fromException(error))
+            _playbackState.value = PlaybackState.ERROR
+            return
+        }
         if (retryPolicy.shouldRetry(error, retryContext, playbackStarted, nextAttempt)) {
             val delayMs = retryPolicy.retryDelayMs(error, nextAttempt)
             val player = exoPlayer
@@ -1952,7 +1947,8 @@ class Media3PlayerEngine @Inject constructor(
                 resolvedStreamType = currentResolvedStreamType,
                 currentPositionMs = player?.currentPosition,
                 durationMs = player?.duration,
-                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true
+                isCurrentMediaItemLive = player?.isCurrentMediaItemLive == true,
+                playbackStarted = playbackStarted
             )
             // retryGeneration captured and checked on Main — safe with
             // Dispatchers.Main.immediate. If the scope dispatcher is ever changed

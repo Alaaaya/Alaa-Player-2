@@ -8,6 +8,7 @@ import com.streamvault.app.R
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 
 @Composable
@@ -27,6 +28,8 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     showSurfaceModeDialog: Boolean,
     onShowSurfaceModeDialogChange: (Boolean) -> Unit,
+    showVodHttpProtocolDialog: Boolean,
+    onShowVodHttpProtocolDialogChange: (Boolean) -> Unit,
     showTimeshiftDepthDialog: Boolean,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
     showDefaultStopTimerDialog: Boolean,
@@ -167,6 +170,31 @@ internal fun SettingsPlayerPreferenceDialogs(
                     onSelect = {
                         viewModel.setPlayerSurfaceMode(option.first)
                         onShowSurfaceModeDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showVodHttpProtocolDialog) {
+        val protocolOptions = remember(context) {
+            listOf(
+                VodHttpProtocolMode.COMPATIBILITY_HTTP1 to context.getString(R.string.settings_vod_http_protocol_compatibility),
+                VodHttpProtocolMode.AUTO to context.getString(R.string.settings_vod_http_protocol_auto)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_vod_http_protocol_mode),
+            onDismiss = { onShowVodHttpProtocolDialogChange(false) }
+        ) {
+            protocolOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerVodHttpProtocolMode == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerVodHttpProtocolMode(option.first)
+                        onShowVodHttpProtocolDialogChange(false)
                     }
                 )
             }

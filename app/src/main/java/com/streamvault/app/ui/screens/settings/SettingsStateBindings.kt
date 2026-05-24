@@ -13,6 +13,7 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +44,7 @@ internal fun observeSettingsPreferenceSnapshot(
             playerAudioOutputPreference = AudioOutputPreference.AUTO,
             playerCompatibilityMemoryEnabled = true,
             playerSurfaceMode = com.streamvault.domain.model.PlayerSurfaceMode.AUTO,
+            playerVodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
             playerPlaybackSpeed = 1f,
             playerAudioVideoSyncEnabled = false,
             playerAudioVideoOffsetMs = 0,
@@ -111,6 +113,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerCompatibilityMemoryEnabled = enabled)
     }.combine(preferencesRepository.playerSurfaceMode) { snapshot, surfaceMode ->
         snapshot.copy(playerSurfaceMode = surfaceMode)
+    }.combine(preferencesRepository.playerVodHttpProtocolMode) { snapshot, protocolMode ->
+        snapshot.copy(playerVodHttpProtocolMode = protocolMode)
     }.combine(preferencesRepository.playerPlaybackSpeed) { snapshot, playerPlaybackSpeed ->
         snapshot.copy(playerPlaybackSpeed = playerPlaybackSpeed)
     }.combine(preferencesRepository.playerAudioVideoSyncEnabled) { snapshot, enabled ->

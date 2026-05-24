@@ -6,6 +6,7 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.repository.ProviderRepository
 import java.net.URI
 import java.net.URLDecoder
@@ -39,9 +40,16 @@ data class StalkerProviderSetupCommand(
     val portalUrl: String,
     val macAddress: String,
     val name: String,
+    val authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
+    val username: String = "",
+    val password: String = "",
     val deviceProfile: String = "",
     val timezone: String = "",
     val locale: String = "",
+    val serialNumber: String = "",
+    val deviceId: String = "",
+    val deviceId2: String = "",
+    val signature: String = "",
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val existingProviderId: Long? = null
 )
@@ -114,9 +122,17 @@ class ValidateAndAddProvider @Inject constructor(
                 portalUrl = command.portalUrl,
                 macAddress = command.macAddress,
                 name = command.name,
+                authMode = command.authMode,
+                username = command.username,
+                password = command.password,
+                allowBlankPassword = command.existingProviderId != null,
                 deviceProfile = command.deviceProfile,
                 timezone = command.timezone,
-                locale = command.locale
+                locale = command.locale,
+                serialNumber = command.serialNumber,
+                deviceId = command.deviceId,
+                deviceId2 = command.deviceId2,
+                signature = command.signature
             )
         ) {
             is Result.Error -> ValidateAndAddProviderResult.ValidationError(result.message)
@@ -221,18 +237,33 @@ class ValidateAndAddProvider @Inject constructor(
                 portalUrl = command.portalUrl,
                 macAddress = command.macAddress,
                 name = command.name,
+                authMode = command.authMode,
+                username = command.username,
+                password = command.password,
+                allowBlankPassword = command.existingProviderId != null,
                 deviceProfile = command.deviceProfile,
                 timezone = command.timezone,
-                locale = command.locale
+                locale = command.locale,
+                serialNumber = command.serialNumber,
+                deviceId = command.deviceId,
+                deviceId2 = command.deviceId2,
+                signature = command.signature
             )
         ) {
             is Result.Success -> providerRepository.loginStalker(
                 portalUrl = validated.data.portalUrl,
                 macAddress = validated.data.macAddress,
                 name = validated.data.name,
+                authMode = validated.data.authMode,
+                username = validated.data.username,
+                password = validated.data.password,
                 deviceProfile = validated.data.deviceProfile,
                 timezone = validated.data.timezone,
                 locale = validated.data.locale,
+                serialNumber = validated.data.serialNumber,
+                deviceId = validated.data.deviceId,
+                deviceId2 = validated.data.deviceId2,
+                signature = validated.data.signature,
                 epgSyncMode = command.epgSyncMode,
                 onProgress = onProgress,
                 id = command.existingProviderId

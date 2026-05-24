@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
+import com.streamvault.data.remote.stalker.StalkerPlaybackResolutionException
 import com.streamvault.data.security.CredentialDecryptionException
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Episode
@@ -23,7 +24,8 @@ internal data class SeriesEpisodeResolution(
 
 internal data class PlayerPlaybackStreamResolution(
     val streamInfo: StreamInfo?,
-    val credentialFailureMessage: String? = null
+    val credentialFailureMessage: String? = null,
+    val resolutionFailureMessage: String? = null
 )
 
 internal fun buildSeriesEpisodeResolution(
@@ -144,6 +146,19 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
         return PlayerPlaybackStreamResolution(
             streamInfo = null,
             credentialFailureMessage = e.message ?: CredentialDecryptionException.MESSAGE
+        )
+    } catch (e: StalkerPlaybackResolutionException) {
+        return PlayerPlaybackStreamResolution(
+            streamInfo = null,
+            resolutionFailureMessage = e.message ?: "We couldn't resolve a playable Stalker stream for this item."
+        )
+    }
+
+    val isLogicalInternalUrl = xtreamStreamUrlResolver.isInternalStreamUrl(logicalUrl)
+    if (isLogicalInternalUrl) {
+        return PlayerPlaybackStreamResolution(
+            streamInfo = null,
+            resolutionFailureMessage = "This portal requires a different playback path than the default command."
         )
     }
 

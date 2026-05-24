@@ -36,6 +36,28 @@ class FfmpegExtensionSupportTest {
             .containsExactly("audio/eac3")
     }
 
+    @Test
+    fun `supports format delegates to current media3 signature`() {
+        FakeCurrentMedia3FfmpegLibrary.available = true
+        val ffmpegBackedMimeTypes = listOf(
+            "audio/ac3",
+            "audio/eac3",
+            "audio/vnd.dts",
+            "audio/true-hd",
+            "audio/mpeg-L2"
+        )
+        FakeCurrentMedia3FfmpegLibrary.supportedMimeTypes = ffmpegBackedMimeTypes.toMutableSet()
+        val support = FfmpegExtensionSupport(
+            ReflectiveFfmpegLibrary(libraryClassProvider = { FakeCurrentMedia3FfmpegLibrary::class.java })
+        )
+
+        ffmpegBackedMimeTypes.forEach { mimeType ->
+            assertThat(support.supportsFormat(mimeType)).isTrue()
+        }
+        assertThat(support.supportedAudioMimeTypes(ffmpegBackedMimeTypes + "audio/mp4a-latm"))
+            .containsExactlyElementsIn(ffmpegBackedMimeTypes)
+    }
+
     object FakeFfmpegLibrary {
         @JvmStatic var available: Boolean = false
         @JvmStatic var reportedVersion: String? = null
@@ -49,5 +71,20 @@ class FfmpegExtensionSupportTest {
 
         @JvmStatic
         fun supportsFormat(mimeType: String): Boolean = available && mimeType in supportedMimeTypes
+    }
+
+    object FakeCurrentMedia3FfmpegLibrary {
+        @JvmStatic var available: Boolean = false
+        @JvmStatic var supportedMimeTypes: MutableSet<String> = mutableSetOf()
+
+        @JvmStatic
+        fun isAvailable(): Boolean = available
+
+        @JvmStatic
+        fun getVersion(): String? = "6.0-test"
+
+        @JvmStatic
+        fun supportsFormat(mimeType: String, codecs: String?): Boolean =
+            available && codecs == null && mimeType in supportedMimeTypes
     }
 }

@@ -9,12 +9,14 @@ import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
+import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.PlaybackHistoryLiteEntity
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.stalker.StalkerDeviceProfile
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
@@ -73,6 +75,7 @@ class MovieRepositoryImplTest {
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
     private val syncMetadataRepository: SyncMetadataRepository = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
+    private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
@@ -237,6 +240,36 @@ class MovieRepositoryImplTest {
         verify(movieDao, never()).replaceCategory(eq(7L), eq(42L), any())
         verify(movieCategoryHydrationDao, never()).upsert(any())
         verify(xtreamApiService, never()).getVodStreams(any(), any())
+    }
+
+    @Test
+    fun `getMoviesByCategory prioritizes stalker category when background fetch is already running`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0))
+        whenever(movieDao.getByCategory(7L, 42L)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(null)
+        whenever(xtreamIndexJobDao.get(7L, ContentType.MOVIE.name)).thenReturn(
+            XtreamIndexJobEntity(providerId = 7L, section = ContentType.MOVIE.name, state = "RUNNING")
+        )
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Stalker",
+                type = ProviderType.STALKER_PORTAL,
+                serverUrl = "http://example.com",
+                username = "",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        val repository = createRepository()
+
+        val result = repository.getMoviesByCategory(7L, 42L).first()
+
+        assertThat(result).isEmpty()
+        verify(syncManager).prioritizeStalkerIndexCategory(7L, ContentType.MOVIE, 42L)
+        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), any())
     }
 
     @Test
@@ -596,6 +629,87 @@ class MovieRepositoryImplTest {
         assertThat(result.items.map { it.name }).containsExactly("Rated Movie")
     }
 
+    @Test
+    fun `browseMovies release uses release ordering instead of added order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(movieDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(movieDao.getReleasedPreview(7L, 100)).thenReturn(
+            flowOf(
+                listOf(
+                    MovieBrowseEntity(
+                        id = 1L,
+                        streamId = 1L,
+                        name = "Added Later",
+                        providerId = 7L,
+                        categoryId = 10L,
+                        releaseDate = "2020-01-01",
+                        addedAt = 20_000L,
+                        streamUrl = "https://example.com/1.m3u8"
+                    ),
+                    MovieBrowseEntity(
+                        id = 2L,
+                        streamId = 2L,
+                        name = "Released Later",
+                        providerId = 7L,
+                        categoryId = 10L,
+                        releaseDate = "2024-01-01",
+                        addedAt = 10_000L,
+                        streamUrl = "https://example.com/2.m3u8"
+                    )
+                )
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
+        whenever(playbackHistoryDao.getByProvider(7L)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseMovies(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.RELEASE,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Released Later", "Added Later").inOrder()
+        verify(movieDao).getReleasedPreview(7L, 100)
+        verify(movieDao, never()).getFreshPreview(7L, 100)
+    }
+
+    @Test
+    fun `browseMovies library order uses added at freshness instead of title order`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        whenever(movieDao.getCount(7L)).thenReturn(flowOf(2))
+        whenever(movieDao.getFreshCursorPage(7L, 40)).thenReturn(
+            listOf(
+                MovieBrowseEntity(id = 2L, streamId = 102L, name = "Zulu Movie", providerId = 7L, addedAt = 20_000L),
+                MovieBrowseEntity(id = 1L, streamId = 101L, name = "Alpha Movie", providerId = 7L, addedAt = 10_000L)
+            )
+        )
+        whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
+
+        val repository = createRepository()
+
+        val result = repository.browseMovies(
+            LibraryBrowseQuery(
+                providerId = 7L,
+                sortBy = LibrarySortBy.LIBRARY,
+                offset = 0,
+                limit = 20
+            )
+        ).first()
+
+        assertThat(result.totalCount).isEqualTo(2)
+        assertThat(result.items.map { it.name }).containsExactly("Zulu Movie", "Alpha Movie").inOrder()
+        verify(movieDao).getFreshCursorPage(7L, 40)
+        verify(movieDao, never()).getByProviderCursorPage(any(), any())
+    }
+
     private fun createRepository() = MovieRepositoryImpl(
         movieDao = movieDao,
         categoryDao = categoryDao,
@@ -611,6 +725,7 @@ class MovieRepositoryImplTest {
         movieCategoryHydrationDao = movieCategoryHydrationDao,
         syncMetadataRepository = syncMetadataRepository,
         xtreamContentIndexDao = xtreamContentIndexDao,
+        xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
         transactionRunner = transactionRunner
     )

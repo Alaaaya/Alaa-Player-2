@@ -11,6 +11,9 @@ object ProviderInputSanitizer {
     const val MAX_DEVICE_PROFILE_LENGTH = 32
     const val MAX_TIMEZONE_LENGTH = 64
     const val MAX_LOCALE_LENGTH = 16
+    const val MAX_STALKER_SERIAL_LENGTH = 64
+    const val MAX_STALKER_DEVICE_ID_LENGTH = 128
+    const val MAX_STALKER_SIGNATURE_LENGTH = 128
 
     fun sanitizeProviderNameForEditing(input: String): String = sanitizeSingleLine(input, MAX_PROVIDER_NAME_LENGTH)
 
@@ -31,6 +34,12 @@ object ProviderInputSanitizer {
     fun sanitizeTimezoneForEditing(input: String): String = sanitizeSingleLine(input, MAX_TIMEZONE_LENGTH)
 
     fun sanitizeLocaleForEditing(input: String): String = sanitizeSingleLine(input, MAX_LOCALE_LENGTH)
+
+    fun sanitizeStalkerSerialForEditing(input: String): String = sanitizeSingleLine(input.uppercase(), MAX_STALKER_SERIAL_LENGTH)
+
+    fun sanitizeStalkerDeviceIdForEditing(input: String): String = sanitizeSingleLine(input.uppercase(), MAX_STALKER_DEVICE_ID_LENGTH)
+
+    fun sanitizeStalkerSignatureForEditing(input: String): String = sanitizeSingleLine(input.uppercase(), MAX_STALKER_SIGNATURE_LENGTH)
 
     fun normalizeProviderName(input: String): String =
         sanitizeSingleLine(input, MAX_PROVIDER_NAME_LENGTH)
@@ -71,6 +80,15 @@ object ProviderInputSanitizer {
 
     fun normalizeLocale(input: String): String =
         sanitizeSingleLine(input, MAX_LOCALE_LENGTH).trim()
+
+    fun normalizeStalkerSerial(input: String): String =
+        sanitizeSingleLine(input.uppercase(), MAX_STALKER_SERIAL_LENGTH).trim()
+
+    fun normalizeStalkerDeviceId(input: String): String =
+        sanitizeSingleLine(input.uppercase(), MAX_STALKER_DEVICE_ID_LENGTH).trim()
+
+    fun normalizeStalkerSignature(input: String): String =
+        sanitizeSingleLine(input.uppercase(), MAX_STALKER_SIGNATURE_LENGTH).trim()
 
     fun validateUrl(url: String): String? {
         return if (url.any(Char::isWhitespace)) {

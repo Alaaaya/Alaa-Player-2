@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -325,21 +326,21 @@ fun VodBrowseOptionsDialog(
     PremiumDialog(
         title = title,
         onDismissRequest = onDismiss,
-        widthFraction = 0.56f,
+        widthFraction = 0.6f,
+        heightFraction = null,
+        bodyHeightFraction = 0.44f,
         content = {
-            SelectionChipRow(
+            VodBrowseOptionsSection(
                 title = filterTitle,
                 chips = filterChips,
                 selectedKey = selectedFilterKey,
-                onChipSelected = onFilterSelected,
-                contentPadding = PaddingValues(horizontal = 0.dp)
+                onChipSelected = onFilterSelected
             )
-            SelectionChipRow(
+            VodBrowseOptionsSection(
                 title = sortTitle,
                 chips = sortChips,
                 selectedKey = selectedSortKey,
-                onChipSelected = onSortSelected,
-                contentPadding = PaddingValues(horizontal = 0.dp)
+                onChipSelected = onSortSelected
             )
         },
         footer = {
@@ -349,4 +350,84 @@ fun VodBrowseOptionsDialog(
             )
         }
     )
+}
+
+@Composable
+private fun VodBrowseOptionsSection(
+    title: String,
+    chips: List<SelectionChip>,
+    selectedKey: String,
+    onChipSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium,
+            color = AppColors.TextTertiary
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            chips.forEach { chip ->
+                VodBrowseOptionChip(
+                    label = chip.label,
+                    supportingText = chip.supportingText,
+                    selected = chip.key == selectedKey,
+                    onClick = { onChipSelected(chip.key) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VodBrowseOptionChip(
+    label: String,
+    supportingText: String?,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
+            focusedContainerColor = if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight,
+            contentColor = if (selected) Primary else TextPrimary,
+            focusedContentColor = TextPrimary
+        ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, FocusBorder),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            supportingText?.takeIf { it.isNotBlank() }?.let { detail ->
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
 }
