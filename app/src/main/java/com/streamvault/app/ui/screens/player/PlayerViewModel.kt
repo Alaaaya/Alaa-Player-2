@@ -225,6 +225,8 @@ class PlayerViewModel @Inject constructor(
     val sleepTimerUiState: StateFlow<SleepTimerUiState> = _sleepTimerUiState.asStateFlow()
     internal val _sleepTimerExitEvent = MutableStateFlow(0)
     val sleepTimerExitEvent: StateFlow<Int> = _sleepTimerExitEvent.asStateFlow()
+    private val _playerPreferencesUiState = MutableStateFlow(PlayerPreferencesUiState())
+    val playerPreferencesUiState: StateFlow<PlayerPreferencesUiState> = _playerPreferencesUiState.asStateFlow()
 
     internal var channelInfoHideJob: Job? = null
     internal var liveOverlayHideJob: Job? = null
@@ -621,6 +623,13 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
                 maybeStartLiveTimeshift()
+            }
+        }
+        viewModelScope.launch {
+            preferencesRepository.playerExternalPlaybackMode.collect { mode ->
+                _playerPreferencesUiState.value = PlayerPreferencesUiState(
+                    externalPlaybackMode = mode
+                )
             }
         }
         viewModelScope.launch {

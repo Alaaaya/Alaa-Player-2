@@ -41,6 +41,7 @@ build_output_*.txt
 domain/bin/
 
 # Tooling and crash logs
+.pi/
 .kotlin/
 hs_err_pid*.log
 gradle_build.log

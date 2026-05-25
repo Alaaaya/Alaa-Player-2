@@ -125,6 +125,7 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_COMPATIBILITY_MEMORY_ENABLED = booleanPreferencesKey("player_compatibility_memory_enabled")
         val PLAYER_SURFACE_MODE = stringPreferencesKey("player_surface_mode")
         val PLAYER_PLAYBACK_SPEED = stringPreferencesKey("player_playback_speed")
+        val PLAYER_EXTERNAL_PLAYBACK_MODE = stringPreferencesKey("player_external_playback_mode")
         val PLAYER_AUDIO_VIDEO_SYNC_ENABLED = booleanPreferencesKey("player_av_sync_enabled")
         val PLAYER_AUDIO_VIDEO_OFFSET_MS = intPreferencesKey("player_av_offset_ms")
         val PREFERRED_AUDIO_LANGUAGE = stringPreferencesKey("preferred_audio_language")
@@ -304,6 +305,12 @@ class PreferencesRepository @Inject constructor(
             ?.toFloatOrNull()
             ?.coerceIn(0.5f, 2f)
             ?: 1f
+    }
+
+    val playerExternalPlaybackMode: Flow<com.streamvault.domain.model.ExternalPlaybackMode> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.PLAYER_EXTERNAL_PLAYBACK_MODE]
+            ?.let { saved -> com.streamvault.domain.model.ExternalPlaybackMode.fromStorageValue(saved) }
+            ?: com.streamvault.domain.model.ExternalPlaybackMode.INTERNAL_PLAYER
     }
 
     val playerAudioVideoOffsetMs: Flow<Int> = context.dataStore.data.map { preferences ->
@@ -816,6 +823,12 @@ class PreferencesRepository @Inject constructor(
     suspend fun setPlayerPlaybackSpeed(speed: Float) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.PLAYER_PLAYBACK_SPEED] = speed.coerceIn(0.5f, 2f).toString()
+        }
+    }
+
+    suspend fun setPlayerExternalPlaybackMode(mode: com.streamvault.domain.model.ExternalPlaybackMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_EXTERNAL_PLAYBACK_MODE] = mode.storageValue
         }
     }
 
