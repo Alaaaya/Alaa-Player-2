@@ -155,7 +155,7 @@ internal fun LivePreviewPane(
                     .background(Color.Black, RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                if (channel != null && playerEngine != null && errorMessage == null) {
+                if (playerEngine != null && errorMessage == null) {
                     PlayerRenderView(
                         playerEngine = playerEngine,
                         resizeMode = PlayerSurfaceResizeMode.FIT,
