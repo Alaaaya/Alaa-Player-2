@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -86,15 +87,30 @@ fun DownloadsScreen(
             showScreenHeader = false
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
+                val downloadFolderLabel = uiState.storageConfig.displayName
+                    ?: uiState.storageConfig.treeUri
+                    ?: stringResource(R.string.download_folder_default)
+
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.End
+                    horizontalAlignment = Alignment.End
                 ) {
                     Button(onClick = { folderPicker.launch(null) }) {
                         Text(text = stringResource(R.string.download_folder_change))
                     }
+                    Text(
+                        text = downloadFolderLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = AppColors.TextTertiary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .padding(top = 4.dp)
+                    )
                 }
 
                 when {

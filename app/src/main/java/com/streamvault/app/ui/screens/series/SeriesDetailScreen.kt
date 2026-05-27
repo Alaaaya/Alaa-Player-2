@@ -591,11 +591,19 @@ fun EpisodeItem(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        TvButton(onClick = onCopyUrl) {
-            Text(stringResource(R.string.stream_url_copy))
-        }
-        TvButton(onClick = onDownload, colors = ButtonDefaults.colors(containerColor = AppColors.SurfaceEmphasis, contentColor = AppColors.TextPrimary)) {
-            Text(stringResource(R.string.download_button_label))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TvButton(
+                onClick = onDownload,
+                colors = ButtonDefaults.colors(
+                    containerColor = AppColors.SurfaceEmphasis,
+                    contentColor = AppColors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.download_button_label))
+            }
+            TvButton(onClick = onCopyUrl) {
+                Text(stringResource(R.string.stream_url_copy))
+            }
         }
     }
 }
