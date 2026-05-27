@@ -224,6 +224,19 @@ fun FullEpgScreen(
         onDispose { viewModel.clearPreview() }
     }
 
+    val hasActivePreview = uiState.previewPlayerEngine != null
+    DisposableEffect(hasActivePreview) {
+        val window = (context as? android.app.Activity)?.window
+        if (hasActivePreview) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (hasActivePreview) {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
     LaunchedEffect(initialCategoryId, initialAnchorTime, initialFavoritesOnly) {
         viewModel.applyNavigationContext(
             categoryId = initialCategoryId,
