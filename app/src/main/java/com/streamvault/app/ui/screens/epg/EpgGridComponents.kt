@@ -247,25 +247,6 @@ private fun GuideTimelineHeader(
             modifier = Modifier.width(timelineViewportWidth),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.epg_timeline_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceDim
-                )
-                Text(
-                    text = stringResource(
-                        R.string.epg_timeline_range_label,
-                        formatWindowDuration(totalDuration)
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceDim
-                )
-            }
             Box(
                 modifier = Modifier
                     .width(timelineViewportWidth)
@@ -313,11 +294,6 @@ private fun GuideTimelineHeader(
                     }
                 }
             }
-            Text(
-                text = markerLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (now in windowStart..windowEnd) Primary else OnSurfaceDim
-            )
         }
     }
 }
