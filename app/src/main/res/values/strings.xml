@@ -358,7 +358,6 @@
     <string name="settings_external_playback">Default playback app</string>
     <string name="settings_external_playback_subtitle">Choose which app opens streams when you play a channel or title.</string>
     <string name="settings_external_playback_mode_internal">Internal player</string>
-    <string name="settings_external_playback_mode_ask">Ask every time</string>
     <string name="settings_external_playback_mode_external">External player</string>
     <string name="settings_browsing">Browsing</string>
     <string name="settings_live_tv_channel_mode">Live TV Channel Mode</string>

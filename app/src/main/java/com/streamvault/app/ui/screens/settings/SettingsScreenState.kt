@@ -236,6 +236,6 @@ private fun formatExternalPlaybackModeLabel(
     context: Context
 ): String = when (mode) {
     com.streamvault.domain.model.ExternalPlaybackMode.INTERNAL_PLAYER -> context.getString(R.string.settings_external_playback_mode_internal)
-    com.streamvault.domain.model.ExternalPlaybackMode.ASK_EVERY_TIME -> context.getString(R.string.settings_external_playback_mode_ask)
+    com.streamvault.domain.model.ExternalPlaybackMode.ASK_EVERY_TIME -> context.getString(R.string.settings_external_playback_mode_external)
     com.streamvault.domain.model.ExternalPlaybackMode.EXTERNAL_PLAYER -> context.getString(R.string.settings_external_playback_mode_external)
 }
