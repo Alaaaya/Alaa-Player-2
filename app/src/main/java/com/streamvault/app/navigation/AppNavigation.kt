@@ -669,16 +669,18 @@ fun AppNavigation(mainActivity: MainActivity) {
                     onBack = {
                         val route = safePlayerRequest.returnRoute
                         if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
+                            // Popped back to the exact route already in the backstack (same VM, handoff works)
                             Unit
-                        } else if (!route.isNullOrBlank()) {
-                            navController.navigate(route) {
+                        } else if (!navController.popBackStack()) {
+                            // Nothing left to pop — navigate to the return route or home as a last resort
+                            val fallback = route?.takeIf { it.isNotBlank() } ?: Routes.HOME
+                            navController.navigate(fallback) {
                                 popUpTo(Routes.PLAYER) { inclusive = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                        } else {
-                            navController.popBackStack()
                         }
+                        // else: plain popBackStack() succeeded — returns to existing Guide entry, preserving EpgViewModel
                     },
                     onNavigate = { route ->
                         navController.navigateIfResumed(route) {

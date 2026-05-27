@@ -118,6 +118,7 @@ internal fun EpgGrid(
     guideWindowEnd: Long,
     density: GuideDensity,
     onChannelClick: (Channel) -> Unit,
+    onChannelLongClick: ((Channel, Program?) -> Unit)? = null,
     onProgramClick: (Channel, Program) -> Unit,
     onChannelFocused: (Channel, Program?, Boolean) -> Unit,
     onProgramFocused: (Channel, Program, Boolean) -> Unit,
@@ -190,6 +191,7 @@ internal fun EpgGrid(
                         markerStepMs = markerStepMs,
                         scrollState = horizontalScrollState,
                         onChannelClick = { onChannelClick(channel) },
+                        onChannelLongClick = onChannelLongClick?.let { cb -> { prog -> cb(channel, prog) } },
                         onChannelFocused = { onChannelFocused(channel, it, isFirstRow) },
                         onProgramClick = { program -> onProgramClick(channel, program) },
                         onProgramFocused = { program -> onProgramFocused(channel, program, isFirstRow) }
@@ -336,6 +338,7 @@ fun EpgRow(
     markerStepMs: Long,
     scrollState: androidx.compose.foundation.ScrollState,
     onChannelClick: () -> Unit,
+    onChannelLongClick: ((Program?) -> Unit)? = null,
     onChannelFocused: (Program?) -> Unit,
     onProgramClick: (Program) -> Unit,
     onProgramFocused: (Program) -> Unit
@@ -365,6 +368,13 @@ fun EpgRow(
     ) {
         TvClickableSurface(
             onClick = onChannelClick,
+            onLongClick = onChannelLongClick?.let { cb ->
+                {
+                    val prog = currentProgram
+                        ?: programs.minByOrNull { kotlin.math.abs(it.startTime - now) }
+                    cb(prog)
+                }
+            },
             modifier = Modifier
                 .width(channelRailWidth)
                 .fillMaxHeight()
