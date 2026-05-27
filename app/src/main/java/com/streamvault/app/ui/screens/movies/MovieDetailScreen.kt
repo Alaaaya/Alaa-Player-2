@@ -121,9 +121,11 @@ fun MovieDetailScreen(
                         Result.Loading -> null
                     }
                 },
+                onDownload = {},
                 onToggleFavorite = viewModel::toggleFavorite,
                 onRelatedClick = onPlay,
-                onBack = onBack
+                onBack = onBack,
+                viewModel = viewModel
             )
         }
     }
@@ -139,14 +141,17 @@ private fun MovieDetailContent(
     relatedContent: List<Movie>,
     onPlay: () -> Unit,
     onCopyUrl: suspend () -> String?,
+    onDownload: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRelatedClick: (Movie) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: MovieDetailViewModel
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val isTelevisionDevice = rememberIsTelevisionDevice()
     val playButtonFocusRequester = remember { FocusRequester() }
+    val onDownload: () -> Unit = { viewModel.downloadMovie(context) }
 
     LaunchedEffect(movie.id) {
         playButtonFocusRequester.requestFocusSafely(
@@ -230,6 +235,7 @@ private fun MovieDetailContent(
                                     copyStreamUrlToClipboard(context, onCopyUrl())
                                 }
                             },
+                            onDownload = onDownload,
                             onToggleFavorite = onToggleFavorite,
                             playButtonFocusRequester = playButtonFocusRequester,
                             onPlayTrailer = {
@@ -259,6 +265,7 @@ private fun MovieDetailContent(
                                     copyStreamUrlToClipboard(context, onCopyUrl())
                                 }
                             },
+                            onDownload = onDownload,
                             onToggleFavorite = onToggleFavorite,
                             playButtonFocusRequester = playButtonFocusRequester,
                             onPlayTrailer = {
@@ -353,6 +360,7 @@ private fun MovieDetailHeroText(
     isLoadingExternalRatings: Boolean,
     onPlay: () -> Unit,
     onCopyUrl: () -> Unit,
+    onDownload: () -> Unit,
     onToggleFavorite: () -> Unit,
     playButtonFocusRequester: FocusRequester,
     onPlayTrailer: () -> Unit,
@@ -425,6 +433,15 @@ private fun MovieDetailHeroText(
                 )
             ) {
                 Text(stringResource(R.string.stream_url_copy))
+            }
+            TvButton(
+                onClick = onDownload,
+                colors = ButtonDefaults.colors(
+                    containerColor = AppColors.SurfaceEmphasis,
+                    contentColor = AppColors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.download_button_label))
             }
             if (hasTrailer) {
                 TvButton(

@@ -147,6 +147,11 @@
                 android:resource="@xml/tv_input_service" />
         </service>
 
+        <service
+            android:name=".service.DownloadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.streamvault.app.cast.StreamVaultCastOptionsProvider" />

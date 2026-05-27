@@ -1,16 +1,23 @@
 package com.streamvault.app.ui.screens.series
 
+import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.R
 import com.streamvault.app.plugins.StreamVaultPluginManager
+import com.streamvault.app.service.DownloadForegroundService
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.DownloadContentType
+import com.streamvault.domain.model.DownloadRequest
 import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.ExternalRatings
 import com.streamvault.domain.model.ExternalRatingsLookup
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.domain.repository.ExternalRatingsRepository
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
@@ -36,7 +43,8 @@ class SeriesDetailViewModel @Inject constructor(
     private val playbackHistoryRepository: PlaybackHistoryRepository,
     private val externalRatingsRepository: ExternalRatingsRepository,
     private val favoriteRepository: FavoriteRepository,
-    private val pluginManager: StreamVaultPluginManager
+    private val pluginManager: StreamVaultPluginManager,
+    private val downloadManager: DownloadManager
 ) : ViewModel() {
 
     private val seriesId: Long = checkNotNull(
@@ -175,6 +183,41 @@ class SeriesDetailViewModel @Inject constructor(
 
     fun selectSeason(season: Season) {
         _uiState.update { it.copy(selectedSeason = season) }
+    }
+
+    fun downloadEpisode(context: Context, episode: Episode) {
+        val series = _uiState.value.series ?: return
+        viewModelScope.launch {
+            val resolvedUrl = resolveCopyStreamUrl(episode)
+            when (resolvedUrl) {
+                is Result.Success -> {
+                    val request = DownloadRequest(
+                        providerId = episode.providerId,
+                        contentType = DownloadContentType.SERIES_EPISODE,
+                        contentId = episode.id,
+                        contentName = episode.title,
+                        streamUrl = resolvedUrl.data,
+                        posterUrl = episode.coverUrl,
+                        seriesId = series.id,
+                        seasonNumber = episode.seasonNumber,
+                        episodeNumber = episode.episodeNumber
+                    )
+                    val result = downloadManager.enqueueDownload(request)
+                    when (result) {
+                        is Result.Success -> {
+                            DownloadForegroundService.startDownload(context, result.data.id)
+                            Toast.makeText(context, context.getString(R.string.download_started), Toast.LENGTH_SHORT).show()
+                        }
+                        is Result.Error ->
+                            Toast.makeText(context, context.getString(R.string.download_failed), Toast.LENGTH_SHORT).show()
+                        Result.Loading -> Unit
+                    }
+                }
+                is Result.Error ->
+                    Toast.makeText(context, context.getString(R.string.download_error_no_url), Toast.LENGTH_SHORT).show()
+                Result.Loading -> Unit
+            }
+        }
     }
 
     private fun findResumeEpisode(series: Series): Episode? {

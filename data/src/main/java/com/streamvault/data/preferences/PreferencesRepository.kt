@@ -160,6 +160,7 @@ class PreferencesRepository @Inject constructor(
         val RECORDING_WIFI_ONLY = booleanPreferencesKey("recording_wifi_only")
         val RECORDING_PADDING_BEFORE_MINUTES = intPreferencesKey("recording_padding_before_minutes")
         val RECORDING_PADDING_AFTER_MINUTES = intPreferencesKey("recording_padding_after_minutes")
+        val DOWNLOAD_TREE_URI = stringPreferencesKey("download_tree_uri")
         val LAST_APP_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_app_update_check_timestamp")
         val APP_UPDATE_DOWNLOAD_ID = longPreferencesKey("app_update_download_id")
         val APP_UPDATE_DOWNLOAD_VERSION_NAME = stringPreferencesKey("app_update_download_version_name")
@@ -604,6 +605,12 @@ class PreferencesRepository @Inject constructor(
         (preferences[PreferencesKeys.RECORDING_PADDING_AFTER_MINUTES] ?: 0).coerceIn(0, 30)
     }
 
+    val downloadTreeUri: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.DOWNLOAD_TREE_URI]
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun setZapAutoRevert(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.ZAP_AUTO_REVERT] = enabled
@@ -625,6 +632,17 @@ class PreferencesRepository @Inject constructor(
     suspend fun setRecordingPaddingAfterMinutes(minutes: Int) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.RECORDING_PADDING_AFTER_MINUTES] = minutes.coerceIn(0, 30)
+        }
+    }
+
+    suspend fun setDownloadTreeUri(uri: String?) {
+        context.dataStore.edit { preferences ->
+            val normalized = uri?.trim()?.takeIf { it.isNotBlank() }
+            if (normalized == null) {
+                preferences.remove(PreferencesKeys.DOWNLOAD_TREE_URI)
+            } else {
+                preferences[PreferencesKeys.DOWNLOAD_TREE_URI] = normalized
+            }
         }
     }
 

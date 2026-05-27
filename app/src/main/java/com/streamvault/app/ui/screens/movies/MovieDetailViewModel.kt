@@ -1,15 +1,22 @@
 package com.streamvault.app.ui.screens.movies
 
+import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.R
 import com.streamvault.app.plugins.StreamVaultPluginManager
+import com.streamvault.app.service.DownloadForegroundService
 import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.DownloadContentType
+import com.streamvault.domain.model.DownloadRequest
 import com.streamvault.domain.model.ExternalRatings
 import com.streamvault.domain.model.ExternalRatingsLookup
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.domain.repository.ExternalRatingsRepository
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.MovieRepository
@@ -32,7 +39,8 @@ class MovieDetailViewModel @Inject constructor(
     private val playbackHistoryRepository: PlaybackHistoryRepository,
     private val externalRatingsRepository: ExternalRatingsRepository,
     private val favoriteRepository: FavoriteRepository,
-    private val pluginManager: StreamVaultPluginManager
+    private val pluginManager: StreamVaultPluginManager,
+    private val downloadManager: DownloadManager
 ) : ViewModel() {
 
     private val movieId: Long = checkNotNull(
@@ -131,6 +139,38 @@ class MovieDetailViewModel @Inject constructor(
                 ?: Result.error("Could not resolve stream URL")
             is Result.Error -> Result.error(prepared.message, prepared.exception)
             Result.Loading -> Result.error("Could not resolve stream URL")
+        }
+    }
+
+    fun downloadMovie(context: Context) {
+        val movie = _uiState.value.movie ?: return
+        viewModelScope.launch {
+            val resolvedUrl = resolveCopyStreamUrl()
+            when (resolvedUrl) {
+                is Result.Success -> {
+                    val request = DownloadRequest(
+                        providerId = movie.providerId,
+                        contentType = DownloadContentType.MOVIE,
+                        contentId = movie.id,
+                        contentName = movie.name,
+                        streamUrl = resolvedUrl.data,
+                        posterUrl = movie.posterUrl
+                    )
+                    val result = downloadManager.enqueueDownload(request)
+                    when (result) {
+                        is Result.Success -> {
+                            DownloadForegroundService.startDownload(context, result.data.id)
+                            Toast.makeText(context, context.getString(R.string.download_started), Toast.LENGTH_SHORT).show()
+                        }
+                        is Result.Error ->
+                            Toast.makeText(context, context.getString(R.string.download_failed), Toast.LENGTH_SHORT).show()
+                        Result.Loading -> Unit
+                    }
+                }
+                is Result.Error ->
+                    Toast.makeText(context, context.getString(R.string.download_error_no_url), Toast.LENGTH_SHORT).show()
+                Result.Loading -> Unit
+            }
         }
     }
 

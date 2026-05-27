@@ -1561,4 +1561,37 @@
     <string name="settings_drive_last_pull">Pulled: %1$s</string>
     <string name="settings_drive_never_synced">Never synced yet</string>
     <string name="setup_import_from_drive">Import from Drive</string>
+
+    <!-- Download feature -->
+    <string name="download_button_label">Download</string>
+    <string name="download_started">Download started</string>
+    <string name="download_failed">Download failed: %1$s</string>
+    <string name="download_completed">Download completed</string>
+    <string name="download_cancelled">Download cancelled</string>
+    <string name="download_notification_channel">Downloads</string>
+    <string name="download_notification_channel_description">Shows download progress and completion</string>
+    <string name="download_in_progress">Downloading %s</string>
+    <string name="download_progress">%1$s / %2$s</string>
+    <string name="nav_downloads">Downloads</string>
+    <string name="downloads_empty">No downloads yet</string>
+    <string name="downloads_loading">Loading downloads...</string>
+    <string name="downloads_empty_title">No downloads yet</string>
+    <string name="downloads_empty_hint">Download movies or episodes from detail screens and they will appear here.</string>
+    <string name="downloads_no_thumb">No poster</string>
+    <string name="downloads_status_completed">Completed</string>
+    <string name="downloads_status_downloading">Downloading</string>
+    <string name="downloads_status_failed">Failed</string>
+    <string name="downloads_status_pending">Pending</string>
+    <string name="downloads_status_paused">Paused</string>
+    <string name="downloads_status_cancelled">Cancelled</string>
+    <string name="downloads_item_title">Untitled download</string>
+    <string name="downloads_delete_confirm_title">Delete download</string>
+    <string name="downloads_delete_confirm_msg">Delete %1$s from downloads?</string>
+    <string name="downloads_delete_confirm_delete">Delete</string>
+    <string name="downloads_delete_confirm">Delete this download?</string>
+    <string name="downloads_deleted">Download deleted</string>
+    <string name="download_folder_change">Change download folder</string>
+    <string name="download_play_local">Play</string>
+    <string name="download_delete">Delete</string>
+    <string name="download_error_no_url">Could not resolve stream URL for download</string>
 </resources>

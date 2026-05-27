@@ -85,6 +85,7 @@ fun SeriesDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val series = uiState.series
+    val context = LocalContext.current
 
     if (uiState.isLoading) {
         Box(
@@ -131,6 +132,9 @@ fun SeriesDetailScreen(
                 Result.Loading -> null
             }
         },
+        onDownloadEpisode = { episode ->
+            viewModel.downloadEpisode(context, episode)
+        },
         onBack = onBack
     )
 }
@@ -148,6 +152,7 @@ private fun SeriesDetailContent(
     onEpisodeClick: (Episode) -> Unit,
     onResumeClick: (Episode) -> Unit,
     onCopyEpisodeUrl: suspend (Episode) -> String?,
+    onDownloadEpisode: (Episode) -> Unit,
     onBack: () -> Unit
 ) {
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -431,7 +436,8 @@ private fun SeriesDetailContent(
                     EpisodeItem(
                         episode = episode,
                         onClick = { onEpisodeClick(episode) },
-                        onCopyUrl = { copyEpisodeUrl(episode) }
+                        onCopyUrl = { copyEpisodeUrl(episode) },
+                        onDownload = { onDownloadEpisode(episode) }
                     )
                 }
                 if (visibleEpisodes.size < season.episodes.size) {
@@ -563,7 +569,8 @@ fun SeasonChip(
 fun EpisodeItem(
     episode: Episode,
     onClick: () -> Unit,
-    onCopyUrl: () -> Unit
+    onCopyUrl: () -> Unit,
+    onDownload: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -586,6 +593,9 @@ fun EpisodeItem(
         }
         TvButton(onClick = onCopyUrl) {
             Text(stringResource(R.string.stream_url_copy))
+        }
+        TvButton(onClick = onDownload, colors = ButtonDefaults.colors(containerColor = AppColors.SurfaceEmphasis, contentColor = AppColors.TextPrimary)) {
+            Text(stringResource(R.string.download_button_label))
         }
     }
 }
