@@ -65,6 +65,8 @@ class DownloadManagerImpl @Inject constructor(
 ) : DownloadManager {
 
     private val activeJobs = ConcurrentHashMap<String, Job>()
+    private val activeCalls = ConcurrentHashMap<String, okhttp3.Call>()
+    private val playbackPausedIds = ConcurrentHashMap.newKeySet<String>()
     private val schedulerMutex = Mutex()
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     @Volatile private var playbackActive = false
@@ -149,6 +151,7 @@ class DownloadManagerImpl @Inject constructor(
 
     override suspend fun cancelDownload(id: String): Result<Unit> {
         return runCatching {
+            activeCalls.remove(id)?.cancel()
             activeJobs.remove(id)?.cancelAndJoin()
             downloadDao.getByIdOnce(id)?.let { entity ->
                 downloadDao.update(entity.copy(status = DownloadStatus.CANCELLED))
@@ -171,6 +174,7 @@ class DownloadManagerImpl @Inject constructor(
 
     override suspend fun deleteDownload(id: String): Result<Unit> {
         return runCatching {
+            activeCalls.remove(id)?.cancel()
             activeJobs.remove(id)?.cancelAndJoin()
             downloadDao.getByIdOnce(id)?.let { deleteOutput(it) }
             downloadDao.deleteById(id)
@@ -236,7 +240,9 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     private suspend fun pauseActiveDownloadsForPlayback() {
-        activeJobs.values.toList().forEach { job ->
+        activeJobs.entries.toList().forEach { (id, job) ->
+            playbackPausedIds.add(id)
+            activeCalls.remove(id)?.cancel()
             job.cancel(PlaybackStartedCancellation())
             job.join()
         }
@@ -265,7 +271,9 @@ class DownloadManagerImpl @Inject constructor(
                 requestBuilder.header("User-Agent", userAgent)
             }
             if (resumeFrom > 0L) requestBuilder.header("Range", "bytes=$resumeFrom-")
-            okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+            val call = okHttpClient.newCall(requestBuilder.build())
+            activeCalls[initial.id] = call
+            call.execute().use { response ->
                 if (!response.isSuccessful) throw HttpDownloadException(response.code)
                 val body = response.body ?: error("Empty response body")
                 val rangeAccepted = resumeFrom > 0L && response.code == HttpURLConnection.HTTP_PARTIAL
@@ -342,21 +350,8 @@ class DownloadManagerImpl @Inject constructor(
             }
         } catch (cancelled: CancellationException) {
             downloadDao.getByIdOnce(initial.id)?.let { entity ->
-                if (cancelled is PlaybackStartedCancellation) {
-                    deleteOutput(current)
-                    downloadDao.update(
-                        current.copy(
-                            outputUri = null,
-                            outputDisplayPath = null,
-                            status = DownloadStatus.PAUSED,
-                            bytesWritten = 0L,
-                            totalBytes = null,
-                            supportsResume = false,
-                            retryCount = 0,
-                            completedAt = null,
-                            failureReason = "Waiting for playback to stop"
-                        )
-                    )
+                if (cancelled is PlaybackStartedCancellation || playbackPausedIds.contains(initial.id)) {
+                    resetInterruptedDownload(current, DownloadStatus.PAUSED, "Waiting for playback to stop")
                 } else {
                     downloadDao.update(entity.copy(status = DownloadStatus.CANCELLED))
                 }
@@ -373,8 +368,16 @@ class DownloadManagerImpl @Inject constructor(
             downloadDao.update(reset)
             captureDownload(reset)
         } catch (error: Throwable) {
-            if (downloadDao.getByIdOnce(initial.id) != null) handleDownloadFailure(current, error)
+            if (downloadDao.getByIdOnce(initial.id) != null) {
+                if (playbackPausedIds.contains(initial.id)) {
+                    resetInterruptedDownload(current, DownloadStatus.PAUSED, "Waiting for playback to stop")
+                } else {
+                    handleDownloadFailure(current, error)
+                }
+            }
         } finally {
+            activeCalls.remove(initial.id)
+            playbackPausedIds.remove(initial.id)
             activeJobs.remove(initial.id)
             startNextQueued()
         }
@@ -383,12 +386,12 @@ class DownloadManagerImpl @Inject constructor(
     private suspend fun handleDownloadFailure(entity: DownloadEntity, error: Throwable) {
         val reason = error.message ?: error::class.java.simpleName
         if (!isTransient(error) || entity.retryCount >= MAX_RETRIES) {
-            downloadDao.update(entity.copy(status = DownloadStatus.FAILED, failureReason = reason))
+            resetInterruptedDownload(entity, DownloadStatus.FAILED, reason)
             return
         }
 
         val retryCount = entity.retryCount + 1
-        downloadDao.update(entity.copy(status = DownloadStatus.PAUSED, retryCount = retryCount, failureReason = reason))
+        resetInterruptedDownload(entity, DownloadStatus.PAUSED, reason, retryCount)
         applicationScope.launch(Dispatchers.IO) {
             delay(backoffMs(retryCount))
             downloadDao.getByIdOnce(entity.id)
@@ -396,6 +399,28 @@ class DownloadManagerImpl @Inject constructor(
                 ?.let { downloadDao.update(it.copy(status = DownloadStatus.PENDING)) }
             startNextQueued()
         }
+    }
+
+    private suspend fun resetInterruptedDownload(
+        entity: DownloadEntity,
+        status: DownloadStatus,
+        reason: String,
+        retryCount: Int = 0
+    ) {
+        deleteOutput(entity)
+        downloadDao.update(
+            entity.copy(
+                outputUri = null,
+                outputDisplayPath = null,
+                status = status,
+                bytesWritten = 0L,
+                totalBytes = null,
+                supportsResume = false,
+                retryCount = retryCount,
+                completedAt = null,
+                failureReason = reason
+            )
+        )
     }
 
     private fun hasAppendTarget(entity: DownloadEntity): Boolean {

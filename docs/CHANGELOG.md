@@ -13,6 +13,7 @@ All notable product changes are recorded in this document.
 
 - Fixed completed local download playback so `content://`/`file://` files do not consume the provider download lease and do not pause active downloads.
 - Fixed failed download Resume to clear partial output and restart through the scheduler.
+- Fixed provider playback interruptions leaving downloads stuck in `DOWNLOADING` by cancelling the active OkHttp call and resetting the partial row to zero-byte `PAUSED` state.
 
 ## [1.0.12] - 2026-05-15
 

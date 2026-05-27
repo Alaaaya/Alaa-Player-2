@@ -36,7 +36,7 @@ LocalForge project `streamvalutfork` is back to completed with no follow-up back
 - `DownloadManagerImpl` captures bytes with OkHttp and updates `DownloadEntity` status/progress.
 - `DownloadEntity` stores stable source metadata (`sourceStreamUrl`, `sourceStreamId`, `containerExtension`) so restarted downloads can resolve a fresh provider URL instead of reusing a stale one-time link.
 - Downloads are FIFO and single-provider-stream by design.
-- If provider-backed VOD playback starts during a download, the active partial file is deleted, progress resets to zero, and the download waits until playback stops before restarting from byte 0 with a fresh URL.
+- If provider-backed VOD playback starts during a download, the active capture coroutine and OkHttp call are cancelled, the active partial file is deleted, progress resets to zero, and the download waits until playback stops before restarting from byte 0 with a fresh URL.
 - Playing a completed local download from `content://` or `file://` never pauses the queue, whether the file opens in StreamVault's internal player or an external player.
 - `DownloadForegroundService` observes the active download row and updates notification text.
 - Downloads tab lists rows, shows poster/status/progress/size, opens completed files via `ACTION_VIEW`, offers Resume for failed rows, and deletes both DB row and local output where possible.
@@ -70,5 +70,6 @@ app/build/outputs/apk/debug/app-debug.apk
 - Manual device test still needed with a real provider stream: tap Download, verify notification/progress, verify completed item opens in an external/internal video handler, verify delete removes the file, verify provider playback pauses an active download and restarts it from 0 after playback stops.
 - Process-death resume is not implemented. Active capture runs in application-scope coroutine plus foreground service observer; if Android kills the process, incomplete rows remain and should be retried or marked failed in a future feature.
 - Pause UI is not implemented. Failed rows expose Resume, which deletes any partial output, resets progress, and restarts through the FIFO scheduler with fresh provider URL resolution.
+- A row stuck in `DOWNLOADING` after provider playback usually indicates interruption handling failed before the active OkHttp call was cancelled. `DownloadManagerImpl` now tracks active calls and resets provider-playback interruptions back to `PAUSED` with zero bytes.
 - The fallback app-external storage path is private to the app; use the Downloads screen to open files or choose a SAF folder for user-visible storage.
 - Project-wide `:app:lintDebug` still fails from existing lint debt, including API-level/manifest/test/l10n issues. Compile, smoke, and debug assemble pass.
