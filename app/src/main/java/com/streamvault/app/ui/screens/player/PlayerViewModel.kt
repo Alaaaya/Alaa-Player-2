@@ -250,6 +250,7 @@ class PlayerViewModel @Inject constructor(
     internal var currentArtworkUrl: String? = null
     internal var currentResolvedPlaybackUrl: String = ""
     internal var currentResolvedStreamInfo: StreamInfo? = null
+    internal var adoptedHandoffSource: com.streamvault.app.player.PreviewHandoffSource? = null
     internal var pendingCatchUpUrls: List<String> = emptyList()
     internal var channelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP
         set(value) {
@@ -1075,6 +1076,7 @@ class PlayerViewModel @Inject constructor(
             providerId = providerId.takeIf { it > 0L }
         ) ?: return false
 
+        adoptedHandoffSource = session.source
         val adoptedEngine = session.engine
         return runCatching {
             val shouldRenewAdoptedPreview = shouldRenewAdoptedPreviewOnFullscreen(

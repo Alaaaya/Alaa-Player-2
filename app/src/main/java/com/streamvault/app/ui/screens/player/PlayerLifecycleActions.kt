@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.player
 import androidx.lifecycle.viewModelScope
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.player.PlaybackState
 import com.streamvault.player.PlayerEngine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -175,11 +176,32 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
     inFlightThumbnailPreloadKey = null
     lastCompletedThumbnailPreloadKey = null
     seekThumbnailProvider.clearCache()
-    livePreviewHandoffManager.clear(playerEngine)
-    if (playerEngine === mainPlayerEngine) {
+
+    val activeEngine = playerEngine
+    val channel = currentChannel.value
+    val streamInfo = currentResolvedStreamInfo
+    val canReverseHandoff = currentContentType == ContentType.LIVE
+        && !isCatchUpPlayback.value
+        && activeEngine !== mainPlayerEngine
+        && channel != null
+        && streamInfo != null
+        && activeEngine.playbackState.value != PlaybackState.ERROR
+
+    if (canReverseHandoff) {
+        livePreviewHandoffManager.beginReverseHandoff(
+            channel = channel!!,
+            streamInfo = streamInfo!!,
+            engine = activeEngine,
+            source = adoptedHandoffSource ?: com.streamvault.app.player.PreviewHandoffSource.HOME
+        )
         mainPlayerEngine.resetForReuse()
     } else {
-        playerEngine.release()
-        mainPlayerEngine.resetForReuse()
+        livePreviewHandoffManager.clear(activeEngine)
+        if (activeEngine === mainPlayerEngine) {
+            mainPlayerEngine.resetForReuse()
+        } else {
+            activeEngine.release()
+            mainPlayerEngine.resetForReuse()
+        }
     }
 }

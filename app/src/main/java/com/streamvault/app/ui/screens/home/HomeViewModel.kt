@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
 import com.streamvault.app.player.LivePreviewHandoffManager
+import com.streamvault.app.player.PreviewHandoffSource
 import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.app.ui.screens.multiview.MultiViewManager
@@ -118,6 +119,13 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadAllProviders()
+        viewModelScope.launch {
+            livePreviewHandoffManager.reverseSessionFlow.collect { session ->
+                if (session != null && session.source == PreviewHandoffSource.HOME) {
+                    resumePreviewFromHandoff()
+                }
+            }
+        }
         viewModelScope.launch {
             combine(
                 multiViewManager.slots,
@@ -1057,7 +1065,8 @@ class HomeViewModel @Inject constructor(
                     livePreviewHandoffManager.registerPreviewSession(
                         channel = channel,
                         streamInfo = preparedStreamInfo,
-                        engine = engine
+                        engine = engine,
+                        source = PreviewHandoffSource.HOME
                     )
                     scheduleAdaptivePreviewReprime(
                         previewVersion = previewVersion,
@@ -1126,6 +1135,50 @@ class HomeViewModel @Inject constructor(
             )
         }
         return true
+    }
+
+    fun resumePreviewFromHandoff() {
+        val session = livePreviewHandoffManager.consumeReverseHandoff(PreviewHandoffSource.HOME) ?: return
+        val engine = session.engine
+        previewSessionVersion++
+        val version = previewSessionVersion
+        previewPlaybackJob?.cancel()
+        previewErrorJob?.cancel()
+        previewPlaybackJob = null
+        previewErrorJob = null
+        previewPlayerEngine?.stop()
+        previewPlayerEngine?.release()
+        previewPlayerEngine = engine
+        // Restore auxiliary-engine defaults that the fullscreen handoff flipped.
+        (engine as? com.streamvault.player.Media3PlayerEngine)?.let {
+            it.enableMediaSession = false
+            it.bypassAudioFocus = true
+        }
+        engine.play()
+        // Re-register the forward-handoff slot so a subsequent click can open fullscreen again.
+        livePreviewHandoffManager.registerPreviewSession(
+            channelId = session.channelId,
+            providerId = session.providerId,
+            streamInfo = session.streamInfo,
+            engine = engine,
+            source = PreviewHandoffSource.HOME
+        )
+        _uiState.update {
+            it.copy(
+                previewChannelId = session.channelId,
+                previewPlayerEngine = engine,
+                isPreviewLoading = false,
+                previewErrorMessage = null
+            )
+        }
+        previewPlaybackJob = viewModelScope.launch {
+            engine.playbackState.collectLatest { state ->
+                if (!isActivePreviewSession(version, session.channelId)) return@collectLatest
+                if (state == PlaybackState.ERROR && _uiState.value.previewErrorMessage == null) {
+                    _uiState.update { it.copy(previewErrorMessage = appContext.getString(R.string.live_preview_failed)) }
+                }
+            }
+        }
     }
 
     fun clearPreview() {
