@@ -4,6 +4,7 @@ import android.util.Log
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.local.entity.ProgramBrowseEntity
 import com.streamvault.data.local.entity.ProgramEntity
 import com.streamvault.data.mapper.toDomain
@@ -56,8 +57,19 @@ class EpgRepositoryImpl @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val transactionRunner: DatabaseTransactionRunner,
     private val epgSourceRepository: EpgSourceRepository,
+    private val preferencesRepository: PreferencesRepository,
     private val externalScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : EpgRepository {
+
+    private suspend fun shiftMsFor(providerId: Long): Long =
+        preferencesRepository.getEpgTimeShiftMinutes(providerId) * 60_000L
+
+    private fun Program.shifted(offsetMs: Long): Program =
+        if (offsetMs == 0L) this
+        else copy(startTime = startTime + offsetMs, endTime = endTime + offsetMs)
+
+    private fun List<Program>.shiftAll(offsetMs: Long): List<Program> =
+        if (offsetMs == 0L) this else map { it.shifted(offsetMs) }
 
     private val providerRefreshMutexes = ConcurrentHashMap<Long, Mutex>()
 
@@ -86,8 +98,11 @@ class EpgRepositoryImpl @Inject constructor(
         startTime: Long,
         endTime: Long
     ): Flow<List<Program>> =
-        programDao.getForChannel(providerId, channelId, startTime, endTime)
-            .map { entities -> entities.map { it.toDomain() } }
+        preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            programDao.getForChannel(providerId, channelId, startTime - offsetMs, endTime - offsetMs)
+                .map { entities -> entities.map { it.toDomain().shifted(offsetMs) } }
+        }
 
     override fun getProgramsForChannels(
         providerId: Long,
@@ -98,8 +113,11 @@ class EpgRepositoryImpl @Inject constructor(
         if (channelIds.isEmpty()) return flowOf(emptyMap())
         val chunks = channelIds.chunked(500)
         if (chunks.size == 1) {
-            return programDao.getForChannels(providerId, channelIds, startTime, endTime)
-                .map { entities -> entities.map { it.toDomain() }.groupBy { it.channelId } }
+            return preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+                val offsetMs = minutes * 60_000L
+                programDao.getForChannels(providerId, channelIds, startTime - offsetMs, endTime - offsetMs)
+                    .map { entities -> entities.map { it.toDomain().shifted(offsetMs) }.groupBy { it.channelId } }
+            }
         }
         return flow {
             emit(getProgramsForChannelsSnapshot(providerId, channelIds, startTime, endTime))
@@ -114,16 +132,20 @@ class EpgRepositoryImpl @Inject constructor(
     ): Map<String, List<Program>> {
         if (channelIds.isEmpty()) return emptyMap()
 
+        val offsetMs = shiftMsFor(providerId)
+        val adjustedStart = startTime - offsetMs
+        val adjustedEnd = endTime - offsetMs
+
         val entities = if (channelIds.size <= 500) {
-            programDao.getForChannelsSync(providerId, channelIds, startTime, endTime)
+            programDao.getForChannelsSync(providerId, channelIds, adjustedStart, adjustedEnd)
         } else {
             channelIds.chunked(500).flatMap { chunk ->
-                programDao.getForChannelsSync(providerId, chunk, startTime, endTime)
+                programDao.getForChannelsSync(providerId, chunk, adjustedStart, adjustedEnd)
             }
         }
 
         return entities
-            .map { it.toDomain() }
+            .map { it.toDomain().shifted(offsetMs) }
             .groupBy { it.channelId }
     }
 
@@ -133,8 +155,11 @@ class EpgRepositoryImpl @Inject constructor(
         startTime: Long,
         endTime: Long
     ): Flow<List<Program>> =
-        programDao.getForCategory(providerId, categoryId, startTime, endTime)
-            .map { entities -> entities.map { it.toDomain() } }
+        preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            programDao.getForCategory(providerId, categoryId, startTime - offsetMs, endTime - offsetMs)
+                .map { entities -> entities.map { it.toDomain().shifted(offsetMs) } }
+        }
 
     override fun searchPrograms(
         providerId: Long,
@@ -147,38 +172,48 @@ class EpgRepositoryImpl @Inject constructor(
         val normalizedQuery = query.trim()
         if (normalizedQuery.length < 2) return flowOf(emptyList())
         val escaped = normalizedQuery.escapeSqlLike()
-        return programDao.searchPrograms(
-            providerId = providerId,
-            queryPattern = "%$escaped%",
-            startTime = startTime,
-            endTime = endTime,
-            categoryId = categoryId,
-            limit = limit
-        ).map { entities ->
-            entities.map { it.toDomain() }
-                .rankSearchResults(normalizedQuery) { it.title }
+        return preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            programDao.searchPrograms(
+                providerId = providerId,
+                queryPattern = "%$escaped%",
+                startTime = startTime - offsetMs,
+                endTime = endTime - offsetMs,
+                categoryId = categoryId,
+                limit = limit
+            ).map { entities ->
+                entities.map { it.toDomain().shifted(offsetMs) }
+                    .rankSearchResults(normalizedQuery) { it.title }
+            }
         }
     }
 
     override fun getNowPlaying(providerId: Long, channelId: String): Flow<Program?> =
-        nowTicker.flatMapLatest { now ->
-            programDao.getNowPlaying(providerId, channelId, now)
-                .map { it?.toDomain() }
+        preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            nowTicker.flatMapLatest { realNow ->
+                programDao.getNowPlaying(providerId, channelId, realNow - offsetMs)
+                    .map { it?.toDomain()?.shifted(offsetMs) }
+            }
         }
 
     override fun getNowPlayingForChannels(providerId: Long, channelIds: List<String>): Flow<Map<String, Program?>> {
         if (channelIds.isEmpty()) return flowOf(emptyMap())
 
         val chunks = channelIds.chunked(500)
-        return nowTicker.flatMapLatest { now ->
-            if (chunks.size == 1) {
-                programDao.getNowPlayingForChannels(providerId, channelIds, now)
-                    .map { entities -> mapNowPlayingByChannel(channelIds, entities) }
-            } else {
-                combine(chunks.map { chunk ->
-                    programDao.getNowPlayingForChannels(providerId, chunk, now)
-                }) { arrays ->
-                    mapNowPlayingByChannel(channelIds, arrays.flatMap { it.toList() })
+        return preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            nowTicker.flatMapLatest { realNow ->
+                val now = realNow - offsetMs
+                if (chunks.size == 1) {
+                    programDao.getNowPlayingForChannels(providerId, channelIds, now)
+                        .map { entities -> mapNowPlayingByChannel(channelIds, entities, offsetMs) }
+                } else {
+                    combine(chunks.map { chunk ->
+                        programDao.getNowPlayingForChannels(providerId, chunk, now)
+                    }) { arrays ->
+                        mapNowPlayingByChannel(channelIds, arrays.flatMap { it.toList() }, offsetMs)
+                    }
                 }
             }
         }
@@ -190,7 +225,8 @@ class EpgRepositoryImpl @Inject constructor(
     ): Map<String, Program?> {
         if (channelIds.isEmpty()) return emptyMap()
 
-        val now = System.currentTimeMillis()
+        val offsetMs = shiftMsFor(providerId)
+        val now = System.currentTimeMillis() - offsetMs
         val entities = if (channelIds.size <= 500) {
             programDao.getNowPlayingForChannelsSync(providerId, channelIds, now)
         } else {
@@ -199,23 +235,27 @@ class EpgRepositoryImpl @Inject constructor(
             }
         }
 
-        val grouped = entities.map { it.toDomain() }.groupBy { it.channelId }
+        val grouped = entities.map { it.toDomain().shifted(offsetMs) }.groupBy { it.channelId }
         return channelIds.associateWith { id -> grouped[id]?.firstOrNull() }
     }
 
     override fun getNowAndNext(providerId: Long, channelId: String): Flow<Pair<Program?, Program?>> =
-        nowTicker.flatMapLatest { now ->
-            programDao.getForChannel(
-                providerId = providerId,
-                channelId = channelId,
-                startTime = now - NOW_AND_NEXT_LOOKBACK_MS,
-                endTime = now + NOW_AND_NEXT_LOOKAHEAD_MS
-            ).map { entities ->
-                val programs = entities.map { it.toDomain() }
-                val current = programs.find { it.startTime <= now && it.endTime > now }
-                val nextStart = current?.endTime ?: now
-                val next = programs.firstOrNull { it.startTime >= nextStart && it != current }
-                current to next
+        preferencesRepository.epgTimeShiftMinutes(providerId).flatMapLatest { minutes ->
+            val offsetMs = minutes * 60_000L
+            nowTicker.flatMapLatest { realNow ->
+                val now = realNow - offsetMs
+                programDao.getForChannel(
+                    providerId = providerId,
+                    channelId = channelId,
+                    startTime = now - NOW_AND_NEXT_LOOKBACK_MS,
+                    endTime = now + NOW_AND_NEXT_LOOKAHEAD_MS
+                ).map { entities ->
+                    val programs = entities.map { it.toDomain() }
+                    val current = programs.find { it.startTime <= now && it.endTime > now }
+                    val nextStart = current?.endTime ?: now
+                    val next = programs.firstOrNull { it.startTime >= nextStart && it != current }
+                    current?.shifted(offsetMs) to next?.shifted(offsetMs)
+                }
             }
         }
 
@@ -323,8 +363,12 @@ class EpgRepositoryImpl @Inject constructor(
         channelIds: List<Long>,
         startTime: Long,
         endTime: Long
-    ): Map<String, List<Program>> =
-        epgSourceRepository.getResolvedProgramsForChannels(providerId, channelIds, startTime, endTime)
+    ): Map<String, List<Program>> {
+        val offsetMs = shiftMsFor(providerId)
+        return epgSourceRepository.getResolvedProgramsForChannels(
+            providerId, channelIds, startTime - offsetMs, endTime - offsetMs
+        ).mapValues { (_, programs) -> programs.shiftAll(offsetMs) }
+    }
 
     override suspend fun getResolvedProgramsForPlaybackChannel(
         providerId: Long,
@@ -336,20 +380,22 @@ class EpgRepositoryImpl @Inject constructor(
     ): List<Program> {
         val normalizedChannelId = epgChannelId?.trim()?.takeIf { it.isNotEmpty() }
         val lookupKey = normalizedChannelId ?: streamId.takeIf { it > 0L }?.toString()
+        val offsetMs = shiftMsFor(providerId)
 
         if (internalChannelId > 0L && lookupKey != null) {
             val resolvedPrograms = epgSourceRepository.getResolvedProgramsForChannels(
                 providerId = providerId,
                 channelIds = listOf(internalChannelId),
-                startTime = startTime,
-                endTime = endTime
+                startTime = startTime - offsetMs,
+                endTime = endTime - offsetMs
             )[lookupKey].orEmpty()
             if (resolvedPrograms.isNotEmpty()) {
-                return resolvedPrograms.sortedBy { it.startTime }
+                return resolvedPrograms.shiftAll(offsetMs).sortedBy { it.startTime }
             }
         }
 
         if (normalizedChannelId != null) {
+            // getProgramsForChannel already applies the offset internally.
             return getProgramsForChannel(providerId, normalizedChannelId, startTime, endTime)
                 .first()
                 .sortedBy { it.startTime }
@@ -367,9 +413,10 @@ class EpgRepositoryImpl @Inject constructor(
 
     private fun mapNowPlayingByChannel(
         channelIds: List<String>,
-        entities: List<ProgramBrowseEntity>
+        entities: List<ProgramBrowseEntity>,
+        offsetMs: Long = 0L
     ): Map<String, Program?> {
-        val grouped = entities.map { it.toDomain() }.groupBy { it.channelId }
+        val grouped = entities.map { it.toDomain().shifted(offsetMs) }.groupBy { it.channelId }
         return channelIds.associateWith { id -> grouped[id]?.firstOrNull() }
     }
 
