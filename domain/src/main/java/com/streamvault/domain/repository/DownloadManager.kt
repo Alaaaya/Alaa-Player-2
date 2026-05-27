@@ -32,9 +32,24 @@ interface DownloadManager {
     suspend fun enqueueDownload(request: DownloadRequest): Result<DownloadItem>
 
     /**
+     * Resume a paused download by [id].
+     */
+    suspend fun resumeDownload(id: String): Result<Unit>
+
+    /**
      * Cancel a download by [id].
      */
     suspend fun cancelDownload(id: String): Result<Unit>
+
+    /**
+     * Notify downloads that playback now consumes one provider stream slot.
+     */
+    fun onPlaybackStarted()
+
+    /**
+     * Notify downloads that playback released its provider stream slot.
+     */
+    fun onPlaybackStopped()
 
     /**
      * Delete a download by [id], removing its persisted state.

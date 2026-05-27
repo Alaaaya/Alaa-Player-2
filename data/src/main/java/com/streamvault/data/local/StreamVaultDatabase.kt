@@ -50,7 +50,7 @@ import com.streamvault.data.local.entity.*
         XtreamLiveOnboardingStateEntity::class,
         DownloadEntity::class
     ],
-    version = 58,
+    version = 59,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2651,6 +2651,13 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_downloads_status ON downloads(status)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_downloads_provider_id ON downloads(provider_id)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_downloads_content_type_content_id ON downloads(content_type, content_id)")
+            }
+        }
+
+        val MIGRATION_58_59 = object : Migration(58, 59) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE downloads ADD COLUMN supports_resume INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE downloads ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
             }
         }
 

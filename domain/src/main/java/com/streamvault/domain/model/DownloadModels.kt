@@ -36,6 +36,8 @@ data class DownloadItem(
     val status: DownloadStatus = DownloadStatus.PENDING,
     val bytesWritten: Long = 0L,
     val totalBytes: Long? = null,
+    val supportsResume: Boolean = false,
+    val retryCount: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val completedAt: Long? = null,
     val failureReason: String? = null,
@@ -46,6 +48,7 @@ data class DownloadItem(
     init {
         require(id.isNotBlank()) { "id must not be blank" }
         require(bytesWritten >= 0) { "bytesWritten must be non-negative" }
+        require(retryCount >= 0) { "retryCount must be non-negative" }
     }
 }
 

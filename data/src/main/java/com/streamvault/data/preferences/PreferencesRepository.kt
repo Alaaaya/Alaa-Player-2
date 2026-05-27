@@ -161,6 +161,7 @@ class PreferencesRepository @Inject constructor(
         val RECORDING_PADDING_BEFORE_MINUTES = intPreferencesKey("recording_padding_before_minutes")
         val RECORDING_PADDING_AFTER_MINUTES = intPreferencesKey("recording_padding_after_minutes")
         val DOWNLOAD_TREE_URI = stringPreferencesKey("download_tree_uri")
+        val MAX_CONCURRENT_STREAMS = intPreferencesKey("max_concurrent_streams")
         val LAST_APP_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_app_update_check_timestamp")
         val APP_UPDATE_DOWNLOAD_ID = longPreferencesKey("app_update_download_id")
         val APP_UPDATE_DOWNLOAD_VERSION_NAME = stringPreferencesKey("app_update_download_version_name")
@@ -611,6 +612,10 @@ class PreferencesRepository @Inject constructor(
             ?.takeIf { it.isNotBlank() }
     }
 
+    val maxConcurrentStreams: Flow<Int> = context.dataStore.data.map { preferences ->
+        (preferences[PreferencesKeys.MAX_CONCURRENT_STREAMS] ?: 2).coerceIn(1, 4)
+    }
+
     suspend fun setZapAutoRevert(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.ZAP_AUTO_REVERT] = enabled
@@ -643,6 +648,12 @@ class PreferencesRepository @Inject constructor(
             } else {
                 preferences[PreferencesKeys.DOWNLOAD_TREE_URI] = normalized
             }
+        }
+    }
+
+    suspend fun setMaxConcurrentStreams(count: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.MAX_CONCURRENT_STREAMS] = count.coerceIn(1, 4)
         }
     }
 

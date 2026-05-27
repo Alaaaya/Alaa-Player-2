@@ -23,6 +23,12 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status IN ('PENDING', 'DOWNLOADING')")
     fun getActive(): Flow<List<DownloadEntity>>
 
+    @Query("SELECT * FROM downloads WHERE status IN ('PENDING', 'PAUSED') ORDER BY created_at ASC")
+    suspend fun getQueuedOnce(): List<DownloadEntity>
+
+    @Query("SELECT * FROM downloads WHERE status = 'PAUSED' AND retry_count < :maxRetries ORDER BY created_at ASC")
+    suspend fun getRetryablePausedOnce(maxRetries: Int): List<DownloadEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: DownloadEntity)
 

@@ -47,6 +47,7 @@ import com.streamvault.domain.usecase.ScheduleRecording
 import com.streamvault.domain.usecase.ScheduleRecordingCommand
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.CombinedM3uRepository
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
@@ -101,6 +102,7 @@ class PlayerViewModel @Inject constructor(
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
     internal val syncManager: SyncManager,
+    private val downloadManager: DownloadManager,
     private val okHttpClient: OkHttpClient,
 ) : ViewModel() {
     companion object {
@@ -349,6 +351,7 @@ class PlayerViewModel @Inject constructor(
     internal var playbackTimerDefaultsApplied = false
     internal var sleepTimerExitEmitted = false
     internal var activeStalkerPlaybackProviderId: Long? = null
+    private var downloadPlaybackSlotActive = false
 
     val castConnectionState: StateFlow<CastConnectionState> = castManager.connectionState
 
@@ -486,6 +489,13 @@ class PlayerViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { isPlaying ->
                     synchronizeStalkerPlaybackFetchDeferral(isPlaying)
+                    if (isPlaying && !downloadPlaybackSlotActive) {
+                        downloadPlaybackSlotActive = true
+                        downloadManager.onPlaybackStarted()
+                    } else if (!isPlaying && downloadPlaybackSlotActive) {
+                        downloadPlaybackSlotActive = false
+                        downloadManager.onPlaybackStopped()
+                    }
                 }
         }
         viewModelScope.launch {
@@ -1681,6 +1691,10 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        if (downloadPlaybackSlotActive) {
+            downloadPlaybackSlotActive = false
+            downloadManager.onPlaybackStopped()
+        }
         cleanupAfterCleared(mainPlayerEngine)
     }
 }

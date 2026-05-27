@@ -95,7 +95,8 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_54_55,
                 StreamVaultDatabase.MIGRATION_55_56,
                 StreamVaultDatabase.MIGRATION_56_57,
-                StreamVaultDatabase.MIGRATION_57_58
+                StreamVaultDatabase.MIGRATION_57_58,
+                StreamVaultDatabase.MIGRATION_58_59
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
