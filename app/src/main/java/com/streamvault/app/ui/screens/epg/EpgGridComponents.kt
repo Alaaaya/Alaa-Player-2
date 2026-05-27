@@ -226,7 +226,8 @@ private fun GuideTimelineHeader(
         stringResource(R.string.epg_outside_window)
     }
     val hourMarkers = buildList {
-        var marker = windowStart
+        val firstMarker = windowStart - (windowStart % markerStepMs)
+        var marker = firstMarker
         while (marker <= windowEnd) {
             add(marker)
             marker += markerStepMs
@@ -458,7 +459,8 @@ fun EpgRow(
                 ) {
                 val markers = remember(windowStart, windowEnd, markerStepMs) {
                     buildList {
-                        var marker = windowStart
+                        val firstMarker = windowStart - (windowStart % markerStepMs)
+                        var marker = firstMarker
                         while (marker <= windowEnd) {
                             add(marker)
                             marker += markerStepMs
