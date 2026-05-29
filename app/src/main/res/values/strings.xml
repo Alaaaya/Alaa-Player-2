@@ -658,6 +658,11 @@
     <string name="settings_backup_share_subtitle">Send a backup file to a TV file manager or another app.</string>
     <string name="settings_backup_share_prepare_failed">Could not prepare the backup file.</string>
     <string name="settings_backup_share_failed">No app could receive the backup file.</string>
+    <string name="settings_backup_choose_file_title">Choose a backup file</string>
+    <string name="settings_backup_no_files_in_folder">No backup files (.json) found in that folder.</string>
+    <string name="settings_backup_folder_picker_unavailable">No folder picker is available on this device.</string>
+    <string name="settings_backup_folder_create_failed">Could not create the backup file in that folder.</string>
+    <string name="settings_backup_folder_read_failed">Could not read that folder.</string>
     <string name="settings_crash_reports_title">Crash Reports</string>
     <string name="settings_crash_reports_subtitle">Fatal crashes are saved locally only when the app is already crashing. You can review or share the latest report.</string>
     <string name="settings_crash_report_latest">Latest crash</string>
