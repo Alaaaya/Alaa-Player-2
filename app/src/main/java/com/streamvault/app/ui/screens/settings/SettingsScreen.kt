@@ -24,8 +24,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.streamvault.app.backup.BackupFileBridge
+import com.streamvault.app.device.isFireTvDevice
+import com.streamvault.app.device.removableAppStorageDirs
+import java.io.File
 import com.streamvault.app.diagnostics.CrashReportStore
 import com.streamvault.app.util.OfficialBuildVerifier
 import com.streamvault.app.ui.components.shell.AppTopBarCloseAction
@@ -158,6 +162,34 @@ fun SettingsScreen(
         }
     }
 
+    // Fire-Stick-only: app-private folder on a plugged-in USB OTG drive. Null on every other device
+    // and when no removable drive is attached, which keeps all USB controls hidden elsewhere.
+    val usbStorageDir: File? = remember(context) {
+        if (context.isFireTvDevice()) context.removableAppStorageDirs().firstOrNull() else null
+    }
+
+    fun createBackupToUsb() {
+        val dir = usbStorageDir ?: return
+        val file = runCatching { BackupFileBridge.createExportFile(dir) }.getOrNull()
+        if (file == null) {
+            viewModel.showUserMessage(context.getString(R.string.settings_backup_usb_failed))
+            return
+        }
+        viewModel.exportConfig(Uri.fromFile(file).toString())
+    }
+
+    fun restoreBackupFromUsb() {
+        val dir = usbStorageDir ?: return
+        val candidates = BackupFileBridge.listBackupFiles(dir)
+            .map { (it.name) to Uri.fromFile(it).toString() }
+        when {
+            candidates.isEmpty() ->
+                viewModel.showUserMessage(context.getString(R.string.settings_backup_no_files_in_folder))
+            candidates.size == 1 -> viewModel.inspectBackup(candidates.first().second)
+            else -> pendingImportCandidates = candidates
+        }
+    }
+
     fun shareCrashReport() {
         val file = CrashReportStore.latestReportFile(context)
         if (!file.isFile || file.length() <= 0L) {
@@ -272,6 +304,11 @@ fun SettingsScreen(
                             )
                         }
                     },
+                    onUseUsbRecordingStorage = usbStorageDir?.let { dir ->
+                        { viewModel.useUsbRecordingStorage(File(dir, "recordings").absolutePath) }
+                    },
+                    onCreateBackupUsb = usbStorageDir?.let { { createBackupToUsb() } },
+                    onRestoreBackupUsb = usbStorageDir?.let { { restoreBackupFromUsb() } },
                     onCreateBackup = {
                         val onFireTv = context.isFireTv()
                         val primary: () -> Unit = if (onFireTv) {

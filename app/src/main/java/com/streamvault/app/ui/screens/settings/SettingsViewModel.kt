@@ -1063,6 +1063,10 @@ class SettingsViewModel @Inject constructor(
         recordingActions.updateRecordingFolder(viewModelScope, treeUri, displayName)
     }
 
+    fun useUsbRecordingStorage(localDirectory: String) {
+        recordingActions.updateRecordingLocalDirectory(viewModelScope, localDirectory)
+    }
+
     fun updateRecordingFileNamePattern(pattern: String) {
         recordingActions.updateRecordingFileNamePattern(viewModelScope, pattern)
     }

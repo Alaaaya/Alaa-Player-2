@@ -23,7 +23,10 @@ internal fun SettingsContentPane(
     onEditProvider: (Provider) -> Unit,
     onNavigateToParentalControl: (Long) -> Unit,
     onChooseRecordingFolder: () -> Unit,
+    onUseUsbRecordingStorage: (() -> Unit)?,
     onCreateBackup: () -> Unit,
+    onCreateBackupUsb: (() -> Unit)?,
+    onRestoreBackupUsb: (() -> Unit)?,
     onShareBackup: () -> Unit,
     onViewCrashReport: () -> Unit,
     onShareCrashReport: () -> Unit,
@@ -144,6 +147,7 @@ internal fun SettingsContentPane(
                 uiState = uiState,
                 viewModel = viewModel,
                 onChooseFolder = onChooseRecordingFolder,
+                onUseUsbStorage = onUseUsbRecordingStorage,
                 onShowRecordingPatternDialogChange = { dialogState.showRecordingPatternDialog = it },
                 onShowRecordingRetentionDialogChange = { dialogState.showRecordingRetentionDialog = it },
                 onShowRecordingConcurrencyDialogChange = { dialogState.showRecordingConcurrencyDialog = it },
@@ -154,7 +158,9 @@ internal fun SettingsContentPane(
             settingsBackupSection(
                 onCreateBackup = onCreateBackup,
                 onShareBackup = onShareBackup,
-                onRestoreBackup = onRestoreBackup
+                onRestoreBackup = onRestoreBackup,
+                onCreateBackupUsb = onCreateBackupUsb,
+                onRestoreBackupUsb = onRestoreBackupUsb
             )
             settingsDriveBackupSection(
                 uiState = uiState,
