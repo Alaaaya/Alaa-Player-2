@@ -99,6 +99,7 @@ import com.streamvault.app.ui.screens.player.overlay.PlayerAudioVideoOffsetDialo
 import com.streamvault.app.ui.screens.player.overlay.PlayerSpeedSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerSleepTimerDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerSleepTimerWarningOverlay
+import com.streamvault.app.ui.screens.player.overlay.StreamFormatSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.NextEpisodeCountdownOverlay
 import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
 import com.streamvault.app.ui.screens.multiview.MultiViewPlannerDialog
