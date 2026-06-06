@@ -17,6 +17,7 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed Xtream and Stalker onboarding/sync so VOD-only providers are not treated as failed when Live TV is empty, and Movies/Series loading still continues.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
 - Fixed decoder error recovery to retry against alternate stream formats when available.
 - Fixed XMLTV parsing for ISO timestamps that include timezone offsets.
