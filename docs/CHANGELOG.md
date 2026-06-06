@@ -17,9 +17,12 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
+- Fixed a broken player content-resolution merge that could leave the app failing to compile.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
 - Fixed decoder error recovery to retry against alternate stream formats when available.
 - Fixed XMLTV parsing for ISO timestamps that include timezone offsets.
+- Fixed EPG repository test setup so reactive time-shift lookups are stubbed correctly during build verification.
 - Fixed completed local download playback so `content://`/`file://` files do not consume the provider download lease and do not pause active downloads.
 - Fixed failed download Resume to clear partial output and restart through the scheduler.
 - Fixed provider playback interruptions leaving downloads stuck in `DOWNLOADING` by cancelling the active OkHttp call and resetting the partial row to zero-byte `PAUSED` state.
