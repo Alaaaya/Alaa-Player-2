@@ -18,6 +18,7 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed provider delete confirmation staying open when a follow-up TV integration refresh failed after the provider had already been deleted.
 - Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
 - Fixed a broken player content-resolution merge that could leave the app failing to compile.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
