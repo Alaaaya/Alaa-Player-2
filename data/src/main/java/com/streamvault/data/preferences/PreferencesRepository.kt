@@ -109,6 +109,7 @@ class PreferencesRepository @Inject constructor(
         val GUIDE_DEFAULT_CATEGORY_ID = longPreferencesKey("guide_default_category_id")
         val GUIDE_FAVORITES_ONLY = intPreferencesKey("guide_favorites_only")
         val GUIDE_ANCHOR_TIME = longPreferencesKey("guide_anchor_time")
+        val EPG_TIME_SHIFT_BY_PROVIDER = stringPreferencesKey("epg_time_shift_by_provider")
         val PROMOTED_LIVE_GROUP_IDS = stringPreferencesKey("promoted_live_group_ids")
         val MULTIVIEW_PRESET_1 = stringPreferencesKey("multiview_preset_1")
         val MULTIVIEW_PRESET_2 = stringPreferencesKey("multiview_preset_2")
@@ -1441,6 +1442,45 @@ class PreferencesRepository @Inject constructor(
     suspend fun setGuideAnchorTime(anchorTimeMs: Long) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.GUIDE_ANCHOR_TIME] = anchorTimeMs
+        }
+    }
+
+    private fun decodeEpgTimeShifts(raw: String?): Map<Long, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return raw.split(",").mapNotNull { token ->
+            val parts = token.split(":")
+            if (parts.size != 2) return@mapNotNull null
+            val id = parts[0].toLongOrNull() ?: return@mapNotNull null
+            val minutes = parts[1].toIntOrNull() ?: return@mapNotNull null
+            id to minutes
+        }.toMap()
+    }
+
+    private fun encodeEpgTimeShifts(map: Map<Long, Int>): String =
+        map.entries
+            .filter { it.value != 0 }
+            .joinToString(",") { "${it.key}:${it.value}" }
+
+    val epgTimeShiftsByProvider: Flow<Map<Long, Int>> = context.dataStore.data.map { prefs ->
+        decodeEpgTimeShifts(prefs[PreferencesKeys.EPG_TIME_SHIFT_BY_PROVIDER])
+    }
+
+    fun epgTimeShiftMinutes(providerId: Long): Flow<Int> =
+        epgTimeShiftsByProvider.map { it[providerId] ?: 0 }
+
+    suspend fun getEpgTimeShiftMinutes(providerId: Long): Int =
+        epgTimeShiftsByProvider.first()[providerId] ?: 0
+
+    suspend fun setEpgTimeShiftMinutes(providerId: Long, minutes: Int) {
+        context.dataStore.edit { prefs ->
+            val current = decodeEpgTimeShifts(prefs[PreferencesKeys.EPG_TIME_SHIFT_BY_PROVIDER]).toMutableMap()
+            if (minutes == 0) current.remove(providerId) else current[providerId] = minutes
+            val encoded = encodeEpgTimeShifts(current)
+            if (encoded.isEmpty()) {
+                prefs.remove(PreferencesKeys.EPG_TIME_SHIFT_BY_PROVIDER)
+            } else {
+                prefs[PreferencesKeys.EPG_TIME_SHIFT_BY_PROVIDER] = encoded
+            }
         }
     }
 

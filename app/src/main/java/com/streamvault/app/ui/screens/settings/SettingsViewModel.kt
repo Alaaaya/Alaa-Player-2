@@ -211,6 +211,7 @@ class SettingsViewModel @Inject constructor(
         registerEpgObservers(
             scope = viewModelScope,
             epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository,
             uiState = _uiState
         )
         driveBackupActions.observeAuthState(viewModelScope)
@@ -1054,6 +1055,20 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshEpgSource(sourceId: Long) {
         epgActions.refreshEpgSource(viewModelScope, sourceId)
+    }
+
+    fun adjustEpgTimeShift(providerId: Long, deltaMinutes: Int) {
+        viewModelScope.launch {
+            val current = _uiState.value.epgTimeShiftMinutesByProvider[providerId] ?: 0
+            val next = (current + deltaMinutes).coerceIn(-720, 720)
+            preferencesRepository.setEpgTimeShiftMinutes(providerId, next)
+        }
+    }
+
+    fun resetEpgTimeShift(providerId: Long) {
+        viewModelScope.launch {
+            preferencesRepository.setEpgTimeShiftMinutes(providerId, 0)
+        }
     }
 
     fun assignEpgSourceToProvider(providerId: Long, epgSourceId: Long) {

@@ -2,11 +2,15 @@ package com.streamvault.app.ui.screens.epg
 
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import android.app.Application
 import androidx.lifecycle.ViewModel
+import com.streamvault.app.player.LivePreviewHandoffManager
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.manager.ProgramReminderManager
 import com.streamvault.domain.manager.RecordingManager
+import com.streamvault.player.PlayerEngine
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.Channel
@@ -30,6 +34,7 @@ import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.GetCustomCategories
 import com.streamvault.domain.usecase.ScheduleRecording
 import kotlinx.coroutines.Dispatchers
+import javax.inject.Provider as InjectProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -66,6 +71,11 @@ class EpgViewModelTest {
     private val programReminderManager: ProgramReminderManager = mock()
     private val scheduleRecording: ScheduleRecording = mock()
     private val recordingManager: RecordingManager = mock()
+    private val livePreviewHandoffManager: LivePreviewHandoffManager = mock()
+    private val pluginManager: StreamVaultPluginManager = mock()
+    private val playerEngine: PlayerEngine = mock()
+    private val playerEngineProvider: InjectProvider<PlayerEngine> = mock()
+    private val application: Application = mock()
     private val getCustomCategories by lazy { GetCustomCategories(favoriteRepository) }
     private val createdViewModels = mutableListOf<EpgViewModel>()
 
@@ -74,6 +84,7 @@ class EpgViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        whenever(playerEngineProvider.get()).thenReturn(playerEngine)
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(null))
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(preferencesRepository.showAllChannelsCategory).thenReturn(flowOf(true))
@@ -126,7 +137,11 @@ class EpgViewModelTest {
             programReminderManager = programReminderManager,
             getCustomCategories = getCustomCategories,
             scheduleRecording = scheduleRecording,
-            recordingManager = recordingManager
+            recordingManager = recordingManager,
+            playerEngineProvider = playerEngineProvider,
+            pluginManager = pluginManager,
+            livePreviewHandoffManager = livePreviewHandoffManager,
+            application = application
         ).also(createdViewModels::add)
 
     private fun clearViewModel(viewModel: EpgViewModel) {

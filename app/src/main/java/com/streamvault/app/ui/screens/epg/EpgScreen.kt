@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -189,7 +190,8 @@ fun FullEpgScreen(
         when (action) {
             is LockedGuideAction.SelectCategory -> viewModel.selectCategory(action.category.id)
             is LockedGuideAction.OpenProgram -> selectedProgram = action.channel to action.program
-            is LockedGuideAction.PlayChannel ->
+            is LockedGuideAction.PlayChannel -> {
+                viewModel.handoffOrClearForFullscreen(action.channel)
                 onPlayChannel(
                     action.channel,
                     playerCategoryId,
@@ -197,7 +199,9 @@ fun FullEpgScreen(
                     uiState.combinedProfileId,
                     action.returnRoute
                 )
-            is LockedGuideAction.PlayArchive ->
+            }
+            is LockedGuideAction.PlayArchive -> {
+                viewModel.clearPreview()
                 onPlayArchive(
                     action.channel,
                     action.program,
@@ -206,6 +210,7 @@ fun FullEpgScreen(
                     uiState.combinedProfileId,
                     action.returnRoute
                 )
+            }
         }
     }
 
@@ -213,6 +218,23 @@ fun FullEpgScreen(
         pendingLockedAction = action
         pinError = null
         showPinDialog = true
+    }
+
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.clearPreview() }
+    }
+
+    val hasActivePreview = uiState.previewPlayerEngine != null
+    DisposableEffect(hasActivePreview) {
+        val window = (context as? android.app.Activity)?.window
+        if (hasActivePreview) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (hasActivePreview) {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     LaunchedEffect(initialCategoryId, initialAnchorTime, initialFavoritesOnly) {
@@ -383,8 +405,9 @@ fun FullEpgScreen(
 
                 else -> {
                     GuideNowProvider {
-                        GuideHeroSection(
-                            uiState = uiState,
+                        GuidePreviewPane(
+                            previewPlayerEngine = uiState.previewPlayerEngine,
+                            isPreviewLoading = uiState.isPreviewLoading,
                             focusedChannel = focusedChannel,
                             focusedProgram = focusedProgram,
                             modifier = Modifier
@@ -438,7 +461,8 @@ fun FullEpgScreen(
                             onChannelClick = { channel ->
                                 if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
                                     requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
-                                } else {
+                                } else if (uiState.previewChannelId == channel.id) {
+                                    viewModel.handoffOrClearForFullscreen(channel)
                                     onPlayChannel(
                                         channel,
                                         playerCategoryId,
@@ -446,6 +470,33 @@ fun FullEpgScreen(
                                         uiState.combinedProfileId,
                                         returnRoute
                                     )
+                                } else {
+                                    viewModel.previewChannel(channel)
+                                }
+                            },
+                            onChannelLongClick = { channel, currentProgram ->
+                                topNavVisible = false
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                                } else {
+                                    val program = currentProgram ?: run {
+                                        // No EPG match — synthesize a 1-hour "now" program so
+                                        // the dialog still shows Record / Record Daily / Weekly.
+                                        val now = System.currentTimeMillis()
+                                        Program(
+                                            channelId = channel.id.toString(),
+                                            title = channel.name,
+                                            startTime = now,
+                                            endTime = now + 60L * 60L * 1000L
+                                        )
+                                    }
+                                    // Delay so the long-press key-release lands on the
+                                    // channel cell, not on an auto-focused button inside
+                                    // the dialog (which would auto-fire "Watch Live").
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(350)
+                                        selectedProgram = channel to program
+                                    }
                                 }
                             },
                             onProgramClick = { channel, program ->
@@ -609,6 +660,7 @@ fun FullEpgScreen(
                     if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
                         requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
                     } else {
+                        viewModel.handoffOrClearForFullscreen(channel)
                         onPlayChannel(
                             channel,
                             playerCategoryId,
@@ -624,6 +676,7 @@ fun FullEpgScreen(
                         if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
                             requestLockedGuideAction(LockedGuideAction.PlayArchive(channel, program, returnRoute))
                         } else {
+                            viewModel.clearPreview()
                             onPlayArchive(
                                 channel,
                                 program,

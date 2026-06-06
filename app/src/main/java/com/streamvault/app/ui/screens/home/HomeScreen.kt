@@ -224,6 +224,19 @@ fun HomeScreen(
         }
     }
 
+    val hasActivePreview = uiState.previewPlayerEngine != null
+    DisposableEffect(hasActivePreview) {
+        val window = (context as? android.app.Activity)?.window
+        if (hasActivePreview) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            if (hasActivePreview) {
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
         val hasOverlay = showPinDialog || showSplitManagerDialog || pendingSplitPlannerChannel != null ||
         showAddQuickFilterDialog || showHiddenCategoriesDialog || showHiddenChannelsDialog ||
         uiState.showDialog || uiState.showDeleteGroupDialog ||

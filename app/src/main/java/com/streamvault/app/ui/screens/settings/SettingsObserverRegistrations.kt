@@ -126,11 +126,17 @@ internal fun registerRecordingObservers(
 internal fun registerEpgObservers(
     scope: CoroutineScope,
     epgSourceRepository: EpgSourceRepository,
+    preferencesRepository: PreferencesRepository,
     uiState: MutableStateFlow<SettingsUiState>
 ) {
     scope.launch {
         epgSourceRepository.getAllSources().collect { sources ->
             uiState.update { it.copy(epgSources = sources) }
+        }
+    }
+    scope.launch {
+        preferencesRepository.epgTimeShiftsByProvider.collect { map ->
+            uiState.update { it.copy(epgTimeShiftMinutesByProvider = map) }
         }
     }
 }

@@ -133,6 +133,7 @@ data class SettingsUiState(
     val epgResolutionSummaries: Map<Long, EpgResolutionSummary> = emptyMap(),
     val refreshingEpgSourceIds: Set<Long> = emptySet(),
     val epgPendingDeleteSourceId: Long? = null,
+    val epgTimeShiftMinutesByProvider: Map<Long, Int> = emptyMap(),
     val autoCheckAppUpdates: Boolean = true,
     val autoDownloadAppUpdates: Boolean = false,
     val isCheckingForUpdates: Boolean = false,
