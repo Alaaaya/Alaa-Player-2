@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import com.streamvault.app.R
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
@@ -16,6 +17,8 @@ internal fun SettingsPreferenceDialogs(
     uiState: SettingsUiState,
     viewModel: SettingsViewModel,
     context: Context,
+    showLandingScreenDialog: Boolean,
+    onShowLandingScreenDialogChange: (Boolean) -> Unit,
     showGuideDefaultCategoryDialog: Boolean,
     onShowGuideDefaultCategoryDialogChange: (Boolean) -> Unit,
     showPlaybackSpeedDialog: Boolean,
@@ -98,6 +101,25 @@ internal fun SettingsPreferenceDialogs(
         showDiagnosticsTimeoutDialog = showDiagnosticsTimeoutDialog,
         onShowDiagnosticsTimeoutDialogChange = onShowDiagnosticsTimeoutDialogChange
     )
+
+    if (showLandingScreenDialog) {
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_default_landing_screen),
+            onDismiss = { onShowLandingScreenDialogChange(false) }
+        ) {
+            AppLandingDestination.entries.forEachIndexed { index, destination ->
+                LevelOption(
+                    level = index,
+                    text = stringResource(destination.labelResId()),
+                    currentLevel = if (uiState.appLandingDestination == destination) index else -1,
+                    onSelect = {
+                        viewModel.setAppLandingDestination(destination)
+                        onShowLandingScreenDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
 
     if (showGuideDefaultCategoryDialog) {
         PremiumSelectionDialog(
@@ -267,4 +289,15 @@ internal fun SettingsPreferenceDialogs(
             )
         }
     }
+}
+
+private fun AppLandingDestination.labelResId(): Int = when (this) {
+    AppLandingDestination.HOME -> R.string.nav_home
+    AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+    AppLandingDestination.MOVIES -> R.string.nav_movies
+    AppLandingDestination.SERIES -> R.string.nav_series
+    AppLandingDestination.GUIDE -> R.string.nav_epg
+    AppLandingDestination.DOWNLOADS -> R.string.nav_downloads
+    AppLandingDestination.PLUGINS -> R.string.nav_plugins
+    AppLandingDestination.SETTINGS -> R.string.nav_settings
 }

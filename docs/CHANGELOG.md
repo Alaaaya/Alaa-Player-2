@@ -9,6 +9,7 @@ All notable product changes are recorded in this document.
 - Added offline VOD download management with a Downloads screen, foreground service, grouped episode downloads, pause/resume/restart controls, and local playback for completed files.
 - Added external playback mode and chooser handling so users can hand streams off to external player apps more reliably.
 - Added a stream format selector to the player so users can switch formats when decoder recovery needs an alternate stream variant.
+- Added a default landing screen setting so startup can open Home, Live TV, Movies, Series, Guide, Downloads, Plugins, or Settings instead of always opening Home.
 
 ### Changed
 

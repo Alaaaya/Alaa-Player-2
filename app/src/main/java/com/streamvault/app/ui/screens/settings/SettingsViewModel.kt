@@ -34,6 +34,7 @@ import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
@@ -417,6 +418,12 @@ class SettingsViewModel @Inject constructor(
     fun setAppLanguage(language: String) {
         viewModelScope.launch {
             preferencesRepository.setAppLanguage(language)
+        }
+    }
+
+    fun setAppLandingDestination(destination: AppLandingDestination) {
+        viewModelScope.launch {
+            preferencesRepository.setAppLandingDestination(destination)
         }
     }
 

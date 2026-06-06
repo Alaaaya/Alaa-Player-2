@@ -23,6 +23,7 @@ import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveChannelObservedQuality
@@ -89,6 +90,7 @@ class PreferencesRepository @Inject constructor(
         val PARENTAL_PIN_SALT = stringPreferencesKey("parental_pin_salt")
         val DEFAULT_CATEGORY_ID = longPreferencesKey("default_category_id")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
+        val APP_LANDING_DESTINATION = stringPreferencesKey("app_landing_destination")
         val APP_TIME_FORMAT = stringPreferencesKey("app_time_format")
         val LIVE_TV_CHANNEL_MODE = stringPreferencesKey("live_tv_channel_mode")
         val SHOW_LIVE_SOURCE_SWITCHER = booleanPreferencesKey("show_live_source_switcher")
@@ -1196,6 +1198,16 @@ class PreferencesRepository @Inject constructor(
     suspend fun setAppLanguage(language: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.APP_LANGUAGE] = language
+        }
+    }
+
+    val appLandingDestination: Flow<AppLandingDestination> = context.dataStore.data.map { preferences ->
+        AppLandingDestination.fromStorage(preferences[PreferencesKeys.APP_LANDING_DESTINATION])
+    }
+
+    suspend fun setAppLandingDestination(destination: AppLandingDestination) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.APP_LANDING_DESTINATION] = destination.storageValue
         }
     }
 

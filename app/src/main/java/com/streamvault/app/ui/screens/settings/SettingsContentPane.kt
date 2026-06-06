@@ -102,22 +102,24 @@ internal fun SettingsContentPane(
                 onShowEthernetQualityDialogChange = { dialogState.showEthernetQualityDialog = it }
             )
         } else if (dialogState.selectedCategory == 2) {
-            settingsBrowsingSection(
-                uiState = uiState,
-                viewModel = viewModel,
-                context = context,
-                guideDefaultCategoryLabel = screenLabels.guideDefaultCategoryLabel,
-                timeFormatLabel = screenLabels.timeFormatLabel,
-                appLanguageLabel = screenLabels.appLanguageLabel,
+    settingsBrowsingSection(
+        uiState = uiState,
+        viewModel = viewModel,
+        context = context,
+        appLandingDestinationLabel = screenLabels.appLandingDestinationLabel,
+        guideDefaultCategoryLabel = screenLabels.guideDefaultCategoryLabel,
+        timeFormatLabel = screenLabels.timeFormatLabel,
+        appLanguageLabel = screenLabels.appLanguageLabel,
                 onShowLiveTvModeDialogChange = { dialogState.showLiveTvModeDialog = it },
                 onShowLiveTvFiltersDialogChange = { dialogState.showLiveTvFiltersDialog = it },
                 onShowLiveTvQuickFilterVisibilityDialogChange = { dialogState.showLiveTvQuickFilterVisibilityDialog = it },
                 onShowLiveChannelNumberingDialogChange = { dialogState.showLiveChannelNumberingDialog = it },
-                onShowLiveChannelGroupingDialogChange = { dialogState.showLiveChannelGroupingDialog = it },
-                onShowGroupedChannelLabelDialogChange = { dialogState.showGroupedChannelLabelDialog = it },
-                onShowLiveVariantPreferenceDialogChange = { dialogState.showLiveVariantPreferenceDialog = it },
-                onShowGuideDefaultCategoryDialogChange = { dialogState.showGuideDefaultCategoryDialog = it },
-                onShowTimeFormatDialogChange = { dialogState.showTimeFormatDialog = it },
+        onShowLiveChannelGroupingDialogChange = { dialogState.showLiveChannelGroupingDialog = it },
+        onShowGroupedChannelLabelDialogChange = { dialogState.showGroupedChannelLabelDialog = it },
+        onShowLiveVariantPreferenceDialogChange = { dialogState.showLiveVariantPreferenceDialog = it },
+        onShowLandingScreenDialogChange = { dialogState.showLandingScreenDialog = it },
+        onShowGuideDefaultCategoryDialogChange = { dialogState.showGuideDefaultCategoryDialog = it },
+        onShowTimeFormatDialogChange = { dialogState.showTimeFormatDialog = it },
                 onShowVodViewModeDialogChange = { dialogState.showVodViewModeDialog = it },
                 onCategorySortDialogTypeChange = { dialogState.categorySortDialogType = it },
                 onShowLanguageDialogChange = { dialogState.showLanguageDialog = it }

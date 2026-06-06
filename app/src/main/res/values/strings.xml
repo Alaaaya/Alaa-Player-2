@@ -362,6 +362,8 @@
     <string name="settings_browsing">Browsing</string>
     <string name="settings_live_tv_channel_mode">Live TV Channel Mode</string>
     <string name="settings_live_tv_channel_mode_subtitle">Choose how the Live TV browser should present channels and whether it should preview before playback.</string>
+    <string name="settings_default_landing_screen">Default landing screen</string>
+    <string name="settings_select_default_landing_screen">Select default landing screen</string>
     <string name="settings_live_tv_quick_filters">Live TV Quick Filters</string>
     <string name="settings_live_tv_quick_filters_none">None</string>
     <plurals name="settings_live_tv_quick_filters_count">

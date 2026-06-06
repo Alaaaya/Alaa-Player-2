@@ -138,6 +138,8 @@ internal fun SettingsScreenDialogs(
         uiState = uiState,
         viewModel = viewModel,
         context = context,
+        showLandingScreenDialog = dialogState.showLandingScreenDialog,
+        onShowLandingScreenDialogChange = { dialogState.showLandingScreenDialog = it },
         showGuideDefaultCategoryDialog = dialogState.showGuideDefaultCategoryDialog,
         onShowGuideDefaultCategoryDialogChange = { dialogState.showGuideDefaultCategoryDialog = it },
         showPlaybackSpeedDialog = dialogState.showPlaybackSpeedDialog,
