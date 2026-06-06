@@ -118,6 +118,7 @@ internal fun EpgGrid(
     guideWindowEnd: Long,
     density: GuideDensity,
     onChannelClick: (Channel) -> Unit,
+    onChannelLongClick: ((Channel, Program?) -> Unit)? = null,
     onProgramClick: (Channel, Program) -> Unit,
     onChannelFocused: (Channel, Program?, Boolean) -> Unit,
     onProgramFocused: (Channel, Program, Boolean) -> Unit,
@@ -190,6 +191,7 @@ internal fun EpgGrid(
                         markerStepMs = markerStepMs,
                         scrollState = horizontalScrollState,
                         onChannelClick = { onChannelClick(channel) },
+                        onChannelLongClick = onChannelLongClick?.let { cb -> { prog -> cb(channel, prog) } },
                         onChannelFocused = { onChannelFocused(channel, it, isFirstRow) },
                         onProgramClick = { program -> onProgramClick(channel, program) },
                         onProgramFocused = { program -> onProgramFocused(channel, program, isFirstRow) }
@@ -224,7 +226,8 @@ private fun GuideTimelineHeader(
         stringResource(R.string.epg_outside_window)
     }
     val hourMarkers = buildList {
-        var marker = windowStart
+        val firstMarker = windowStart - (windowStart % markerStepMs)
+        var marker = firstMarker
         while (marker <= windowEnd) {
             add(marker)
             marker += markerStepMs
@@ -245,25 +248,6 @@ private fun GuideTimelineHeader(
             modifier = Modifier.width(timelineViewportWidth),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.epg_timeline_label),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceDim
-                )
-                Text(
-                    text = stringResource(
-                        R.string.epg_timeline_range_label,
-                        formatWindowDuration(totalDuration)
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceDim
-                )
-            }
             Box(
                 modifier = Modifier
                     .width(timelineViewportWidth)
@@ -311,11 +295,6 @@ private fun GuideTimelineHeader(
                     }
                 }
             }
-            Text(
-                text = markerLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (now in windowStart..windowEnd) Primary else OnSurfaceDim
-            )
         }
     }
 }
@@ -336,6 +315,7 @@ fun EpgRow(
     markerStepMs: Long,
     scrollState: androidx.compose.foundation.ScrollState,
     onChannelClick: () -> Unit,
+    onChannelLongClick: ((Program?) -> Unit)? = null,
     onChannelFocused: (Program?) -> Unit,
     onProgramClick: (Program) -> Unit,
     onProgramFocused: (Program) -> Unit
@@ -365,6 +345,13 @@ fun EpgRow(
     ) {
         TvClickableSurface(
             onClick = onChannelClick,
+            onLongClick = onChannelLongClick?.let { cb ->
+                {
+                    val prog = currentProgram
+                        ?: programs.minByOrNull { kotlin.math.abs(it.startTime - now) }
+                    cb(prog)
+                }
+            },
             modifier = Modifier
                 .width(channelRailWidth)
                 .fillMaxHeight()
@@ -472,7 +459,8 @@ fun EpgRow(
                 ) {
                 val markers = remember(windowStart, windowEnd, markerStepMs) {
                     buildList {
-                        var marker = windowStart
+                        val firstMarker = windowStart - (windowStart % markerStepMs)
+                        var marker = firstMarker
                         while (marker <= windowEnd) {
                             add(marker)
                             marker += markerStepMs

@@ -126,5 +126,126 @@ internal fun LazyListScope.epgSourcesSection(
             )
         }
     }
+
+    if (providers.isNotEmpty()) {
+        item {
+            Text(
+                text = "EPG Time Shift",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color(0xFF66BB6A),
+                modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
+            )
+            Text(
+                text = "Adjust EPG times if they're consistently off from broadcast time (e.g., wrong timezone in the provider's data). Negative values shift programs earlier; positive shift them later.",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceDim,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+        items(providers, key = { provider -> "epg-shift-${provider.id}" }) { provider ->
+            val shiftMinutes = uiState.epgTimeShiftMinutesByProvider[provider.id] ?: 0
+            EpgTimeShiftCard(
+                providerName = provider.name,
+                shiftMinutes = shiftMinutes,
+                onAdjust = { delta -> viewModel.adjustEpgTimeShift(provider.id, delta) },
+                onReset = { viewModel.resetEpgTimeShift(provider.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpgTimeShiftCard(
+    providerName: String,
+    shiftMinutes: Int,
+    onAdjust: (Int) -> Unit,
+    onReset: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF1A1A1A))
+            .padding(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = providerName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = formatShiftLabel(shiftMinutes),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (shiftMinutes == 0) OnSurfaceDim else Primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ShiftAdjustButton("−1h", onClick = { onAdjust(-60) })
+                ShiftAdjustButton("−30m", onClick = { onAdjust(-30) })
+                ShiftAdjustButton("−15m", onClick = { onAdjust(-15) })
+                ShiftAdjustButton("−5m", onClick = { onAdjust(-5) })
+                ShiftAdjustButton("Reset", onClick = onReset, enabled = shiftMinutes != 0)
+                ShiftAdjustButton("+5m", onClick = { onAdjust(5) })
+                ShiftAdjustButton("+15m", onClick = { onAdjust(15) })
+                ShiftAdjustButton("+30m", onClick = { onAdjust(30) })
+                ShiftAdjustButton("+1h", onClick = { onAdjust(60) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShiftAdjustButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    TvClickableSurface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF262626),
+            focusedContainerColor = Primary,
+            disabledContainerColor = Color(0xFF1A1A1A)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(2.dp, Primary)
+            )
+        )
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (enabled) Color.White else OnSurfaceDim
+        )
+    }
+}
+
+private fun formatShiftLabel(minutes: Int): String {
+    if (minutes == 0) return "No shift"
+    val sign = if (minutes < 0) "−" else "+"
+    val abs = kotlin.math.abs(minutes)
+    val hours = abs / 60
+    val mins = abs % 60
+    return when {
+        hours > 0 && mins > 0 -> "$sign${hours}h ${mins}m"
+        hours > 0 -> "$sign${hours}h"
+        else -> "$sign${mins}m"
+    }
 }
 
