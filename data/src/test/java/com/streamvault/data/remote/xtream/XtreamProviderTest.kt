@@ -66,6 +66,31 @@ class XtreamProviderTest {
     }
 
     @Test
+    fun `authenticate falls back to one connection for zero and placeholder max connections`() = runBlocking {
+        listOf("0", "", "NA", "N/A", "  ").forEach { rawMaxConnections ->
+            val provider = XtreamProvider(
+                providerId = 42,
+                api = FakeXtreamApiService(
+                    authResponse = XtreamAuthResponse(
+                        userInfo = XtreamUserInfo(
+                            auth = 1,
+                            maxConnections = rawMaxConnections
+                        ),
+                        serverInfo = XtreamServerInfo()
+                    )
+                ),
+                serverUrl = "https://example.com",
+                username = "user",
+                password = "pass"
+            )
+
+            val authenticated = provider.authenticate().getOrNull()
+
+            assertThat(authenticated?.maxConnections).isEqualTo(1)
+        }
+    }
+
+    @Test
     fun `getLiveStreams preserves live container extension in internal url`() = runBlocking {
         val provider = XtreamProvider(
             providerId = 42,

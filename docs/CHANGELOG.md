@@ -17,6 +17,7 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed Xtream provider connection-limit parsing so placeholder values like `0`, empty, and `N/A` fall back safely instead of producing invalid limits.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
 - Fixed decoder error recovery to retry against alternate stream formats when available.
 - Fixed XMLTV parsing for ISO timestamps that include timezone offsets.

@@ -111,7 +111,7 @@ class XtreamProvider(
                     serverUrl = serverUrl,
                     username = username,
                     password = password,
-                    maxConnections = response.userInfo.maxConnections.toIntOrNull() ?: 1,
+                    maxConnections = parseXtreamMaxConnections(response.userInfo.maxConnections),
                     expirationDate = expDate,
                     apiVersion = response.serverInfo.apiVersion?.takeIf { it.isNotBlank() }
                         ?: response.serverInfo.version?.takeIf { it.isNotBlank() },
@@ -1178,6 +1178,14 @@ class XtreamProvider(
             ?.takeIf { it in 0f..5f }
             ?.times(2f)
             ?: 0f
+    }
+
+    private fun parseXtreamMaxConnections(rawValue: String?): Int {
+        return rawValue
+            ?.trim()
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?: 1
     }
 
     private fun decodeXtreamText(
