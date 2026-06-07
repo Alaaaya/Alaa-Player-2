@@ -1,18 +1,28 @@
 package com.streamvault.app.ui.screens.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -20,8 +30,13 @@ import androidx.tv.material3.Text
 import com.streamvault.app.R
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.model.VodViewMode
+import com.streamvault.app.ui.theme.AccentAmber
+import com.streamvault.app.ui.theme.AccentCyan
+import com.streamvault.app.ui.theme.AccentGreen
+import com.streamvault.app.ui.theme.AccentRed
 import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
+import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
@@ -227,79 +242,236 @@ internal fun LazyListScope.settingsBrowsingSection(
         }
     }
     item {
-        HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
-        Text(
-            text = stringResource(R.string.settings_remote_shortcuts_title),
-            style = MaterialTheme.typography.titleSmall,
-            color = OnSurface,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-        )
-        Text(
-            text = stringResource(R.string.settings_remote_shortcuts_subtitle),
-            style = MaterialTheme.typography.bodySmall,
-            color = OnBackground.copy(alpha = 0.6f),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-        )
-        Text(
-            text = stringResource(R.string.settings_remote_profile_global),
-            style = MaterialTheme.typography.labelLarge,
-            color = Primary,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        RemoteShortcutSettingsPanel(
+            uiState = uiState,
+            context = context,
+            onRemoteShortcutDialogTargetChange = onRemoteShortcutDialogTargetChange
         )
     }
-    remoteShortcutRows(
-        profile = RemoteShortcutProfile.GLOBAL,
-        uiState = uiState,
-        context = context,
-        onRemoteShortcutDialogTargetChange = onRemoteShortcutDialogTargetChange
-    )
-    item {
-        HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
-        Text(
-            text = stringResource(R.string.settings_remote_profile_playback),
-            style = MaterialTheme.typography.labelLarge,
-            color = Primary,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-    remoteShortcutRows(
-        profile = RemoteShortcutProfile.PLAYBACK,
-        uiState = uiState,
-        context = context,
-        onRemoteShortcutDialogTargetChange = onRemoteShortcutDialogTargetChange
-    )
-    item {
-        HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
-        Text(
-            text = stringResource(R.string.settings_remote_profile_browse),
-            style = MaterialTheme.typography.labelLarge,
-            color = Primary,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-    remoteShortcutRows(
-        profile = RemoteShortcutProfile.BROWSE,
-        uiState = uiState,
-        context = context,
-        onRemoteShortcutDialogTargetChange = onRemoteShortcutDialogTargetChange
-    )
 }
 
-private fun LazyListScope.remoteShortcutRows(
+@Composable
+private fun RemoteShortcutSettingsPanel(
+    uiState: SettingsUiState,
+    context: android.content.Context,
+    onRemoteShortcutDialogTargetChange: (RemoteShortcutDialogTarget?) -> Unit
+) {
+    var selectedProfileStorage by rememberSaveable {
+        mutableStateOf(RemoteShortcutProfile.GLOBAL.storageValue)
+    }
+    val selectedProfile = RemoteShortcutProfile.fromStorage(selectedProfileStorage)
+        ?: RemoteShortcutProfile.GLOBAL
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        HorizontalDivider(
+            color = Color.White.copy(alpha = 0.07f),
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White.copy(alpha = 0.035f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_remote_shortcuts_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OnSurface
+                )
+                Text(
+                    text = stringResource(R.string.settings_remote_shortcuts_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceDim
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RemoteShortcutLegendChip(RemoteColorButton.RED)
+                RemoteShortcutLegendChip(RemoteColorButton.GREEN)
+                RemoteShortcutLegendChip(RemoteColorButton.YELLOW)
+                RemoteShortcutLegendChip(RemoteColorButton.BLUE)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RemoteShortcutProfile.entries.forEach { profile ->
+                    RemoteShortcutProfileTab(
+                        profile = profile,
+                        selected = profile == selectedProfile,
+                        onClick = { selectedProfileStorage = profile.storageValue },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            RemoteShortcutGrid(
+                profile = selectedProfile,
+                uiState = uiState,
+                context = context,
+                onRemoteShortcutDialogTargetChange = onRemoteShortcutDialogTargetChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemoteShortcutLegendChip(button: RemoteColorButton) {
+    Row(
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .background(button.accentColor(), CircleShape)
+        )
+        Text(
+            text = stringResource(button.labelResId()),
+            style = MaterialTheme.typography.labelMedium,
+            color = OnSurface
+        )
+    }
+}
+
+@Composable
+private fun RemoteShortcutProfileTab(
+    profile: RemoteShortcutProfile,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TvClickableSurface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Primary.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f),
+            focusedContainerColor = Primary.copy(alpha = 0.22f)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(profile.labelResId()),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) Primary else OnSurface,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+@Composable
+private fun RemoteShortcutGrid(
     profile: RemoteShortcutProfile,
     uiState: SettingsUiState,
     context: android.content.Context,
     onRemoteShortcutDialogTargetChange: (RemoteShortcutDialogTarget?) -> Unit
 ) {
-    RemoteColorButton.entries.forEach { button ->
-        item {
-            val selection = uiState.remoteShortcutPreferences.selection(profile, button)
-            ClickableSettingsRow(
-                label = stringResource(button.labelResId()),
-                value = formatRemoteShortcutSelectionLabel(selection, profile, button, context),
-                onClick = { onRemoteShortcutDialogTargetChange(RemoteShortcutDialogTarget(profile, button)) },
-                indent = if (profile == RemoteShortcutProfile.GLOBAL) 0.dp else 16.dp
-            )
+    val buttons = RemoteColorButton.entries
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        buttons.chunked(2).forEach { rowButtons ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                rowButtons.forEach { button ->
+                    RemoteShortcutButtonCard(
+                        profile = profile,
+                        button = button,
+                        uiState = uiState,
+                        context = context,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onRemoteShortcutDialogTargetChange(
+                                RemoteShortcutDialogTarget(profile, button)
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun RemoteShortcutButtonCard(
+    profile: RemoteShortcutProfile,
+    button: RemoteColorButton,
+    uiState: SettingsUiState,
+    context: android.content.Context,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val selection = uiState.remoteShortcutPreferences.selection(profile, button)
+    val resolvedLabel = context.getString(selection.resolve(profile, button).labelResId())
+    val detailLabel = formatRemoteShortcutSelectionLabel(selection, profile, button, context)
+
+    TvClickableSurface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = button.accentColor().copy(alpha = 0.10f),
+            focusedContainerColor = button.accentColor().copy(alpha = 0.18f)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(button.accentColor(), CircleShape)
+                )
+                Text(
+                    text = stringResource(button.labelResId()),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OnSurface
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = resolvedLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = OnSurface
+                )
+                Text(
+                    text = detailLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceDim
+                )
+            }
+        }
+    }
+}
+
+private fun RemoteColorButton.accentColor(): Color = when (this) {
+    RemoteColorButton.RED -> AccentRed
+    RemoteColorButton.GREEN -> AccentGreen
+    RemoteColorButton.YELLOW -> AccentAmber
+    RemoteColorButton.BLUE -> AccentCyan
 }
