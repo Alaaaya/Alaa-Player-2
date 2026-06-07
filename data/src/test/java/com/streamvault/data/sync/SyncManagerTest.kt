@@ -283,6 +283,7 @@ class SyncManagerTest {
         org.mockito.kotlin.whenever(preferencesRepo.getHiddenCategoryIds(any(), any())).thenReturn(flowOf(emptySet()))
         runBlocking {
             org.mockito.kotlin.whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
+            org.mockito.kotlin.whenever(channelDao.getCount(any())).thenReturn(flowOf(0))
             org.mockito.kotlin.whenever(channelDao.getByProviderSync(any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(movieDao.getCount(any())).thenReturn(flowOf(0))
             org.mockito.kotlin.whenever(movieDao.getCountByCategory(any(), any())).thenReturn(flowOf(0))
@@ -307,6 +308,10 @@ class SyncManagerTest {
             // exhaustiveness check in SyncManager with NoWhenBranchMatchedException.
             org.mockito.kotlin.whenever(stalkerApiService.streamLiveStreams(any(), any(), any()))
                 .thenReturn(Result.success(0))
+            org.mockito.kotlin.whenever(stalkerApiService.getVodCategories(any(), any()))
+                .thenReturn(Result.success(emptyList()))
+            org.mockito.kotlin.whenever(stalkerApiService.getSeriesCategories(any(), any()))
+                .thenReturn(Result.success(emptyList()))
             org.mockito.kotlin.whenever(
                 stalkerApiService.streamBulkEpg(any(), any(), any(), any())
             ).thenReturn(Result.success(0))
@@ -405,19 +410,43 @@ class SyncManagerTest {
     // ── Xtream sync failure ─────────────────────────────────────────
 
     @Test
-    fun `sync_xtream_networksError_transitionsToError`() = runTest {
+    fun `sync_xtream_networksError_transitionsToPartial`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
 
         // The Xtream path calls XtreamProvider(xtreamApi,...).getLiveCategories()
         // Since xtreamApi is a mock with null returns, the call throws → manager catches → Error
-        mgr.sync(1L)
+        val result = mgr.sync(1L)
         advanceUntilIdle()
 
-        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
     }
 
     @Test
-    fun `sync_xtream_stateMustPassThroughSyncing`() = runTest {
+    fun `sync_xtream_with_empty_live_catalog_still_queues_vod_and_series`() = runTest {
+        val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
+
+        xtreamBackend.respond(action = "get_live_categories", body = "[]")
+        xtreamBackend.respond(action = "get_vod_categories", body = """[{"category_id":"42","category_name":"Action"}]""")
+        xtreamBackend.respond(action = "get_series_categories", body = """[{"category_id":"77","category_name":"Drama"}]""")
+
+        val result = mgr.sync(1L)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val queuedJobCaptor = argumentCaptor<XtreamIndexJobEntity>()
+        verify(xtreamIndexJobDao, atLeastOnce()).upsert(queuedJobCaptor.capture())
+        assertThat(queuedJobCaptor.allValues.any { job ->
+            job.section == ContentType.MOVIE.name && job.state == "QUEUED"
+        }).isTrue()
+        assertThat(queuedJobCaptor.allValues.any { job ->
+            job.section == ContentType.SERIES.name && job.state == "QUEUED"
+        }).isTrue()
+        assertThat(xtreamBackend.requestedActions).contains("get_vod_categories")
+        assertThat(xtreamBackend.requestedActions).contains("get_series_categories")
+    }
+
+    @Test
+    fun `sync_xtream_stateMustPassThroughSyncing_toPartial`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
 
         // In TestDispatcher, sync() runs synchronously and state transitions complete
@@ -427,16 +456,16 @@ class SyncManagerTest {
         advanceUntilIdle()
 
         val finalState = mgr.currentSyncState(1L)
-        assertThat(finalState).isInstanceOf(SyncState.Error::class.java)
+        assertThat(finalState).isInstanceOf(SyncState.Partial::class.java)
     }
 
     @Test
-    fun `sync_xtream_errorHasNonEmptyMessage`() = runTest {
+    fun `sync_xtream_partialHasNonEmptyMessage`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
         mgr.sync(1L)
         advanceUntilIdle()
 
-        val state = mgr.currentSyncState(1L) as? SyncState.Error
+        val state = mgr.currentSyncState(1L) as? SyncState.Partial
         assertThat(state).isNotNull()
         assertThat(state!!.message).isNotEmpty()
     }
@@ -914,7 +943,7 @@ class SyncManagerTest {
     }
 
     @Test
-    fun `sync_xtream_empty_valid_live_without_existing_channels_transitions_to_error`() = runTest {
+    fun `sync_xtream_empty_valid_live_without_existing_channels_continues_with_vod_and_series`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
         org.mockito.kotlin.whenever(channelDao.getCount(1L)).thenReturn(flowOf(0))
         xtreamBackend.respond(action = "get_live_categories", body = """[{"category_id":"1","category_name":"News"}]""")
@@ -924,10 +953,8 @@ class SyncManagerTest {
         val result = mgr.sync(1L, force = false)
         advanceUntilIdle()
 
-        assertThat(result.isError).isTrue()
-        val error = result as Result.Error
-        assertThat(error.message).isEqualTo("Provider returned an empty catalog.")
-        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
+        assertThat(result.isSuccess).isTrue()
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
     }
 
     @Test
@@ -2409,6 +2436,54 @@ class SyncManagerTest {
     }
 
     @Test
+    fun sync_stalker_with_empty_live_catalog_still_queues_vod_and_series_categories() = runTest {
+        val providerEntity = sampleProvider(ProviderType.STALKER_PORTAL).copy(
+            serverUrl = "http://example.com",
+            username = "",
+            password = "",
+            stalkerMacAddress = "00:11:22:33:44:55",
+            epgSyncMode = ProviderEpgSyncMode.SKIP
+        )
+        val manager = buildManager(providerType = ProviderType.STALKER_PORTAL, providerEntity = providerEntity)
+
+        org.mockito.kotlin.whenever(stalkerApiService.authenticate(any())).thenReturn(
+            Result.success(
+                StalkerSession(
+                    loadUrl = "http://example.com/stalker_portal/server/load.php",
+                    portalReferer = "http://example.com/stalker_portal/c/",
+                    token = "token"
+                ) to StalkerProviderProfile(accountName = "Stalker")
+            )
+        )
+        org.mockito.kotlin.whenever(stalkerApiService.getLiveCategories(any(), any())).thenReturn(
+            Result.success(emptyList())
+        )
+        stalkerApiService.stubStreamLiveStreams(emptyList())
+        org.mockito.kotlin.whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        org.mockito.kotlin.whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "77", name = "Drama")))
+        )
+
+        val result = manager.sync(providerId = 1L, force = false)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(stalkerApiService).getVodCategories(any(), any())
+        verify(stalkerApiService).getSeriesCategories(any(), any())
+        verify(xtreamIndexJobDao, atLeastOnce()).upsert(check<XtreamIndexJobEntity> { job ->
+            if (job.section == ContentType.MOVIE.name) {
+                assertThat(job.state).isEqualTo("QUEUED")
+            }
+        })
+        verify(xtreamIndexJobDao, atLeastOnce()).upsert(check<XtreamIndexJobEntity> { job ->
+            if (job.section == ContentType.SERIES.name) {
+                assertThat(job.state).isEqualTo("QUEUED")
+            }
+        })
+    }
+
+    @Test
     fun sync_stalker_persists_wildcard_vod_and_series_categories_when_portal_category_lists_are_empty() = runTest {
         val providerEntity = sampleProvider(ProviderType.STALKER_PORTAL).copy(
             serverUrl = "http://example.com",
@@ -2773,6 +2848,12 @@ class SyncManagerTest {
             Result.error("Portal returned an empty response for get_genres.")
         )
         stalkerApiService.stubStreamLiveStreamsError("Portal returned an empty response for get_ordered_list.")
+        org.mockito.kotlin.whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.error("Portal returned an empty response for get_categories.")
+        )
+        org.mockito.kotlin.whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
+            Result.error("Portal returned an empty response for get_categories.")
+        )
 
         val result = manager.sync(providerId = 1L, force = false)
 
@@ -3347,12 +3428,12 @@ class SyncManagerTest {
     // ── Reset state ─────────────────────────────────────────────────
 
     @Test
-    fun `resetState_afterError_returnsToIdle`() = runTest {
+    fun `resetState_afterPartial_returnsToIdle`() = runTest {
         val mgr = buildManager()
         mgr.sync(1L) // fails → Error
         advanceUntilIdle()
 
-        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
 
         mgr.resetState()
         advanceUntilIdle()

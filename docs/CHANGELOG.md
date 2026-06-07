@@ -23,6 +23,7 @@ All notable product changes are recorded in this document.
 - Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
 - Fixed a broken player content-resolution merge that could leave the app failing to compile.
 - Fixed Xtream provider connection-limit parsing so placeholder values like `0`, empty, and `N/A` fall back safely instead of producing invalid limits.
+- Fixed Xtream and Stalker onboarding/sync so VOD-only providers are not treated as failed when Live TV is empty, and Movies/Series loading still continues.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
 - Fixed decoder error recovery to retry against alternate stream formats when available.
 - Fixed XMLTV parsing for ISO timestamps that include timezone offsets.

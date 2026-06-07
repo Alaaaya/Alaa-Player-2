@@ -1068,50 +1068,26 @@ class SyncManager @Inject constructor(
                 is CatalogStrategyResult.EmptyValid -> {
                     val existingChannelCount = channelDao.getCount(provider.id).first()
                     if (existingChannelCount == 0) {
-                        throw IllegalStateException("Live TV catalog was empty.")
+                        warnings += liveSyncResult.warnings + liveResult.warnings +
+                            "Live TV provider exposed no live channels; continuing with VOD and series only."
+                        0
+                    } else {
+                        warnings += liveSyncResult.warnings + liveResult.warnings +
+                            "Live TV refresh returned an empty valid catalog; keeping previous channel library."
+                        existingChannelCount
                     }
-                    warnings += liveSyncResult.warnings + liveResult.warnings +
-                        "Live TV refresh returned an empty valid catalog; keeping previous channel library."
-                    existingChannelCount
                 }
                 is CatalogStrategyResult.Failure -> {
                     val existingChannelCount = channelDao.getCount(provider.id).first()
                     if (existingChannelCount == 0) {
-                        throw IllegalStateException(
-                            "Failed to fetch live streams: ${syncErrorSanitizer.throwableMessage(liveResult.error)}"
-                        )
+                        warnings += liveSyncResult.warnings + liveResult.warnings +
+                            "Live TV could not be fetched; continuing with VOD and series only."
+                        0
+                    } else {
+                        warnings += liveSyncResult.warnings + liveResult.warnings +
+                            "Live TV sync degraded; keeping previous channel library."
+                        existingChannelCount
                     }
-                    warnings += liveSyncResult.warnings + liveResult.warnings +
-                        "Live TV sync degraded; keeping previous channel library."
-                    existingChannelCount
-                }
-            }
-
-            if (trackInitialLiveOnboarding) {
-                if (acceptedCount > 0) {
-                    val completedAt = System.currentTimeMillis()
-                    recordXtreamLiveOnboardingState(
-                        provider = provider,
-                        phase = XTREAM_ONBOARDING_PHASE_COMPLETED,
-                        now = completedAt,
-                        acceptedRowCount = acceptedCount,
-                        stagedFlushCount = stagedFlushCountFor(acceptedCount),
-                        clearError = true,
-                        completedAt = completedAt,
-                        clearStagedSession = true,
-                        runtimeProfile = runtimeProfile,
-                        syncProfileStrategy = liveSyncResult.profileStrategyName(runtimeProfile, trackInitialLiveOnboarding)
-                    )
-                } else {
-                    recordXtreamLiveOnboardingState(
-                        provider = provider,
-                        phase = XTREAM_ONBOARDING_PHASE_FAILED,
-                        acceptedRowCount = acceptedCount,
-                        lastError = "Live TV did not finish with any committed channels.",
-                        clearStagedSession = true,
-                        runtimeProfile = runtimeProfile,
-                        syncProfileStrategy = liveSyncResult.profileStrategyName(runtimeProfile, trackInitialLiveOnboarding)
-                    )
                 }
             }
 
@@ -1225,6 +1201,32 @@ class SyncManager @Inject constructor(
         }
         if (seriesCategoryCount > 0) {
             scheduleXtreamIndexSync(provider.id, ContentType.SERIES)
+        }
+
+        if (trackInitialLiveOnboarding) {
+            if (liveCount > 0 || movieCategoryCount > 0 || seriesCategoryCount > 0) {
+                val completedAt = System.currentTimeMillis()
+                recordXtreamLiveOnboardingState(
+                    provider = provider,
+                    phase = XTREAM_ONBOARDING_PHASE_COMPLETED,
+                    now = completedAt,
+                    acceptedRowCount = liveCount,
+                    stagedFlushCount = stagedFlushCountFor(liveCount),
+                    clearError = true,
+                    completedAt = completedAt,
+                    clearStagedSession = true,
+                    runtimeProfile = runtimeProfile
+                )
+            } else {
+                recordXtreamLiveOnboardingState(
+                    provider = provider,
+                    phase = XTREAM_ONBOARDING_PHASE_FAILED,
+                    acceptedRowCount = liveCount,
+                    lastError = "Live TV did not finish with any committed channels.",
+                    clearStagedSession = true,
+                    runtimeProfile = runtimeProfile
+                )
+            }
         }
 
         metadata = metadata.copy(
@@ -3866,6 +3868,9 @@ class SyncManager @Inject constructor(
         val now = System.currentTimeMillis()
         var queuedMovieIndex = false
         var queuedSeriesIndex = false
+        var liveCount = metadata.liveCount
+        var movieCategoryCount = 0
+        var seriesCategoryCount = 0
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastLiveSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             upsertXtreamIndexJob(
@@ -3886,6 +3891,7 @@ class SyncManager @Inject constructor(
                 lastLiveSuccess = now,
                 liveCount = liveCatalogResult.acceptedCount
             )
+            liveCount = liveCatalogResult.acceptedCount
             syncMetadataRepository.updateMetadata(metadata)
             emitCatalogSyncProgress(
                 section = Section.LIVE,
@@ -3910,7 +3916,29 @@ class SyncManager @Inject constructor(
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastMovieSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Movies...")
-            val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
+            val categories = when (val categoriesResult = api.getVodCategories()) {
+                is com.streamvault.domain.model.Result.Success -> categoriesResult.data
+                is com.streamvault.domain.model.Result.Error -> {
+                    val missingCatalogDiagnostic = if (
+                        liveCount == 0 &&
+                        warnings.any { warning -> isStalkerEmptyResponse(warning) }
+                    ) {
+                        stalkerCatalogAccessDiagnostic(
+                            api = api,
+                            primaryMessage = categoriesResult.message,
+                            fallbackMessage = "empty response"
+                        )
+                    } else {
+                        null
+                    }
+                    throw IllegalStateException(
+                        missingCatalogDiagnostic
+                            ?: "Failed to load movie categories: ${categoriesResult.message}",
+                        categoriesResult.exception
+                    )
+                }
+                is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
+            }
             emitCatalogSyncProgress(
                 section = Section.VOD,
                 total = categories.size,
@@ -3934,6 +3962,7 @@ class SyncManager @Inject constructor(
                     )
                 }
             )
+            movieCategoryCount = categories.size
             queueStalkerIndexSection(
                 providerId = provider.id,
                 contentType = ContentType.MOVIE,
@@ -3954,7 +3983,29 @@ class SyncManager @Inject constructor(
 
         if (force || ContentCachePolicy.shouldRefresh(metadata.lastSeriesSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Series...")
-            val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
+            val categories = when (val categoriesResult = api.getSeriesCategories()) {
+                is com.streamvault.domain.model.Result.Success -> categoriesResult.data
+                is com.streamvault.domain.model.Result.Error -> {
+                    val missingCatalogDiagnostic = if (
+                        liveCount == 0 &&
+                        warnings.any { warning -> isStalkerEmptyResponse(warning) }
+                    ) {
+                        stalkerCatalogAccessDiagnostic(
+                            api = api,
+                            primaryMessage = categoriesResult.message,
+                            fallbackMessage = "empty response"
+                        )
+                    } else {
+                        null
+                    }
+                    throw IllegalStateException(
+                        missingCatalogDiagnostic
+                            ?: "Failed to load series categories: ${categoriesResult.message}",
+                        categoriesResult.exception
+                    )
+                }
+                is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
+            }
             emitCatalogSyncProgress(
                 section = Section.SERIES,
                 total = categories.size,
@@ -3976,6 +4027,7 @@ class SyncManager @Inject constructor(
                     )
                 }
             )
+            seriesCategoryCount = categories.size
             queueStalkerIndexSection(
                 providerId = provider.id,
                 contentType = ContentType.SERIES,
@@ -3988,6 +4040,19 @@ class SyncManager @Inject constructor(
             )
             syncMetadataRepository.updateMetadata(metadata)
             queuedSeriesIndex = true
+        }
+
+        if (liveCount == 0 && movieCategoryCount == 0 && seriesCategoryCount == 0) {
+            val missingCatalogDiagnostic = warnings.firstOrNull { warning ->
+                warning.contains("no accessible catalog data", ignoreCase = true)
+            } ?: stalkerCatalogAccessDiagnostic(
+                api = api,
+                primaryMessage = "empty response",
+                fallbackMessage = "empty response"
+            )
+            missingCatalogDiagnostic?.let { diagnostic ->
+                throw IllegalStateException(diagnostic)
+            }
         }
 
         if (provider.epgSyncMode != ProviderEpgSyncMode.SKIP) {
@@ -5415,12 +5480,8 @@ class SyncManager @Inject constructor(
 
         suspend fun finalizeStagedImport(): StagedStalkerLiveCatalogResult {
             val sessionId = stagedSessionId
-            if (acceptedCount == 0 || sessionId == null) {
-                throw IllegalStateException("Stalker live catalog returned no usable channels.")
-            }
-
             if (hiddenLiveCategoryIds.isNotEmpty()) {
-                mergeHiddenChannelsIntoStaging(provider.id, sessionId, hiddenLiveCategoryIds)
+                sessionId?.let { mergeHiddenChannelsIntoStaging(provider.id, it, hiddenLiveCategoryIds) }
             }
             val hiddenCategories = if (hiddenLiveCategoryIds.isNotEmpty()) {
                 categoryDao.getByProviderAndTypeSync(provider.id, ContentType.LIVE.name)
@@ -5436,6 +5497,17 @@ class SyncManager @Inject constructor(
             )
                 .distinctBy { it.categoryId to it.type }
                 .takeIf { it.isNotEmpty() }
+            if (acceptedCount == 0 || sessionId == null) {
+                syncCatalogStore.replaceLiveCatalog(
+                    providerId = provider.id,
+                    categories = categories,
+                    channels = emptyList()
+                )
+                return StagedStalkerLiveCatalogResult(
+                    acceptedCount = 0,
+                    warnings = (warnings + "Live TV provider exposed no live channels; continuing with VOD and series only.").distinct()
+                )
+            }
             syncCatalogStore.applyStagedLiveCatalog(provider.id, sessionId, categories)
             return StagedStalkerLiveCatalogResult(acceptedCount, warnings)
         }
@@ -5483,7 +5555,17 @@ class SyncManager @Inject constructor(
 
             val fallbackCategories = preferredCategories.orEmpty()
             if (fallbackCategories.isEmpty()) {
-                throw bulkFailure ?: IllegalStateException("Failed to load live channels")
+                return StagedStalkerLiveCatalogResult(
+                    acceptedCount = 0,
+                    warnings = (
+                        warnings + listOfNotNull(
+                            "Live TV provider exposed no live channels; continuing with VOD and series only.",
+                            bulkFailure?.let(::sanitizeThrowableMessage)
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { "Live TV fetch returned no usable channels: $it" }
+                        )
+                    ).distinct()
+                )
             }
 
             Log.w(
