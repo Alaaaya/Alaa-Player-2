@@ -54,6 +54,8 @@ import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.VideoFormat
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.repository.EpgRepository
+import com.streamvault.domain.model.VirtualCategoryIds
+import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.player.PlaybackState
 import com.streamvault.player.PLAYER_TRACK_AUTO_ID
 import com.streamvault.player.PlayerEngine
@@ -103,6 +105,7 @@ import com.streamvault.app.ui.screens.player.overlay.PlayerAudioVideoOffsetDialo
 import com.streamvault.app.ui.screens.player.overlay.PlayerSpeedSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerSleepTimerDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerSleepTimerWarningOverlay
+import com.streamvault.app.ui.screens.player.overlay.PlayerTransparentGuideOverlay
 import com.streamvault.app.ui.screens.player.overlay.StreamFormatSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.NextEpisodeCountdownOverlay
 import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
@@ -200,6 +203,7 @@ fun PlayerScreen(
     val parentalControlLevel by viewModel.parentalControlLevel.collectAsStateWithLifecycle()
     val activeCategoryId by viewModel.activeCategoryId.collectAsStateWithLifecycle()
     val showEpgOverlay by viewModel.showEpgOverlay.collectAsStateWithLifecycle()
+    val showFullGuideOverlay by viewModel.showFullGuideOverlay.collectAsStateWithLifecycle()
     val currentChannelList by viewModel.currentChannelList.collectAsStateWithLifecycle()
     val recentChannels by viewModel.recentChannels.collectAsStateWithLifecycle()
     val lastVisitedCategory by viewModel.lastVisitedCategory.collectAsStateWithLifecycle()
@@ -247,8 +251,10 @@ fun PlayerScreen(
     val playButtonFocusRequester = remember { FocusRequester() }
     val quickActionsFocusRequester = remember { FocusRequester() }
     val channelInfoFocusRequester = remember { FocusRequester() }
+    val epgOverlayFocusRequester = remember { FocusRequester() }
     val layoutDirection = LocalLayoutDirection.current
     val isRtl = layoutDirection == LayoutDirection.Rtl
+    val openFullGuideFromEpgKeyCode = if (isRtl) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT
     val currentPictureInPictureMode by rememberUpdatedState(isInPictureInPictureMode)
     val enterPictureInPicture = remember(mainActivity) {
         {
@@ -333,8 +339,14 @@ fun PlayerScreen(
 
     // Consolidated focus management for all overlays
     val liveOverlayVisible = contentType == "LIVE" && (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay)
+    val guideNavigationContext = remember(activeCategoryId, currentChannel?.categoryId) {
+        resolvePlayerGuideNavigationContext(
+            activeCategoryId = activeCategoryId,
+            currentChannelCategoryId = currentChannel?.categoryId
+        )
+    }
     val nextEpisodeCountdownVisible = !isInPictureInPictureMode && autoPlayCountdown != null
-    val anyOverlayVisible = liveOverlayVisible || nextEpisodeCountdownVisible || showTrackSelection != null || showVariantSelection || showStreamFormatSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showDiagnostics
+    val anyOverlayVisible = liveOverlayVisible || showFullGuideOverlay || nextEpisodeCountdownVisible || showTrackSelection != null || showVariantSelection || showStreamFormatSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showDiagnostics
 
     LaunchedEffect(contentType, showCategoryListOverlay, showChannelListOverlay, showEpgOverlay, showChannelInfoOverlay) {
         if (contentType == "LIVE" && (showCategoryListOverlay || showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay)) {
@@ -343,6 +355,7 @@ fun PlayerScreen(
             when {
                 showCategoryListOverlay -> categoryListFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Category list overlay")
                 showChannelListOverlay -> channelListFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Channel list overlay")
+                showEpgOverlay -> epgOverlayFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "EPG overlay")
                 showChannelInfoOverlay -> channelInfoFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Channel info overlay")
             }
         }
@@ -577,6 +590,7 @@ fun PlayerScreen(
         showChannelListOverlay,
         showCategoryListOverlay,
         showEpgOverlay,
+        showFullGuideOverlay,
         showControls,
         numericChannelInput
     ) {
@@ -599,6 +613,7 @@ fun PlayerScreen(
                 showStreamFormatSelection -> showStreamFormatSelection = false
                 showTrackSelection != null -> showTrackSelection = null
                 showDiagnostics -> viewModel.toggleDiagnostics()
+                showFullGuideOverlay -> viewModel.closeFullGuideOverlay()
                 showChannelInfoOverlay -> viewModel.closeChannelInfoOverlay()
                 showChannelListOverlay || showCategoryListOverlay || showEpgOverlay -> viewModel.closeOverlays()
                 showControls -> viewModel.toggleControls()
@@ -653,6 +668,14 @@ fun PlayerScreen(
                     return@onPreviewKeyEvent false
                 }
                 if (contentType != "LIVE") {
+                    return@onPreviewKeyEvent false
+                }
+                if (showEpgOverlay && !isCatchUpPlayback && event.nativeKeyEvent.keyCode == openFullGuideFromEpgKeyCode) {
+                    viewModel.onLiveOverlayInteraction()
+                    viewModel.openFullGuideOverlay()
+                    return@onPreviewKeyEvent true
+                }
+                if (showFullGuideOverlay) {
                     return@onPreviewKeyEvent false
                 }
                 if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showDiagnostics) {
@@ -767,6 +790,15 @@ fun PlayerScreen(
                             else -> true
                         }
                     }
+                    if (showFullGuideOverlay) {
+                        return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_BACK -> {
+                                viewModel.closeFullGuideOverlay()
+                                true
+                            }
+                            else -> false
+                        }
+                    }
                     when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_PROG_RED,
                         KeyEvent.KEYCODE_PROG_GREEN,
@@ -837,7 +869,10 @@ fun PlayerScreen(
                                 viewModel.onLiveOverlayInteraction()
                             }
                             if (showControls && (contentType != "LIVE" || isCatchUpPlayback)) return@onKeyEvent false
-                            if (contentType == "LIVE" && !isCatchUpPlayback && !showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
+                            if (contentType == "LIVE" && !isCatchUpPlayback && showEpgOverlay && event.nativeKeyEvent.keyCode == openFullGuideFromEpgKeyCode) {
+                                viewModel.openFullGuideOverlay()
+                                true
+                            } else if (contentType == "LIVE" && !isCatchUpPlayback && !showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
                                 if (isRtl) viewModel.openChannelListOverlay() else viewModel.openEpgOverlay()
                                 true
                             } else if (!showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
@@ -930,7 +965,7 @@ fun PlayerScreen(
                         }
                         KeyEvent.KEYCODE_GUIDE -> {
                             if (contentType == "LIVE") {
-                                viewModel.openEpgOverlay()
+                                viewModel.openFullGuideOverlay()
                                 true
                             } else {
                                 false
@@ -1307,6 +1342,60 @@ fun PlayerScreen(
             )
         }
 
+        if (!isInPictureInPictureMode && showFullGuideOverlay && contentType == "LIVE") {
+            val guideViewModel: com.streamvault.app.ui.screens.epg.EpgViewModel = hiltViewModel()
+            val guideUiState by guideViewModel.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(showFullGuideOverlay, guideNavigationContext) {
+                if (showFullGuideOverlay) {
+                    guideViewModel.applyNavigationContext(
+                        categoryId = guideNavigationContext.categoryId,
+                        anchorTime = System.currentTimeMillis(),
+                        favoritesOnly = guideNavigationContext.favoritesOnly
+                    )
+                }
+            }
+
+            PlayerTransparentGuideOverlay(
+                uiState = guideUiState,
+                currentPlayerChannelId = currentChannel?.id ?: internalChannelId,
+                onDismiss = viewModel::closeFullGuideOverlay,
+                onJumpToNow = guideViewModel::jumpToNow,
+                onSelectCategory = { category ->
+                    if (category.id == VirtualCategoryIds.FAVORITES) {
+                        guideViewModel.applyNavigationContext(
+                            categoryId = ChannelRepository.ALL_CHANNELS_ID,
+                            anchorTime = null,
+                            favoritesOnly = true
+                        )
+                    } else {
+                        guideViewModel.applyNavigationContext(
+                            categoryId = category.id,
+                            anchorTime = null,
+                            favoritesOnly = false
+                        )
+                    }
+                },
+                onSearchQueryChange = guideViewModel::updateProgramSearchQuery,
+                onClearSearch = guideViewModel::clearProgramSearch,
+                onWatchChannel = { channel ->
+                    viewModel.playChannelFromGuideOverlay(
+                        channel = channel,
+                        selectedGuideCategoryId = guideUiState.selectedCategoryId,
+                        favoritesOnly = guideUiState.showFavoritesOnly,
+                        combinedProfileId = guideUiState.combinedProfileId
+                    )
+                },
+                onWatchArchive = { channel, program ->
+                    if (channel.id == (currentChannel?.id ?: internalChannelId)) {
+                        viewModel.playCatchUp(program)
+                    }
+                },
+                onRequestMoreChannels = guideViewModel::requestMoreChannels,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         if (contentType == "LIVE") {
             AnimatedVisibility(
                 visible = showChannelListOverlay,
@@ -1374,6 +1463,8 @@ fun PlayerScreen(
                     nextProgram = nextProgram,
                     upcomingPrograms = upcomingPrograms,
                     onDismiss = { viewModel.closeOverlays() },
+                    overlayFocusRequester = epgOverlayFocusRequester,
+                    onOpenFullGuide = { viewModel.openFullGuideOverlay() },
                     onOpenArchiveBrowser = {
                         showProgramHistory = true
                         viewModel.closeOverlays()

@@ -176,6 +176,9 @@ class PlayerViewModel @Inject constructor(
     internal val showEpgOverlayFlow = MutableStateFlow(false)
     val showEpgOverlay: StateFlow<Boolean> = showEpgOverlayFlow.asStateFlow()
 
+    internal val showFullGuideOverlayFlow = MutableStateFlow(false)
+    val showFullGuideOverlay: StateFlow<Boolean> = showFullGuideOverlayFlow.asStateFlow()
+
     internal val currentChannelFlowList = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
     val currentChannelList: StateFlow<List<com.streamvault.domain.model.Channel>> = currentChannelFlowList.asStateFlow()
 
