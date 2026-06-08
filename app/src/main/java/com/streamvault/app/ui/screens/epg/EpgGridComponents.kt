@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +68,7 @@ import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Program
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.delay
 import kotlin.math.max
 
 @Composable
@@ -117,6 +121,8 @@ internal fun EpgGrid(
     guideWindowStart: Long,
     guideWindowEnd: Long,
     density: GuideDensity,
+    transparentOverlay: Boolean = false,
+    initialFocusedChannelId: Long? = null,
     onChannelClick: (Channel) -> Unit,
     onChannelLongClick: ((Channel, Program?) -> Unit)? = null,
     onProgramClick: (Channel, Program) -> Unit,
@@ -132,6 +138,22 @@ internal fun EpgGrid(
         GuideDensity.CINEMATIC -> 52.dp
     }
     val horizontalScrollState = rememberScrollState()
+    val verticalListState = rememberLazyListState()
+    val resolvedInitialChannelId = initialFocusedChannelId ?: channels.firstOrNull()?.id
+    val initialFocusRequester = remember(resolvedInitialChannelId) { FocusRequester() }
+    val initialFocusIndex = remember(channels, resolvedInitialChannelId) {
+        resolvedInitialChannelId
+            ?.let { channelId -> channels.indexOfFirst { it.id == channelId } }
+            ?.takeIf { it >= 0 }
+            ?: 0
+    }
+
+    LaunchedEffect(channels.size, resolvedInitialChannelId) {
+        if (channels.isEmpty()) return@LaunchedEffect
+        verticalListState.scrollToItem((initialFocusIndex - 2).coerceAtLeast(0))
+        delay(140)
+        initialFocusRequester.requestFocus()
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -162,6 +184,7 @@ internal fun EpgGrid(
             )
             Spacer(modifier = Modifier.height(4.dp))
             LazyColumn(
+                state = verticalListState,
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
@@ -187,9 +210,11 @@ internal fun EpgGrid(
                         timelineViewportWidth = timelineViewportWidth,
                         totalTimelineWidth = totalTimelineWidth,
                         density = density,
+                        transparentOverlay = transparentOverlay,
                         rowHeight = rowHeight,
                         markerStepMs = markerStepMs,
                         scrollState = horizontalScrollState,
+                        focusRequester = if (channel.id == resolvedInitialChannelId) initialFocusRequester else null,
                         onChannelClick = { onChannelClick(channel) },
                         onChannelLongClick = onChannelLongClick?.let { cb -> { prog -> cb(channel, prog) } },
                         onChannelFocused = { onChannelFocused(channel, it, isFirstRow) },
@@ -311,9 +336,11 @@ fun EpgRow(
     timelineViewportWidth: Dp,
     totalTimelineWidth: Dp,
     density: GuideDensity,
+    transparentOverlay: Boolean,
     rowHeight: Dp,
     markerStepMs: Long,
     scrollState: androidx.compose.foundation.ScrollState,
+    focusRequester: FocusRequester? = null,
     onChannelClick: () -> Unit,
     onChannelLongClick: ((Program?) -> Unit)? = null,
     onChannelFocused: (Program?) -> Unit,
@@ -355,6 +382,13 @@ fun EpgRow(
             modifier = Modifier
                 .width(channelRailWidth)
                 .fillMaxHeight()
+                .then(
+                    if (focusRequester != null) {
+                        Modifier.focusRequester(focusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
                 .onFocusChanged {
                     if (it.isFocused && !isFocused) {
                         onChannelFocused(currentProgram)
@@ -362,8 +396,8 @@ fun EpgRow(
                     isFocused = it.isFocused
                 },
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = SurfaceElevated,
-                focusedContainerColor = SurfaceHighlight
+                containerColor = if (transparentOverlay) SurfaceElevated.copy(alpha = 0.62f) else SurfaceElevated,
+                focusedContainerColor = if (transparentOverlay) SurfaceHighlight.copy(alpha = 0.88f) else SurfaceHighlight
             ),
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(
@@ -444,7 +478,10 @@ fun EpgRow(
             modifier = Modifier
                 .width(timelineViewportWidth)
                 .fillMaxHeight()
-                .background(SurfaceElevated, RoundedCornerShape(8.dp))
+                .background(
+                    if (transparentOverlay) SurfaceElevated.copy(alpha = 0.48f) else SurfaceElevated,
+                    RoundedCornerShape(8.dp)
+                )
                 .clip(RoundedCornerShape(8.dp))
         ) {
             Row(
@@ -486,6 +523,7 @@ fun EpgRow(
                         ProgramItem(
                             program = program,
                             density = density,
+                            transparentOverlay = transparentOverlay,
                             windowStart = windowStart,
                             windowEnd = windowEnd,
                             totalTimelineWidth = totalTimelineWidth,
@@ -504,6 +542,7 @@ fun EpgRow(
 fun ProgramItem(
     program: Program,
     density: GuideDensity,
+    transparentOverlay: Boolean,
     windowStart: Long,
     windowEnd: Long,
     totalTimelineWidth: Dp,
@@ -586,8 +625,13 @@ fun ProgramItem(
                 isFocused = it.isFocused
             },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCurrent) Primary.copy(alpha = 0.2f) else SurfaceElevated,
-            focusedContainerColor = SurfaceHighlight
+            containerColor = when {
+                isCurrent && transparentOverlay -> Primary.copy(alpha = 0.28f)
+                isCurrent -> Primary.copy(alpha = 0.2f)
+                transparentOverlay -> SurfaceElevated.copy(alpha = 0.54f)
+                else -> SurfaceElevated
+            },
+            focusedContainerColor = if (transparentOverlay) SurfaceHighlight.copy(alpha = 0.88f) else SurfaceHighlight
         ),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         border = ClickableSurfaceDefaults.border(
