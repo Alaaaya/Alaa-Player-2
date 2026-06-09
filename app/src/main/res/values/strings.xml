@@ -404,6 +404,8 @@
     <string name="settings_audio_video_sync_default_subtitle">Positive values delay audio relative to video.</string>
     <string name="settings_audio_video_sync_enabled">Enable A/V Sync Adjustment</string>
     <string name="settings_audio_video_sync_enabled_subtitle">Experimental. Turn on only if audio and video are out of sync; some devices may have playback issues.</string>
+    <string name="settings_multiview_respect_provider_connection_limit">Respect provider connection limit</string>
+    <string name="settings_multiview_respect_provider_connection_limit_subtitle">Keep Split Screen and Multiview capped by the provider max-connections value. Turn off only when your provider allows multiple streams from the same IP.</string>
     <string name="settings_multiview_center_two_slot_layout">Center 1-2 Channel Multiview</string>
     <string name="settings_multiview_center_two_slot_layout_subtitle">When one or two multiview slots are active, center them on screen instead of using the default 2x2 grid.</string>
     <string name="settings_media_session">System Media Session</string>

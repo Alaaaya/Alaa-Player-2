@@ -56,6 +56,7 @@ internal data class SettingsPreferenceSnapshot(
     val playerAudioVideoSyncEnabled: Boolean,
     val playerAudioVideoOffsetMs: Int,
     val centerTwoSlotMultiviewLayout: Boolean,
+    val multiViewRespectProviderConnectionLimit: Boolean,
     val playerControlsTimeoutSeconds: Int,
     val playerLiveOverlayTimeoutSeconds: Int,
     val playerNoticeTimeoutSeconds: Int,

@@ -122,6 +122,8 @@ class PreferencesRepository @Inject constructor(
         val MULTIVIEW_PRESET_3 = stringPreferencesKey("multiview_preset_3")
         val MULTIVIEW_PERFORMANCE_MODE = stringPreferencesKey("multiview_performance_mode")
         val MULTIVIEW_CENTER_TWO_SLOT_LAYOUT = booleanPreferencesKey("multiview_center_two_slot_layout")
+        val MULTIVIEW_RESPECT_PROVIDER_CONNECTION_LIMIT =
+            booleanPreferencesKey("multiview_respect_provider_connection_limit")
         val IS_INCOGNITO_MODE = booleanPreferencesKey("is_incognito_mode")
         val PLAYER_MUTED = booleanPreferencesKey("player_muted")
         val PLAYER_MEDIA_SESSION_ENABLED = booleanPreferencesKey("player_media_session_enabled")
@@ -1753,6 +1755,16 @@ class PreferencesRepository @Inject constructor(
     suspend fun setMultiViewCenterTwoSlotLayout(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.MULTIVIEW_CENTER_TWO_SLOT_LAYOUT] = enabled
+        }
+    }
+
+    val multiViewRespectProviderConnectionLimit: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.MULTIVIEW_RESPECT_PROVIDER_CONNECTION_LIMIT] ?: true
+    }
+
+    suspend fun setMultiViewRespectProviderConnectionLimit(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.MULTIVIEW_RESPECT_PROVIDER_CONNECTION_LIMIT] = enabled
         }
     }
 

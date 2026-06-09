@@ -96,6 +96,7 @@ class BackupManagerImpl @Inject constructor(
                 put("playerPlaybackSpeed", preferencesRepository.playerPlaybackSpeed.first().toString())
                 put("playerAudioVideoSyncEnabled", preferencesRepository.playerAudioVideoSyncEnabled.first().toString())
                 put("playerAudioVideoOffsetMs", preferencesRepository.playerAudioVideoOffsetMs.first().toString())
+                put("multiViewRespectProviderConnectionLimit", preferencesRepository.multiViewRespectProviderConnectionLimit.first().toString())
                 put("preferredAudioLanguage", preferencesRepository.preferredAudioLanguage.first() ?: "auto")
                 put("playerSubtitleTextScale", preferencesRepository.playerSubtitleTextScale.first().toString())
                 put("playerSubtitleTextColor", preferencesRepository.playerSubtitleTextColor.first().toString())
@@ -599,6 +600,8 @@ class BackupManagerImpl @Inject constructor(
         prefs["playerAudioVideoOffsetMs"]?.toIntOrNull()?.let {
             preferencesRepository.setPlayerAudioVideoOffsetMs(it)
         }
+        prefs["multiViewRespectProviderConnectionLimit"]?.toBooleanStrictOrNull()
+            ?.let { preferencesRepository.setMultiViewRespectProviderConnectionLimit(it) }
         preferencesRepository.setPreferredAudioLanguage(prefs["preferredAudioLanguage"])
         prefs["playerSubtitleTextScale"]?.toFloatOrNull()?.let { preferencesRepository.setPlayerSubtitleTextScale(it) }
         prefs["playerSubtitleTextColor"]?.toIntOrNull()?.let { preferencesRepository.setPlayerSubtitleTextColor(it) }

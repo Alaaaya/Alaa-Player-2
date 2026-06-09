@@ -54,6 +54,7 @@ internal fun observeSettingsPreferenceSnapshot(
             playerAudioVideoSyncEnabled = false,
             playerAudioVideoOffsetMs = 0,
             centerTwoSlotMultiviewLayout = false,
+            multiViewRespectProviderConnectionLimit = true,
             playerControlsTimeoutSeconds = 5,
             playerLiveOverlayTimeoutSeconds = 4,
             playerNoticeTimeoutSeconds = 6,
@@ -135,6 +136,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerAudioVideoOffsetMs = playerAudioVideoOffsetMs)
     }.combine(preferencesRepository.multiViewCenterTwoSlotLayout) { snapshot, centerTwoSlotLayout ->
         snapshot.copy(centerTwoSlotMultiviewLayout = centerTwoSlotLayout)
+    }.combine(preferencesRepository.multiViewRespectProviderConnectionLimit) { snapshot, respectLimit ->
+        snapshot.copy(multiViewRespectProviderConnectionLimit = respectLimit)
     }.combine(preferencesRepository.playerControlsTimeoutSeconds) { snapshot, timeoutSeconds ->
         snapshot.copy(playerControlsTimeoutSeconds = timeoutSeconds)
     }.combine(preferencesRepository.playerLiveOverlayTimeoutSeconds) { snapshot, timeoutSeconds ->

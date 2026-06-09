@@ -649,6 +649,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setMultiViewRespectProviderConnectionLimit(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setMultiViewRespectProviderConnectionLimit(enabled)
+        }
+    }
+
     fun setPlayerMediaSessionEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setPlayerMediaSessionEnabled(enabled)

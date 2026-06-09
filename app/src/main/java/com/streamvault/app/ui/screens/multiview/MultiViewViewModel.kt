@@ -140,11 +140,19 @@ class MultiViewViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            providerRepository.getActiveProvider().collect { provider ->
-                val nextConnectionLimit = provider
-                    ?.takeIf { it.type == ProviderType.XTREAM_CODES }
-                    ?.maxConnections
-                    ?.coerceAtLeast(1)
+            combine(
+                providerRepository.getActiveProvider(),
+                preferencesRepository.multiViewRespectProviderConnectionLimit
+            ) { provider, respectProviderLimit ->
+                if (!respectProviderLimit) {
+                    null
+                } else {
+                    provider
+                        ?.takeIf { it.type == ProviderType.XTREAM_CODES }
+                        ?.maxConnections
+                        ?.coerceAtLeast(1)
+                }
+            }.collect { nextConnectionLimit ->
                 if (activeProviderConnectionLimit != nextConnectionLimit) {
                     activeProviderConnectionLimit = nextConnectionLimit
                     if (multiViewManager.hasAnyChannel) {

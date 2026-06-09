@@ -75,6 +75,7 @@ data class SettingsUiState(
     val playerAudioVideoSyncEnabled: Boolean = false,
     val playerAudioVideoOffsetMs: Int = 0,
     val centerTwoSlotMultiviewLayout: Boolean = false,
+    val multiViewRespectProviderConnectionLimit: Boolean = true,
     val playerControlsTimeoutSeconds: Int = 5,
     val playerLiveOverlayTimeoutSeconds: Int = 4,
     val playerNoticeTimeoutSeconds: Int = 6,

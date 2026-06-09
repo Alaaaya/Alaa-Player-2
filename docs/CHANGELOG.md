@@ -13,6 +13,7 @@ All notable product changes are recorded in this document.
 - Added configurable colored remote button support for Android TV remotes, with global defaults plus playback and live-browse overrides for actions such as guide, channel info, favorites, category pinning, and split screen.
 - Added QR-based provider pairing so users can scan from a phone on the same LAN, submit provider details locally, and add Xtream, Stalker, or M3U providers directly to the TV.
 - Added a transparent live-TV full guide overlay that opens over player playback, reuses the EPG grid, supports category switching and search, and lets you tune channels directly from the overlay.
+- Added a playback setting to let Split Screen/Multiview ignore provider max-connection limits when a provider allows multiple streams from the same IP.
 
 ### Changed
 
