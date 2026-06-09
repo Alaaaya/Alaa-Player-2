@@ -27,6 +27,7 @@ import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.Episode
+import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.LiveChannelObservedQuality
 import com.streamvault.domain.model.PlaybackHistory
@@ -46,6 +47,7 @@ import com.streamvault.domain.usecase.ScheduleRecording
 import com.streamvault.domain.usecase.ScheduleRecordingCommand
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.CombinedM3uRepository
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
@@ -100,6 +102,7 @@ class PlayerViewModel @Inject constructor(
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
     internal val syncManager: SyncManager,
+    private val downloadManager: DownloadManager,
     private val okHttpClient: OkHttpClient,
 ) : ViewModel() {
     companion object {
@@ -173,6 +176,9 @@ class PlayerViewModel @Inject constructor(
     internal val showEpgOverlayFlow = MutableStateFlow(false)
     val showEpgOverlay: StateFlow<Boolean> = showEpgOverlayFlow.asStateFlow()
 
+    internal val showFullGuideOverlayFlow = MutableStateFlow(false)
+    val showFullGuideOverlay: StateFlow<Boolean> = showFullGuideOverlayFlow.asStateFlow()
+
     internal val currentChannelFlowList = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
     val currentChannelList: StateFlow<List<com.streamvault.domain.model.Channel>> = currentChannelFlowList.asStateFlow()
 
@@ -215,6 +221,8 @@ class PlayerViewModel @Inject constructor(
     val audioVideoOffsetUiState: StateFlow<PlayerAudioVideoOffsetUiState> = _audioVideoOffsetUiState.asStateFlow()
     internal val _seekPreview = MutableStateFlow(SeekPreviewState())
     val seekPreview: StateFlow<SeekPreviewState> = _seekPreview.asStateFlow()
+    val remoteShortcutPreferences = preferencesRepository.remoteShortcutPreferences
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), com.streamvault.domain.model.RemoteShortcutPreferences())
     private val _recordingItems = MutableStateFlow<List<RecordingItem>>(emptyList())
     val recordingItems: StateFlow<List<RecordingItem>> = _recordingItems.asStateFlow()
     private val currentChannelFlowRecording = MutableStateFlow<RecordingItem?>(null)
@@ -225,6 +233,10 @@ class PlayerViewModel @Inject constructor(
     val sleepTimerUiState: StateFlow<SleepTimerUiState> = _sleepTimerUiState.asStateFlow()
     internal val _sleepTimerExitEvent = MutableStateFlow(0)
     val sleepTimerExitEvent: StateFlow<Int> = _sleepTimerExitEvent.asStateFlow()
+    private val _playerPreferencesUiState = MutableStateFlow(PlayerPreferencesUiState())
+    val playerPreferencesUiState: StateFlow<PlayerPreferencesUiState> = _playerPreferencesUiState.asStateFlow()
+    private val _externalPlaybackUrl = MutableStateFlow("")
+    val externalPlaybackUrl: StateFlow<String> = _externalPlaybackUrl.asStateFlow()
 
     internal var channelInfoHideJob: Job? = null
     internal var liveOverlayHideJob: Job? = null
@@ -249,8 +261,14 @@ class PlayerViewModel @Inject constructor(
     internal var readySideEffectsRequestVersion: Long? = null
     internal var currentArtworkUrl: String? = null
     internal var currentResolvedPlaybackUrl: String = ""
+        set(value) {
+            field = value
+            _externalPlaybackUrl.value = value.trim()
+        }
     internal var currentResolvedStreamInfo: StreamInfo? = null
+    internal var adoptedHandoffSource: com.streamvault.app.player.PreviewHandoffSource? = null
     internal var pendingCatchUpUrls: List<String> = emptyList()
+    internal var livePlaybackReadyForCurrentSession: Boolean = false
     internal var channelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP
         set(value) {
             field = value
@@ -340,6 +358,9 @@ class PlayerViewModel @Inject constructor(
     internal var playbackTimerDefaultsApplied = false
     internal var sleepTimerExitEmitted = false
     internal var activeStalkerPlaybackProviderId: Long? = null
+    private var downloadPlaybackSlotActive = false
+    private var currentPlaybackUsesDownloadSlot = false
+    private var externalProviderPlaybackHold = false
 
     val castConnectionState: StateFlow<CastConnectionState> = castManager.connectionState
 
@@ -400,7 +421,7 @@ class PlayerViewModel @Inject constructor(
             playerEngine.stopLiveTimeshift()
             return
         }
-        if (currentStreamClassLabel == "Catch-up") {
+        if (!shouldStartLiveTimeshiftForStreamClass(currentStreamClassLabel)) {
             playerEngine.stopLiveTimeshift()
             return
         }
@@ -456,6 +477,7 @@ class PlayerViewModel @Inject constructor(
                     zapBufferWatchdogJob?.cancel()
                     dismissRecoveredNoticeIfPresent()
                     if (currentContentType == ContentType.LIVE) {
+                        livePlaybackReadyForCurrentSession = true
                         recordActiveLivePlayback()
                         currentChannelFlow.value?.sanitizedForPlayer()?.let { channel ->
                             if (channel.errorCount > 0) {
@@ -477,6 +499,9 @@ class PlayerViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { isPlaying ->
                     synchronizeStalkerPlaybackFetchDeferral(isPlaying)
+                    if (!isPlaying && downloadPlaybackSlotActive && isAppInForeground && !externalProviderPlaybackHold) {
+                        releaseDownloadPlaybackSlot()
+                    }
                 }
         }
         viewModelScope.launch {
@@ -559,6 +584,11 @@ class PlayerViewModel @Inject constructor(
                 .collect { (engine, enabled) -> engine.setMediaSessionEnabled(enabled) }
         }
         viewModelScope.launch {
+            preferencesRepository.playerFastRetryOnTransientFailures
+                .combine(activePlayerEngineFlow) { enabled, engine -> engine to enabled }
+                .collect { (engine, enabled) -> engine.setFastRetryOnTransientFailures(enabled) }
+        }
+        viewModelScope.launch {
             currentChannelFlow
                 .map { it?.id }
                 .distinctUntilChanged()
@@ -621,6 +651,13 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
                 maybeStartLiveTimeshift()
+            }
+        }
+        viewModelScope.launch {
+            preferencesRepository.playerExternalPlaybackMode.collect { mode ->
+                _playerPreferencesUiState.value = PlayerPreferencesUiState(
+                    externalPlaybackMode = mode
+                )
             }
         }
         viewModelScope.launch {
@@ -716,6 +753,12 @@ class PlayerViewModel @Inject constructor(
             currentResolvedPlaybackUrl = currentResolvedPlaybackUrl,
             currentStreamUrl = currentStreamUrl
         )
+        android.util.Log.i(
+            "PlayerVM",
+            "handle-playback-error type=${error::class.java.simpleName} contentType=$currentContentType " +
+                "hasChannel=${currentChannelFlow.value != null} requestVersion=$requestVersion " +
+                "active=${isActivePlaybackSession(requestVersion, playbackUrl)}"
+        )
         recoveryJob?.cancel()
         if (error is PlayerError.DecoderError && !hasRetriedWithSoftwareDecoder) {
             if (!isActivePlaybackSession(requestVersion, playbackUrl)) return
@@ -733,6 +776,23 @@ class PlayerViewModel @Inject constructor(
             )
             return
         }
+        // After software decoder retry fails, also try an alternate stream format
+        // (e.g. HLS→MPEG-TS or MPEG-TS→HLS) before giving up.
+        if (error is PlayerError.DecoderError && hasRetriedWithSoftwareDecoder) {
+            if (!isActivePlaybackSession(requestVersion, playbackUrl)) return
+            val channel = currentChannelFlow.value?.sanitizedForPlayer() ?: return
+            val switched = tryAlternateStreamInternal(channel)
+            if (switched) {
+                appendRecoveryAction("Trying alternate stream format after decoder error")
+                showPlayerNotice(
+                    message = "Trying alternate stream format for ${channel.name}.",
+                    recoveryType = PlayerRecoveryType.DECODER,
+                    actions = buildRecoveryActions(PlayerRecoveryType.DECODER),
+                    isRetryNotice = true
+                )
+                return
+            }
+        }
         recoveryJob = viewModelScope.launch {
             if (!isActivePlaybackSession(requestVersion, playbackUrl)) return@launch
             if (tryRefreshXtreamPlaybackAfterAuthError(error, requestVersion, playbackUrl)) {
@@ -741,6 +801,11 @@ class PlayerViewModel @Inject constructor(
 
             val recoveryType = classifyPlaybackError(error)
             val channel = currentChannelFlow.value?.sanitizedForPlayer()
+            android.util.Log.i(
+                "PlayerVM",
+                "recovery-dispatch type=$recoveryType live=${currentContentType == ContentType.LIVE} " +
+                    "hasChannel=${channel != null}"
+            )
 
             if (recoveryType == PlayerRecoveryType.DRM) {
                 if (!isActivePlaybackSession(requestVersion, playbackUrl)) return@launch
@@ -811,7 +876,11 @@ class PlayerViewModel @Inject constructor(
             val switched = when (recoveryType) {
                 PlayerRecoveryType.NETWORK,
                 PlayerRecoveryType.SOURCE,
-                PlayerRecoveryType.BUFFER_TIMEOUT -> tryAlternateStreamInternal(channel)
+                PlayerRecoveryType.BUFFER_TIMEOUT -> tryAlternateStreamInternal(
+                    channel = channel,
+                    preferXtreamTsFallback = recoveryType == PlayerRecoveryType.SOURCE,
+                    allowXtreamTsFallback = !livePlaybackReadyForCurrentSession
+                )
                 else -> false
             }
 
@@ -826,6 +895,10 @@ class PlayerViewModel @Inject constructor(
                 )
                 return@launch
             }
+            android.util.Log.w(
+                "PlayerVM",
+                "recovery-no-switch type=$recoveryType hasLastChannel=${hasLastChannel()}"
+            )
 
             if (fallbackToPreviousChannel("Recovery path exhausted for ${recoveryType.name.lowercase()}")) {
                 appendRecoveryAction("Returned to last channel")
@@ -913,7 +986,10 @@ class PlayerViewModel @Inject constructor(
         thumbnailPreloadJob?.cancel()
         hasRetriedXtreamAuthRefresh = false
         lastRecordedVariantObservationSignature = null
+        livePlaybackReadyForCurrentSession = false
         readySideEffectsRequestVersion = null
+        currentResolvedPlaybackUrl = ""
+        currentResolvedStreamInfo = null
         playerEngine.setScrubbingMode(false)
         return ++prepareRequestVersion
     }
@@ -1010,6 +1086,46 @@ class PlayerViewModel @Inject constructor(
         currentStreamUrl = currentStreamUrl
     )
 
+    private fun setCurrentPlaybackUsesDownloadSlot(usesSlot: Boolean) {
+        currentPlaybackUsesDownloadSlot = usesSlot
+        when {
+            usesSlot && !downloadPlaybackSlotActive -> {
+                downloadPlaybackSlotActive = true
+                downloadManager.onPlaybackStarted()
+            }
+            !usesSlot && downloadPlaybackSlotActive -> {
+                downloadPlaybackSlotActive = false
+                downloadManager.onPlaybackStopped()
+            }
+        }
+    }
+
+    internal fun releaseDownloadPlaybackSlot() {
+        currentPlaybackUsesDownloadSlot = false
+        externalProviderPlaybackHold = false
+        if (downloadPlaybackSlotActive) {
+            downloadPlaybackSlotActive = false
+            downloadManager.onPlaybackStopped()
+        }
+    }
+
+    internal fun holdExternalProviderPlaybackSlot(launchUrl: String): Boolean {
+        val usesSlot = usesProviderDownloadSlot(currentStreamUrl, currentProviderId) ||
+            usesProviderDownloadSlot(launchUrl, currentProviderId)
+        if (!usesSlot) return false
+        externalProviderPlaybackHold = true
+        setCurrentPlaybackUsesDownloadSlot(true)
+        return true
+    }
+
+    private fun usesProviderDownloadSlot(streamUrl: String, providerId: Long): Boolean {
+        if (providerId <= 0L) return false
+        val normalized = streamUrl.trim()
+        if (normalized.isBlank()) return false
+        val scheme = normalized.substringBefore(':', missingDelimiterValue = "").lowercase()
+        return scheme != "content" && scheme != "file"
+    }
+
     internal fun requestEpg(
         providerId: Long,
         epgChannelId: String?,
@@ -1060,6 +1176,7 @@ class PlayerViewModel @Inject constructor(
         )
         playerEngine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
         playerEngine.setVodHttpProtocolMode(preferencesRepository.playerVodHttpProtocolMode.first())
+        playerEngine.setFastRetryOnTransientFailures(preferencesRepository.playerFastRetryOnTransientFailures.first())
         playerEngine.setAudioVideoOffsetMs(_audioVideoOffsetUiState.value.effectiveOffsetMs)
     }
 
@@ -1075,6 +1192,7 @@ class PlayerViewModel @Inject constructor(
             providerId = providerId.takeIf { it > 0L }
         ) ?: return false
 
+        adoptedHandoffSource = session.source
         val adoptedEngine = session.engine
         return runCatching {
             val shouldRenewAdoptedPreview = shouldRenewAdoptedPreviewOnFullscreen(
@@ -1108,11 +1226,9 @@ class PlayerViewModel @Inject constructor(
                     )
                 )
                 if (shouldRenewAdoptedPreview) {
-                    // Re-prime when the preview has not produced video yet. This keeps
-                    // the previous audio-only/stale-surface recovery path without
-                    // rebuffering a preview that is already rendering after the
-                    // PlayerView handoff switches targets in Media3's recommended order.
-                    playerEngine.renewStreamUrl(session.streamInfo)
+                    // Re-prime adopted preview only when it has not produced video yet.
+                    // Use the updated prepare-at-live-edge behavior from the PR 64 tail.
+                    playerEngine.prepare(session.streamInfo)
                 }
                 playerEngine.play()
                 startTokenRenewalMonitoring(session.streamInfo.expirationTime)
@@ -1134,13 +1250,65 @@ class PlayerViewModel @Inject constructor(
         requestVersion: Long,
         probeBeforePlayback: Boolean = true
     ): Boolean {
+        val preparedStreamInfo = prepareStreamInfoForPlayback(
+            streamInfo = streamInfo,
+            requestVersion = requestVersion,
+            probeBeforePlayback = probeBeforePlayback
+        ) ?: return false
+
+        applyPlaybackPreferences()
         if (!isActivePlaybackSession(requestVersion)) return false
+        currentResolvedPlaybackUrl = preparedStreamInfo.url
+        currentResolvedStreamInfo = preparedStreamInfo
+        readySideEffectsRequestVersion = requestVersion
+        playerEngine.prepare(preparedStreamInfo)
+        startTokenRenewalMonitoring(preparedStreamInfo.expirationTime)
+        maybeStartLiveTimeshift(preparedStreamInfo)
+        return true
+    }
+
+    internal suspend fun prepareExternalPlaybackUrl(
+        streamInfo: com.streamvault.domain.model.StreamInfo,
+        requestVersion: Long,
+        probeBeforePlayback: Boolean = true
+    ): Boolean {
+        val preparedStreamInfo = prepareStreamInfoForPlayback(
+            streamInfo = streamInfo,
+            requestVersion = requestVersion,
+            probeBeforePlayback = probeBeforePlayback
+        ) ?: return false
+
+        if (!isActivePlaybackSession(requestVersion)) return false
+        currentResolvedPlaybackUrl = preparedStreamInfo.url
+        currentResolvedStreamInfo = preparedStreamInfo
+        readySideEffectsRequestVersion = requestVersion
+        playerEngine.stopLiveTimeshift()
+        playerEngine.stop()
+        return true
+    }
+
+    fun playResolvedStreamInternally() {
+        val streamInfo = currentResolvedStreamInfo ?: return
+        viewModelScope.launch {
+            applyPlaybackPreferences()
+            playerEngine.prepare(streamInfo)
+            startTokenRenewalMonitoring(streamInfo.expirationTime)
+            maybeStartLiveTimeshift(streamInfo)
+        }
+    }
+
+    private suspend fun prepareStreamInfoForPlayback(
+        streamInfo: com.streamvault.domain.model.StreamInfo,
+        requestVersion: Long,
+        probeBeforePlayback: Boolean
+    ): com.streamvault.domain.model.StreamInfo? {
+        if (!isActivePlaybackSession(requestVersion)) return null
 
         // Fast-path expiry check: if the stream URL already carries an expiration timestamp
         // that is in the past, skip the network probe entirely and surface a clear message.
         val expiry = streamInfo.expirationTime
         if (expiry != null && expiry > 0L && expiry < System.currentTimeMillis()) {
-            if (!isActivePlaybackSession(requestVersion)) return false
+            if (!isActivePlaybackSession(requestVersion)) return null
             val expiryMessage = "This stream's subscription has expired. " +
                 "Please renew your subscription with the provider."
             setLastFailureReason(expiryMessage)
@@ -1149,20 +1317,20 @@ class PlayerViewModel @Inject constructor(
                 recoveryType = PlayerRecoveryType.SOURCE,
                 actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
             )
-            return false
+            return null
         }
 
         var preparedStreamInfo = streamInfo
         when (val pluginPrepareResult = pluginManager.preparePlaybackStreamInfo(streamInfo)) {
             is Result.Error -> {
-                if (!isActivePlaybackSession(requestVersion)) return false
+                if (!isActivePlaybackSession(requestVersion)) return null
                 setLastFailureReason(pluginPrepareResult.message)
                 showPlayerNotice(
                     message = pluginPrepareResult.message,
                     recoveryType = PlayerRecoveryType.NETWORK,
                     actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
                 )
-                return false
+                return null
             }
             Result.Loading -> Unit
             is Result.Success -> preparedStreamInfo = pluginPrepareResult.data
@@ -1170,14 +1338,14 @@ class PlayerViewModel @Inject constructor(
 
         if (probeBeforePlayback) {
             probePlaybackUrl(preparedStreamInfo)?.let { failure ->
-                if (!isActivePlaybackSession(requestVersion)) return false
+                if (!isActivePlaybackSession(requestVersion)) return null
                 setLastFailureReason(failure.message)
                 showPlayerNotice(
                     message = failure.message,
                     recoveryType = failure.recoveryType,
                     actions = buildRecoveryActions(failure.recoveryType)
                 )
-                return false
+                return null
             }
             probePassedPlaybackKeys.add(
                 resolvePlaybackProbeCacheKey(
@@ -1186,14 +1354,7 @@ class PlayerViewModel @Inject constructor(
                 )
             )
         }
-        applyPlaybackPreferences()
-        if (!isActivePlaybackSession(requestVersion)) return false
-        currentResolvedPlaybackUrl = preparedStreamInfo.url
-        currentResolvedStreamInfo = preparedStreamInfo
-        readySideEffectsRequestVersion = requestVersion
-        playerEngine.prepare(preparedStreamInfo)
-        startTokenRenewalMonitoring(preparedStreamInfo.expirationTime)
-        return true
+        return preparedStreamInfo
     }
 
     private suspend fun probePlaybackUrl(streamInfo: com.streamvault.domain.model.StreamInfo): PlaybackProbeFailure? {
@@ -1279,6 +1440,7 @@ class PlayerViewModel @Inject constructor(
         episodeId: Long? = null,
         showResumePrompt: Boolean = true
     ) {
+        setCurrentPlaybackUsesDownloadSlot(usesProviderDownloadSlot(streamUrl, providerId))
         val hasArchiveRequest = hasArchivePlaybackIdentity(
             contentType = contentType,
             archiveStartMs = archiveStartMs,
@@ -1306,7 +1468,8 @@ class PlayerViewModel @Inject constructor(
 
         if (!hasArchiveRequest) {
             viewModelScope.launch {
-                if (tryAdoptPreviewHandoff(requestVersion, internalChannelId, providerId)) {
+                val externalMode = playerPreferencesUiState.value.externalPlaybackMode != ExternalPlaybackMode.INTERNAL_PLAYER
+                if (!externalMode && tryAdoptPreviewHandoff(requestVersion, internalChannelId, providerId)) {
                     return@launch
                 }
                 var playbackLogicalUrl = streamUrl
@@ -1359,6 +1522,10 @@ class PlayerViewModel @Inject constructor(
                 currentStreamUrl = playbackLogicalUrl
                 currentContentId = playbackContentId
                 if (!isActivePlaybackSession(requestVersion, playbackLogicalUrl)) return@launch
+                if (externalMode) {
+                    prepareExternalPlaybackUrl(streamInfo, requestVersion)
+                    return@launch
+                }
                 if (!preparePlayer(streamInfo, requestVersion)) return@launch
 
                 // Check for resume position after the player is fully prepared (VOD only).
@@ -1384,8 +1551,6 @@ class PlayerViewModel @Inject constructor(
                         }
                     }
                 }
-
-                maybeStartLiveTimeshift(streamInfo)
             }
         }
         
@@ -1614,6 +1779,10 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        if (downloadPlaybackSlotActive) {
+            downloadPlaybackSlotActive = false
+            downloadManager.onPlaybackStopped()
+        }
         cleanupAfterCleared(mainPlayerEngine)
     }
 }

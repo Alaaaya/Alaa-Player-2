@@ -47,6 +47,45 @@ import org.mockito.kotlin.whenever
 class BackupManagerImplTest {
 
     @Test
+    fun `inspectBackup rejects structurally empty json instead of previewing version zero`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://empty-backup"))).thenReturn(
+            ByteArrayInputStream("{}".toByteArray())
+        )
+
+        val manager = backupManagerForValidation(context = context)
+
+        val result = manager.inspectBackup("content://empty-backup")
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).message).contains("does not contain any importable data")
+    }
+
+    @Test
+    fun `importConfig rejects structurally empty json before mutating data`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://empty-backup-import"))).thenReturn(
+            ByteArrayInputStream("{}".toByteArray())
+        )
+
+        val manager = backupManagerForValidation(
+            context = context,
+            preferencesRepository = preferencesRepository
+        )
+
+        val result = manager.importConfig("content://empty-backup-import")
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).message).contains("does not contain any importable data")
+        verify(preferencesRepository, never()).setParentalControlLevel(any())
+    }
+
+    @Test
     fun `importConfig replace history only deletes imported providers and resyncs them in transaction`() = runBlocking {
         val context: Context = mock()
         val contentResolver: ContentResolver = mock()
@@ -700,4 +739,26 @@ class BackupManagerImplTest {
             }
         }
     }
+
+    private fun backupManagerForValidation(
+        context: Context,
+        preferencesRepository: PreferencesRepository = mock(),
+    ): BackupManagerImpl = BackupManagerImpl(
+        context = context,
+        preferencesRepository = preferencesRepository,
+        credentialCrypto = mock<CredentialCrypto>(),
+        providerDao = mock<ProviderDao>(),
+        favoriteDao = mock<FavoriteDao>(),
+        virtualGroupDao = mock<VirtualGroupDao>(),
+        playbackHistoryDao = mock<PlaybackHistoryDao>(),
+        movieDao = mock<MovieDao>(),
+        episodeDao = mock<EpisodeDao>(),
+        categoryRepository = mock<CategoryRepository>(),
+        recordingScheduleDao = mock<RecordingScheduleDao>(),
+        recordingManager = mock<RecordingManager>(),
+        transactionRunner = object : DatabaseTransactionRunner {
+            override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+        },
+        gson = Gson()
+    )
 }

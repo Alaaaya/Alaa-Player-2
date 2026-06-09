@@ -2,7 +2,10 @@ package com.streamvault.app.ui.screens.player
 
 import androidx.lifecycle.viewModelScope
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.VirtualCategoryIds
+import com.streamvault.domain.repository.ChannelRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -13,6 +16,7 @@ fun PlayerViewModel.openChannelListOverlay() {
     showChannelListOverlayFlow.value = true
     showCategoryListOverlayFlow.value = false
     showEpgOverlayFlow.value = false
+    showFullGuideOverlayFlow.value = false
     showChannelInfoOverlayFlow.value = false
     showControlsFlow.value = false
     scheduleLiveOverlayAutoHide()
@@ -22,6 +26,7 @@ fun PlayerViewModel.openCategoryListOverlay() {
     if (currentProviderId <= 0 || availableCategoriesFlow.value.isEmpty()) return
     showCategoryListOverlayFlow.value = true
     showChannelListOverlayFlow.value = false
+    showFullGuideOverlayFlow.value = false
     scheduleLiveOverlayAutoHide()
 }
 
@@ -43,9 +48,72 @@ fun PlayerViewModel.openEpgOverlay() {
     clearNumericChannelInput()
     showEpgOverlayFlow.value = true
     showChannelListOverlayFlow.value = false
+    showFullGuideOverlayFlow.value = false
     showChannelInfoOverlayFlow.value = false
     showControlsFlow.value = false
     scheduleLiveOverlayAutoHide()
+}
+
+fun PlayerViewModel.openFullGuideOverlay() {
+    if (currentContentType != ContentType.LIVE) return
+    clearNumericChannelInput()
+    showFullGuideOverlayFlow.value = true
+    showChannelListOverlayFlow.value = false
+    showCategoryListOverlayFlow.value = false
+    showEpgOverlayFlow.value = false
+    showChannelInfoOverlayFlow.value = false
+    showDiagnosticsFlow.value = false
+    showControlsFlow.value = false
+    channelInfoHideJob?.cancel()
+    clearLiveOverlayAutoHide()
+    clearDiagnosticsAutoHide()
+}
+
+fun PlayerViewModel.closeFullGuideOverlay() {
+    showFullGuideOverlayFlow.value = false
+    playerEngine.setScrubbingMode(false)
+}
+
+fun PlayerViewModel.playChannelFromGuideOverlay(
+    channel: Channel,
+    selectedGuideCategoryId: Long,
+    favoritesOnly: Boolean,
+    combinedProfileId: Long?
+) {
+    if (currentContentType != ContentType.LIVE || channel.streamUrl.isBlank()) return
+    val playbackCategoryId = when {
+        favoritesOnly -> VirtualCategoryIds.FAVORITES
+        selectedGuideCategoryId != ChannelRepository.ALL_CHANNELS_ID -> selectedGuideCategoryId
+        else -> ChannelRepository.ALL_CHANNELS_ID
+    }
+    val categoryIsVirtual = playbackCategoryId == VirtualCategoryIds.FAVORITES || playbackCategoryId < 0L
+    val currentListIndex = channelList.indexOfFirst { it.id == channel.id }
+
+    clearNumericChannelInput()
+    closeFullGuideOverlay()
+
+    if (currentListIndex != -1) {
+        changeChannel(currentListIndex)
+        closeOverlays()
+        playerEngine.setScrubbingMode(false)
+        return
+    }
+
+    prepare(
+        streamUrl = channel.streamUrl,
+        epgChannelId = channel.epgChannelId,
+        internalChannelId = channel.id,
+        categoryId = playbackCategoryId,
+        providerId = channel.providerId,
+        isVirtual = categoryIsVirtual,
+        combinedProfileId = combinedProfileId,
+        contentType = ContentType.LIVE.name,
+        title = channel.name,
+        artworkUrl = channel.logoUrl,
+        showResumePrompt = false
+    )
+    playerEngine.setScrubbingMode(false)
+    closeOverlays()
 }
 
 fun PlayerViewModel.openChannelInfoOverlay() {
@@ -53,6 +121,7 @@ fun PlayerViewModel.openChannelInfoOverlay() {
     showChannelInfoOverlayFlow.value = true
     showChannelListOverlayFlow.value = false
     showEpgOverlayFlow.value = false
+    showFullGuideOverlayFlow.value = false
     showControlsFlow.value = false
     channelInfoHideJob?.cancel()
     scheduleLiveOverlayAutoHide()
@@ -69,6 +138,7 @@ fun PlayerViewModel.closeOverlays() {
     showChannelListOverlayFlow.value = false
     showCategoryListOverlayFlow.value = false
     showEpgOverlayFlow.value = false
+    showFullGuideOverlayFlow.value = false
     showChannelInfoOverlayFlow.value = false
     showDiagnosticsFlow.value = false
     channelInfoHideJob?.cancel()

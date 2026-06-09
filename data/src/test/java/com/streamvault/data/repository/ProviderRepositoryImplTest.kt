@@ -2,12 +2,14 @@ package com.streamvault.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
 import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.preferences.PreferencesRepository
@@ -27,6 +29,7 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.repository.SyncMetadataRepository
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -44,6 +47,7 @@ import org.mockito.kotlin.whenever
 class ProviderRepositoryImplTest {
 
     private val providerDao: ProviderDao = mock()
+    private val categoryDao: CategoryDao = mock()
     private val channelDao: ChannelDao = mock()
     private val programDao: ProgramDao = mock()
     private val recordingRunDao: RecordingRunDao = mock()
@@ -64,6 +68,7 @@ class ProviderRepositoryImplTest {
         transactionRunner: DatabaseTransactionRunner = this.transactionRunner
     ) = ProviderRepositoryImpl(
         providerDao = providerDao,
+        categoryDao = categoryDao,
         channelDao = channelDao,
         programDao = programDao,
         recordingRunDao = recordingRunDao,
@@ -83,6 +88,9 @@ class ProviderRepositoryImplTest {
 
     init {
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
+        runBlocking {
+            whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
+        }
     }
 
     @Test
@@ -468,6 +476,63 @@ class ProviderRepositoryImplTest {
         whenever(syncMetadataRepository.getMetadata(9L)).thenReturn(
             SyncMetadata(providerId = 9L, movieCount = 3)
         )
+        whenever(xtreamApiService.authenticate(any(), any())).thenReturn(
+            XtreamAuthResponse(
+                userInfo = XtreamUserInfo(
+                    username = "user",
+                    password = "pass",
+                    auth = 1,
+                    status = "Active"
+                ),
+                serverInfo = XtreamServerInfo(
+                    url = "example.com",
+                    port = "80",
+                    serverProtocol = "http"
+                )
+            )
+        )
+
+        val result = repository.loginXtream(
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass",
+            name = "Xtream",
+            httpUserAgent = "",
+            httpHeaders = "",
+            xtreamFastSyncEnabled = false,
+            epgSyncMode = ProviderEpgSyncMode.UPFRONT,
+            xtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+            onProgress = null,
+            id = null
+        )
+
+        assertThat(result.isSuccess).isTrue()
+        verify(providerDao).setActive(9L)
+        verify(syncManager, never()).scheduleProviderSyncResume(9L)
+    }
+
+    @Test
+    fun `loginXtream does not fail onboarding when provider has no live but committed vod categories`() = runTest {
+        whenever(providerDao.getByUrlAndUser("https://example.com", "user")).thenReturn(null)
+        whenever(credentialCrypto.encryptIfNeeded("pass")).thenReturn("pass")
+        whenever(providerDao.insert(any())).thenReturn(9L)
+        whenever(syncManager.sync(eq(9L), eq(false), anyOrNull(), anyOrNull(), anyOrNull(), eq(true)))
+            .thenReturn(Result.success(Unit))
+        whenever(syncManager.currentSyncState(9L)).thenReturn(SyncState.Success(123L))
+        whenever(channelDao.getCount(9L)).thenReturn(flowOf(0))
+        whenever(syncMetadataRepository.getMetadata(9L)).thenReturn(SyncMetadata(providerId = 9L))
+        whenever(categoryDao.getByProviderAndTypeSync(9L, "MOVIE")).thenReturn(
+            listOf(
+                CategoryEntity(
+                    providerId = 9L,
+                    categoryId = 42L,
+                    name = "Action",
+                    parentId = null,
+                    type = com.streamvault.domain.model.ContentType.MOVIE
+                )
+            )
+        )
+        whenever(categoryDao.getByProviderAndTypeSync(9L, "SERIES")).thenReturn(emptyList())
         whenever(xtreamApiService.authenticate(any(), any())).thenReturn(
             XtreamAuthResponse(
                 userInfo = XtreamUserInfo(
