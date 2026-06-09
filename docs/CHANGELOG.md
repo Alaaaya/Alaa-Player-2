@@ -22,6 +22,7 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Attempted to fix Android TV backup export/import creating empty backup JSON or showing version `0` with `0` items on restore. Needs testing.
 - Fixed provider delete confirmation staying open when a follow-up TV integration refresh failed after the provider had already been deleted.
 - Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
 - Fixed a broken player content-resolution merge that could leave the app failing to compile.

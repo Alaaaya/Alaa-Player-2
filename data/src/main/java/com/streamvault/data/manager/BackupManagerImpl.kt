@@ -43,6 +43,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.Writer
@@ -72,7 +75,6 @@ class BackupManagerImpl @Inject constructor(
 
     override suspend fun exportConfig(uriString: String): com.streamvault.domain.model.Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val uri = Uri.parse(uriString)
             val parentalPinBackup = preferencesRepository.exportParentalPinBackup()
             val providerEntities = providerDao.getAll().first()
             
@@ -202,7 +204,7 @@ class BackupManagerImpl @Inject constructor(
             val backupWithChecksum = backupData.copy(checksum = buildSha256Checksum(backupData))
 
             // 2. Serialize and write to URI
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            openBackupOutputStream(uriString)?.use { outputStream ->
                 OutputStreamWriter(outputStream).use { writer ->
                     writeBackupDataJson(writer, backupWithChecksum)
                 }
@@ -220,6 +222,9 @@ class BackupManagerImpl @Inject constructor(
                 ?: return@withContext Result.error("Failed to open input stream")
             if (backupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext Result.error("Unsupported backup version")
+            }
+            if (backupData.isStructurallyEmpty()) {
+                return@withContext Result.error("Backup file does not contain any importable data")
             }
             if (!verifyChecksum(backupData)) {
                 return@withContext Result.error("Backup file is corrupted (checksum mismatch)")
@@ -333,6 +338,9 @@ class BackupManagerImpl @Inject constructor(
 
             if (backupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext com.streamvault.domain.model.Result.error("Unsupported backup version")
+            }
+            if (backupData.isStructurallyEmpty()) {
+                return@withContext com.streamvault.domain.model.Result.error("Backup file does not contain any importable data")
             }
             if (!verifyChecksum(backupData)) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file is corrupted (checksum mismatch)")
@@ -490,13 +498,49 @@ class BackupManagerImpl @Inject constructor(
     }
 
     private fun readBackupData(uriString: String): BackupData? {
-        val uri = Uri.parse(uriString)
-        return context.contentResolver.openInputStream(uri)?.use { inputStream ->
+        return openBackupInputStream(uriString)?.use { inputStream ->
             InputStreamReader(inputStream).use { reader ->
                 gson.fromJson(reader, BackupData::class.java)
             }
         }
     }
+
+    private fun openBackupOutputStream(uriString: String): OutputStream? {
+        return if (uriString.isFileUriString()) {
+            val target = uriString.toFileUriTarget() ?: return null
+            target.parentFile?.mkdirs()
+            FileOutputStream(target, false)
+        } else {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openOutputStream(uri, "wt")
+                ?: context.contentResolver.openOutputStream(uri)
+        }
+    }
+
+    private fun openBackupInputStream(uriString: String) =
+        if (uriString.isFileUriString()) {
+            uriString.toFileUriTarget()?.takeIf { it.isFile }?.let(::FileInputStream)
+        } else {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)
+        }
+
+    private fun String.isFileUriString(): Boolean =
+        startsWith("$FILE_URI_SCHEME:", ignoreCase = true)
+
+    private fun String.toFileUriTarget(): File? =
+        runCatching { File(java.net.URI(this)) }.getOrNull()
+            ?: Uri.parse(this).path?.let(::File)
+
+    private fun BackupData.isStructurallyEmpty(): Boolean =
+        preferences.isNullOrEmpty() &&
+            providers.isNullOrEmpty() &&
+            favorites.isNullOrEmpty() &&
+            virtualGroups.isNullOrEmpty() &&
+            playbackHistory.isNullOrEmpty() &&
+            multiViewPresets.orEmpty().all { it.value.isEmpty() } &&
+            protectedCategories.isNullOrEmpty() &&
+            scheduledRecordings.isNullOrEmpty()
 
     private suspend fun restorePreferences(prefs: Map<String, String>) {
         prefs["parentalControlLevel"]?.toIntOrNull()?.let {
@@ -1031,6 +1075,7 @@ private fun Iterable<ProviderEntity>.findMatchingProvider(
 
 private const val SHA256_PREFIX = "sha256:"
 private const val CURRENT_BACKUP_VERSION = 7
+private const val FILE_URI_SCHEME = "file"
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type
 private val FAVORITE_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Favorite>>() {}.type
