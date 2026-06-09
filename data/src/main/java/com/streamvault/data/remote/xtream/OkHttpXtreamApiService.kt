@@ -29,8 +29,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.SerializationException
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.ResponseBody
 import java.net.URI
 import java.nio.charset.Charset
@@ -376,18 +378,21 @@ class OkHttpXtreamApiService(
         continuation.invokeOnCancellation {
             call.cancel()
         }
-        try {
-            val response = call.execute()
-            if (continuation.isActive) {
-                continuation.resume(response)
-            } else {
-                response.close()
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isActive) {
+                    continuation.resumeWithException(e)
+                }
             }
-        } catch (e: Exception) {
-            if (continuation.isActive) {
-                continuation.resumeWithException(e)
+
+            override fun onResponse(call: Call, response: Response) {
+                if (continuation.isActive) {
+                    continuation.resume(response)
+                } else {
+                    response.close()
+                }
             }
-        }
+        })
     }
 
     private inline fun <reified T> decodeBodyBounded(

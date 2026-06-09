@@ -6,10 +6,15 @@ import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -139,33 +144,36 @@ class OkHttpXtreamApiServiceTest {
 
     @Test
     fun `streamLiveStreamRows cancels the underlying call when coroutine times out`() = runTest {
-        val cancellationObserved = CompletableDeferred<Unit>()
+        val requestStarted = CountDownLatch(1)
+        val cancellationObserved = CountDownLatch(1)
         val service = OkHttpXtreamApiService(
             client = OkHttpClient.Builder()
                 .addInterceptor(Interceptor { chain ->
+                    requestStarted.countDown()
                     while (!chain.call().isCanceled()) {
                         Thread.sleep(10)
                     }
-                    cancellationObserved.complete(Unit)
+                    cancellationObserved.countDown()
                     throw IOException("Canceled")
                 })
                 .build(),
             json = json
         )
 
-        val failure = runCatching {
-            withTimeout(100) {
-                service.streamLiveStreamRows(
-                    "https://example.test/player_api.php?action=get_live_streams&category_id=7"
-                ) { }
-            }
-        }.exceptionOrNull()
+        val requestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val requestJob = requestScope.launch {
+            service.streamLiveStreamRows(
+                "https://example.test/player_api.php?action=get_live_streams&category_id=7"
+            ) { }
+        }
 
-        assertThat(failure).isNotNull()
+        assertThat(requestStarted.await(5, TimeUnit.SECONDS)).isTrue()
+        requestJob.cancelAndJoin()
+        requestScope.cancel()
+
+        assertThat(requestJob.isCancelled).isTrue()
         withContext(Dispatchers.Default.limitedParallelism(1)) {
-            withTimeout(500) {
-                cancellationObserved.await()
-            }
+            assertThat(cancellationObserved.await(5, TimeUnit.SECONDS)).isTrue()
         }
     }
 
