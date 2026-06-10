@@ -407,7 +407,7 @@
     <string name="settings_live_translation_enabled">Enable Live Translation Subtitles</string>
     <string name="settings_live_translation_enabled_subtitle">Translate spoken live-channel audio into English subtitles using your local Whisper service.</string>
     <string name="settings_live_translation_endpoint">Live Translation Service Endpoint</string>
-    <string name="settings_live_translation_endpoint_subtitle">Base URL for the local translation service (emulator default: http://10.0.2.2:8177).</string>
+    <string name="settings_live_translation_endpoint_subtitle">Base URL for the local translation service (emulator default: http://10.0.2.2:8765).</string>
     <string name="settings_live_translation_endpoint_empty_error">Live translation endpoint cannot be empty.</string>
     <string name="settings_live_timeshift_depth">Local Live Rewind Depth</string>
     <string name="settings_live_timeshift_backend">Live Rewind Backend</string>

@@ -6,7 +6,7 @@ This feature adds optional live translation subtitles for `LIVE` playback in the
 
 - Supported for `LIVE` playback from `Xtream` and `M3U` providers.
 - The player sends session metadata and tapped decoded PCM audio to a local translation service.
-- The service is expected to run on the same Mac as the Android emulator (`http://10.0.2.2:8177` default).
+- The service is expected to run on the same Mac as the Android emulator (`http://10.0.2.2:8765` default).
 - Source language is expected to be auto-detected by the service.
 - Returned text is rendered as a single caption line, one phrase at a time
   (replaced in place), and cleared after a short idle/linger period.
@@ -78,6 +78,24 @@ This yields English output subtitles from multilingual speech inputs.
 
 ## Quick local startup (ready-to-run)
 
+### Docker (recommended)
+
+The service ships with a `Dockerfile` and `docker-compose.yml`
+(`tools/live-translation-service/`). The container restarts automatically if the
+process crashes or after a reboot (`restart: unless-stopped`), caches the model in a
+named volume, and is capped at 6 GB memory (large-v3 int8 peaks at ~3-4 GB — make
+sure Docker Desktop's VM has at least 8 GB allocated):
+
+```bash
+cd tools/live-translation-service
+docker compose up -d
+```
+
+Note: Docker on macOS has no GPU access, so the container always uses the
+faster-whisper CPU backend. For the MLX (Metal GPU) backend, run natively as below.
+
+### Native (venv)
+
 Start the included local service with model `large-v3`:
 
 ```bash
@@ -86,7 +104,7 @@ WHISPER_MODEL=large-v3 \
 tools/live-translation-service/.venv/bin/uvicorn service:app \
   --app-dir tools/live-translation-service \
   --host 0.0.0.0 \
-  --port 8177
+  --port 8765
 ```
 
 ### Compute resources (Apple Silicon)
@@ -135,7 +153,7 @@ WHISPER_TRANSLATION_MODE=llm \
 LLM_BASE_URL=http://localhost:1234/v1 \
 LLM_MODEL=qwen3.6-35b-a3b \
 tools/live-translation-service/.venv/bin/uvicorn service:app \
-  --app-dir tools/live-translation-service --host 0.0.0.0 --port 8177
+  --app-dir tools/live-translation-service --host 0.0.0.0 --port 8765
 ```
 
 LLM env vars: `LLM_BASE_URL`, `LLM_API_KEY` (default `lm-studio`), `LLM_MODEL`,
@@ -157,4 +175,4 @@ Equivalent docker/env setups are fine as long as your API accepts the same PCM u
 
 - Android emulator cannot reach host `localhost` directly for host-machine services.
 - Use `10.0.2.2` for services running on your Mac.
-- Default expected endpoint in app preferences: `http://10.0.2.2:8177`.
+- Default expected endpoint in app preferences: `http://10.0.2.2:8765`.

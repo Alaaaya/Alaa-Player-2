@@ -57,7 +57,7 @@ internal fun observeSettingsPreferenceSnapshot(
             subtitleTextColor = 0xFFFFFFFF.toInt(),
             subtitleBackgroundColor = 0x80000000.toInt(),
             playerLiveTranslationEnabled = false,
-            playerLiveTranslationEndpoint = "http://10.0.2.2:8177",
+            playerLiveTranslationEndpoint = "http://10.0.2.2:8765",
             wifiMaxVideoHeight = null,
             ethernetMaxVideoHeight = null,
             playerTimeshiftEnabled = false,

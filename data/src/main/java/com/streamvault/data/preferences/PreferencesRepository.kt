@@ -347,7 +347,7 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_LIVE_TRANSLATION_ENDPOINT]
             ?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?: "http://10.0.2.2:8177"
+            ?: "http://10.0.2.2:8765"
     }
 
     val playerControlsTimeoutSeconds: Flow<Int> = context.dataStore.data.map { preferences ->
