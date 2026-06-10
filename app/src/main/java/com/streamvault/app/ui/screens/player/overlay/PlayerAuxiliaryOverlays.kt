@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player.overlay
 
 import androidx.activity.compose.BackHandler
+import android.view.KeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -464,12 +465,21 @@ fun EpgOverlay(
     nextProgram: Program?,
     upcomingPrograms: List<Program>,
     onDismiss: () -> Unit,
+    overlayFocusRequester: FocusRequester = remember { FocusRequester() },
+    onOpenFullGuide: (() -> Unit)? = null,
     onOpenArchiveBrowser: (() -> Unit)? = null,
     onOverlayInteracted: () -> Unit = {}
 ) {
     val appTimeFormat = LocalAppTimeFormat.current
     val timeFormat = remember(appTimeFormat) { appTimeFormat.createTimeFormat() }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val layoutDirection = LocalLayoutDirection.current
+    val openFullGuideKeyCode = if (layoutDirection == LayoutDirection.Rtl) {
+        KeyEvent.KEYCODE_DPAD_LEFT
+    } else {
+        KeyEvent.KEYCODE_DPAD_RIGHT
+    }
     val filteredUpcoming = remember(upcomingPrograms, currentProgram, nextProgram) {
         upcomingPrograms.filter { it.id != currentProgram?.id && it.id != nextProgram?.id }
     }
@@ -482,6 +492,41 @@ fun EpgOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .focusRequester(overlayFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                    return@onPreviewKeyEvent false
+                }
+                if (event.nativeKeyEvent.keyCode == openFullGuideKeyCode && onOpenFullGuide != null) {
+                    onOverlayInteracted()
+                    onOpenFullGuide()
+                    true
+                } else {
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            onOverlayInteracted()
+                            coroutineScope.launch {
+                                val nextIndex = (listState.firstVisibleItemIndex + 1)
+                                    .coerceAtMost(listState.layoutInfo.totalItemsCount - 1)
+                                if (nextIndex >= 0) {
+                                    listState.animateScrollToItem(nextIndex, listState.firstVisibleItemScrollOffset)
+                                }
+                            }
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            onOverlayInteracted()
+                            coroutineScope.launch {
+                                val previousIndex = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
+                                listState.animateScrollToItem(previousIndex, listState.firstVisibleItemScrollOffset)
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                }
+            }
             .background(Color.Black.copy(alpha = 0.18f))
     ) {
         BoxWithConstraints(
@@ -699,6 +744,26 @@ fun EpgOverlay(
                         }
                     }
                 }
+            }
+        }
+
+        if (onOpenFullGuide != null) {
+            Box(
+                modifier = Modifier
+                    .align(if (layoutDirection == LayoutDirection.Rtl) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 8.dp)
+                    .width(24.dp)
+                    .height(72.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Primary.copy(alpha = 0.58f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (layoutDirection == LayoutDirection.Rtl) "<" else ">",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

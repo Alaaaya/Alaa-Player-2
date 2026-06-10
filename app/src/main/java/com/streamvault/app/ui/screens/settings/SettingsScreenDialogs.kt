@@ -1,22 +1,46 @@
 package com.streamvault.app.ui.screens.settings
 
+import androidx.compose.foundation.focusable
 import android.content.Context
+import android.view.KeyEvent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.streamvault.app.R
+import com.streamvault.app.ui.components.dialogs.PremiumDialog
+import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
+import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
+import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.TextSecondary
+import com.streamvault.domain.model.ExternalPlaybackMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsScreenDialogs(
@@ -100,6 +124,17 @@ internal fun SettingsScreenDialogs(
         )
     }
 
+    if (dialogState.showExternalPlaybackModeDialog) {
+        ExternalPlaybackModeDialog(
+            selectedMode = uiState.playerExternalPlaybackMode,
+            onDismiss = { dialogState.showExternalPlaybackModeDialog = false },
+            onModeSelected = { mode ->
+                viewModel.setExternalPlaybackMode(mode)
+                dialogState.showExternalPlaybackModeDialog = false
+            }
+        )
+    }
+
     if (dialogState.showVodViewModeDialog) {
         VodViewModeDialog(
             selectedMode = uiState.vodViewMode,
@@ -115,6 +150,8 @@ internal fun SettingsScreenDialogs(
         uiState = uiState,
         viewModel = viewModel,
         context = context,
+        showLandingScreenDialog = dialogState.showLandingScreenDialog,
+        onShowLandingScreenDialogChange = { dialogState.showLandingScreenDialog = it },
         showGuideDefaultCategoryDialog = dialogState.showGuideDefaultCategoryDialog,
         onShowGuideDefaultCategoryDialogChange = { dialogState.showGuideDefaultCategoryDialog = it },
         showPlaybackSpeedDialog = dialogState.showPlaybackSpeedDialog,
@@ -164,7 +201,9 @@ internal fun SettingsScreenDialogs(
         showLanguageDialog = dialogState.showLanguageDialog,
         onShowLanguageDialogChange = { dialogState.showLanguageDialog = it },
         categorySortDialogType = dialogState.categorySortDialogType,
-        onCategorySortDialogTypeChange = { dialogState.categorySortDialogType = it }
+        onCategorySortDialogTypeChange = { dialogState.categorySortDialogType = it },
+        selectedRemoteShortcutTargetKey = dialogState.selectedRemoteShortcutTargetKey,
+        onSelectedRemoteShortcutTargetKeyChange = { dialogState.selectedRemoteShortcutTargetKey = it }
     )
 
     SettingsProtectionDialogs(
@@ -247,17 +286,65 @@ internal fun SettingsScreenDialogs(
     }
 
     uiState.viewedCrashReport?.let { report ->
+        val scrollState = rememberScrollState()
+        val focusRequester = remember { FocusRequester() }
+        val coroutineScope = rememberCoroutineScope()
+        val canScrollUp by remember { derivedStateOf { scrollState.value > 0 } }
+        val canScrollDown by remember { derivedStateOf { scrollState.value < scrollState.maxValue } }
+
+        LaunchedEffect(report.fileName, report.timestamp) {
+            focusRequester.requestFocus()
+        }
+
         AlertDialog(
             onDismissRequest = viewModel::dismissCrashReport,
             title = { Text(text = stringResource(R.string.settings_crash_report_view_title)) },
             text = {
-                Text(
-                    text = report.content,
-                    color = OnSurface,
+                Box(
                     modifier = Modifier
                         .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState())
-                )
+                        .fillMaxWidth()
+                ) {
+                    Text(
+                        text = report.content,
+                        color = OnSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent { event ->
+                                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                                    return@onPreviewKeyEvent false
+                                }
+                                when (event.nativeKeyEvent.keyCode) {
+                                    KeyEvent.KEYCODE_DPAD_UP ->
+                                        if (canScrollUp) {
+                                            coroutineScope.launch {
+                                                scrollState.animateScrollTo(
+                                                    (scrollState.value - 120).coerceAtLeast(0)
+                                                )
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    KeyEvent.KEYCODE_DPAD_DOWN ->
+                                        if (canScrollDown) {
+                                            coroutineScope.launch {
+                                                scrollState.animateScrollTo(
+                                                    (scrollState.value + 120).coerceAtMost(scrollState.maxValue)
+                                                )
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    else -> false
+                                }
+                            }
+                            .verticalScroll(scrollState)
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = viewModel::dismissCrashReport) {
@@ -279,5 +366,60 @@ internal fun SettingsScreenDialogs(
         uiState = uiState,
         viewModel = viewModel,
         providerState = providerState
+    )
+}
+
+@Composable
+internal fun ExternalPlaybackModeDialog(
+    selectedMode: ExternalPlaybackMode,
+    onDismiss: () -> Unit,
+    onModeSelected: (ExternalPlaybackMode) -> Unit
+) {
+    val modes = listOf(ExternalPlaybackMode.INTERNAL_PLAYER, ExternalPlaybackMode.EXTERNAL_PLAYER)
+    PremiumDialog(
+        title = stringResource(R.string.settings_external_playback),
+        subtitle = stringResource(R.string.settings_external_playback_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.52f,
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                modes.forEach { mode ->
+                    val isSelected = mode == selectedMode ||
+                        (mode == ExternalPlaybackMode.EXTERNAL_PLAYER && selectedMode == ExternalPlaybackMode.ASK_EVERY_TIME)
+                    TvClickableSurface(
+                        onClick = { onModeSelected(mode) },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (isSelected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
+                            focusedContainerColor = Primary.copy(alpha = 0.28f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    when (mode) {
+                                        ExternalPlaybackMode.INTERNAL_PLAYER -> R.string.settings_external_playback_mode_internal
+                                        ExternalPlaybackMode.EXTERNAL_PLAYER -> R.string.settings_external_playback_mode_external
+                                        ExternalPlaybackMode.ASK_EVERY_TIME -> R.string.settings_external_playback_mode_external
+                                    }
+                                ),
+                                style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                                color = if (isSelected) Primary else OnBackground
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.settings_cancel),
+                onClick = onDismiss
+            )
+        }
     )
 }

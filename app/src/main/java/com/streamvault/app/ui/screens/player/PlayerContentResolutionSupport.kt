@@ -1,7 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
-import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.remote.stalker.StalkerPlaybackResolutionException
+import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.security.CredentialDecryptionException
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Episode
@@ -27,6 +27,18 @@ internal data class PlayerPlaybackStreamResolution(
     val credentialFailureMessage: String? = null,
     val resolutionFailureMessage: String? = null
 )
+
+internal fun shouldUseStoredLiveStreamInfo(
+    logicalUrl: String,
+    storedStreamUrl: String
+): Boolean {
+    val requestedUrl = logicalUrl.trim()
+    val storedUrl = storedStreamUrl.trim()
+    return requestedUrl.isBlank() || requestedUrl == storedUrl
+}
+
+internal fun shouldStartLiveTimeshiftForStreamClass(streamClassLabel: String): Boolean =
+    streamClassLabel != "Catch-up" && streamClassLabel != "MPEG-TS fallback"
 
 internal fun buildSeriesEpisodeResolution(
     series: Series,
@@ -77,10 +89,24 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 channelRepository.getChannel(internalContentId)?.let { channel ->
                     fallbackStreamId = channel.streamId.takeIf { it > 0L }
                         ?: channel.epgChannelId?.toLongOrNull()
-                    channelRepository.getStreamInfo(channel).getOrNull()?.let { resolved ->
-                        return PlayerPlaybackStreamResolution(
-                            streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
-                        )
+                    val streamInfoResult = if (shouldUseStoredLiveStreamInfo(logicalUrl, channel.streamUrl)) {
+                        channelRepository.getStreamInfo(channel)
+                    } else {
+                        Result.success(null)
+                    }
+                    if (streamInfoResult.isSuccess) {
+                        streamInfoResult.getOrNull()?.let { resolved ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
+                            )
+                        }
+                    } else {
+                        (streamInfoResult as? Result.Error)?.message?.let { errorMsg ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = null,
+                                resolutionFailureMessage = errorMsg
+                            )
+                        }
                     }
                 }
             }
@@ -89,10 +115,20 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 movieRepository.getMovie(internalContentId)?.let { movie ->
                     fallbackStreamId = movie.streamId.takeIf { it > 0L }
                     fallbackContainerExtension = movie.containerExtension
-                    movieRepository.getStreamInfo(movie).getOrNull()?.let { resolved ->
-                        return PlayerPlaybackStreamResolution(
-                            streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
-                        )
+                    val streamInfoResult = movieRepository.getStreamInfo(movie)
+                    if (streamInfoResult.isSuccess) {
+                        streamInfoResult.getOrNull()?.let { resolved ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
+                            )
+                        }
+                    } else {
+                        (streamInfoResult as? Result.Error)?.message?.let { errorMsg ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = null,
+                                resolutionFailureMessage = errorMsg
+                            )
+                        }
                     }
                 }
             }
@@ -111,10 +147,20 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 episode?.let {
                     fallbackStreamId = it.episodeId.takeIf { episodeId -> episodeId > 0L } ?: it.id
                     fallbackContainerExtension = it.containerExtension
-                    seriesRepository.getEpisodeStreamInfo(it).getOrNull()?.let { resolved ->
-                        return PlayerPlaybackStreamResolution(
-                            streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
-                        )
+                    val streamInfoResult = seriesRepository.getEpisodeStreamInfo(it)
+                    if (streamInfoResult.isSuccess) {
+                        streamInfoResult.getOrNull()?.let { resolved ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = resolved.copy(title = resolved.title ?: currentTitle)
+                            )
+                        }
+                    } else {
+                        (streamInfoResult as? Result.Error)?.message?.let { errorMsg ->
+                            return PlayerPlaybackStreamResolution(
+                                streamInfo = null,
+                                resolutionFailureMessage = errorMsg
+                            )
+                        }
                     }
                 }
             }
@@ -150,7 +196,8 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
     } catch (e: StalkerPlaybackResolutionException) {
         return PlayerPlaybackStreamResolution(
             streamInfo = null,
-            resolutionFailureMessage = e.message ?: "We couldn't resolve a playable Stalker stream for this item."
+            resolutionFailureMessage = e.message
+                ?: "We couldn't resolve a playable Stalker stream for this item."
         )
     }
 

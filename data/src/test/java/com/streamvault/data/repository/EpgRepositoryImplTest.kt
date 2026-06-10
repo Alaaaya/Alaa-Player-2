@@ -38,6 +38,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
+import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -53,6 +54,7 @@ class EpgRepositoryImplTest {
     private val providerDao: ProviderDao = mock()
     private val xmltvParser: XmltvParser = mock()
     private val epgSourceRepository: EpgSourceRepository = mock()
+    private val preferencesRepository: PreferencesRepository = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
     }
@@ -64,6 +66,8 @@ class EpgRepositoryImplTest {
         }
         runBlocking {
             whenever(providerDao.getById(any())).thenReturn(null)
+            whenever(preferencesRepository.getEpgTimeShiftMinutes(any())).thenReturn(0)
+            whenever(preferencesRepository.epgTimeShiftMinutes(any())).thenReturn(flowOf(0))
         }
     }
 
@@ -98,7 +102,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.searchPrograms(7L, "sports", 0L, 100L).first()
@@ -133,7 +138,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.getResolvedProgramsForPlaybackChannel(
@@ -179,7 +185,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.getResolvedProgramsForPlaybackChannel(
@@ -241,7 +248,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val firstRefresh = async { repository.refreshEpg(7L, "https://example.com/epg.xml") }
@@ -283,7 +291,8 @@ class EpgRepositoryImplTest {
                 contentType = "application/gzip"
             ),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml.gz")
@@ -314,7 +323,8 @@ class EpgRepositoryImplTest {
                 headers = mapOf("Content-Encoding" to "gzip")
             ),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml.gz")
@@ -337,7 +347,8 @@ class EpgRepositoryImplTest {
                 onRequest = { requestRef.set(it) }
             ),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml")
@@ -378,6 +389,7 @@ class EpgRepositoryImplTest {
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
             epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository,
             externalScope = backgroundScope
         )
 
@@ -447,6 +459,7 @@ class EpgRepositoryImplTest {
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
             epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository,
             externalScope = backgroundScope
         )
 
@@ -498,7 +511,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.getProgramsForChannelsSnapshot(
@@ -534,7 +548,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml")
@@ -590,7 +605,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = trackingTransactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml")
@@ -637,7 +653,8 @@ class EpgRepositoryImplTest {
             xmltvParser = xmltvParser,
             okHttpClient = okHttpClientReturningXml(),
             transactionRunner = transactionRunner,
-            epgSourceRepository = epgSourceRepository
+            epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository
         )
 
         val result = repository.refreshEpg(7L, "https://example.com/epg.xml")

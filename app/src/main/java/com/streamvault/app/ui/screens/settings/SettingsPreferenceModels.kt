@@ -6,8 +6,10 @@ import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
@@ -16,6 +18,7 @@ import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.RemoteShortcutPreferences
 
 enum class ProviderWarningAction {
     EPG,
@@ -38,18 +41,22 @@ internal data class SettingsPreferenceSnapshot(
     val parentalControlLevel: Int,
     val hasParentalPin: Boolean,
     val appLanguage: String,
+    val appLandingDestination: AppLandingDestination,
     val appTimeFormat: AppTimeFormat,
     val preferredAudioLanguage: String,
     val playerMediaSessionEnabled: Boolean,
+    val playerFastRetryOnTransientFailures: Boolean,
     val playerDecoderMode: DecoderMode,
     val playerAudioOutputPreference: AudioOutputPreference,
     val playerCompatibilityMemoryEnabled: Boolean,
     val playerSurfaceMode: PlayerSurfaceMode,
     val playerVodHttpProtocolMode: VodHttpProtocolMode,
     val playerPlaybackSpeed: Float,
+    val playerExternalPlaybackMode: ExternalPlaybackMode,
     val playerAudioVideoSyncEnabled: Boolean,
     val playerAudioVideoOffsetMs: Int,
     val centerTwoSlotMultiviewLayout: Boolean,
+    val multiViewRespectProviderConnectionLimit: Boolean,
     val playerControlsTimeoutSeconds: Int,
     val playerLiveOverlayTimeoutSeconds: Int,
     val playerNoticeTimeoutSeconds: Int,
@@ -77,6 +84,7 @@ internal data class SettingsPreferenceSnapshot(
     val showLiveSourceSwitcher: Boolean,
     val showAllChannelsCategory: Boolean,
     val showRecentChannelsCategory: Boolean,
+    val remoteShortcutPreferences: RemoteShortcutPreferences,
     val liveTvCategoryFilters: List<String>,
     val liveTvQuickFilterVisibilityMode: LiveTvQuickFilterVisibilityMode,
     val liveChannelNumberingMode: ChannelNumberingMode,

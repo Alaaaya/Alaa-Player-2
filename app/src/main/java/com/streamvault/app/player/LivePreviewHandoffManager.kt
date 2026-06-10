@@ -10,27 +10,49 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+enum class PreviewHandoffSource { HOME, GUIDE }
 
 @Singleton
 class LivePreviewHandoffManager @Inject constructor() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var pendingReleaseJob: Job? = null
     private var session: LivePreviewHandoffSession? = null
+    private var pendingReverseReleaseJob: Job? = null
+    private val _reverseSessionFlow = MutableStateFlow<LivePreviewHandoffSession?>(null)
+    val reverseSessionFlow: StateFlow<LivePreviewHandoffSession?> = _reverseSessionFlow.asStateFlow()
+    private val reverseSession: LivePreviewHandoffSession?
+        get() = _reverseSessionFlow.value
 
     fun registerPreviewSession(
         channel: Channel,
         streamInfo: StreamInfo,
-        engine: PlayerEngine
+        engine: PlayerEngine,
+        source: PreviewHandoffSource = PreviewHandoffSource.HOME
+    ) {
+        registerPreviewSession(channel.id, channel.providerId, streamInfo, engine, source)
+    }
+
+    fun registerPreviewSession(
+        channelId: Long,
+        providerId: Long,
+        streamInfo: StreamInfo,
+        engine: PlayerEngine,
+        source: PreviewHandoffSource = PreviewHandoffSource.HOME
     ) {
         val previous = session
         pendingReleaseJob?.cancel()
         session = LivePreviewHandoffSession(
             engine = engine,
-            channelId = channel.id,
-            providerId = channel.providerId,
+            channelId = channelId,
+            providerId = providerId,
             streamInfo = streamInfo,
-            pendingFullscreen = false
+            pendingFullscreen = false,
+            source = source
         )
         if (previous != null && previous.engine !== engine) {
             previous.engine.release()
@@ -73,12 +95,46 @@ class LivePreviewHandoffManager @Inject constructor() {
         session = null
     }
 
+    fun beginReverseHandoff(
+        channel: Channel,
+        streamInfo: StreamInfo,
+        engine: PlayerEngine,
+        source: PreviewHandoffSource = PreviewHandoffSource.HOME
+    ) {
+        pendingReverseReleaseJob?.cancel()
+        _reverseSessionFlow.value = LivePreviewHandoffSession(
+            engine = engine,
+            channelId = channel.id,
+            providerId = channel.providerId,
+            streamInfo = streamInfo,
+            pendingFullscreen = false,
+            source = source
+        )
+        pendingReverseReleaseJob = scope.launch {
+            delay(PENDING_FULLSCREEN_TIMEOUT_MS)
+            val stale = _reverseSessionFlow.value
+            if (stale != null) {
+                _reverseSessionFlow.value = null
+                stale.engine.release()
+            }
+        }
+    }
+
+    fun consumeReverseHandoff(forSource: PreviewHandoffSource? = null): LivePreviewHandoffSession? {
+        val s = _reverseSessionFlow.value ?: return null
+        if (forSource != null && s.source != forSource) return null
+        pendingReverseReleaseJob?.cancel()
+        _reverseSessionFlow.value = null
+        return s
+    }
+
     data class LivePreviewHandoffSession(
         val engine: PlayerEngine,
         val channelId: Long,
         val providerId: Long,
         val streamInfo: StreamInfo,
         val pendingFullscreen: Boolean,
+        val source: PreviewHandoffSource = PreviewHandoffSource.HOME,
         val updatedAtMs: Long = System.currentTimeMillis()
     )
 

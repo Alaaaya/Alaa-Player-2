@@ -17,6 +17,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.domain.model.ProviderStatus
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit
 internal suspend fun reconcileTargetedProviderStatus(
     providerDao: ProviderDao,
     channelDao: ChannelDao,
+    categoryDao: CategoryDao,
     syncMetadataRepository: SyncMetadataRepository,
     syncManager: SyncManager,
     provider: com.streamvault.data.local.entity.ProviderEntity,
@@ -51,6 +53,7 @@ internal suspend fun reconcileTargetedProviderStatus(
                     provider.id,
                     provider.type,
                     channelDao,
+                    categoryDao,
                     syncMetadataRepository
                 )) {
                 providerDao.update(
@@ -95,6 +98,7 @@ class ProviderSyncWorker(
     interface ProviderSyncWorkerEntryPoint {
         fun providerDao(): ProviderDao
         fun channelDao(): ChannelDao
+        fun categoryDao(): CategoryDao
         fun syncManager(): SyncManager
         fun syncMetadataRepository(): SyncMetadataRepository
         fun xtreamIndexJobDao(): XtreamIndexJobDao
@@ -362,6 +366,7 @@ class ProviderSyncWorker(
         reconcileTargetedProviderStatus(
             providerDao = entryPoint.providerDao(),
             channelDao = entryPoint.channelDao(),
+            categoryDao = entryPoint.categoryDao(),
             syncMetadataRepository = entryPoint.syncMetadataRepository(),
             syncManager = entryPoint.syncManager(),
             provider = provider,

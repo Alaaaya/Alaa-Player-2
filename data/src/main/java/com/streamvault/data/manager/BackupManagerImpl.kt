@@ -43,6 +43,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.Writer
@@ -72,7 +75,6 @@ class BackupManagerImpl @Inject constructor(
 
     override suspend fun exportConfig(uriString: String): com.streamvault.domain.model.Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val uri = Uri.parse(uriString)
             val parentalPinBackup = preferencesRepository.exportParentalPinBackup()
             val providerEntities = providerDao.getAll().first()
             
@@ -82,6 +84,7 @@ class BackupManagerImpl @Inject constructor(
                 put("parentalPinHash", parentalPinBackup?.hash ?: "")
                 put("parentalPinSalt", parentalPinBackup?.saltBase64 ?: "")
                 put("appLanguage", preferencesRepository.appLanguage.first())
+                put("appLandingDestination", preferencesRepository.appLandingDestination.first().storageValue)
                 put("liveTvCategoryFilters", preferencesRepository.liveTvCategoryFilters.first().joinToString("\n"))
                 put("liveTvQuickFilterVisibility", preferencesRepository.liveTvQuickFilterVisibility.first() ?: "always")
                 put("playerMediaSessionEnabled", preferencesRepository.playerMediaSessionEnabled.first().toString())
@@ -93,6 +96,7 @@ class BackupManagerImpl @Inject constructor(
                 put("playerPlaybackSpeed", preferencesRepository.playerPlaybackSpeed.first().toString())
                 put("playerAudioVideoSyncEnabled", preferencesRepository.playerAudioVideoSyncEnabled.first().toString())
                 put("playerAudioVideoOffsetMs", preferencesRepository.playerAudioVideoOffsetMs.first().toString())
+                put("multiViewRespectProviderConnectionLimit", preferencesRepository.multiViewRespectProviderConnectionLimit.first().toString())
                 put("preferredAudioLanguage", preferencesRepository.preferredAudioLanguage.first() ?: "auto")
                 put("playerSubtitleTextScale", preferencesRepository.playerSubtitleTextScale.first().toString())
                 put("playerSubtitleTextColor", preferencesRepository.playerSubtitleTextColor.first().toString())
@@ -201,7 +205,7 @@ class BackupManagerImpl @Inject constructor(
             val backupWithChecksum = backupData.copy(checksum = buildSha256Checksum(backupData))
 
             // 2. Serialize and write to URI
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            openBackupOutputStream(uriString)?.use { outputStream ->
                 OutputStreamWriter(outputStream).use { writer ->
                     writeBackupDataJson(writer, backupWithChecksum)
                 }
@@ -219,6 +223,9 @@ class BackupManagerImpl @Inject constructor(
                 ?: return@withContext Result.error("Failed to open input stream")
             if (backupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext Result.error("Unsupported backup version")
+            }
+            if (backupData.isStructurallyEmpty()) {
+                return@withContext Result.error("Backup file does not contain any importable data")
             }
             if (!verifyChecksum(backupData)) {
                 return@withContext Result.error("Backup file is corrupted (checksum mismatch)")
@@ -332,6 +339,9 @@ class BackupManagerImpl @Inject constructor(
 
             if (backupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext com.streamvault.domain.model.Result.error("Unsupported backup version")
+            }
+            if (backupData.isStructurallyEmpty()) {
+                return@withContext com.streamvault.domain.model.Result.error("Backup file does not contain any importable data")
             }
             if (!verifyChecksum(backupData)) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file is corrupted (checksum mismatch)")
@@ -489,13 +499,49 @@ class BackupManagerImpl @Inject constructor(
     }
 
     private fun readBackupData(uriString: String): BackupData? {
-        val uri = Uri.parse(uriString)
-        return context.contentResolver.openInputStream(uri)?.use { inputStream ->
+        return openBackupInputStream(uriString)?.use { inputStream ->
             InputStreamReader(inputStream).use { reader ->
                 gson.fromJson(reader, BackupData::class.java)
             }
         }
     }
+
+    private fun openBackupOutputStream(uriString: String): OutputStream? {
+        return if (uriString.isFileUriString()) {
+            val target = uriString.toFileUriTarget() ?: return null
+            target.parentFile?.mkdirs()
+            FileOutputStream(target, false)
+        } else {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openOutputStream(uri, "wt")
+                ?: context.contentResolver.openOutputStream(uri)
+        }
+    }
+
+    private fun openBackupInputStream(uriString: String) =
+        if (uriString.isFileUriString()) {
+            uriString.toFileUriTarget()?.takeIf { it.isFile }?.let(::FileInputStream)
+        } else {
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)
+        }
+
+    private fun String.isFileUriString(): Boolean =
+        startsWith("$FILE_URI_SCHEME:", ignoreCase = true)
+
+    private fun String.toFileUriTarget(): File? =
+        runCatching { File(java.net.URI(this)) }.getOrNull()
+            ?: Uri.parse(this).path?.let(::File)
+
+    private fun BackupData.isStructurallyEmpty(): Boolean =
+        preferences.isNullOrEmpty() &&
+            providers.isNullOrEmpty() &&
+            favorites.isNullOrEmpty() &&
+            virtualGroups.isNullOrEmpty() &&
+            playbackHistory.isNullOrEmpty() &&
+            multiViewPresets.orEmpty().all { it.value.isEmpty() } &&
+            protectedCategories.isNullOrEmpty() &&
+            scheduledRecordings.isNullOrEmpty()
 
     private suspend fun restorePreferences(prefs: Map<String, String>) {
         prefs["parentalControlLevel"]?.toIntOrNull()?.let {
@@ -508,6 +554,11 @@ class BackupManagerImpl @Inject constructor(
             ).takeIf { it.hash.isNotBlank() && it.saltBase64.isNotBlank() }
         )
         prefs["appLanguage"]?.takeIf { it.isNotBlank() }?.let { preferencesRepository.setAppLanguage(it) }
+        prefs["appLandingDestination"]?.takeIf { it.isNotBlank() }?.let { savedDestination ->
+            preferencesRepository.setAppLandingDestination(
+                com.streamvault.domain.model.AppLandingDestination.fromStorage(savedDestination)
+            )
+        }
         prefs["liveTvCategoryFilters"]?.let { preferencesRepository.setLiveTvCategoryFilters(it.split('\n')) }
         prefs["liveTvQuickFilterVisibility"]?.takeIf { it.isNotBlank() }
             ?.let { preferencesRepository.setLiveTvQuickFilterVisibility(it) }
@@ -549,6 +600,8 @@ class BackupManagerImpl @Inject constructor(
         prefs["playerAudioVideoOffsetMs"]?.toIntOrNull()?.let {
             preferencesRepository.setPlayerAudioVideoOffsetMs(it)
         }
+        prefs["multiViewRespectProviderConnectionLimit"]?.toBooleanStrictOrNull()
+            ?.let { preferencesRepository.setMultiViewRespectProviderConnectionLimit(it) }
         preferencesRepository.setPreferredAudioLanguage(prefs["preferredAudioLanguage"])
         prefs["playerSubtitleTextScale"]?.toFloatOrNull()?.let { preferencesRepository.setPlayerSubtitleTextScale(it) }
         prefs["playerSubtitleTextColor"]?.toIntOrNull()?.let { preferencesRepository.setPlayerSubtitleTextColor(it) }
@@ -1025,6 +1078,7 @@ private fun Iterable<ProviderEntity>.findMatchingProvider(
 
 private const val SHA256_PREFIX = "sha256:"
 private const val CURRENT_BACKUP_VERSION = 7
+private const val FILE_URI_SCHEME = "file"
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type
 private val FAVORITE_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Favorite>>() {}.type

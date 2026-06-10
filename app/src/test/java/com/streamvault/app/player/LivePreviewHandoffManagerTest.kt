@@ -68,6 +68,109 @@ class LivePreviewHandoffManagerTest {
         verify(engine).release()
     }
 
+    @Test
+    fun `reverse handoff session is visible on flow after beginReverseHandoff`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.GUIDE)
+
+        assertThat(manager.reverseSessionFlow.value).isNotNull()
+        assertThat(manager.reverseSessionFlow.value?.engine).isSameInstanceAs(engine)
+        assertThat(manager.reverseSessionFlow.value?.source).isEqualTo(PreviewHandoffSource.GUIDE)
+    }
+
+    @Test
+    fun `consumeReverseHandoff without filter returns any session`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.HOME)
+
+        val session = manager.consumeReverseHandoff()
+        assertThat(session).isNotNull()
+        assertThat(session?.engine).isSameInstanceAs(engine)
+        assertThat(manager.reverseSessionFlow.value).isNull()
+    }
+
+    @Test
+    fun `consumeReverseHandoff for HOME ignores GUIDE session`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.GUIDE)
+
+        assertThat(manager.consumeReverseHandoff(PreviewHandoffSource.HOME)).isNull()
+        assertThat(manager.reverseSessionFlow.value).isNotNull()
+    }
+
+    @Test
+    fun `consumeReverseHandoff for GUIDE ignores HOME session`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.HOME)
+
+        assertThat(manager.consumeReverseHandoff(PreviewHandoffSource.GUIDE)).isNull()
+        assertThat(manager.reverseSessionFlow.value).isNotNull()
+    }
+
+    @Test
+    fun `consumeReverseHandoff for GUIDE returns GUIDE session`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.GUIDE)
+
+        val session = manager.consumeReverseHandoff(PreviewHandoffSource.GUIDE)
+        assertThat(session).isNotNull()
+        assertThat(session?.engine).isSameInstanceAs(engine)
+        assertThat(manager.reverseSessionFlow.value).isNull()
+        verifyNoInteractions(engine)
+    }
+
+    @Test
+    fun `reverse handoff engine is released when never consumed`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.HOME)
+
+        advanceTimeBy(15_001L)
+        testDispatcher.scheduler.runCurrent()
+
+        assertThat(manager.reverseSessionFlow.value).isNull()
+        verify(engine).release()
+    }
+
+    @Test
+    fun `consuming reverse handoff prevents engine release`() = runTest(testDispatcher) {
+        val manager = LivePreviewHandoffManager()
+        val engine = mock<PlayerEngine>()
+        val channel = channel(id = 1L, providerId = 2L)
+        val streamInfo = StreamInfo(url = "https://example.com/live.m3u8", title = channel.name)
+
+        manager.beginReverseHandoff(channel, streamInfo, engine, PreviewHandoffSource.GUIDE)
+        manager.consumeReverseHandoff(PreviewHandoffSource.GUIDE)
+
+        advanceTimeBy(15_001L)
+        testDispatcher.scheduler.runCurrent()
+
+        verifyNoInteractions(engine)
+    }
+
     private fun channel(id: Long, providerId: Long): Channel = Channel(
         id = id,
         name = "Preview $id",

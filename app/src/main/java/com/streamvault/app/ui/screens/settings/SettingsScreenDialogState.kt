@@ -19,9 +19,11 @@ internal class SettingsScreenDialogState(
     private val showLiveChannelGroupingDialogState: MutableState<Boolean>,
     private val showGroupedChannelLabelDialogState: MutableState<Boolean>,
     private val showLiveVariantPreferenceDialogState: MutableState<Boolean>,
+    private val showLandingScreenDialogState: MutableState<Boolean>,
     private val showVodViewModeDialogState: MutableState<Boolean>,
     private val showGuideDefaultCategoryDialogState: MutableState<Boolean>,
     private val showPlaybackSpeedDialogState: MutableState<Boolean>,
+    private val showExternalPlaybackModeDialogState: MutableState<Boolean>,
     private val showAudioVideoOffsetDialogState: MutableState<Boolean>,
     private val showDecoderModeDialogState: MutableState<Boolean>,
     private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
@@ -56,6 +58,7 @@ internal class SettingsScreenDialogState(
     private val showRecordingConcurrencyDialogState: MutableState<Boolean>,
     private val showRecordingPaddingDialogState: MutableState<Boolean>,
     private val showRecordingBrowserDialogState: MutableState<Boolean>,
+    private val selectedRemoteShortcutTargetKeyState: MutableState<String?>,
     private val selectedRecordingIdState: MutableState<String?>,
     private val categorySortDialogTypeState: MutableState<String?>,
     private val selectedCategoryState: MutableState<Int>,
@@ -74,9 +77,11 @@ internal class SettingsScreenDialogState(
     var showLiveChannelGroupingDialog by showLiveChannelGroupingDialogState
     var showGroupedChannelLabelDialog by showGroupedChannelLabelDialogState
     var showLiveVariantPreferenceDialog by showLiveVariantPreferenceDialogState
+    var showLandingScreenDialog by showLandingScreenDialogState
     var showVodViewModeDialog by showVodViewModeDialogState
     var showGuideDefaultCategoryDialog by showGuideDefaultCategoryDialogState
     var showPlaybackSpeedDialog by showPlaybackSpeedDialogState
+    var showExternalPlaybackModeDialog by showExternalPlaybackModeDialogState
     var showAudioVideoOffsetDialog by showAudioVideoOffsetDialogState
     var showDecoderModeDialog by showDecoderModeDialogState
     var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
@@ -111,6 +116,7 @@ internal class SettingsScreenDialogState(
     var showRecordingConcurrencyDialog by showRecordingConcurrencyDialogState
     var showRecordingPaddingDialog by showRecordingPaddingDialogState
     var showRecordingBrowserDialog by showRecordingBrowserDialogState
+    var selectedRemoteShortcutTargetKey by selectedRemoteShortcutTargetKeyState
     var selectedRecordingId by selectedRecordingIdState
     var categorySortDialogType by categorySortDialogTypeState
     var selectedCategory by selectedCategoryState
@@ -197,9 +203,11 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showLiveChannelGroupingDialogState = rememberSaveable { mutableStateOf(false) }
     val showGroupedChannelLabelDialogState = rememberSaveable { mutableStateOf(false) }
     val showLiveVariantPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
+    val showLandingScreenDialogState = rememberSaveable { mutableStateOf(false) }
     val showVodViewModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showGuideDefaultCategoryDialogState = rememberSaveable { mutableStateOf(false) }
     val showPlaybackSpeedDialogState = rememberSaveable { mutableStateOf(false) }
+    val showExternalPlaybackModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioVideoOffsetDialogState = rememberSaveable { mutableStateOf(false) }
     val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
@@ -242,6 +250,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showRecordingConcurrencyDialogState = rememberSaveable { mutableStateOf(false) }
     val showRecordingPaddingDialogState = rememberSaveable { mutableStateOf(false) }
     val showRecordingBrowserDialogState = rememberSaveable { mutableStateOf(false) }
+    val selectedRemoteShortcutTargetKeyState = rememberSaveable { mutableStateOf<String?>(null) }
     val selectedRecordingIdState = rememberSaveable { mutableStateOf<String?>(null) }
     val categorySortDialogTypeState = rememberSaveable { mutableStateOf<String?>(null) }
     val selectedCategoryState = rememberSaveable { mutableStateOf(0) }
@@ -261,9 +270,11 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showLiveChannelGroupingDialogState = showLiveChannelGroupingDialogState,
         showGroupedChannelLabelDialogState = showGroupedChannelLabelDialogState,
         showLiveVariantPreferenceDialogState = showLiveVariantPreferenceDialogState,
+        showLandingScreenDialogState = showLandingScreenDialogState,
         showVodViewModeDialogState = showVodViewModeDialogState,
         showGuideDefaultCategoryDialogState = showGuideDefaultCategoryDialogState,
         showPlaybackSpeedDialogState = showPlaybackSpeedDialogState,
+        showExternalPlaybackModeDialogState = showExternalPlaybackModeDialogState,
         showAudioVideoOffsetDialogState = showAudioVideoOffsetDialogState,
         showDecoderModeDialogState = showDecoderModeDialogState,
         showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
@@ -298,6 +309,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showRecordingConcurrencyDialogState = showRecordingConcurrencyDialogState,
         showRecordingPaddingDialogState = showRecordingPaddingDialogState,
         showRecordingBrowserDialogState = showRecordingBrowserDialogState,
+        selectedRemoteShortcutTargetKeyState = selectedRemoteShortcutTargetKeyState,
         selectedRecordingIdState = selectedRecordingIdState,
         categorySortDialogTypeState = categorySortDialogTypeState,
         selectedCategoryState = selectedCategoryState,

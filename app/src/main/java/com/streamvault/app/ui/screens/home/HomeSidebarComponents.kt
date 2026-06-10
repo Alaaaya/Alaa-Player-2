@@ -155,7 +155,7 @@ internal fun LivePreviewPane(
                     .background(Color.Black, RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                if (channel != null && playerEngine != null && errorMessage == null) {
+                if (playerEngine != null && errorMessage == null) {
                     PlayerRenderView(
                         playerEngine = playerEngine,
                         resizeMode = PlayerSurfaceResizeMode.FIT,
@@ -274,7 +274,8 @@ internal fun CategoryItem(
     onLongClick: (() -> Unit)? = null,
     onJumpToSearch: () -> Boolean,
     onJumpToContent: () -> Boolean,
-    onFocused: () -> Unit
+    onFocused: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
@@ -287,6 +288,7 @@ internal fun CategoryItem(
             .focusRequester(focusRequester)
             .onFocusChanged {
                 isFocused = it.isFocused
+                onFocusChanged(it.isFocused)
                 if (it.isFocused) onFocused()
             }
             .onPreviewKeyEvent { event ->

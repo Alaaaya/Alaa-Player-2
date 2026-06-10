@@ -10,6 +10,7 @@ import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
@@ -23,10 +24,12 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.VodHttpProtocolMode
+import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageState
+import com.streamvault.domain.model.RemoteShortcutPreferences
 
 data class CrashReportUiModel(
     val timestamp: String = "",
@@ -57,18 +60,22 @@ data class SettingsUiState(
     val parentalControlLevel: Int = 0,
     val hasParentalPin: Boolean = false,
     val appLanguage: String = "system",
+    val appLandingDestination: AppLandingDestination = AppLandingDestination.HOME,
     val appTimeFormat: AppTimeFormat = AppTimeFormat.SYSTEM,
     val preferredAudioLanguage: String = "auto",
     val playerMediaSessionEnabled: Boolean = true,
+    val playerFastRetryOnTransientFailures: Boolean = false,
     val playerDecoderMode: DecoderMode = DecoderMode.AUTO,
     val playerAudioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO,
     val playerCompatibilityMemoryEnabled: Boolean = true,
     val playerSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO,
     val playerVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
     val playerPlaybackSpeed: Float = 1f,
+    val playerExternalPlaybackMode: ExternalPlaybackMode = ExternalPlaybackMode.INTERNAL_PLAYER,
     val playerAudioVideoSyncEnabled: Boolean = false,
     val playerAudioVideoOffsetMs: Int = 0,
     val centerTwoSlotMultiviewLayout: Boolean = false,
+    val multiViewRespectProviderConnectionLimit: Boolean = true,
     val playerControlsTimeoutSeconds: Int = 5,
     val playerLiveOverlayTimeoutSeconds: Int = 4,
     val playerNoticeTimeoutSeconds: Int = 6,
@@ -113,6 +120,7 @@ data class SettingsUiState(
     val showLiveSourceSwitcher: Boolean = false,
     val showAllChannelsCategory: Boolean = true,
     val showRecentChannelsCategory: Boolean = true,
+    val remoteShortcutPreferences: RemoteShortcutPreferences = RemoteShortcutPreferences(),
     val liveTvCategoryFilters: List<String> = emptyList(),
     val liveTvQuickFilterVisibilityMode: LiveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.ALWAYS_VISIBLE,
     val liveChannelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP,
@@ -133,6 +141,7 @@ data class SettingsUiState(
     val epgResolutionSummaries: Map<Long, EpgResolutionSummary> = emptyMap(),
     val refreshingEpgSourceIds: Set<Long> = emptySet(),
     val epgPendingDeleteSourceId: Long? = null,
+    val epgTimeShiftMinutesByProvider: Map<Long, Int> = emptyMap(),
     val autoCheckAppUpdates: Boolean = true,
     val autoDownloadAppUpdates: Boolean = false,
     val isCheckingForUpdates: Boolean = false,

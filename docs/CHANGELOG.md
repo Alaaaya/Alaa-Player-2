@@ -2,6 +2,42 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.13] - 2026-06-06
+
+### Added
+
+- Added offline VOD download management with a Downloads screen, foreground service, grouped episode downloads, pause/resume/restart controls, and local playback for completed files.
+- Added external playback mode and chooser handling so users can hand streams off to external player apps more reliably.
+- Added a stream format selector to the player so users can switch formats when decoder recovery needs an alternate stream variant.
+- Added a default landing screen setting so startup can open Home, Live TV, Movies, Series, Guide, Downloads, Plugins, or Settings instead of always opening Home.
+- Added configurable colored remote button support for Android TV remotes, with global defaults plus playback and live-browse overrides for actions such as guide, channel info, favorites, category pinning, and split screen.
+- Added QR-based provider pairing so users can scan from a phone on the same LAN, submit provider details locally, and add Xtream, Stalker, or M3U providers directly to the TV.
+- Added a transparent live-TV full guide overlay that opens over player playback, reuses the EPG grid, supports category switching and search, and lets you tune channels directly from the overlay.
+- Added a playback setting to let Split Screen/Multiview ignore provider max-connection limits when a provider allows multiple streams from the same IP.
+
+### Changed
+
+- Changed VOD downloads to use a single FIFO provider-stream scheduler with fresh provider URL resolution before each capture attempt.
+- Changed provider playback/download coordination so provider-backed internal or external playback pauses active downloads, deletes partial output, and restarts from zero after playback ends.
+- Changed the live player EPG flow so a second right-press can expand the channel EPG into the full transparent guide grid, with an on-screen directional cue and overlay-specific grid navigation.
+
+### Fixed
+
+- Attempted to fix Android TV backup export/import creating empty backup JSON or showing version `0` with `0` items on restore. Needs testing.
+- Fixed the Settings crash report viewer so the latest crash content can scroll with the TV D-pad.
+- Fixed provider delete confirmation staying open when a follow-up TV integration refresh failed after the provider had already been deleted.
+- Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
+- Fixed a broken player content-resolution merge that could leave the app failing to compile.
+- Fixed Xtream provider connection-limit parsing so placeholder values like `0`, empty, and `N/A` fall back safely instead of producing invalid limits.
+- Fixed Xtream and Stalker onboarding/sync so VOD-only providers are not treated as failed when Live TV is empty, and Movies/Series loading still continues.
+- Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
+- Fixed decoder error recovery to retry against alternate stream formats when available.
+- Fixed XMLTV parsing for ISO timestamps that include timezone offsets.
+- Fixed EPG repository test setup so reactive time-shift lookups are stubbed correctly during build verification.
+- Fixed completed local download playback so `content://`/`file://` files do not consume the provider download lease and do not pause active downloads.
+- Fixed failed download Resume to clear partial output and restart through the scheduler.
+- Fixed provider playback interruptions leaving downloads stuck in `DOWNLOADING` by cancelling the active OkHttp call and resetting the partial row to zero-byte `PAUSED` state.
+
 ## [1.0.12] - 2026-05-15
 
 ### Added

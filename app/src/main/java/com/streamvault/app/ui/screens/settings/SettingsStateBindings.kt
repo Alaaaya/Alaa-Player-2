@@ -5,11 +5,13 @@ package com.streamvault.app.ui.screens.settings
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
@@ -37,18 +39,22 @@ internal fun observeSettingsPreferenceSnapshot(
             parentalControlLevel = level,
             hasParentalPin = hasParentalPin,
             appLanguage = "system",
+            appLandingDestination = AppLandingDestination.HOME,
             appTimeFormat = AppTimeFormat.SYSTEM,
             preferredAudioLanguage = "auto",
             playerMediaSessionEnabled = true,
+            playerFastRetryOnTransientFailures = false,
             playerDecoderMode = DecoderMode.AUTO,
             playerAudioOutputPreference = AudioOutputPreference.AUTO,
             playerCompatibilityMemoryEnabled = true,
             playerSurfaceMode = com.streamvault.domain.model.PlayerSurfaceMode.AUTO,
             playerVodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1,
             playerPlaybackSpeed = 1f,
+            playerExternalPlaybackMode = ExternalPlaybackMode.INTERNAL_PLAYER,
             playerAudioVideoSyncEnabled = false,
             playerAudioVideoOffsetMs = 0,
             centerTwoSlotMultiviewLayout = false,
+            multiViewRespectProviderConnectionLimit = true,
             playerControlsTimeoutSeconds = 5,
             playerLiveOverlayTimeoutSeconds = 4,
             playerNoticeTimeoutSeconds = 6,
@@ -76,6 +82,7 @@ internal fun observeSettingsPreferenceSnapshot(
             showLiveSourceSwitcher = false,
             showAllChannelsCategory = true,
             showRecentChannelsCategory = true,
+            remoteShortcutPreferences = com.streamvault.domain.model.RemoteShortcutPreferences(),
             liveTvCategoryFilters = emptyList(),
             liveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.ALWAYS_VISIBLE,
             liveChannelNumberingMode = ChannelNumberingMode.GROUP,
@@ -101,12 +108,16 @@ internal fun observeSettingsPreferenceSnapshot(
         )
     }.combine(preferencesRepository.appLanguage) { snapshot, language ->
         snapshot.copy(appLanguage = language)
+    }.combine(preferencesRepository.appLandingDestination) { snapshot, destination ->
+        snapshot.copy(appLandingDestination = destination)
     }.combine(preferencesRepository.appTimeFormat) { snapshot, timeFormat ->
         snapshot.copy(appTimeFormat = timeFormat)
     }.combine(preferencesRepository.preferredAudioLanguage) { snapshot, preferredAudioLanguage ->
         snapshot.copy(preferredAudioLanguage = preferredAudioLanguage ?: "auto")
     }.combine(preferencesRepository.playerMediaSessionEnabled) { snapshot, mediaSessionEnabled ->
         snapshot.copy(playerMediaSessionEnabled = mediaSessionEnabled)
+    }.combine(preferencesRepository.playerFastRetryOnTransientFailures) { snapshot, enabled ->
+        snapshot.copy(playerFastRetryOnTransientFailures = enabled)
     }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
         snapshot.copy(playerDecoderMode = decoderMode)
     }.combine(preferencesRepository.playerAudioOutputPreference) { snapshot, audioOutputPreference ->
@@ -119,12 +130,16 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerVodHttpProtocolMode = protocolMode)
     }.combine(preferencesRepository.playerPlaybackSpeed) { snapshot, playerPlaybackSpeed ->
         snapshot.copy(playerPlaybackSpeed = playerPlaybackSpeed)
+    }.combine(preferencesRepository.playerExternalPlaybackMode) { snapshot, externalMode ->
+        snapshot.copy(playerExternalPlaybackMode = externalMode)
     }.combine(preferencesRepository.playerAudioVideoSyncEnabled) { snapshot, enabled ->
         snapshot.copy(playerAudioVideoSyncEnabled = enabled)
     }.combine(preferencesRepository.playerAudioVideoOffsetMs) { snapshot, playerAudioVideoOffsetMs ->
         snapshot.copy(playerAudioVideoOffsetMs = playerAudioVideoOffsetMs)
     }.combine(preferencesRepository.multiViewCenterTwoSlotLayout) { snapshot, centerTwoSlotLayout ->
         snapshot.copy(centerTwoSlotMultiviewLayout = centerTwoSlotLayout)
+    }.combine(preferencesRepository.multiViewRespectProviderConnectionLimit) { snapshot, respectLimit ->
+        snapshot.copy(multiViewRespectProviderConnectionLimit = respectLimit)
     }.combine(preferencesRepository.playerControlsTimeoutSeconds) { snapshot, timeoutSeconds ->
         snapshot.copy(playerControlsTimeoutSeconds = timeoutSeconds)
     }.combine(preferencesRepository.playerLiveOverlayTimeoutSeconds) { snapshot, timeoutSeconds ->
@@ -179,6 +194,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(showAllChannelsCategory = showAllChannelsCategory)
     }.combine(preferencesRepository.showRecentChannelsCategory) { snapshot, showRecentChannelsCategory ->
         snapshot.copy(showRecentChannelsCategory = showRecentChannelsCategory)
+    }.combine(preferencesRepository.remoteShortcutPreferences) { snapshot, remoteShortcutPreferences ->
+        snapshot.copy(remoteShortcutPreferences = remoteShortcutPreferences)
     }.combine(preferencesRepository.liveTvCategoryFilters) { snapshot, liveTvCategoryFilters ->
         snapshot.copy(liveTvCategoryFilters = liveTvCategoryFilters)
     }.combine(preferencesRepository.liveTvQuickFilterVisibility) { snapshot, visibilityMode ->

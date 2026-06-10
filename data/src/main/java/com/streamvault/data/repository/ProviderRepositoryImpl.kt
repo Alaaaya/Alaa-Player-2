@@ -43,6 +43,7 @@ import javax.inject.Singleton
 @Singleton
 class ProviderRepositoryImpl @Inject constructor(
     private val providerDao: ProviderDao,
+    private val categoryDao: CategoryDao,
     private val channelDao: ChannelDao,
     private val programDao: ProgramDao,
     private val recordingRunDao: RecordingRunDao,
@@ -153,7 +154,7 @@ class ProviderRepositoryImpl @Inject constructor(
         return try {
             val provider = providerDao.getById(id)
                 ?: return Result.error("Provider not found")
-            if (!hasUsableLiveCatalogForActivation(id, provider.type, channelDao, syncMetadataRepository)) {
+            if (!hasUsableLiveCatalogForActivation(id, provider.type, channelDao, categoryDao, syncMetadataRepository)) {
                 syncManager.scheduleProviderSyncResume(id)
                 return Result.error("Provider is saved but no content has been committed yet. Sync will resume in background.")
             }
@@ -497,10 +498,11 @@ class ProviderRepositoryImpl @Inject constructor(
             } else {
                 ProviderStatus.ACTIVE
             }
-            if (!hasUsableLiveCatalogForActivation(
+                if (!hasUsableLiveCatalogForActivation(
                     providerData.id,
                     providerData.type,
                     channelDao,
+                    categoryDao,
                     syncMetadataRepository
                 )) {
                 updateProviderSyncStatus(
@@ -575,6 +577,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         providerId,
                         provider.type,
                         channelDao,
+                        categoryDao,
                         syncMetadataRepository
                     )) {
                     updateProviderSyncStatus(

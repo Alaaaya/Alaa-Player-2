@@ -8,6 +8,7 @@ import com.streamvault.app.MainActivity
 import com.streamvault.app.R
 import com.streamvault.app.ui.time.createDateTimeFormat
 import com.streamvault.app.util.OfficialBuildStatus
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.VodHttpProtocolMode
@@ -15,6 +16,7 @@ import com.streamvault.domain.model.VodHttpProtocolMode
 internal data class SettingsScreenLabels(
     val buildVerificationLabel: String,
     val appLanguageLabel: String,
+    val appLandingDestinationLabel: String,
     val timeFormatLabel: String,
     val preferredAudioLanguageLabel: String,
     val playbackSpeedLabel: String,
@@ -40,7 +42,8 @@ internal data class SettingsScreenLabels(
     val lastSpeedTestSummary: String,
     val speedTestRecommendationLabel: String,
     val protectionSummary: String,
-    val guideDefaultCategoryLabel: String
+    val guideDefaultCategoryLabel: String,
+    val externalPlaybackModeLabel: String
 )
 
 @Composable
@@ -54,6 +57,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val appLanguageLabel = remember(uiState.appLanguage, context) {
         displayLanguageLabel(uiState.appLanguage, context.getString(R.string.settings_system_default))
+    }
+    val appLandingDestinationLabel = remember(uiState.appLandingDestination, context) {
+        formatAppLandingDestinationLabel(uiState.appLandingDestination, context)
     }
     val timeFormatLabel = remember(uiState.appTimeFormat, context) {
         formatAppTimeFormatLabel(uiState.appTimeFormat, context)
@@ -152,10 +158,14 @@ internal fun rememberSettingsScreenLabels(
             ?.name
             ?: context.getString(R.string.settings_guide_default_category_fallback)
     }
+    val externalPlaybackModeLabel = remember(uiState.playerExternalPlaybackMode, context) {
+        formatExternalPlaybackModeLabel(uiState.playerExternalPlaybackMode, context)
+    }
 
     return SettingsScreenLabels(
         buildVerificationLabel = buildVerificationLabel,
         appLanguageLabel = appLanguageLabel,
+        appLandingDestinationLabel = appLandingDestinationLabel,
         timeFormatLabel = timeFormatLabel,
         preferredAudioLanguageLabel = preferredAudioLanguageLabel,
         playbackSpeedLabel = playbackSpeedLabel,
@@ -181,7 +191,8 @@ internal fun rememberSettingsScreenLabels(
         lastSpeedTestSummary = lastSpeedTestSummary,
         speedTestRecommendationLabel = speedTestRecommendationLabel,
         protectionSummary = protectionSummary,
-        guideDefaultCategoryLabel = guideDefaultCategoryLabel
+        guideDefaultCategoryLabel = guideDefaultCategoryLabel,
+        externalPlaybackModeLabel = externalPlaybackModeLabel
     )
 }
 
@@ -193,6 +204,22 @@ internal fun Context.findMainActivity(): MainActivity? {
     }
     return null
 }
+
+private fun formatAppLandingDestinationLabel(
+    destination: AppLandingDestination,
+    context: Context
+): String = context.getString(
+    when (destination) {
+        AppLandingDestination.HOME -> R.string.nav_home
+        AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+        AppLandingDestination.MOVIES -> R.string.nav_movies
+        AppLandingDestination.SERIES -> R.string.nav_series
+        AppLandingDestination.GUIDE -> R.string.nav_epg
+        AppLandingDestination.DOWNLOADS -> R.string.nav_downloads
+        AppLandingDestination.PLUGINS -> R.string.nav_plugins
+        AppLandingDestination.SETTINGS -> R.string.nav_settings
+    }
+)
 
 private fun formatOfficialBuildStatusLabel(
     status: OfficialBuildStatus,
@@ -229,4 +256,13 @@ internal fun formatVodHttpProtocolModeLabel(
 ): String = when (mode) {
     VodHttpProtocolMode.COMPATIBILITY_HTTP1 -> context.getString(R.string.settings_vod_http_protocol_compatibility)
     VodHttpProtocolMode.AUTO -> context.getString(R.string.settings_vod_http_protocol_auto)
+}
+
+private fun formatExternalPlaybackModeLabel(
+    mode: com.streamvault.domain.model.ExternalPlaybackMode,
+    context: Context
+): String = when (mode) {
+    com.streamvault.domain.model.ExternalPlaybackMode.INTERNAL_PLAYER -> context.getString(R.string.settings_external_playback_mode_internal)
+    com.streamvault.domain.model.ExternalPlaybackMode.ASK_EVERY_TIME -> context.getString(R.string.settings_external_playback_mode_external)
+    com.streamvault.domain.model.ExternalPlaybackMode.EXTERNAL_PLAYER -> context.getString(R.string.settings_external_playback_mode_external)
 }

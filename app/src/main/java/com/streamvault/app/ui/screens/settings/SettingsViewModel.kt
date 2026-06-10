@@ -34,11 +34,13 @@ import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.CombinedM3uProfile
 import com.streamvault.domain.model.GroupedChannelLabelMode
@@ -50,6 +52,9 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageConfig
 import com.streamvault.domain.model.RecordingStorageState
+import com.streamvault.domain.model.RemoteColorButton
+import com.streamvault.domain.model.RemoteShortcutProfile
+import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.VirtualCategoryIds
@@ -210,6 +215,7 @@ class SettingsViewModel @Inject constructor(
         registerEpgObservers(
             scope = viewModelScope,
             epgSourceRepository = epgSourceRepository,
+            preferencesRepository = preferencesRepository,
             uiState = _uiState
         )
         driveBackupActions.observeAuthState(viewModelScope)
@@ -418,6 +424,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAppLandingDestination(destination: AppLandingDestination) {
+        viewModelScope.launch {
+            preferencesRepository.setAppLandingDestination(destination)
+        }
+    }
+
     fun setLiveTvChannelMode(mode: LiveTvChannelMode) {
         viewModelScope.launch {
             preferencesRepository.setLiveTvChannelMode(mode.name)
@@ -439,6 +451,16 @@ class SettingsViewModel @Inject constructor(
     fun setShowRecentChannelsCategory(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setShowRecentChannelsCategory(enabled)
+        }
+    }
+
+    fun setRemoteShortcutSelection(
+        profile: RemoteShortcutProfile,
+        button: RemoteColorButton,
+        selection: RemoteShortcutSelection
+    ) {
+        viewModelScope.launch {
+            preferencesRepository.setRemoteShortcutSelection(profile, button, selection)
         }
     }
 
@@ -603,6 +625,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setExternalPlaybackMode(mode: ExternalPlaybackMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerExternalPlaybackMode(mode)
+        }
+    }
+
     fun setPlayerAudioVideoOffsetMs(offsetMs: Int) {
         viewModelScope.launch {
             preferencesRepository.setPlayerAudioVideoOffsetMs(offsetMs)
@@ -621,9 +649,21 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setMultiViewRespectProviderConnectionLimit(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setMultiViewRespectProviderConnectionLimit(enabled)
+        }
+    }
+
     fun setPlayerMediaSessionEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setPlayerMediaSessionEnabled(enabled)
+        }
+    }
+
+    fun setPlayerFastRetryOnTransientFailures(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerFastRetryOnTransientFailures(enabled)
         }
     }
 
@@ -1059,6 +1099,20 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshEpgSource(sourceId: Long) {
         epgActions.refreshEpgSource(viewModelScope, sourceId)
+    }
+
+    fun adjustEpgTimeShift(providerId: Long, deltaMinutes: Int) {
+        viewModelScope.launch {
+            val current = _uiState.value.epgTimeShiftMinutesByProvider[providerId] ?: 0
+            val next = (current + deltaMinutes).coerceIn(-720, 720)
+            preferencesRepository.setEpgTimeShiftMinutes(providerId, next)
+        }
+    }
+
+    fun resetEpgTimeShift(providerId: Long) {
+        viewModelScope.launch {
+            preferencesRepository.setEpgTimeShiftMinutes(providerId, 0)
+        }
     }
 
     fun assignEpgSourceToProvider(providerId: Long, epgSourceId: Long) {
