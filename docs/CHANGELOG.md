@@ -2,6 +2,16 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.14] - 2026-06-06
+
+### Added
+
+- DB migration from 1.0.12
+
+### Fixed
+
+- Login does nothing issue.
+
 ## [1.0.13] - 2026-06-06
 
 ### Added

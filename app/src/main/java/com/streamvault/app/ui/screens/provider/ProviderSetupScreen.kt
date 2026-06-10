@@ -64,7 +64,10 @@ import androidx.compose.ui.zIndex
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.*
 import com.streamvault.app.R
 import com.streamvault.app.device.rememberIsTelevisionDevice
@@ -84,8 +87,10 @@ import com.streamvault.domain.model.StalkerAuthMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import android.widget.Toast
+import kotlin.coroutines.resume
 
 // ??? Source type ?????????????????????????????????????????????????????????????
 
@@ -506,6 +511,7 @@ fun ProviderSetupScreen(
         cleanupImportedFiles: suspend (java.io.File, Set<String>, Int) -> Unit = ::cleanupOldImportedM3uFilesAsync
     ) {
         val context = LocalContext.current
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
         LaunchedEffect(uiState.onboardingCompletion, uiState.completionWarning, uiState.pendingCombinedAttachProfileId) {
             if (
                 uiState.onboardingCompletion != ProviderSetupViewModel.OnboardingCompletion.NONE &&
@@ -527,6 +533,7 @@ fun ProviderSetupScreen(
                     selectedLocal?.let(::add)
                 }
                 cleanupImportedFiles(filesDir, protectedUris, 20)
+                lifecycle.awaitResumed()
                 onProviderAdded()
             }
         }
@@ -562,6 +569,22 @@ fun ProviderSetupScreen(
     }
 
 // ??? Form content ?????????????????????????????????????????????????????????????
+
+private suspend fun Lifecycle.awaitResumed() {
+    if (currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+
+    suspendCancellableCoroutine { continuation ->
+        lateinit var observer: LifecycleEventObserver
+        observer = LifecycleEventObserver { source, _ ->
+            if (source.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                source.lifecycle.removeObserver(observer)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+        addObserver(observer)
+        continuation.invokeOnCancellation { removeObserver(observer) }
+    }
+}
 
 @Composable
 private fun PhonePairingCard(
