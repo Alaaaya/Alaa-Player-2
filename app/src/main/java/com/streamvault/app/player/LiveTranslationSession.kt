@@ -27,6 +27,9 @@ private const val MAX_PENDING_AUDIO_BUFFERS = 120
 // the subtitle doesn't change faster than a viewer can read. Trades a little
 // latency for readability; intermediate updates during this window are coalesced.
 private const val MIN_CAPTION_DISPLAY_MS = 2_200L
+// Partials re-transcribe the whole phrase, so consecutive ones can rewrite the
+// line wholesale; hold each at least this long or the text is unreadable churn.
+private const val MIN_PARTIAL_DISPLAY_MS = 1_500L
 // Clear the caption after this much idle time with no new text (TV-caption feel).
 private const val SUBTITLE_LINGER_MS = 20_000L
 
@@ -149,10 +152,11 @@ class LiveTranslationSession(
     }
 
     /**
-     * Paces caption changes for readability. Partial lines update immediately and
-     * any queued updates are drained in order so finals aren't skipped. Finalised
-     * phrases dwell for [MIN_CAPTION_DISPLAY_MS]. Clears after [SUBTITLE_LINGER_MS]
-     * of no updates.
+     * Paces caption changes for readability: every rendered text dwells on screen
+     * (finals [MIN_CAPTION_DISPLAY_MS], partials [MIN_PARTIAL_DISPLAY_MS]) before
+     * the line may change. The channel is conflated, so after a dwell we always
+     * jump straight to the newest text — pacing can never build up a backlog.
+     * Clears after [SUBTITLE_LINGER_MS] of no updates.
      */
     private suspend fun displayLoop() {
         while (scope.isActive) {
@@ -163,7 +167,6 @@ class LiveTranslationSession(
             }
             val tick = result.getOrNull() ?: break // channel closed -> session ended
             showCaptionTick(tick)
-            drainQueuedCaptionTicks()
         }
     }
 
@@ -171,17 +174,7 @@ class LiveTranslationSession(
         if (tick.text.isBlank()) return
         renderCaption(tick.text)
         hasVisibleCaption = true
-        if (tick.isFinal) {
-            delay(MIN_CAPTION_DISPLAY_MS)
-        }
-    }
-
-    /** Show any captions that arrived while the previous tick was on screen. */
-    private suspend fun drainQueuedCaptionTicks() {
-        while (scope.isActive) {
-            val next = captionUpdates.tryReceive().getOrNull() ?: break
-            showCaptionTick(next)
-        }
+        delay(if (tick.isFinal) MIN_CAPTION_DISPLAY_MS else MIN_PARTIAL_DISPLAY_MS)
     }
 
     private fun renderCaption(text: String) {
@@ -207,10 +200,10 @@ private fun newAudioChannel(): Channel<LiveAudioPcmBuffer> = Channel(
     onBufferOverflow = BufferOverflow.DROP_OLDEST
 )
 
-private fun newCaptionChannel(): Channel<CaptionTick> = Channel(
-    capacity = 64,
-    onBufferOverflow = BufferOverflow.DROP_OLDEST
-)
+// Conflated: only the newest pending caption is kept. A final superseded during a
+// dwell is skipped in favour of the next phrase's text, which is the trade we want
+// — show the most current state rather than replaying stale revisions.
+private fun newCaptionChannel(): Channel<CaptionTick> = Channel(Channel.CONFLATED)
 
 private fun convertToPcm16Mono16k(buffer: LiveAudioPcmBuffer, fallbackStartMs: Long): ConvertedPcmChunk? {
     if (buffer.encoding != C.ENCODING_PCM_16BIT || buffer.sampleRate <= 0 || buffer.channelCount <= 0) {

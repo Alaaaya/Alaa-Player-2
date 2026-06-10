@@ -78,7 +78,12 @@ This yields English output subtitles from multilingual speech inputs.
 
 ## Quick local startup (ready-to-run)
 
-### Docker (recommended)
+See [TRANSLATION_SERVICE_OPERATIONS.md](TRANSLATION_SERVICE_OPERATIONS.md) for
+the day-to-day start/stop guide. Short version: use
+`tools/live-translation-service/run-native.sh` (native MLX, GPU). Docker is
+CPU-only on macOS and runs slower than real time, so captions fall behind.
+
+### Docker (not recommended on macOS — CPU-only, slower than real time)
 
 The service ships with a `Dockerfile` and `docker-compose.yml`
 (`tools/live-translation-service/`). The container restarts automatically if the
