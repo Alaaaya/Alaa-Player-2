@@ -413,6 +413,12 @@ fun EpisodeRowCard(episode: Episode, modifier: Modifier = Modifier) {
                             contentScale = ContentScale.Crop
                         )
                     }
+                    // Dim overlay for better contrast on episode number
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.15f))
+                    )
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
