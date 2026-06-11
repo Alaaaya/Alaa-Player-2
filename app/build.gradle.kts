@@ -55,7 +55,7 @@ android {
 
     defaultConfig {
         applicationId = "com.streamvault.app"
-        minSdk = 27
+        minSdk = 25
         targetSdk = 36
         versionCode = 15
         versionName = "1.0.14"
@@ -130,6 +130,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -159,10 +160,11 @@ kover {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":domain"))
     implementation(project(":data"))
     implementation(project(":player"))
-    implementation(files("../player/libs/media3-decoder-ffmpeg-1.9.2.aar"))
 
     // Compose BOM
     val composeBom = platform(libs.compose.bom)
@@ -187,6 +189,7 @@ dependencies {
     implementation(libs.media3.exoplayer.rtsp)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
+    implementation(files("../player/libs/media3-decoder-ffmpeg-1.9.2.aar"))
 
     // Room
     implementation(libs.room.runtime)
