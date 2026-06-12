@@ -1502,10 +1502,8 @@ class OkHttpStalkerApiService @Inject constructor(
             append("\"sn\":\"").append(profile.serialNumber).append("\",")
             append("\"model\":\"").append(profile.deviceProfile).append("\",")
             append("\"type\":\"STB\",")
-            append("\"uid\":\"").append(profile.deviceId.take(16)).append("\",")
-            append("\"random\":\"").append(profile.deviceId2.take(16)).append("\",")
-            append("\"signature\":\"").append(profile.signature.take(16)).append("\",")
-            append("\"video_out\":\"hdmi\"")
+            append("\"uid\":\"").append(profile.deviceId2.take(16)).append("\",")
+            append("\"random\":\"").append(profile.deviceId2.take(16)).append('"')
             append('}')
         }
     }
@@ -2493,9 +2491,9 @@ private fun StalkerDeviceProfile.withRecipe(
         timezone = timezone,
         locale = locale,
         serialNumberOverride = serialNumber,
-        deviceIdOverride = "",
-        deviceId2Override = "",
-        signatureOverride = ""
+        deviceIdOverride = deviceId,
+        deviceId2Override = deviceId2,
+        signatureOverride = signature
     )
 }
 
