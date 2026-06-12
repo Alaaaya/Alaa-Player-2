@@ -1423,7 +1423,7 @@ class OkHttpStalkerApiService @Inject constructor(
             "hw_version_2" to preset.hwVersion,
             "timestamp" to timestamp,
             "api_signature" to preset.apiSignature,
-            "prehash" to if (preset.requireStrictIdentity) "1" else "0",
+            "prehash" to "false",
             "num_banks" to "2",
             "player_version" to preset.imageVersion,
             "stb_lang" to profile.locale.ifBlank { preset.localization.substringBefore('.') },

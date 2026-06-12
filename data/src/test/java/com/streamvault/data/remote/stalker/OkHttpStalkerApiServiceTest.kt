@@ -536,6 +536,52 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_sends_literal_false_for_prehash() = runTest {
+        val requestedPrehash = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedPrehash += request.url.queryParameter("prehash").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                magPresetHint = StalkerMagPreset.MINISTRA_MODERN,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPrehash).isNotEmpty()
+        assertThat(requestedPrehash).contains("false")
+        assertThat(requestedPrehash).doesNotContain("1")
+        assertThat(requestedPrehash).doesNotContain("0")
+    }
+
+    @Test
     fun authenticate_reads_json_from_callback_wrapper_and_control_char_noise() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
