@@ -40,9 +40,6 @@ class ProviderSetupCompletionLayerTest {
                     selectedM3uUrl = "",
                     filesDir = InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
                     onProviderAdded = { providerAddedCount++ },
-                    onDismissCompletionWarning = {
-                        uiState = uiState.copy(completionWarning = null)
-                    },
                     onAttachCreatedProvider = {},
                     onSkipCreatedProviderCombinedAttach = {},
                     cleanupImportedFiles = { _, _, _ -> cleanupCallCount++ }
