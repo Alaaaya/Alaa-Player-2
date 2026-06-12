@@ -486,6 +486,56 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_uses_device_id2_for_metrics_uid_and_omits_signature_and_video_out() = runTest {
+        val requestedMetrics = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        requestedMetrics += request.url.queryParameter("metrics").orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en",
+                serialNumberOverride = "SERIAL123",
+                deviceIdOverride = "DEVICEID1234567890",
+                deviceId2Override = "DEVICEID2ABCDEFGH",
+                signatureOverride = "SIGNATURE12345678"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val metrics = requestedMetrics.single()
+        assertThat(metrics).contains("\"uid\":\"DEVICEID2ABCDEFG\"")
+        assertThat(metrics).contains("\"random\":\"DEVICEID2ABCDEFG\"")
+        assertThat(metrics).doesNotContain("signature")
+        assertThat(metrics).doesNotContain("video_out")
+    }
+
+    @Test
     fun authenticate_reads_json_from_callback_wrapper_and_control_char_noise() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
