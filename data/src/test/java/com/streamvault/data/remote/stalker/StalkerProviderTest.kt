@@ -60,6 +60,29 @@ class StalkerProviderTest {
     }
 
     @Test
+    fun authenticate_leaves_optional_identity_fields_empty_when_not_configured() = runTest {
+        val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.authenticate()
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val authProfile = checkNotNull(api.lastAuthenticateProfile)
+        assertThat(authProfile.serialNumber).isEmpty()
+        assertThat(authProfile.deviceId).isEmpty()
+        assertThat(authProfile.deviceId2).isEmpty()
+        assertThat(authProfile.signature).isEmpty()
+    }
+
+    @Test
     fun getLiveStreams_maps_archive_capabilities_to_catch_up_fields() = runTest {
         val provider = StalkerProvider(
             providerId = 7,
@@ -405,8 +428,8 @@ class StalkerProviderTest {
         val success = result as Result.Success
         assertThat(success.data.stalkerMagPreset).isEqualTo(com.streamvault.domain.model.StalkerMagPreset.MINISTRA_MODERN)
         assertThat(success.data.stalkerDeviceProfile).isEqualTo("MAG322")
-        assertThat(success.data.stalkerDeviceId).isNotEmpty()
-        assertThat(success.data.stalkerSignature).isNotEmpty()
+        assertThat(success.data.stalkerDeviceId).isEmpty()
+        assertThat(success.data.stalkerSignature).isEmpty()
     }
 
     private class FakeStalkerApiService(
@@ -417,15 +440,19 @@ class StalkerProviderTest {
     ) : StalkerApiService {
         var createLinkCalls: Int = 0
             private set
+        var lastAuthenticateProfile: StalkerDeviceProfile? = null
+            private set
 
-        override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> =
-            Result.success(
+        override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
+            lastAuthenticateProfile = profile
+            return Result.success(
                 StalkerSession(
                     loadUrl = "https://portal.example.com/server/load.php",
                     portalReferer = "https://portal.example.com/c/",
                     token = "token"
                 ) to this.profile
             )
+        }
 
         override suspend fun getLiveCategories(
             session: StalkerSession,

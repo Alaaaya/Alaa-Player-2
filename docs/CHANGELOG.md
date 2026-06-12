@@ -8,6 +8,7 @@ All notable product changes are recorded in this document.
 
 - Fixed Stalker endpoint handling so authenticated requests stay on the discovered API endpoint instead of retrying the sibling `portal.php` or `server/load.php` path automatically.
 - Fixed Stalker request and playback cookies to only send the required `mac`, `stb_lang`, and `timezone` client values, with encoded cookie formatting and no extra device-identity cookies.
+- Fixed Stalker device-profile generation so empty Serial Number, Device ID, Device ID2, and Signature fields stay empty instead of being auto-generated.
 
 ## [1.0.14] - 2026-06-06
 
