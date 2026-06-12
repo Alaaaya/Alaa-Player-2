@@ -21,7 +21,6 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.URI
 import java.net.URLEncoder
-import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -2416,11 +2415,6 @@ internal fun buildStalkerDeviceProfile(
         normalizedMac = normalizedMac,
         normalizedUsername = normalizedUsername
     )
-    val serialSeed = normalizedMac.replace(":", "").ifBlank { username.trim().uppercase(Locale.ROOT) }
-    val serialNumber = serialNumberOverride.ifBlank { serialSeed.takeLast(13).padStart(13, '0') }
-    val deviceId = deviceIdOverride.ifBlank { stalkerDigest("device:$normalizedProfile:$normalizedMac") }
-    val deviceId2 = deviceId2Override.ifBlank { stalkerDigest("device2:$normalizedProfile:$normalizedMac") }
-    val signature = signatureOverride.ifBlank { stalkerDigest("signature:$normalizedProfile:$normalizedMac:$normalizedTimezone") }
     return StalkerDeviceProfile(
         portalUrl = portalUrl,
         macAddress = normalizedMac,
@@ -2436,10 +2430,10 @@ internal fun buildStalkerDeviceProfile(
         deviceProfile = normalizedProfile,
         timezone = normalizedTimezone,
         locale = normalizedLocale,
-        serialNumber = serialNumber,
-        deviceId = deviceId,
-        deviceId2 = deviceId2,
-        signature = signature,
+        serialNumber = serialNumberOverride.trim().uppercase(Locale.ROOT),
+        deviceId = deviceIdOverride.trim().uppercase(Locale.ROOT),
+        deviceId2 = deviceId2Override.trim().uppercase(Locale.ROOT),
+        signature = signatureOverride.trim().uppercase(Locale.ROOT),
         userAgent = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) $normalizedProfile stbapp ver: 2 rev: ${preset.imageVersion} Safari/533.3",
         xUserAgent = "Model: $normalizedProfile; Link: Ethernet"
     )
@@ -2504,11 +2498,6 @@ private fun StalkerDeviceProfile.withRecipe(
         signatureOverride = ""
     )
 }
-
-private fun stalkerDigest(seed: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(seed.toByteArray(Charsets.UTF_8))
-        .joinToString("") { byte -> "%02X".format(byte.toInt() and 0xFF) }
 
 internal fun parseExpirationDate(raw: String?): Long? {
     val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null

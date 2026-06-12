@@ -469,6 +469,23 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun buildStalkerDeviceProfile_leaves_optional_identity_fields_empty_when_not_provided() {
+        val profile = buildStalkerDeviceProfile(
+            portalUrl = "https://portal.example.com/c",
+            macAddress = "00:1A:79:12:34:56",
+            username = "alice",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(profile.serialNumber).isEmpty()
+        assertThat(profile.deviceId).isEmpty()
+        assertThat(profile.deviceId2).isEmpty()
+        assertThat(profile.signature).isEmpty()
+    }
+
+    @Test
     fun authenticate_reads_json_from_callback_wrapper_and_control_char_noise() = runTest {
         val service = OkHttpStalkerApiService(
             okHttpClient = fakeClient(
