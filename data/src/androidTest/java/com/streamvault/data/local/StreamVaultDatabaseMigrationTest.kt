@@ -1192,16 +1192,17 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate57To60_upgradeChainValidatesLatestSchema() {
+    fun migrate57To61_upgradeChainValidatesLatestSchema() {
         migrationTestHelper.createDatabase("streamvault-57-60-test", 57).close()
 
         val migratedDb = migrationTestHelper.runMigrationsAndValidate(
             "streamvault-57-60-test",
-            60,
+            61,
             true,
             StreamVaultDatabase.MIGRATION_57_58,
             StreamVaultDatabase.MIGRATION_58_59,
-            StreamVaultDatabase.MIGRATION_59_60
+            StreamVaultDatabase.MIGRATION_59_60,
+            StreamVaultDatabase.MIGRATION_60_61
         )
 
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'source_stream_url'"))
@@ -1209,7 +1210,23 @@ class StreamVaultDatabaseMigrationTest {
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'container_extension'"))
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'supports_resume'"))
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'retry_count'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_advanced_options_json'"))
 
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate60To61_addsStalkerAdvancedOptionsJson() {
+        migrationTestHelper.createDatabase("streamvault-60-61-test", 60).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-60-61-test",
+            61,
+            true,
+            StreamVaultDatabase.MIGRATION_60_61
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_advanced_options_json'"))
         migratedDb.close()
     }
 

@@ -105,6 +105,144 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_applies_getProfile_param_overrides_and_keeps_jshttprequest_last() = runTest {
+        var profileRawQuery = ""
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (action == "get_profile") {
+                        profileRawQuery = request.url.encodedQuery.orEmpty()
+                    }
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en",
+                stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(
+                    StalkerAdvancedOptions(
+                        requestRules = listOf(
+                            StalkerRequestRule(
+                                action = "get_profile",
+                                paramOverrides = listOf(
+                                    StalkerParamOverride("hd", "0"),
+                                    StalkerParamOverride("signature", ""),
+                                    StalkerParamOverride("custom_param", "custom-value")
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(profileRawQuery).contains("hd=0")
+        assertThat(profileRawQuery).doesNotContain("&signature=")
+        assertThat(profileRawQuery).contains("custom_param=custom-value")
+        assertThat(profileRawQuery.substringAfterLast("&")).isEqualTo("JsHttpRequest=1-xml")
+    }
+
+    @Test
+    fun authenticate_blockedCriticalRequestFailsLogin() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "handshake" to """{"js":{"token":"token-123"}}""",
+                "get_profile" to """{"js":{"name":"Living Room","status":"1"}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en",
+                stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(
+                    StalkerAdvancedOptions(
+                        requestRules = listOf(
+                            StalkerRequestRule(action = "get_profile", blockRequest = true)
+                        )
+                    )
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).message).contains("blocked")
+    }
+
+    @Test
+    fun authenticate_applies_stalker_custom_header_overrides_and_removals() = runTest {
+        val seenUserAgents = mutableListOf<String?>()
+        val seenReferers = mutableListOf<String?>()
+        val seenCustomHeaders = mutableListOf<String?>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    seenUserAgents += request.header("User-Agent")
+                    seenReferers += request.header("Referer")
+                    seenCustomHeaders += request.header("X-Test")
+                    val action = request.url.queryParameter("action").orEmpty()
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en",
+                httpUserAgentOverride = "Dedicated Agent/1.0",
+                httpHeadersOverride = "User-Agent: Header Agent/2.0 | Referer: | X-Test: enabled"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(seenUserAgents).contains("Header Agent/2.0")
+        assertThat(seenReferers).doesNotContain("https://portal.example.com/c/")
+        assertThat(seenCustomHeaders).contains("enabled")
+    }
+
+    @Test
     fun authenticate_module_gated_recipe_rebuilds_profile_for_modern_mag_preset() = runTest {
         val requestedStbTypes = mutableListOf<String>()
         val requestedAgents = mutableListOf<String>()

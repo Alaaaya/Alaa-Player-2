@@ -63,6 +63,7 @@ import com.streamvault.player.timeshift.LiveTimeshiftBackend
 import com.streamvault.player.timeshift.LiveTimeshiftState
 import com.streamvault.player.timeshift.LiveTimeshiftStatus
 import com.streamvault.player.timeshift.TimeshiftConfig
+import com.streamvault.player.playback.applyUnsafeTlsBypass
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -73,6 +74,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
+import java.net.InetSocketAddress
+import java.net.Proxy
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -1393,7 +1396,19 @@ class PlayerViewModel @Inject constructor(
                         }
                     }
                     .build()
-                okHttpClient.newCall(request).execute().use { response ->
+                val probeClient = if (streamInfo.allowInvalidSsl || streamInfo.proxyHost.isNotBlank()) {
+                    okHttpClient.newBuilder()
+                        .apply {
+                            if (streamInfo.allowInvalidSsl) {
+                                applyUnsafeTlsBypass()
+                            }
+                            streamInfo.httpProxy()?.let { proxy(it) }
+                        }
+                        .build()
+                } else {
+                    okHttpClient
+                }
+                probeClient.newCall(request).execute().use { response ->
                     resolvePlaybackProbeFailure(response.code)
                 }
             }
@@ -1417,6 +1432,12 @@ class PlayerViewModel @Inject constructor(
                 provider.type == com.streamvault.domain.model.ProviderType.STALKER_PORTAL
             ) &&
             (xtreamStreamUrlResolver.isInternalStreamUrl(currentStreamUrl) || xtreamStreamUrlResolver.isInternalStreamUrl(url))
+    }
+
+    private fun StreamInfo.httpProxy(): Proxy? {
+        val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+        val port = proxyPort ?: return null
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }
 
     fun prepare(

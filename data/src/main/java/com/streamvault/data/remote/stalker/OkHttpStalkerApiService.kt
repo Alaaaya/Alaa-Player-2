@@ -20,6 +20,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.URI
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URLEncoder
 import java.time.Instant
 import java.time.LocalDate
@@ -49,10 +51,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -63,9 +66,7 @@ class OkHttpStalkerApiService @Inject constructor(
     private val json: Json
 ) : StalkerApiService {
     private val cookieJar = InMemoryStalkerCookieJar()
-    private val stalkerHttpClient: OkHttpClient = okHttpClient.newBuilder()
-        .cookieJar(cookieJar)
-        .build()
+    private val stalkerHttpClients = ConcurrentHashMap<String, OkHttpClient>()
 
     override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
         var lastError: Throwable? = null
@@ -922,8 +923,9 @@ class OkHttpStalkerApiService @Inject constructor(
         method: String = "GET",
         body: String? = null
     ): JsonElement = withContext(Dispatchers.IO) {
-        val action = query["action"]
-        val fullUrl = buildUrl(url, query)
+        val effectiveQuery = prepareQuery(profile, query)
+        val action = effectiveQuery["action"]
+        val fullUrl = buildUrl(url, effectiveQuery)
         val requestBuilder = Request.Builder()
             .url(fullUrl)
             .header("User-Agent", profile.userAgent)
@@ -934,13 +936,14 @@ class OkHttpStalkerApiService @Inject constructor(
             .apply {
                 token?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
             }
+            .applyStalkerHeaderOverrides(profile.headerOverrides)
         val requestBody = body?.toRequestBody(FORM_URL_ENCODED_MEDIA_TYPE)
         val request = requestBuilder
             .method(method, requestBody)
             .build()
 
         runCatching {
-            executeJsonRequest(request, action)
+            executeJsonRequest(request, action, profile)
         }.recoverCatching { error ->
             if (!allowAlternateEndpointRetry) throw error
             val alternateUrl = siblingLoadUrl(url)
@@ -951,17 +954,18 @@ class OkHttpStalkerApiService @Inject constructor(
                 "Retrying Stalker ${action.orEmpty()} via alternate endpoint $alternateUrl after ${error.message}"
             )
             val alternateRequest = request.newBuilder()
-                .url(buildUrl(alternateUrl, query))
+                .url(buildUrl(alternateUrl, effectiveQuery))
                 .header("Referer", StalkerUrlFactory.portalReferer(alternateUrl))
-                .header("Cookie", buildCookieHeader(buildUrl(alternateUrl, query), profile))
+                .header("Cookie", buildCookieHeader(buildUrl(alternateUrl, effectiveQuery), profile))
+                .applyStalkerHeaderOverrides(profile.headerOverrides)
                 .method(method, requestBody)
                 .build()
-            executeJsonRequest(alternateRequest, action)
+            executeJsonRequest(alternateRequest, action, profile)
         }.getOrElse { throw it }
     }
 
-    private fun executeJsonRequest(request: Request, action: String?): JsonElement {
-        return stalkerHttpClient.newCall(request).execute().use { response ->
+    private fun executeJsonRequest(request: Request, action: String?, profile: StalkerDeviceProfile): JsonElement {
+        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 response.body?.close()
@@ -1041,8 +1045,9 @@ class OkHttpStalkerApiService @Inject constructor(
         token: String,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int = withContext(Dispatchers.IO) {
-        val action = query["action"]
-        val fullUrl = buildUrl(url, query)
+        val effectiveQuery = prepareQuery(profile, query)
+        val action = effectiveQuery["action"]
+        val fullUrl = buildUrl(url, effectiveQuery)
         val request = Request.Builder()
             .url(fullUrl)
             .header("User-Agent", profile.userAgent)
@@ -1051,18 +1056,20 @@ class OkHttpStalkerApiService @Inject constructor(
             .header("Accept", "*/*")
             .header("Cookie", buildCookieHeader(fullUrl, profile))
             .header("Authorization", "Bearer $token")
+            .applyStalkerHeaderOverrides(profile.headerOverrides)
             .get()
             .build()
 
-        executeStreamingRequest(request, action, onItem)
+        executeStreamingRequest(request, action, profile, onItem)
     }
 
     private suspend fun executeStreamingRequest(
         request: Request,
         action: String?,
+        profile: StalkerDeviceProfile,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int {
-        return stalkerHttpClient.newCall(request).execute().use { response ->
+        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 throw IOException("Portal request failed with HTTP ${response.code}.")
@@ -1173,8 +1180,9 @@ class OkHttpStalkerApiService @Inject constructor(
         channelIdOverride: String?,
         onProgram: suspend (StalkerProgramRecord) -> Unit
     ): Int = withContext(Dispatchers.IO) {
-        val action = query["action"]
-        val fullUrl = buildUrl(url, query)
+        val effectiveQuery = prepareQuery(profile, query)
+        val action = effectiveQuery["action"]
+        val fullUrl = buildUrl(url, effectiveQuery)
         val request = Request.Builder()
             .url(fullUrl)
             .header("User-Agent", profile.userAgent)
@@ -1183,19 +1191,21 @@ class OkHttpStalkerApiService @Inject constructor(
             .header("Accept", "*/*")
             .header("Cookie", buildCookieHeader(fullUrl, profile))
             .header("Authorization", "Bearer $token")
+            .applyStalkerHeaderOverrides(profile.headerOverrides)
             .get()
             .build()
 
-        executeStreamingPrograms(request, action, channelIdOverride, onProgram)
+        executeStreamingPrograms(request, action, profile, channelIdOverride, onProgram)
     }
 
     private suspend fun executeStreamingPrograms(
         request: Request,
         action: String?,
+        profile: StalkerDeviceProfile,
         channelIdOverride: String?,
         onProgram: suspend (StalkerProgramRecord) -> Unit
     ): Int {
-        return stalkerHttpClient.newCall(request).execute().use { response ->
+        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 throw IOException("Portal request failed with HTTP ${response.code}.")
@@ -1398,14 +1408,60 @@ class OkHttpStalkerApiService @Inject constructor(
         return "${baseUrl.trimEnd('/')}?$encodedQuery"
     }
 
+    private fun prepareQuery(
+        profile: StalkerDeviceProfile,
+        query: Map<String, String>
+    ): LinkedHashMap<String, String> {
+        val action = query["action"].orEmpty()
+        val matchingRule = profile.advancedOptions.requestRules
+            .firstOrNull { it.action.trim() == action }
+        if (matchingRule?.blockRequest == true) {
+            throw IOException("Stalker request '$action' was blocked by advanced settings.")
+        }
+        val prepared = LinkedHashMap<String, String>()
+        query.forEach { (key, value) -> prepared[key] = value }
+        matchingRule?.paramOverrides.orEmpty().forEach { override ->
+            val name = override.name.trim()
+            if (name.isBlank()) return@forEach
+            val value = override.value
+            if (value.isBlank()) {
+                prepared.remove(name)
+            } else {
+                prepared[name] = value
+            }
+        }
+        if (action == "get_profile" && prepared.containsKey("JsHttpRequest")) {
+            val jsValue = prepared.remove("JsHttpRequest")
+            if (jsValue != null) {
+                prepared["JsHttpRequest"] = jsValue
+            }
+        }
+        return prepared
+    }
+
+    private fun stalkerHttpClientFor(profile: StalkerDeviceProfile): OkHttpClient {
+        val proxy = profile.advancedOptions.proxy
+        val key = proxy?.let { "${it.host}:${it.port}" } ?: "<direct>"
+        return stalkerHttpClients.computeIfAbsent(key) {
+            okHttpClient.newBuilder()
+                .cookieJar(cookieJar)
+                .apply {
+                    if (proxy != null) {
+                        proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxy.host, proxy.port)))
+                    }
+                }
+                .build()
+        }
+    }
+
     private fun buildProfileQuery(profile: StalkerDeviceProfile): Map<String, String> {
         val timestamp = (System.currentTimeMillis() / 1000L).toString()
         val preset = stalkerMagPresetSpec(profile.magPreset)
         val metrics = buildMetricsJson(profile, preset)
-        return mapOf(
+        val hwVersion = profile.advancedOptions.hwVersion.trim().ifBlank { preset.hwVersion }
+        return linkedMapOf(
             "type" to "stb",
             "action" to "get_profile",
-            "JsHttpRequest" to "1-xml",
             "hd" to "1",
             "ver" to preset.versionString,
             "sn" to profile.serialNumber,
@@ -1417,17 +1473,18 @@ class OkHttpStalkerApiService @Inject constructor(
             "device_id2" to profile.deviceId2,
             "signature" to profile.signature,
             "auth_second_step" to "1",
-            "hw_version" to preset.hwVersion,
+            "hw_version" to hwVersion,
             "not_valid_token" to "0",
             "metrics" to metrics,
-            "hw_version_2" to preset.hwVersion,
+            "hw_version_2" to hwVersion,
             "timestamp" to timestamp,
             "api_signature" to preset.apiSignature,
             "prehash" to "false",
             "num_banks" to "2",
             "player_version" to preset.imageVersion,
             "stb_lang" to profile.locale.ifBlank { preset.localization.substringBefore('.') },
-            "locale" to preset.localization
+            "locale" to preset.localization,
+            "JsHttpRequest" to "1-xml"
         )
     }
 
@@ -2391,11 +2448,15 @@ internal fun buildStalkerDeviceProfile(
     deviceProfile: String,
     timezone: String,
     locale: String,
+    httpUserAgentOverride: String = "",
+    httpHeadersOverride: String = "",
     serialNumberOverride: String = "",
     deviceIdOverride: String = "",
     deviceId2Override: String = "",
-    signatureOverride: String = ""
+    signatureOverride: String = "",
+    stalkerAdvancedOptionsJson: String = ""
 ): StalkerDeviceProfile {
+    val advancedOptions = StalkerAdvancedOptionsCodec.decode(stalkerAdvancedOptionsJson)
     val preset = stalkerMagPresetSpec(magPresetHint)
     val normalizedInputProfile = deviceProfile.trim()
     val normalizedProfile = when {
@@ -2408,11 +2469,26 @@ internal fun buildStalkerDeviceProfile(
     val normalizedLocale = locale.ifBlank { Locale.getDefault().language.ifBlank { "en" } }
     val normalizedMac = macAddress.uppercase(Locale.ROOT)
     val normalizedUsername = username.trim()
+    val normalizedHttpUserAgent = httpUserAgentOverride.trim()
+    val normalizedHttpHeaders = httpHeadersOverride.trim()
+    val headerOverrides = parseStalkerHeaderOverrides(normalizedHttpHeaders)
     val effectiveAuthMode = sanitizeStalkerAuthMode(
         requested = authMode,
         normalizedMac = normalizedMac,
         normalizedUsername = normalizedUsername
     )
+    val defaultUserAgent =
+        "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) $normalizedProfile stbapp ver: 2 rev: ${preset.imageVersion} Safari/533.3"
+    val apiUserAgent = advancedOptions.apiUserAgent.trim().ifBlank {
+        resolveStalkerUserAgent(
+            defaultUserAgent = defaultUserAgent,
+            httpUserAgentOverride = normalizedHttpUserAgent,
+            headerOverrides = headerOverrides
+        ).orEmpty()
+    }
+    val playerUserAgent = advancedOptions.playerUserAgent.trim().ifBlank {
+        apiUserAgent
+    }
     return StalkerDeviceProfile(
         portalUrl = portalUrl,
         macAddress = normalizedMac,
@@ -2432,8 +2508,13 @@ internal fun buildStalkerDeviceProfile(
         deviceId = deviceIdOverride.trim().uppercase(Locale.ROOT),
         deviceId2 = deviceId2Override.trim().uppercase(Locale.ROOT),
         signature = signatureOverride.trim().uppercase(Locale.ROOT),
-        userAgent = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) $normalizedProfile stbapp ver: 2 rev: ${preset.imageVersion} Safari/533.3",
-        xUserAgent = "Model: $normalizedProfile; Link: Ethernet"
+        userAgent = apiUserAgent,
+        playerUserAgent = playerUserAgent,
+        xUserAgent = "Model: $normalizedProfile; Link: ${advancedOptions.normalizedLink}",
+        httpUserAgent = normalizedHttpUserAgent,
+        httpHeaders = normalizedHttpHeaders,
+        headerOverrides = headerOverrides,
+        advancedOptions = advancedOptions
     )
 }
 
@@ -2490,11 +2571,55 @@ private fun StalkerDeviceProfile.withRecipe(
         deviceProfile = deviceProfile,
         timezone = timezone,
         locale = locale,
+        httpUserAgentOverride = httpUserAgent,
+        httpHeadersOverride = httpHeaders,
         serialNumberOverride = serialNumber,
         deviceIdOverride = deviceId,
         deviceId2Override = deviceId2,
-        signatureOverride = signature
+        signatureOverride = signature,
+        stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(advancedOptions)
     )
+}
+
+private fun parseStalkerHeaderOverrides(rawHeaders: String): Map<String, String?> {
+    if (rawHeaders.isBlank()) return emptyMap()
+    return buildMap {
+        rawHeaders
+            .split('|')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { entry ->
+                val separatorIndex = entry.indexOf(':')
+                if (separatorIndex <= 0) return@forEach
+                val name = entry.substring(0, separatorIndex).trim()
+                if (name.isEmpty()) return@forEach
+                val value = entry.substring(separatorIndex + 1).trim().ifEmpty { null }
+                put(name, value)
+            }
+    }
+}
+
+private fun resolveStalkerUserAgent(
+    defaultUserAgent: String,
+    httpUserAgentOverride: String,
+    headerOverrides: Map<String, String?>
+): String? {
+    val overriddenUserAgent = headerOverrides.entries.firstOrNull { (name, _) ->
+        name.equals("User-Agent", ignoreCase = true)
+    }?.value
+    return overriddenUserAgent ?: httpUserAgentOverride.ifBlank { defaultUserAgent }
+}
+
+private fun Request.Builder.applyStalkerHeaderOverrides(
+    headerOverrides: Map<String, String?>
+): Request.Builder = apply {
+    headerOverrides.forEach { (name, value) ->
+        if (value == null) {
+            removeHeader(name)
+        } else {
+            header(name, value)
+        }
+    }
 }
 
 internal fun parseExpirationDate(raw: String?): Long? {

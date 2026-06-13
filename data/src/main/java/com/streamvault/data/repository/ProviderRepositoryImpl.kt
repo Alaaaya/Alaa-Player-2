@@ -352,6 +352,8 @@ class ProviderRepositoryImpl @Inject constructor(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -359,6 +361,7 @@ class ProviderRepositoryImpl @Inject constructor(
         deviceId: String,
         deviceId2: String,
         signature: String,
+        stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -374,6 +377,7 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedDeviceId = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId)
         val normalizedDeviceId2 = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId2)
         val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
+        val normalizedAdvancedOptionsJson = stalkerAdvancedOptionsJson.trim()
 
         ProviderInputSanitizer.validateUrl(normalizedPortalUrl)?.let { message ->
             return Result.error(message)
@@ -414,13 +418,16 @@ class ProviderRepositoryImpl @Inject constructor(
             authMode = authMode,
             username = normalizedUsername,
             password = effectivePassword,
+            httpUserAgent = httpUserAgent,
+            httpHeaders = httpHeaders,
             deviceProfile = normalizedDeviceProfile,
             timezone = normalizedTimezone,
             locale = normalizedLocale,
             serialNumber = normalizedSerialNumber,
             deviceId = normalizedDeviceId,
             deviceId2 = normalizedDeviceId2,
-            signature = normalizedSignature
+            signature = normalizedSignature,
+            stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson
         )
 
         return when (val authResult = provider.authenticate()) {
@@ -433,6 +440,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         serverUrl = normalizedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
+                        httpUserAgent = httpUserAgent,
+                        httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -441,6 +450,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId = normalizedDeviceId,
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
+                        stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
@@ -458,6 +468,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         serverUrl = normalizedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
+                        httpUserAgent = httpUserAgent,
+                        httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -466,6 +478,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId = normalizedDeviceId,
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
+                        stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
@@ -787,6 +800,8 @@ class ProviderRepositoryImpl @Inject constructor(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String = "",
+        httpHeaders: String = "",
         portalFingerprintHint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
         magPresetHint: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
         bootstrapRecipeHint: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
@@ -801,7 +816,8 @@ class ProviderRepositoryImpl @Inject constructor(
         serialNumber: String = "",
         deviceId: String = "",
         deviceId2: String = "",
-        signature: String = ""
+        signature: String = "",
+        stalkerAdvancedOptionsJson: String = ""
     ): StalkerProvider {
         return StalkerProvider(
             providerId = providerId,
@@ -811,6 +827,8 @@ class ProviderRepositoryImpl @Inject constructor(
             authMode = authMode,
             username = username,
             password = password,
+            httpUserAgent = httpUserAgent,
+            httpHeaders = httpHeaders,
             portalFingerprintHint = portalFingerprintHint,
             magPresetHint = magPresetHint,
             bootstrapRecipeHint = bootstrapRecipeHint,
@@ -825,7 +843,8 @@ class ProviderRepositoryImpl @Inject constructor(
             serialNumber = serialNumber,
             deviceId = deviceId,
             deviceId2 = deviceId2,
-            signature = signature
+            signature = signature,
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
         )
     }
 
@@ -841,6 +860,8 @@ class ProviderRepositoryImpl @Inject constructor(
             } catch (_: Throwable) {
                 ""
             },
+            httpUserAgent = entity.httpUserAgent,
+            httpHeaders = entity.httpHeaders,
             portalFingerprintHint = entity.stalkerPortalFingerprint,
             magPresetHint = entity.stalkerMagPreset,
             bootstrapRecipeHint = entity.stalkerLastBootstrapRecipe,
@@ -856,7 +877,8 @@ class ProviderRepositoryImpl @Inject constructor(
             serialNumber = entity.stalkerSerialNumber,
             deviceId = entity.stalkerDeviceId,
             deviceId2 = entity.stalkerDeviceId2,
-            signature = entity.stalkerSignature
+            signature = entity.stalkerSignature,
+            stalkerAdvancedOptionsJson = entity.stalkerAdvancedOptionsJson
         )
     }
 

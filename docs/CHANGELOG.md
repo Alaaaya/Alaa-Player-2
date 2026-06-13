@@ -12,6 +12,16 @@ All notable product changes are recorded in this document.
 - Fixed Stalker profile metrics so `uid` uses Device ID2, and removed `video_out` and `signature` from the generated metrics payload.
 - Fixed Stalker profile requests to send `prehash=false` literally instead of numeric `0`/`1` values.
 
+### Added
+
+- Added Stalker advanced HTTP header overrides, including support for custom headers and removing default request/playback headers by leaving an override value blank.
+- Added Stalker-specific SSL bypass handling for portal requests and player playback so invalid HTTPS certificates no longer block those connections.
+- Added Stalker advanced compatibility options for hw_version, separate API/player User-Agent values, Ethernet/WiFi X-User-Agent link type, HTTP proxy support for API and playback, and action-scoped request blocking/parameter overrides.
+
+### Changed
+
+- Changed the Stalker `Device profile` field label in setup to `MAG Type` while keeping the same underlying saved value and behavior.
+
 ## [1.0.14] - 2026-06-06
 
 ### Added

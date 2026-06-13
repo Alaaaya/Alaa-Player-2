@@ -474,6 +474,9 @@ class MovieRepositoryImpl @Inject constructor(
                     title = movie.name,
                     headers = resolvedStream.headers,
                     userAgent = resolvedStream.userAgent,
+                    allowInvalidSsl = resolvedStream.allowInvalidSsl,
+                    proxyHost = resolvedStream.proxyHost,
+                    proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
                     expirationTime = resolvedStream.expirationTime

@@ -80,6 +80,10 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.screens.settings.BackupImportPreviewDialog
 import com.streamvault.app.ui.theme.*
+import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
+import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
+import com.streamvault.data.remote.stalker.StalkerParamOverride
+import com.streamvault.data.remote.stalker.StalkerRequestRule
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
@@ -95,6 +99,35 @@ import kotlin.coroutines.resume
 // ??? Source type ?????????????????????????????????????????????????????????????
 
 private enum class SourceType { XTREAM, STALKER, M3U_URL, M3U_FILE }
+
+private data class StalkerRequestRuleUiState(
+    val action: String = "",
+    val blockRequest: Boolean = false,
+    val paramsText: String = ""
+)
+
+private fun StalkerRequestRuleUiState.toRule(): StalkerRequestRule =
+    StalkerRequestRule(
+        action = action.trim(),
+        blockRequest = blockRequest,
+        paramOverrides = paramsText
+            .split('|', '\n')
+            .mapNotNull { entry ->
+                val trimmed = entry.trim()
+                if (trimmed.isBlank()) return@mapNotNull null
+                val separator = trimmed.indexOf('=').takeIf { it >= 0 } ?: trimmed.indexOf(':')
+                val name = if (separator >= 0) trimmed.substring(0, separator).trim() else trimmed
+                val value = if (separator >= 0) trimmed.substring(separator + 1).trim() else ""
+                name.takeIf { it.isNotBlank() }?.let { StalkerParamOverride(it, value) }
+            }
+    )
+
+private fun StalkerRequestRule.toUiState(): StalkerRequestRuleUiState =
+    StalkerRequestRuleUiState(
+        action = action,
+        blockRequest = blockRequest,
+        paramsText = paramOverrides.joinToString(" | ") { "${it.name}=${it.value}" }
+    )
 
 // ??? Screen ??????????????????????????????????????????????????????????????????
 
@@ -131,6 +164,14 @@ fun ProviderSetupScreen(
     var stalkerDeviceId by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceId2 by rememberSaveable { mutableStateOf("") }
     var stalkerSignature by rememberSaveable { mutableStateOf("") }
+    var stalkerHwVersion by rememberSaveable { mutableStateOf("") }
+    var stalkerApiUserAgent by rememberSaveable { mutableStateOf("") }
+    var stalkerPlayerUserAgent by rememberSaveable { mutableStateOf("") }
+    var stalkerXUserAgentLink by rememberSaveable { mutableStateOf(StalkerAdvancedOptions.LINK_ETHERNET) }
+    var stalkerProxyEnabled by rememberSaveable { mutableStateOf(false) }
+    var stalkerProxyHost by rememberSaveable { mutableStateOf("") }
+    var stalkerProxyPort by rememberSaveable { mutableStateOf("") }
+    val stalkerRequestRules = remember { mutableStateListOf<StalkerRequestRuleUiState>() }
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
     var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
     var showDiscardDraftDialog by rememberSaveable { mutableStateOf(false) }
@@ -250,8 +291,35 @@ fun ProviderSetupScreen(
             stalkerDeviceId = uiState.stalkerDeviceId
             stalkerDeviceId2 = uiState.stalkerDeviceId2
             stalkerSignature = uiState.stalkerSignature
+            val advanced = StalkerAdvancedOptionsCodec.decode(uiState.stalkerAdvancedOptionsJson)
+            stalkerHwVersion = advanced.hwVersion
+            stalkerApiUserAgent = advanced.apiUserAgent
+            stalkerPlayerUserAgent = advanced.playerUserAgent
+            stalkerXUserAgentLink = advanced.normalizedLink
+            stalkerProxyEnabled = advanced.proxyEnabled
+            stalkerProxyHost = advanced.proxyHost
+            stalkerProxyPort = advanced.proxyPort?.toString().orEmpty()
+            stalkerRequestRules.clear()
+            stalkerRequestRules.addAll(advanced.requestRules.map { it.toUiState() })
         }
     }
+
+    fun buildStalkerAdvancedOptionsJson(): String =
+        StalkerAdvancedOptionsCodec.encode(
+            StalkerAdvancedOptions(
+                hwVersion = stalkerHwVersion.trim(),
+                apiUserAgent = stalkerApiUserAgent.trim(),
+                playerUserAgent = stalkerPlayerUserAgent.trim(),
+                xUserAgentLink = stalkerXUserAgentLink,
+                proxyEnabled = stalkerProxyEnabled,
+                proxyHost = stalkerProxyHost.trim(),
+                proxyPort = stalkerProxyPort.trim().toIntOrNull(),
+                requestRules = stalkerRequestRules.map { it.toRule() }
+                    .filter { rule ->
+                        rule.action.isNotBlank() || rule.blockRequest || rule.paramOverrides.isNotEmpty()
+                    }
+            )
+        )
 
     // ?? Derived UI source type ????????????????????????????????????????????????
     val sourceType = when {
@@ -300,6 +368,14 @@ fun ProviderSetupScreen(
             stalkerDeviceId.isNotBlank() ||
             stalkerDeviceId2.isNotBlank() ||
             stalkerSignature.isNotBlank() ||
+            stalkerHwVersion.isNotBlank() ||
+            stalkerApiUserAgent.isNotBlank() ||
+            stalkerPlayerUserAgent.isNotBlank() ||
+            stalkerXUserAgentLink != StalkerAdvancedOptions.LINK_ETHERNET ||
+            stalkerProxyEnabled ||
+            stalkerProxyHost.isNotBlank() ||
+            stalkerProxyPort.isNotBlank() ||
+            stalkerRequestRules.isNotEmpty() ||
             m3uUrl.isNotBlank()
         )
 
@@ -360,10 +436,21 @@ fun ProviderSetupScreen(
                         stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
                         stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
                         stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
+                        stalkerHwVersion = stalkerHwVersion, onStalkerHwVersionChange = { stalkerHwVersion = it },
+                        stalkerApiUserAgent = stalkerApiUserAgent, onStalkerApiUserAgentChange = { stalkerApiUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerPlayerUserAgent = stalkerPlayerUserAgent, onStalkerPlayerUserAgentChange = { stalkerPlayerUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerXUserAgentLink = stalkerXUserAgentLink, onStalkerXUserAgentLinkChange = { stalkerXUserAgentLink = it },
+                        stalkerProxyEnabled = stalkerProxyEnabled, onStalkerProxyEnabledChange = { stalkerProxyEnabled = it },
+                        stalkerProxyHost = stalkerProxyHost, onStalkerProxyHostChange = { stalkerProxyHost = it.trim() },
+                        stalkerProxyPort = stalkerProxyPort, onStalkerProxyPortChange = { stalkerProxyPort = it.filter(Char::isDigit).take(5) },
+                        stalkerRequestRules = stalkerRequestRules,
+                        onAddStalkerRequestRule = { stalkerRequestRules.add(StalkerRequestRuleUiState()) },
+                        onUpdateStalkerRequestRule = { index, rule -> if (index in stalkerRequestRules.indices) stalkerRequestRules[index] = rule },
+                        onRemoveStalkerRequestRule = { index -> if (index in stalkerRequestRules.indices) stalkerRequestRules.removeAt(index) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, httpUserAgent, httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
@@ -404,10 +491,21 @@ fun ProviderSetupScreen(
                         stalkerDeviceId = stalkerDeviceId, onStalkerDeviceIdChange = { stalkerDeviceId = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
                         stalkerDeviceId2 = stalkerDeviceId2, onStalkerDeviceId2Change = { stalkerDeviceId2 = ProviderInputSanitizer.sanitizeStalkerDeviceIdForEditing(it) },
                         stalkerSignature = stalkerSignature, onStalkerSignatureChange = { stalkerSignature = ProviderInputSanitizer.sanitizeStalkerSignatureForEditing(it) },
+                        stalkerHwVersion = stalkerHwVersion, onStalkerHwVersionChange = { stalkerHwVersion = it },
+                        stalkerApiUserAgent = stalkerApiUserAgent, onStalkerApiUserAgentChange = { stalkerApiUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerPlayerUserAgent = stalkerPlayerUserAgent, onStalkerPlayerUserAgentChange = { stalkerPlayerUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerXUserAgentLink = stalkerXUserAgentLink, onStalkerXUserAgentLinkChange = { stalkerXUserAgentLink = it },
+                        stalkerProxyEnabled = stalkerProxyEnabled, onStalkerProxyEnabledChange = { stalkerProxyEnabled = it },
+                        stalkerProxyHost = stalkerProxyHost, onStalkerProxyHostChange = { stalkerProxyHost = it.trim() },
+                        stalkerProxyPort = stalkerProxyPort, onStalkerProxyPortChange = { stalkerProxyPort = it.filter(Char::isDigit).take(5) },
+                        stalkerRequestRules = stalkerRequestRules,
+                        onAddStalkerRequestRule = { stalkerRequestRules.add(StalkerRequestRuleUiState()) },
+                        onUpdateStalkerRequestRule = { index, rule -> if (index in stalkerRequestRules.indices) stalkerRequestRules[index] = rule },
+                        onRemoveStalkerRequestRule = { index -> if (index in stalkerRequestRules.indices) stalkerRequestRules.removeAt(index) },
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, httpUserAgent, httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
@@ -726,6 +824,17 @@ private fun ProviderFormContent(
     stalkerDeviceId: String, onStalkerDeviceIdChange: (String) -> Unit,
     stalkerDeviceId2: String, onStalkerDeviceId2Change: (String) -> Unit,
     stalkerSignature: String, onStalkerSignatureChange: (String) -> Unit,
+    stalkerHwVersion: String, onStalkerHwVersionChange: (String) -> Unit,
+    stalkerApiUserAgent: String, onStalkerApiUserAgentChange: (String) -> Unit,
+    stalkerPlayerUserAgent: String, onStalkerPlayerUserAgentChange: (String) -> Unit,
+    stalkerXUserAgentLink: String, onStalkerXUserAgentLinkChange: (String) -> Unit,
+    stalkerProxyEnabled: Boolean, onStalkerProxyEnabledChange: (Boolean) -> Unit,
+    stalkerProxyHost: String, onStalkerProxyHostChange: (String) -> Unit,
+    stalkerProxyPort: String, onStalkerProxyPortChange: (String) -> Unit,
+    stalkerRequestRules: List<StalkerRequestRuleUiState>,
+    onAddStalkerRequestRule: () -> Unit,
+    onUpdateStalkerRequestRule: (Int, StalkerRequestRuleUiState) -> Unit,
+    onRemoveStalkerRequestRule: (Int) -> Unit,
     fileImportError: String?,
     onFilePick: () -> Unit,
     onLoginXtream: () -> Unit,
@@ -835,7 +944,25 @@ private fun ProviderFormContent(
                         stalkerDeviceId2 = stalkerDeviceId2,
                         onStalkerDeviceId2Change = onStalkerDeviceId2Change,
                         stalkerSignature = stalkerSignature,
-                        onStalkerSignatureChange = onStalkerSignatureChange
+                        onStalkerSignatureChange = onStalkerSignatureChange,
+                        stalkerHwVersion = stalkerHwVersion,
+                        onStalkerHwVersionChange = onStalkerHwVersionChange,
+                        stalkerApiUserAgent = stalkerApiUserAgent,
+                        onStalkerApiUserAgentChange = onStalkerApiUserAgentChange,
+                        stalkerPlayerUserAgent = stalkerPlayerUserAgent,
+                        onStalkerPlayerUserAgentChange = onStalkerPlayerUserAgentChange,
+                        stalkerXUserAgentLink = stalkerXUserAgentLink,
+                        onStalkerXUserAgentLinkChange = onStalkerXUserAgentLinkChange,
+                        stalkerProxyEnabled = stalkerProxyEnabled,
+                        onStalkerProxyEnabledChange = onStalkerProxyEnabledChange,
+                        stalkerProxyHost = stalkerProxyHost,
+                        onStalkerProxyHostChange = onStalkerProxyHostChange,
+                        stalkerProxyPort = stalkerProxyPort,
+                        onStalkerProxyPortChange = onStalkerProxyPortChange,
+                        stalkerRequestRules = stalkerRequestRules,
+                        onAddStalkerRequestRule = onAddStalkerRequestRule,
+                        onUpdateStalkerRequestRule = onUpdateStalkerRequestRule,
+                        onRemoveStalkerRequestRule = onRemoveStalkerRequestRule
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -1059,7 +1186,25 @@ private fun AdvancedProviderOptionsSection(
     stalkerDeviceId2: String,
     onStalkerDeviceId2Change: (String) -> Unit,
     stalkerSignature: String,
-    onStalkerSignatureChange: (String) -> Unit
+    onStalkerSignatureChange: (String) -> Unit,
+    stalkerHwVersion: String = "",
+    onStalkerHwVersionChange: (String) -> Unit = {},
+    stalkerApiUserAgent: String = "",
+    onStalkerApiUserAgentChange: (String) -> Unit = {},
+    stalkerPlayerUserAgent: String = "",
+    onStalkerPlayerUserAgentChange: (String) -> Unit = {},
+    stalkerXUserAgentLink: String = StalkerAdvancedOptions.LINK_ETHERNET,
+    onStalkerXUserAgentLinkChange: (String) -> Unit = {},
+    stalkerProxyEnabled: Boolean = false,
+    onStalkerProxyEnabledChange: (Boolean) -> Unit = {},
+    stalkerProxyHost: String = "",
+    onStalkerProxyHostChange: (String) -> Unit = {},
+    stalkerProxyPort: String = "",
+    onStalkerProxyPortChange: (String) -> Unit = {},
+    stalkerRequestRules: List<StalkerRequestRuleUiState> = emptyList(),
+    onAddStalkerRequestRule: () -> Unit = {},
+    onUpdateStalkerRequestRule: (Int, StalkerRequestRuleUiState) -> Unit = { _, _ -> },
+    onRemoveStalkerRequestRule: (Int) -> Unit = {}
 ) {
     var showAdvancedOptions by rememberSaveable(sourceType) { mutableStateOf(false) }
     val defaultEpgSyncMode = when (sourceType) {
@@ -1073,7 +1218,7 @@ private fun AdvancedProviderOptionsSection(
         val hasNonDefaultSelection = ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER) && uiState.epgSyncMode != defaultEpgSyncMode) ||
             (sourceType == SourceType.XTREAM && uiState.xtreamLiveSyncMode != ProviderXtreamLiveSyncMode.AUTO) ||
             ((sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) && !uiState.m3uVodClassificationEnabled) ||
-            ((sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
+            ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
                 (httpUserAgent.isNotBlank() || httpHeaders.isNotBlank())) ||
             (sourceType == SourceType.STALKER && (
                 stalkerAuthMode != StalkerAuthMode.AUTO ||
@@ -1196,7 +1341,7 @@ private fun AdvancedProviderOptionsSection(
                     }
                 }
 
-                if (sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) {
+                if (sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) {
                     ProviderTextField(
                         value = httpUserAgent,
                         onValueChange = onHttpUserAgentChange,
@@ -1211,7 +1356,11 @@ private fun AdvancedProviderOptionsSection(
                     ProviderTextField(
                         value = httpHeaders,
                         onValueChange = onHttpHeadersChange,
-                        placeholder = "Custom headers (optional, Header: Value | Header2: Value)",
+                        placeholder = if (sourceType == SourceType.STALKER) {
+                            "Custom headers (optional, Header: Value | HeaderToRemove:)"
+                        } else {
+                            "Custom headers (optional, Header: Value | Header2: Value)"
+                        },
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.None,
                             autoCorrectEnabled = false,
@@ -1349,7 +1498,7 @@ private fun AdvancedProviderOptionsSection(
                     ProviderTextField(
                         value = stalkerDeviceProfile,
                         onValueChange = onStalkerDeviceProfileChange,
-                        placeholder = "Device profile (optional)"
+                        placeholder = "MAG Type (optional)"
                     )
                     ProviderTextField(
                         value = stalkerDeviceTimezone,
@@ -1381,7 +1530,203 @@ private fun AdvancedProviderOptionsSection(
                         onValueChange = onStalkerSignatureChange,
                         placeholder = "Signature (optional)"
                     )
+                    HorizontalDivider(color = SurfaceHighlight.copy(alpha = 0.45f))
+                    Text(
+                        text = "Stalker compatibility",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Portal-specific overrides for stubborn MAG/Stalker servers. Leave fields empty unless a server needs them.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceDim
+                    )
+                    ProviderTextField(
+                        value = stalkerHwVersion,
+                        onValueChange = onStalkerHwVersionChange,
+                        placeholder = "hw_version override (optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerApiUserAgent,
+                        onValueChange = onStalkerApiUserAgentChange,
+                        placeholder = "User-Agent (API, optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerPlayerUserAgent,
+                        onValueChange = onStalkerPlayerUserAgentChange,
+                        placeholder = "User-Agent (Player, optional)"
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "X-User-Agent Link",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StalkerLinkOptionButton(
+                                text = StalkerAdvancedOptions.LINK_ETHERNET,
+                                selected = stalkerXUserAgentLink == StalkerAdvancedOptions.LINK_ETHERNET,
+                                onClick = { onStalkerXUserAgentLinkChange(StalkerAdvancedOptions.LINK_ETHERNET) }
+                            )
+                            StalkerLinkOptionButton(
+                                text = StalkerAdvancedOptions.LINK_WIFI,
+                                selected = stalkerXUserAgentLink == StalkerAdvancedOptions.LINK_WIFI,
+                                onClick = { onStalkerXUserAgentLinkChange(StalkerAdvancedOptions.LINK_WIFI) }
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Use HTTP proxy",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Applies to Stalker API and playback only.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnSurfaceDim
+                            )
+                        }
+                        Switch(
+                            checked = stalkerProxyEnabled,
+                            onCheckedChange = onStalkerProxyEnabledChange
+                        )
+                    }
+                    AnimatedVisibility(stalkerProxyEnabled) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ProviderTextField(
+                                value = stalkerProxyHost,
+                                onValueChange = onStalkerProxyHostChange,
+                                placeholder = "Proxy host"
+                            )
+                            ProviderTextField(
+                                value = stalkerProxyPort,
+                                onValueChange = onStalkerProxyPortChange,
+                                placeholder = "Proxy port",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                    }
+                    StalkerRequestRulesEditor(
+                        rules = stalkerRequestRules,
+                        onAddRule = onAddStalkerRequestRule,
+                        onUpdateRule = onUpdateStalkerRequestRule,
+                        onRemoveRule = onRemoveStalkerRequestRule
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StalkerLinkOptionButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.mouseClickable(onClick = onClick),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Primary.copy(alpha = 0.18f) else Surface,
+            focusedContainerColor = Primary.copy(alpha = 0.28f)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, if (selected) Primary else SurfaceHighlight)),
+            focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = TextPrimary
+        )
+    }
+}
+
+@Composable
+private fun StalkerRequestRulesEditor(
+    rules: List<StalkerRequestRuleUiState>,
+    onAddRule: () -> Unit,
+    onUpdateRule: (Int, StalkerRequestRuleUiState) -> Unit,
+    onRemoveRule: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Surface, RoundedCornerShape(12.dp))
+            .border(1.dp, SurfaceHighlight, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Request rules", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                Text(
+                    "Match by action, block calls, or override params. Blank values remove params.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceDim
+                )
+            }
+            TextButton(onClick = onAddRule) { Text("Add") }
+        }
+        rules.forEachIndexed { index, rule ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, SurfaceHighlight.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Rule ${index + 1}", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                    TextButton(onClick = { onRemoveRule(index) }) { Text("Delete") }
+                }
+                ProviderTextField(
+                    value = rule.action,
+                    onValueChange = { onUpdateRule(index, rule.copy(action = it.trim())) },
+                    placeholder = "action, e.g. get_profile"
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Block this request", style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+                    Switch(
+                        checked = rule.blockRequest,
+                        onCheckedChange = { onUpdateRule(index, rule.copy(blockRequest = it)) }
+                    )
+                }
+                if (rule.blockRequest && rule.action.trim() in setOf("handshake", "get_profile")) {
+                    Text(
+                        text = "Warning: blocking ${rule.action.trim()} can prevent login.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AccentAmber
+                    )
+                }
+                ProviderTextField(
+                    value = rule.paramsText,
+                    onValueChange = { onUpdateRule(index, rule.copy(paramsText = it)) },
+                    placeholder = "Param overrides: name=value | remove_me="
+                )
             }
         }
     }
