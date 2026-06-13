@@ -898,6 +898,7 @@ class StalkerProvider(
         profile: StalkerDeviceProfile,
         url: String
     ): Map<String, String> = buildMap {
+        val playerHeaderOverrides = parseStalkerHeaderOverrides(profile.advancedOptions.playerHeaders)
         val omitAuthorization = shouldOmitPlaybackAuthorization(url)
         val serverCookieHeader = api.currentCookieHeader(session)
             .ifBlank { session.serverCookieHeader }
@@ -918,10 +919,22 @@ class StalkerProvider(
                 put(name, value)
             }
         }
+        playerHeaderOverrides.forEach { (name, value) ->
+            if (value == null) {
+                remove(name)
+            } else if (name.equals("User-Agent", ignoreCase = true)) {
+                // Playback user agent is surfaced separately on StalkerPlaybackInfo.
+            } else {
+                put(name, value)
+            }
+        }
     }
 
     private fun resolvePlaybackUserAgent(profile: StalkerDeviceProfile): String? {
         profile.advancedOptions.playerUserAgent.trim().takeIf { it.isNotBlank() }?.let { return it }
+        parseStalkerHeaderOverrides(profile.advancedOptions.playerHeaders).entries.firstOrNull { (name, _) ->
+            name.equals("User-Agent", ignoreCase = true)
+        }?.let { (_, value) -> return value }
         profile.headerOverrides.entries.firstOrNull { (name, _) ->
             name.equals("User-Agent", ignoreCase = true)
         }?.let { (_, value) -> return value }

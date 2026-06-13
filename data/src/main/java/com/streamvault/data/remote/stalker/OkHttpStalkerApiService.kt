@@ -73,6 +73,9 @@ class OkHttpStalkerApiService @Inject constructor(
         var lockedLoadUrl: String? = null
         val authModes = candidateAuthModes(profile)
         for (effectiveAuthMode in authModes) {
+            if (lockedLoadUrl == null) {
+                lockedLoadUrl = probeReachableLoadUrl(profile, effectiveAuthMode)
+            }
             for (attempt in candidateAuthAttempts(profile, effectiveAuthMode)) {
                 val recipeIndex = attempt.recipeIndex
                 val recipe = attempt.recipe
@@ -951,6 +954,41 @@ class OkHttpStalkerApiService @Inject constructor(
                 .build()
             executeJsonRequest(alternateRequest, action, profile)
         }.getOrElse { throw it }
+    }
+
+    private suspend fun probeReachableLoadUrl(
+        profile: StalkerDeviceProfile,
+        effectiveAuthMode: StalkerAuthMode
+    ): String? = withContext(Dispatchers.IO) {
+        val recipe = candidateRecipes(profile, effectiveAuthMode).firstOrNull() ?: return@withContext null
+        val attemptProfile = profile.withRecipe(recipe, effectiveAuthMode)
+        val handshakeQuery = mapOf(
+            "type" to "stb",
+            "action" to "handshake",
+            "token" to "",
+            "JsHttpRequest" to "1-xml"
+        )
+        orderedLoadUrlCandidates(profile, recipe).firstOrNull { loadUrl ->
+            val fullUrl = buildUrl(loadUrl, prepareQuery(attemptProfile, handshakeQuery))
+            val request = Request.Builder()
+                .url(fullUrl)
+                .header("User-Agent", attemptProfile.userAgent)
+                .header("X-User-Agent", attemptProfile.xUserAgent)
+                .header("Referer", StalkerUrlFactory.portalReferer(loadUrl))
+                .header("Accept", "*/*")
+                .header("Cookie", buildCookieHeader(fullUrl, attemptProfile))
+                .applyStalkerHeaderOverrides(
+                    headerOverrides = attemptProfile.headerOverrides,
+                    preserveUserAgent = attemptProfile.advancedOptions.apiUserAgent.isNotBlank()
+                )
+                .get()
+                .build()
+            runCatching {
+                stalkerHttpClientFor(attemptProfile).newCall(request).execute().use { response ->
+                    response.code == 200
+                }
+            }.getOrDefault(false)
+        }
     }
 
     private fun executeJsonRequest(request: Request, action: String?, profile: StalkerDeviceProfile): JsonElement {
@@ -2587,24 +2625,6 @@ private fun StalkerDeviceProfile.withRecipe(
         signatureOverride = signature,
         stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(advancedOptions)
     )
-}
-
-private fun parseStalkerHeaderOverrides(rawHeaders: String): Map<String, String?> {
-    if (rawHeaders.isBlank()) return emptyMap()
-    return buildMap {
-        rawHeaders
-            .split('|')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .forEach { entry ->
-                val separatorIndex = entry.indexOf(':')
-                if (separatorIndex <= 0) return@forEach
-                val name = entry.substring(0, separatorIndex).trim()
-                if (name.isEmpty()) return@forEach
-                val value = entry.substring(separatorIndex + 1).trim().ifEmpty { null }
-                put(name, value)
-            }
-    }
 }
 
 private fun resolveStalkerUserAgent(

@@ -346,6 +346,14 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
                 return "Proxy port must be between 1 and 65535."
             }
         }
+        validateHttpOverrides(
+            httpUserAgent = options.playerUserAgent.trim(),
+            httpHeaders = options.playerHeaders.trim(),
+            allowBlankHeaderValues = true,
+            allowRestrictedHeaderOverrides = true
+        )?.let { message ->
+            return "Player headers: $message"
+        }
         val actions = mutableSetOf<String>()
         options.requestRules.forEach { rule ->
             val action = rule.action.trim()

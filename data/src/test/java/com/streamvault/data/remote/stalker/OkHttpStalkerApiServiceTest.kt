@@ -208,6 +208,69 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_locks_to_first_http200_endpoint_before_full_authentication() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val requestedActions = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    requestedActions += "${request.url.encodedPath}:${request.url.queryParameter("action").orEmpty()}"
+                    val action = request.url.queryParameter("action").orEmpty()
+                    when (request.url.encodedPath) {
+                        "/server/load.php" -> Response.Builder()
+                            .request(request)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(404)
+                            .message("Not Found")
+                            .body("""{"js":{}}""".toResponseBody("application/json".toMediaType()))
+                            .build()
+
+                        "/portal.php" -> {
+                            val body = when (action) {
+                                "handshake" -> """{"js":{"token":"portal-token"}}"""
+                                "get_profile" -> """{"js":{"name":"Portal Endpoint","status":"1","auth_access":true}}"""
+                                else -> """{"js":{}}"""
+                            }
+                            Response.Builder()
+                                .request(request)
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .body(body.toResponseBody("application/json".toMediaType()))
+                                .build()
+                        }
+
+                        else -> error("Unexpected path ${request.url.encodedPath}")
+                    }
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths.count { it == "/server/load.php" }).isEqualTo(1)
+        assertThat(requestedActions.first()).isEqualTo("/server/load.php:handshake")
+        assertThat(requestedActions.drop(1)).containsAtLeast(
+            "/portal.php:handshake",
+            "/portal.php:get_profile"
+        )
+        assertThat(requestedPaths.drop(1).distinct()).containsExactly("/portal.php")
+    }
+
+    @Test
     fun createLink_usesSessionEndpointForTempLinkStrictLivePlayback() = runTest {
         val requestedPaths = mutableListOf<String>()
         val service = OkHttpStalkerApiService(

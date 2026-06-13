@@ -175,6 +175,7 @@ fun ProviderSetupScreen(
     var stalkerHwVersion by rememberSaveable { mutableStateOf("") }
     var stalkerApiUserAgent by rememberSaveable { mutableStateOf("") }
     var stalkerPlayerUserAgent by rememberSaveable { mutableStateOf("") }
+    var stalkerPlayerHeaders by rememberSaveable { mutableStateOf("") }
     var stalkerXUserAgentLink by rememberSaveable { mutableStateOf(StalkerAdvancedOptions.LINK_ETHERNET) }
     var stalkerProxyEnabled by rememberSaveable { mutableStateOf(false) }
     var stalkerProxyHost by rememberSaveable { mutableStateOf("") }
@@ -302,15 +303,28 @@ fun ProviderSetupScreen(
             stalkerDeviceId2 = uiState.stalkerDeviceId2
             stalkerSignature = uiState.stalkerSignature
             val advanced = StalkerAdvancedOptionsCodec.decode(uiState.stalkerAdvancedOptionsJson)
-            stalkerHwVersion = advanced.hwVersion
+            val legacy = StalkerAdvancedOptionsCodec.decodeLegacyEditFields(uiState.stalkerAdvancedOptionsJson)
+            stalkerSerialNumber = uiState.stalkerSerialNumber.ifBlank { legacy.serialNumber }
+            stalkerDeviceId = uiState.stalkerDeviceId.ifBlank { legacy.deviceId }
+            stalkerDeviceId2 = uiState.stalkerDeviceId2.ifBlank { legacy.deviceId2 }
+            stalkerSignature = uiState.stalkerSignature.ifBlank { legacy.signature }
+            stalkerHwVersion = advanced.hwVersion.ifBlank { legacy.hwVersion }
             stalkerApiUserAgent = advanced.apiUserAgent.ifBlank {
-                if (isEditingStalker) uiState.httpUserAgent else ""
+                legacy.apiUserAgent.ifBlank {
+                    if (isEditingStalker) uiState.httpUserAgent else ""
+                }
             }
-            stalkerPlayerUserAgent = advanced.playerUserAgent
-            stalkerXUserAgentLink = advanced.normalizedLink
-            stalkerProxyEnabled = advanced.proxyEnabled
-            stalkerProxyHost = advanced.proxyHost
-            stalkerProxyPort = advanced.proxyPort?.toString().orEmpty()
+            stalkerPlayerUserAgent = advanced.playerUserAgent.ifBlank { legacy.playerUserAgent }
+            stalkerPlayerHeaders = advanced.playerHeaders.ifBlank { legacy.playerHeaders }
+            stalkerXUserAgentLink = advanced.normalizedLink.takeIf { advanced != StalkerAdvancedOptions() }
+                ?: legacy.xUserAgentLink
+            stalkerProxyEnabled = if (advanced.proxyEnabled || advanced.proxyHost.isNotBlank() || advanced.proxyPort != null) {
+                advanced.proxyEnabled
+            } else {
+                legacy.proxyEnabled
+            }
+            stalkerProxyHost = advanced.proxyHost.ifBlank { legacy.proxyHost }
+            stalkerProxyPort = advanced.proxyPort?.toString() ?: legacy.proxyPort?.toString().orEmpty()
             stalkerRequestRules.clear()
             stalkerRequestRules.addAll(advanced.requestRules.map { it.toUiState() })
         }
@@ -322,6 +336,7 @@ fun ProviderSetupScreen(
                 hwVersion = stalkerHwVersion.trim(),
                 apiUserAgent = stalkerApiUserAgent.trim(),
                 playerUserAgent = stalkerPlayerUserAgent.trim(),
+                playerHeaders = stalkerPlayerHeaders.trim(),
                 xUserAgentLink = stalkerXUserAgentLink,
                 proxyEnabled = stalkerProxyEnabled,
                 proxyHost = stalkerProxyHost.trim(),
@@ -456,6 +471,7 @@ fun ProviderSetupScreen(
                         stalkerHwVersion = stalkerHwVersion, onStalkerHwVersionChange = { stalkerHwVersion = it },
                         stalkerApiUserAgent = stalkerApiUserAgent, onStalkerApiUserAgentChange = { stalkerApiUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
                         stalkerPlayerUserAgent = stalkerPlayerUserAgent, onStalkerPlayerUserAgentChange = { stalkerPlayerUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerPlayerHeaders = stalkerPlayerHeaders, onStalkerPlayerHeadersChange = { stalkerPlayerHeaders = ProviderInputSanitizer.sanitizeHttpHeadersForEditing(it) },
                         stalkerXUserAgentLink = stalkerXUserAgentLink, onStalkerXUserAgentLinkChange = { stalkerXUserAgentLink = it },
                         stalkerProxyEnabled = stalkerProxyEnabled, onStalkerProxyEnabledChange = { stalkerProxyEnabled = it },
                         stalkerProxyHost = stalkerProxyHost, onStalkerProxyHostChange = { stalkerProxyHost = it.trim() },
@@ -514,6 +530,7 @@ fun ProviderSetupScreen(
                         stalkerHwVersion = stalkerHwVersion, onStalkerHwVersionChange = { stalkerHwVersion = it },
                         stalkerApiUserAgent = stalkerApiUserAgent, onStalkerApiUserAgentChange = { stalkerApiUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
                         stalkerPlayerUserAgent = stalkerPlayerUserAgent, onStalkerPlayerUserAgentChange = { stalkerPlayerUserAgent = ProviderInputSanitizer.sanitizeHttpUserAgentForEditing(it) },
+                        stalkerPlayerHeaders = stalkerPlayerHeaders, onStalkerPlayerHeadersChange = { stalkerPlayerHeaders = ProviderInputSanitizer.sanitizeHttpHeadersForEditing(it) },
                         stalkerXUserAgentLink = stalkerXUserAgentLink, onStalkerXUserAgentLinkChange = { stalkerXUserAgentLink = it },
                         stalkerProxyEnabled = stalkerProxyEnabled, onStalkerProxyEnabledChange = { stalkerProxyEnabled = it },
                         stalkerProxyHost = stalkerProxyHost, onStalkerProxyHostChange = { stalkerProxyHost = it.trim() },
@@ -855,6 +872,7 @@ private fun ProviderFormContent(
     stalkerHwVersion: String, onStalkerHwVersionChange: (String) -> Unit,
     stalkerApiUserAgent: String, onStalkerApiUserAgentChange: (String) -> Unit,
     stalkerPlayerUserAgent: String, onStalkerPlayerUserAgentChange: (String) -> Unit,
+    stalkerPlayerHeaders: String, onStalkerPlayerHeadersChange: (String) -> Unit,
     stalkerXUserAgentLink: String, onStalkerXUserAgentLinkChange: (String) -> Unit,
     stalkerProxyEnabled: Boolean, onStalkerProxyEnabledChange: (Boolean) -> Unit,
     stalkerProxyHost: String, onStalkerProxyHostChange: (String) -> Unit,
@@ -982,6 +1000,8 @@ private fun ProviderFormContent(
                         onStalkerApiUserAgentChange = onStalkerApiUserAgentChange,
                         stalkerPlayerUserAgent = stalkerPlayerUserAgent,
                         onStalkerPlayerUserAgentChange = onStalkerPlayerUserAgentChange,
+                        stalkerPlayerHeaders = stalkerPlayerHeaders,
+                        onStalkerPlayerHeadersChange = onStalkerPlayerHeadersChange,
                         stalkerXUserAgentLink = stalkerXUserAgentLink,
                         onStalkerXUserAgentLinkChange = onStalkerXUserAgentLinkChange,
                         stalkerProxyEnabled = stalkerProxyEnabled,
@@ -1069,6 +1089,8 @@ private fun ProviderFormContent(
                         onStalkerApiUserAgentChange = onStalkerApiUserAgentChange,
                         stalkerPlayerUserAgent = stalkerPlayerUserAgent,
                         onStalkerPlayerUserAgentChange = onStalkerPlayerUserAgentChange,
+                        stalkerPlayerHeaders = stalkerPlayerHeaders,
+                        onStalkerPlayerHeadersChange = onStalkerPlayerHeadersChange,
                         stalkerXUserAgentLink = stalkerXUserAgentLink,
                         onStalkerXUserAgentLinkChange = onStalkerXUserAgentLinkChange,
                         stalkerProxyEnabled = stalkerProxyEnabled,
@@ -1268,6 +1290,8 @@ private fun AdvancedProviderOptionsSection(
     onStalkerApiUserAgentChange: (String) -> Unit = {},
     stalkerPlayerUserAgent: String = "",
     onStalkerPlayerUserAgentChange: (String) -> Unit = {},
+    stalkerPlayerHeaders: String = "",
+    onStalkerPlayerHeadersChange: (String) -> Unit = {},
     stalkerXUserAgentLink: String = StalkerAdvancedOptions.LINK_ETHERNET,
     onStalkerXUserAgentLinkChange: (String) -> Unit = {},
     stalkerProxyEnabled: Boolean = false,
@@ -1313,6 +1337,7 @@ private fun AdvancedProviderOptionsSection(
                     stalkerHwVersion.isNotBlank() ||
                     stalkerApiUserAgent.isNotBlank() ||
                     stalkerPlayerUserAgent.isNotBlank() ||
+                    stalkerPlayerHeaders.isNotBlank() ||
                     stalkerXUserAgentLink != StalkerAdvancedOptions.LINK_ETHERNET ||
                     stalkerProxyEnabled ||
                     stalkerProxyHost.isNotBlank() ||
@@ -1446,7 +1471,7 @@ private fun AdvancedProviderOptionsSection(
                         value = httpHeaders,
                         onValueChange = onHttpHeadersChange,
                         placeholder = if (sourceType == SourceType.STALKER) {
-                            "Custom headers (optional, Header: Value | HeaderToRemove:)"
+                            "Headers (API, optional, Header: Value | HeaderToRemove:)"
                         } else {
                             "Custom headers (optional, Header: Value | Header2: Value)"
                         },
@@ -1644,6 +1669,11 @@ private fun AdvancedProviderOptionsSection(
                         value = stalkerPlayerUserAgent,
                         onValueChange = onStalkerPlayerUserAgentChange,
                         placeholder = "User-Agent (Player, optional)"
+                    )
+                    ProviderTextField(
+                        value = stalkerPlayerHeaders,
+                        onValueChange = onStalkerPlayerHeadersChange,
+                        placeholder = "Headers (Player, optional, Header: Value | HeaderToRemove:)"
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
