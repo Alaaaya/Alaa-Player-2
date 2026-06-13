@@ -2,6 +2,7 @@ package com.streamvault.data.remote.xtream
 
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.jellyfin.buildJellyfinAuthorizationHeader
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerProvider
@@ -15,6 +16,7 @@ import com.streamvault.data.remote.stalker.buildStalkerPlaybackDescriptor
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCookieMode
@@ -27,6 +29,7 @@ import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 data class ResolvedStreamUrl(
     val url: String,
@@ -43,7 +46,8 @@ data class ResolvedStreamUrl(
 class XtreamStreamUrlResolver @Inject constructor(
     private val providerDao: ProviderDao,
     private val credentialCrypto: CredentialCrypto,
-    private val stalkerApiService: StalkerApiService
+    private val stalkerApiService: StalkerApiService,
+    private val preferencesRepository: PreferencesRepository
 ) {
     private data class CachedStalkerProvider(
         val serverUrl: String,
@@ -150,6 +154,7 @@ class XtreamStreamUrlResolver @Inject constructor(
                 val kind = xtreamToken?.kind ?: fallbackContentType?.let(XtreamUrlFactory::kindForContentType) ?: return null
                 val streamId = xtreamToken?.streamId ?: fallbackStreamId?.takeIf { it > 0 } ?: return null
                 val ext = xtreamToken?.containerExtension ?: fallbackContainerExtension
+                val resolvedExt = resolveLiveContainerExtension(kind, ext)
                 val directSource = xtreamToken?.directSource
                     ?.takeIf { kind != XtreamStreamKind.LIVE }
                     ?.takeIf(UrlSecurityPolicy::isAllowedStreamEntryUrl)
@@ -161,15 +166,15 @@ class XtreamStreamUrlResolver @Inject constructor(
                     password = decryptedPassword,
                     kind = kind,
                     streamId = streamId,
-                    containerExtension = ext
+                    containerExtension = resolvedExt
                 )
                 val resolvedUrl = if (preferStableUrl) fallbackResolvedUrl else (directSource ?: fallbackResolvedUrl)
 
                 resolvedProvider.applyPlaybackRequestProfile(
                     ResolvedStreamUrl(
-                    url = resolvedUrl,
-                    expirationTime = extractStreamExpirationTime(resolvedUrl),
-                    containerExtension = ext
+                        url = resolvedUrl,
+                        expirationTime = extractStreamExpirationTime(resolvedUrl),
+                        containerExtension = resolvedExt
                     )
                 )
             }
@@ -233,7 +238,7 @@ class XtreamStreamUrlResolver @Inject constructor(
         )
     }
 
-    private fun resolveDirectXtreamUrl(
+    private suspend fun resolveDirectXtreamUrl(
         provider: ProviderEntity,
         url: String,
         fallbackStreamId: Long?,
@@ -247,6 +252,7 @@ class XtreamStreamUrlResolver @Inject constructor(
         }
         val streamId = parsed?.streamId ?: fallbackStreamId?.takeIf { it > 0L } ?: return null
         val ext = parsed?.containerExtension ?: fallbackContainerExtension
+        val resolvedExt = resolveLiveContainerExtension(kind, ext)
         val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
         val resolvedUrl = XtreamUrlFactory.buildPlaybackUrl(
             serverUrl = provider.serverUrl,
@@ -254,15 +260,29 @@ class XtreamStreamUrlResolver @Inject constructor(
             password = decryptedPassword,
             kind = kind,
             streamId = streamId,
-            containerExtension = ext
+            containerExtension = resolvedExt
         )
         return provider.applyPlaybackRequestProfile(
             ResolvedStreamUrl(
                 url = resolvedUrl,
                 expirationTime = extractStreamExpirationTime(resolvedUrl),
-                containerExtension = ext
+                containerExtension = resolvedExt
             )
         )
+    }
+
+    private suspend fun resolveLiveContainerExtension(
+        kind: XtreamStreamKind,
+        containerExtension: String?
+    ): String? {
+        if (kind != XtreamStreamKind.LIVE) {
+            return containerExtension
+        }
+        return when (preferencesRepository.playerLiveStreamFormatMode.first()) {
+            LiveStreamFormatMode.AUTO -> containerExtension
+            LiveStreamFormatMode.HLS -> "m3u8"
+            LiveStreamFormatMode.MPEG_TS -> "ts"
+        }
     }
 
     private fun resolveDirectJellyfinUrl(

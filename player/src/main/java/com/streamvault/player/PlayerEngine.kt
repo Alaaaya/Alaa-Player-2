@@ -127,6 +127,7 @@ interface PlayerEngine {
     fun bindRenderView(renderView: View, resizeMode: PlayerSurfaceResizeMode)
     fun clearRenderBinding()
     fun releaseRenderView(renderView: View)
+    fun resetLiveHandoffGrace() {}
 }
 
 data class PlayerRetryStatus(
