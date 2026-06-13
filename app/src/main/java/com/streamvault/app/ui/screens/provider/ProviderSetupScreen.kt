@@ -1591,11 +1591,12 @@ private fun AdvancedProviderOptionsSection(
                             )
                         }
                     }
-                    Surface(
-                        onClick = { onStalkerProxyEnabledChange(!stalkerProxyEnabled) },
+                    val targetProxyEnabled = !stalkerProxyEnabled
+                    TvClickableSurface(
+                        onClick = { onStalkerProxyEnabledChange(targetProxyEnabled) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .mouseClickable { onStalkerProxyEnabledChange(!stalkerProxyEnabled) },
+                            .semantics { contentDescription = "Use HTTP proxy" },
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                         colors = ClickableSurfaceDefaults.colors(
                             containerColor = if (stalkerProxyEnabled) Primary.copy(alpha = 0.1f) else Surface,
@@ -1631,7 +1632,8 @@ private fun AdvancedProviderOptionsSection(
                             }
                             Switch(
                                 checked = stalkerProxyEnabled,
-                                onCheckedChange = onStalkerProxyEnabledChange
+                                onCheckedChange = null,
+                                modifier = Modifier.focusProperties { canFocus = false }
                             )
                         }
                     }
