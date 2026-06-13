@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerEndpointPreference
 import com.streamvault.domain.model.StalkerMagPreset
 import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import kotlinx.coroutines.test.runTest
@@ -151,6 +152,113 @@ class OkHttpStalkerApiServiceTest {
         assertThat(result).isInstanceOf(Result.Error::class.java)
         assertThat(requestedPaths).doesNotContain("/portal.php")
         assertThat(requestedPaths).contains("/server/load.php")
+    }
+
+    @Test
+    fun authenticate_usesOnlyLearnedServerLoadEndpoint() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    val action = request.url.queryParameter("action").orEmpty()
+                    if (request.url.encodedPath == "/portal.php") {
+                        Response.Builder()
+                            .request(request)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(404)
+                            .message("Not Found")
+                            .body("""{"js":{}}""".toResponseBody("application/json".toMediaType()))
+                            .build()
+                    } else {
+                        val body = when (action) {
+                            "handshake" -> """{"js":{"token":"token-123"}}"""
+                            "get_profile" -> """{"js":{"name":"Server Load","status":"1","auth_access":true}}"""
+                            else -> """{"js":{}}"""
+                        }
+                        Response.Builder()
+                            .request(request)
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body(body.toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                authMode = StalkerAuthMode.AUTO,
+                endpointPreferenceHint = StalkerEndpointPreference.SERVER_LOAD,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths).contains("/server/load.php")
+        assertThat(requestedPaths).doesNotContain("/portal.php")
+    }
+
+    @Test
+    fun createLink_usesSessionEndpointForTempLinkStrictLivePlayback() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    val body = when (request.url.queryParameter("action")) {
+                        "create_link" -> """{"js":{"cmd":"ffmpeg http://cdn.example.com/live/1.ts"}}"""
+                        else -> error("Unexpected action '${request.url.queryParameter("action")}'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+        val session = StalkerSession(
+            loadUrl = "https://portal.example.com/server/load.php",
+            portalReferer = "https://portal.example.com/c/",
+            token = "token-123",
+            fingerprintEvidence = StalkerFingerprintEvidence(
+                endpointPreference = StalkerEndpointPreference.SERVER_LOAD,
+                playbackBackendHint = StalkerPlaybackBackendHint.TEMP_LINK_STRICT
+            )
+        )
+
+        val result = service.createLink(
+            session = session,
+            profile = buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                endpointPreferenceHint = StalkerEndpointPreference.SERVER_LOAD,
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            ),
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://cdn.example.com/live/1.ts",
+            seriesNumber = null,
+            archiveStartSeconds = null,
+            archiveEndSeconds = null
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedPaths).containsExactly("/server/load.php")
     }
 
     @Test
@@ -475,7 +583,7 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
-    fun createLink_prefers_portal_endpoint_for_strict_live_temp_links() = runTest {
+    fun createLink_keeps_session_endpoint_for_strict_live_temp_links() = runTest {
         val requestedPaths = mutableListOf<String>()
         val service = OkHttpStalkerApiService(
             okHttpClient = OkHttpClient.Builder()
@@ -518,7 +626,7 @@ class OkHttpStalkerApiServiceTest {
         )
 
         assertThat(result).isInstanceOf(Result.Success::class.java)
-        assertThat(requestedPaths).containsExactly("/portal.php")
+        assertThat(requestedPaths).containsExactly("/server/load.php")
     }
 
     @Test

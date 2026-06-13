@@ -5,9 +5,15 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.Result
 import java.time.Instant
 import kotlinx.coroutines.test.runTest
+import org.junit.Before
 import org.junit.Test
 
 class StalkerProviderTest {
+
+    @Before
+    fun clearSharedAuthCache() {
+        StalkerProvider.clearSharedAuthCacheForTests()
+    }
 
     @Test
     fun authenticate_treats_status_zero_as_partial_not_expired() = runTest {
@@ -81,6 +87,64 @@ class StalkerProviderTest {
         assertThat(authProfile.deviceId2).isEmpty()
         assertThat(authProfile.signature).isEmpty()
     }
+
+    @Test
+    fun authenticate_reusesSessionAcrossEquivalentProviderInstances() = runTest {
+        val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
+        val firstProvider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val secondProvider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(firstProvider.authenticate()).isInstanceOf(Result.Success::class.java)
+        assertThat(secondProvider.authenticate()).isInstanceOf(Result.Success::class.java)
+
+        assertThat(api.authenticateCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun invalidateAuthenticationClearsSharedSessionForEquivalentProviderInstances() = runTest {
+        val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
+        val firstProvider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val secondProvider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(firstProvider.authenticate()).isInstanceOf(Result.Success::class.java)
+        firstProvider.invalidateAuthentication()
+        assertThat(secondProvider.authenticate()).isInstanceOf(Result.Success::class.java)
+
+        assertThat(api.authenticateCalls).isEqualTo(2)
+    }
+
 
     @Test
     fun getLiveStreams_maps_archive_capabilities_to_catch_up_fields() = runTest {
@@ -521,10 +585,13 @@ class StalkerProviderTest {
     ) : StalkerApiService {
         var createLinkCalls: Int = 0
             private set
+        var authenticateCalls: Int = 0
+            private set
         var lastAuthenticateProfile: StalkerDeviceProfile? = null
             private set
 
         override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
+            authenticateCalls += 1
             lastAuthenticateProfile = profile
             return Result.success(
                 StalkerSession(

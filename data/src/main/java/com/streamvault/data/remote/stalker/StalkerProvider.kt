@@ -30,6 +30,7 @@ import java.net.URI
 import java.net.URLEncoder
 import java.util.Base64
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -82,9 +83,19 @@ class StalkerProvider(
     private val signature: String = "",
     private val stalkerAdvancedOptionsJson: String = ""
 ) : IptvProvider {
-    private companion object {
+    internal companion object {
         private const val TAG = "StalkerProvider"
+        private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
+
+        fun clearSharedAuthCacheForTests() {
+            sharedAuthCache.clear()
+        }
     }
+
+    private data class CachedAuth(
+        val session: StalkerSession,
+        val profile: StalkerProviderProfile
+    )
 
     private data class CategorySeed(
         val id: Long,
@@ -102,6 +113,7 @@ class StalkerProvider(
             sessionCache = null
             accountProfileCache = null
             categoryCache.clear()
+            sharedAuthCache.remove(authCacheKey())
         }
     }
 
@@ -785,6 +797,11 @@ class StalkerProvider(
             if (cachedSession != null && cachedProfile != null) {
                 return@withLock Result.success(cachedSession to cachedProfile)
             }
+            sharedAuthCache[authCacheKey()]?.let { cachedAuth ->
+                sessionCache = cachedAuth.session
+                accountProfileCache = cachedAuth.profile
+                return@withLock Result.success(cachedAuth.session to cachedAuth.profile)
+            }
 
             val profile = buildStalkerDeviceProfile(
                 portalUrl = portalUrl,
@@ -813,6 +830,10 @@ class StalkerProvider(
                 is Result.Success -> {
                     sessionCache = authResult.data.first
                     accountProfileCache = authResult.data.second
+                    sharedAuthCache[authCacheKey()] = CachedAuth(
+                        session = authResult.data.first,
+                        profile = authResult.data.second
+                    )
                     Result.success(authResult.data)
                 }
                 is Result.Error -> Result.error(authResult.message, authResult.exception)
@@ -1495,6 +1516,33 @@ class StalkerProvider(
 
     private fun normalizedSignature(): String =
         signature.trim().uppercase(Locale.ROOT)
+
+    private fun authCacheKey(): String = listOf(
+        providerId.toString(),
+        StalkerUrlFactory.normalizePortalUrl(portalUrl),
+        normalizedMacAddress(),
+        authMode.name,
+        normalizedUsername(),
+        normalizedPassword(),
+        httpUserAgent.trim(),
+        httpHeaders,
+        portalFingerprintHint.name,
+        magPresetHint.name,
+        bootstrapRecipeHint.name,
+        endpointPreferenceHint.name,
+        cookieModeHint.name,
+        playbackBackendHint.name,
+        portalProfileHint.name,
+        preferredPlaybackMode?.name.orEmpty(),
+        normalizedDeviceProfile(),
+        normalizedTimezone(),
+        normalizedLocale(),
+        normalizedSerialNumber(),
+        normalizedDeviceId(),
+        normalizedDeviceId2(),
+        normalizedSignature(),
+        stalkerAdvancedOptionsJson
+    ).joinToString(separator = "\u001f")
 
     private fun resolveProviderStatus(profile: StalkerProviderProfile): ProviderStatus {
         val normalizedStatus = profile.statusLabel?.trim()?.lowercase(Locale.ROOT).orEmpty()

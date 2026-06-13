@@ -778,7 +778,7 @@ class OkHttpStalkerApiService @Inject constructor(
             StalkerStreamKind.MOVIE,
             StalkerStreamKind.EPISODE -> "0"
         }
-        val playbackLoadUrl = createLinkLoadUrl(session, kind)
+        val playbackLoadUrl = createLinkLoadUrl(session)
         val payload = requestJson(
             url = playbackLoadUrl,
             profile = profile,
@@ -817,23 +817,8 @@ class OkHttpStalkerApiService @Inject constructor(
             ?: throw IOException("Portal did not return a playable URL.")
     }
 
-    private fun createLinkLoadUrl(
-        session: StalkerSession,
-        kind: StalkerStreamKind
-    ): String {
-        if (kind != StalkerStreamKind.LIVE && kind != StalkerStreamKind.ARCHIVE) {
-            return session.loadUrl
-        }
-        if (session.fingerprintEvidence.playbackBackendHint != StalkerPlaybackBackendHint.TEMP_LINK_STRICT) {
-            return session.loadUrl
-        }
-        val normalized = StalkerUrlFactory.normalizePortalUrl(session.loadUrl)
-        if (!normalized.lowercase(Locale.ROOT).endsWith("/server/load.php")) {
-            return session.loadUrl
-        }
-        return siblingLoadUrl(normalized)
-            ?.takeIf { it.lowercase(Locale.ROOT).endsWith("/portal.php") }
-            ?: session.loadUrl
+    private fun createLinkLoadUrl(session: StalkerSession): String {
+        return session.loadUrl
     }
 
     override fun currentCookieHeader(session: StalkerSession): String =
@@ -2319,14 +2304,27 @@ class OkHttpStalkerApiService @Inject constructor(
         recipe: StalkerRecipeSpec
     ): List<String> {
         val baseCandidates = StalkerUrlFactory.loadUrlCandidates(profile.portalUrl)
+        when (profile.endpointPreference) {
+            StalkerEndpointPreference.PORTAL -> {
+                return baseCandidates.filter { candidate ->
+                    candidate.lowercase(Locale.ROOT).endsWith("/portal.php")
+                }.ifEmpty { baseCandidates }
+            }
+            StalkerEndpointPreference.SERVER_LOAD -> {
+                return baseCandidates.filter { candidate ->
+                    candidate.lowercase(Locale.ROOT).endsWith("/server/load.php")
+                }.ifEmpty { baseCandidates }
+            }
+            StalkerEndpointPreference.AUTO -> Unit
+        }
         val preferred = recipe.endpointPreference.takeUnless { it == StalkerEndpointPreference.AUTO }
-            ?: profile.endpointPreference
         return when (preferred) {
             StalkerEndpointPreference.PORTAL ->
                 baseCandidates.sortedByDescending { candidate -> candidate.lowercase(Locale.ROOT).endsWith("/portal.php") }
             StalkerEndpointPreference.SERVER_LOAD ->
                 baseCandidates.sortedByDescending { candidate -> candidate.lowercase(Locale.ROOT).endsWith("/server/load.php") }
-            StalkerEndpointPreference.AUTO -> baseCandidates
+            StalkerEndpointPreference.AUTO,
+            null -> baseCandidates
         }
     }
 
