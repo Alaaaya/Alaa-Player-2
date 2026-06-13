@@ -85,6 +85,7 @@ class StalkerProvider(
 ) : IptvProvider {
     internal companion object {
         private const val TAG = "StalkerProvider"
+        private const val DEFAULT_PLAYER_USER_AGENT = "Lavf53.32.100"
         private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
 
         fun clearSharedAuthCacheForTests() {
@@ -192,20 +193,14 @@ class StalkerProvider(
         }
 
     suspend fun streamLiveStreams(onChannel: suspend (Channel) -> Unit): Result<Int> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                val result = api.streamLiveStreams(session, currentDeviceProfile()) { item ->
-                    toChannel(item)?.let { channel -> onChannel(channel) }
-                }
-                when (result) {
-                    is Result.Success -> Result.success(result.data)
-                    is Result.Error -> Result.error(result.message, result.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
-                }
+        return runWithAuthorizedSession { session, _ ->
+            when (val result = api.streamLiveStreams(session, currentDeviceProfile()) { item ->
+                toChannel(item)?.let { channel -> onChannel(channel) }
+            }) {
+                is Result.Success -> Result.success(result.data)
+                is Result.Error -> Result.error(result.message, result.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
@@ -293,47 +288,32 @@ class StalkerProvider(
     override suspend fun getSeriesInfo(seriesId: Long): Result<Series> = getSeriesInfo(seriesId.toString())
 
     suspend fun getSeriesInfo(providerSeriesId: String): Result<Series> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                when (val detailsResult = api.getSeriesDetails(session, currentDeviceProfile(), providerSeriesId)) {
-                    is Result.Success -> Result.success(detailsResult.data.toSeries())
-                    is Result.Error -> Result.error(detailsResult.message, detailsResult.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
-                }
+        return runWithAuthorizedSession { session, _ ->
+            when (val detailsResult = api.getSeriesDetails(session, currentDeviceProfile(), providerSeriesId)) {
+                is Result.Success -> Result.success(detailsResult.data.toSeries())
+                is Result.Error -> Result.error(detailsResult.message, detailsResult.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
     override suspend fun getEpg(channelId: String): Result<List<Program>> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                when (val epgResult = api.getEpg(session, currentDeviceProfile(), channelId)) {
-                    is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
-                    is Result.Error -> Result.error(epgResult.message, epgResult.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
-                }
+        return runWithAuthorizedSession { session, _ ->
+            when (val epgResult = api.getEpg(session, currentDeviceProfile(), channelId)) {
+                is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
+                is Result.Error -> Result.error(epgResult.message, epgResult.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
     suspend fun getBulkEpg(periodHours: Int = 6): Result<List<Program>> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                when (val epgResult = api.getBulkEpg(session, currentDeviceProfile(), periodHours)) {
-                    is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
-                    is Result.Error -> Result.error(epgResult.message, epgResult.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
-                }
+        return runWithAuthorizedSession { session, _ ->
+            when (val epgResult = api.getBulkEpg(session, currentDeviceProfile(), periodHours)) {
+                is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
+                is Result.Error -> Result.error(epgResult.message, epgResult.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
@@ -346,15 +326,10 @@ class StalkerProvider(
         periodHours: Int = 6,
         onProgram: suspend (Program) -> Unit
     ): Result<Int> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                api.streamBulkEpg(session, currentDeviceProfile(), periodHours) { record ->
+        return runWithAuthorizedSession { session, _ ->
+            api.streamBulkEpg(session, currentDeviceProfile(), periodHours) { record ->
                     onProgram(record.toProgram())
                 }
-            }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
@@ -366,30 +341,20 @@ class StalkerProvider(
         periodHours: Int = 6,
         onProgram: suspend (Program) -> Unit
     ): Result<Int> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                api.streamEpg(session, currentDeviceProfile(), channelId, periodHours) { record ->
+        return runWithAuthorizedSession { session, _ ->
+            api.streamEpg(session, currentDeviceProfile(), channelId, periodHours) { record ->
                     onProgram(record.toProgram())
                 }
-            }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
     override suspend fun getShortEpg(channelId: String, limit: Int): Result<List<Program>> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                when (val epgResult = api.getShortEpg(session, currentDeviceProfile(), channelId, limit)) {
-                    is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
-                    is Result.Error -> Result.error(epgResult.message, epgResult.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
-                }
+        return runWithAuthorizedSession { session, _ ->
+            when (val epgResult = api.getShortEpg(session, currentDeviceProfile(), channelId, limit)) {
+                is Result.Success -> Result.success(epgResult.data.map { it.toProgram() })
+                is Result.Error -> Result.error(epgResult.message, epgResult.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
@@ -578,7 +543,7 @@ class StalkerProvider(
                                 ?: cookieModeHint
                         ).allowsRebootstrap(descriptor, accountProfile)
                     } &&
-                    isLikelyAuthOrSessionFailure(lastError?.message.orEmpty(), lastError?.exception)
+                    isAuthorizationFailure(lastError?.message.orEmpty(), lastError?.exception)
                 if (needsRebootstrap) {
                     invalidateAuthentication()
                     return resolvePlaybackInfoInternal(
@@ -717,44 +682,39 @@ class StalkerProvider(
         type: ContentType,
         loader: suspend (StalkerSession, StalkerDeviceProfile) -> Result<List<StalkerCategoryRecord>>
     ): Result<List<Category>> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                when (val result = loader(session, currentDeviceProfile())) {
-                    is Result.Success -> {
-                        val categoryRecords = result.data.ifEmpty {
-                            when (type) {
-                                ContentType.MOVIE -> listOf(StalkerCategoryRecord(id = "*", name = "All Movies"))
-                                ContentType.SERIES -> listOf(StalkerCategoryRecord(id = "*", name = "All Series"))
-                                else -> emptyList()
-                            }
+        return runWithAuthorizedSession { session, _ ->
+            when (val result = loader(session, currentDeviceProfile())) {
+                is Result.Success -> {
+                    val categoryRecords = result.data.ifEmpty {
+                        when (type) {
+                            ContentType.MOVIE -> listOf(StalkerCategoryRecord(id = "*", name = "All Movies"))
+                            ContentType.SERIES -> listOf(StalkerCategoryRecord(id = "*", name = "All Series"))
+                            else -> emptyList()
                         }
-                        val categories = categoryRecords.map { record ->
-                            val id = syntheticCategoryId(type, record.id.ifBlank { record.name })
-                            CategorySeed(
-                                id = id,
-                                rawId = record.id,
-                                name = record.name
-                            )
-                        }
-                        categoryCache[type] = categories
-                        Result.success(
-                            categories.map { seed ->
-                                Category(
-                                    id = seed.id,
-                                    name = seed.name,
-                                    type = type,
-                                    isAdult = AdultContentClassifier.isAdultCategoryName(seed.name)
-                                )
-                            }
+                    }
+                    val categories = categoryRecords.map { record ->
+                        val id = syntheticCategoryId(type, record.id.ifBlank { record.name })
+                        CategorySeed(
+                            id = id,
+                            rawId = record.id,
+                            name = record.name
                         )
                     }
-                    is Result.Error -> Result.error(result.message, result.exception)
-                    is Result.Loading -> Result.error("Unexpected loading state")
+                    categoryCache[type] = categories
+                    Result.success(
+                        categories.map { seed ->
+                            Category(
+                                id = seed.id,
+                                name = seed.name,
+                                type = type,
+                                isAdult = AdultContentClassifier.isAdultCategoryName(seed.name)
+                            )
+                        }
+                    )
                 }
+                is Result.Error -> Result.error(result.message, result.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
 
@@ -763,14 +723,9 @@ class StalkerProvider(
         categoryId: Long?,
         loader: suspend (StalkerSession, StalkerDeviceProfile, String?) -> Result<List<StalkerItemRecord>>
     ): Result<List<StalkerItemRecord>> {
-        return when (val authResult = ensureAuthenticated()) {
-            is Result.Success -> {
-                val (session, _) = authResult.data
-                val rawCategoryId = resolveRawCategoryId(type, categoryId)
-                loader(session, currentDeviceProfile(), rawCategoryId)
-            }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
+        return runWithAuthorizedSession { session, _ ->
+            val rawCategoryId = resolveRawCategoryId(type, categoryId)
+            loader(session, currentDeviceProfile(), rawCategoryId)
         }
     }
 
@@ -779,11 +734,29 @@ class StalkerProvider(
         categoryId: Long?,
         loader: suspend (StalkerSession, StalkerDeviceProfile, String?) -> Result<StalkerPagedItems>
     ): Result<StalkerPagedItems> {
+        return runWithAuthorizedSession { session, _ ->
+            val rawCategoryId = resolveRawCategoryId(type, categoryId)
+            loader(session, currentDeviceProfile(), rawCategoryId)
+        }
+    }
+
+    private suspend fun <T> runWithAuthorizedSession(
+        retryOnAuthorizationFailure: Boolean = true,
+        block: suspend (StalkerSession, StalkerProviderProfile) -> Result<T>
+    ): Result<T> {
         return when (val authResult = ensureAuthenticated()) {
             is Result.Success -> {
-                val (session, _) = authResult.data
-                val rawCategoryId = resolveRawCategoryId(type, categoryId)
-                loader(session, currentDeviceProfile(), rawCategoryId)
+                val (session, profile) = authResult.data
+                when (val result = block(session, profile)) {
+                    is Result.Error ->
+                        if (retryOnAuthorizationFailure && isAuthorizationFailure(result.message, result.exception)) {
+                            invalidateAuthentication()
+                            runWithAuthorizedSession(false, block)
+                        } else {
+                            Result.error(result.message, result.exception)
+                        }
+                    else -> result
+                }
             }
             is Result.Error -> Result.error(authResult.message, authResult.exception)
             is Result.Loading -> Result.error("Unexpected loading state")
@@ -904,7 +877,10 @@ class StalkerProvider(
             .ifBlank { session.serverCookieHeader }
         put("Referer", session.portalReferer)
         put("Accept", "*/*")
-        put("Accept-Encoding", "identity")
+        put("Connection", "keep-alive")
+        buildPlaybackHostHeader(url)?.let { host ->
+            put("Host", host)
+        }
         put("Cookie", buildPlaybackCookieHeader(serverCookieHeader, profile))
         put("X-User-Agent", profile.xUserAgent)
         session.token.takeIf { it.isNotBlank() && !omitAuthorization }?.let { token ->
@@ -938,7 +914,19 @@ class StalkerProvider(
         profile.headerOverrides.entries.firstOrNull { (name, _) ->
             name.equals("User-Agent", ignoreCase = true)
         }?.let { (_, value) -> return value }
-        return profile.playerUserAgent.ifBlank { profile.userAgent.ifBlank { null } }
+        return profile.playerUserAgent.ifBlank { DEFAULT_PLAYER_USER_AGENT }
+    }
+
+    private fun buildPlaybackHostHeader(url: String): String? {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val isDefaultPort = when {
+            uri.port == -1 -> true
+            uri.scheme.equals("http", ignoreCase = true) && uri.port == 80 -> true
+            uri.scheme.equals("https", ignoreCase = true) && uri.port == 443 -> true
+            else -> false
+        }
+        return if (isDefaultPort) host else "$host:${uri.port}"
     }
 
     private fun shouldOmitPlaybackAuthorization(url: String): Boolean {
@@ -1575,27 +1563,11 @@ class StalkerProvider(
         return ProviderStatus.UNKNOWN
     }
 
-    private fun isLikelyAuthOrSessionFailure(message: String, exception: Throwable?): Boolean {
+    private fun isAuthorizationFailure(message: String, exception: Throwable?): Boolean {
         val normalizedMessage = message.lowercase(Locale.ROOT)
         val exceptionMessage = exception?.message?.lowercase(Locale.ROOT).orEmpty()
-        return normalizedMessage.contains("http 401") ||
-            normalizedMessage.contains("http 403") ||
-            normalizedMessage.contains("http 204") ||
-            normalizedMessage.contains("http 456") ||
-            normalizedMessage.contains("authorization") ||
-            normalizedMessage.contains("token") ||
-            normalizedMessage.contains("access denied") ||
-            normalizedMessage.contains("forbidden") ||
-            normalizedMessage.contains("temporary playback link") ||
-            normalizedMessage.contains("no content") ||
-            normalizedMessage.contains("empty temporary link") ||
-            exceptionMessage.contains("http 401") ||
-            exceptionMessage.contains("http 403") ||
-            exceptionMessage.contains("http 204") ||
-            exceptionMessage.contains("http 456") ||
-            exceptionMessage.contains("authorization") ||
-            exceptionMessage.contains("token") ||
-            exceptionMessage.contains("no content")
+        return normalizedMessage.contains("authorization failed") ||
+            exceptionMessage.contains("authorization failed")
     }
 
     private fun validateArchiveWindow(

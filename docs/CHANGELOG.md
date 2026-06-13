@@ -22,6 +22,8 @@ All notable product changes are recorded in this document.
 - Fixed the default Stalker `get_profile` version string to use the legacy MAG 250 `5.6.10` profile value expected by stricter portals.
 - Fixed Stalker and Xtream setup overrides so saved User-Agent, custom headers, and Stalker advanced compatibility settings are respected across login, sync, playback resolution, and VOD/series detail requests.
 - Fixed Stalker HTTP proxy playback support so proxy metadata is preserved through resolved streams and also used by Android TV Input playback.
+- Fixed Stalker authentication so a handshake token is only accepted after `get_profile` succeeds without an `Authorization failed` portal error, and cached portal auth now stays reused until that specific authorization failure happens.
+- Fixed default Stalker player requests to use MAG-style playback defaults, including `Lavf53.32.100` as the player User-Agent plus explicit `Accept`, `Connection`, and `Host` headers.
 - Fixed Live TV favorites, recents, and custom-group ordered lists still collapsing SD/HD/FHD channel variants after grouped variants were disabled.
 
 ### Added

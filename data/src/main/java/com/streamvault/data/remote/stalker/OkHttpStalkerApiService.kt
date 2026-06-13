@@ -168,6 +168,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         lastError = error
                         continue
                     }
+                    profilePayload.ensureNoPortalError()
                     evidence += "get_profile"
 
                     var providerProfile = profilePayload.toProviderProfile()

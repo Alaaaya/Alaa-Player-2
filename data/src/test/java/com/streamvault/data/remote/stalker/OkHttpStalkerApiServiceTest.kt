@@ -106,6 +106,30 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun authenticate_rejects_token_when_getProfile_returns_authorization_failed() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "handshake" to """{"js":{"token":"token-123"}}""",
+                "get_profile" to """{"js":{"error":"Authorization failed"}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).message).contains("Authorization failed")
+    }
+
+    @Test
     fun authenticate_doesNotSwitchEndpointsAfterHandshakeSucceeds() = runTest {
         val requestedPaths = mutableListOf<String>()
         val service = OkHttpStalkerApiService(

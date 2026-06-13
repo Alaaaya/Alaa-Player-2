@@ -145,6 +145,59 @@ class StalkerProviderTest {
         assertThat(api.authenticateCalls).isEqualTo(2)
     }
 
+    @Test
+    fun getLiveCategories_reauthenticates_only_after_authorization_failed() = runTest {
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            liveCategoryResults = ArrayDeque(
+                listOf(
+                    Result.error("Authorization failed"),
+                    Result.success(emptyList())
+                )
+            )
+        )
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.getLiveCategories()
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(api.authenticateCalls).isEqualTo(2)
+    }
+
+    @Test
+    fun getLiveCategories_doesNotReauthenticate_for_non_authorization_errors() = runTest {
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            liveCategoryResults = ArrayDeque(
+                listOf(
+                    Result.error("Temporary playback link missing")
+                )
+            )
+        )
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.getLiveCategories()
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat(api.authenticateCalls).isEqualTo(1)
+    }
+
 
     @Test
     fun getLiveStreams_maps_archive_capabilities_to_catch_up_fields() = runTest {
@@ -358,8 +411,46 @@ class StalkerProviderTest {
         assertThat(success.data.headers["Cookie"]).doesNotContain("device_id=")
         assertThat(success.data.headers["Cookie"]).doesNotContain("device_id2=")
         assertThat(success.data.headers["Cookie"]).doesNotContain("signature=")
-        assertThat(success.data.headers["Accept-Encoding"]).isEqualTo("identity")
+        assertThat(success.data.headers["Accept"]).isEqualTo("*/*")
+        assertThat(success.data.headers["Connection"]).isEqualTo("keep-alive")
+        assertThat(success.data.headers["Host"]).isEqualTo("fdox.org:8080")
+        assertThat(success.data.userAgent).isEqualTo("Lavf53.32.100")
         assertThat(success.data.allowInvalidSsl).isTrue()
+    }
+
+    @Test
+    fun resolvePlaybackInfo_uses_mag_style_default_player_headers() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://cdn.example.com/live/stream.ts"
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            playbackBackendHint = com.streamvault.domain.model.StalkerPlaybackBackendHint.TEMP_LINK_STRICT,
+            cookieModeHint = com.streamvault.domain.model.StalkerCookieMode.CREATE_LINK,
+            deviceProfile = "MAG322",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = checkNotNull(
+                buildStalkerPlaybackDescriptor(
+                    primaryCmd = "ffmpeg http://localhost/ch/1200_",
+                    capabilities = StalkerPortalCapabilities(useHttpTemporaryLink = true)
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.userAgent).isEqualTo("Lavf53.32.100")
+        assertThat(success.data.headers["Accept"]).isEqualTo("*/*")
+        assertThat(success.data.headers["Connection"]).isEqualTo("keep-alive")
+        assertThat(success.data.headers["Host"]).isEqualTo("cdn.example.com")
     }
 
     @Test
@@ -581,7 +672,8 @@ class StalkerProviderTest {
         private val profile: StalkerProviderProfile,
         private val liveStreams: List<StalkerItemRecord> = emptyList(),
         private val createLinkUrl: String = "http://cdn.example.com/stream.ts",
-        private val currentCookieHeader: String = ""
+        private val currentCookieHeader: String = "",
+        private val liveCategoryResults: ArrayDeque<Result<List<StalkerCategoryRecord>>> = ArrayDeque()
     ) : StalkerApiService {
         var createLinkCalls: Int = 0
             private set
@@ -605,7 +697,7 @@ class StalkerProviderTest {
         override suspend fun getLiveCategories(
             session: StalkerSession,
             profile: StalkerDeviceProfile
-        ) = Result.success(emptyList<StalkerCategoryRecord>())
+        ) = liveCategoryResults.removeFirstOrNull() ?: Result.success(emptyList<StalkerCategoryRecord>())
 
         override suspend fun getLiveStreams(
             session: StalkerSession,
