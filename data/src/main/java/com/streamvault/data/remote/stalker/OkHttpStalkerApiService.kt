@@ -2429,7 +2429,7 @@ class OkHttpStalkerApiService @Inject constructor(
         private const val MAX_INLINE_EPG_RECORDS = 1500
         private val FORM_URL_ENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
         private const val DEFAULT_VERSION_STRING =
-            "ImageDescription: 0.2.18-r23-250; ImageDate: Wed Oct 31 15:22:54 EEST 2018; PORTAL version: 5.6.2; API Version: JS API version: 343; STB API version: 146; Player Engine version: 0x58c"
+            "ImageDescription: 0.2.18-r19-pub-250; ImageDate: Mon Jun 12 11:04:49 EEST 2017; PORTAL version: 5.6.10; API Version: JS API version: 343; STB API version: 146; Player Engine version: 0x23"
     }
 }
 

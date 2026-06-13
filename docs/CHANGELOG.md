@@ -11,6 +11,7 @@ All notable product changes are recorded in this document.
 - Fixed Stalker device-profile generation so empty Serial Number, Device ID, Device ID2, and Signature fields stay empty instead of being auto-generated.
 - Fixed Stalker profile metrics so `uid` uses Device ID2, and removed `video_out` and `signature` from the generated metrics payload.
 - Fixed Stalker profile requests to send `prehash=false` literally instead of numeric `0`/`1` values.
+- Fixed the default Stalker `get_profile` version string to use the legacy MAG 250 `5.6.10` profile value expected by stricter portals.
 
 ### Added
 
