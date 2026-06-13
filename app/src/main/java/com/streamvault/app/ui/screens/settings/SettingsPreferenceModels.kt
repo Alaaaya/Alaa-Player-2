@@ -15,7 +15,9 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
+import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RemoteShortcutPreferences
@@ -91,6 +93,8 @@ internal data class SettingsPreferenceSnapshot(
     val liveVariantPreferenceMode: LiveVariantPreferenceMode,
     val vodViewMode: VodViewMode,
     val vodInfiniteScroll: Boolean,
+    val vodDuplicateHandlingMode: VodDuplicateHandlingMode,
+    val vodVariantPreferenceMode: VodVariantPreferenceMode,
     val guideDefaultCategoryId: Long,
     val guideDefaultCategoryOptions: List<Category>,
     val preventStandbyDuringPlayback: Boolean,

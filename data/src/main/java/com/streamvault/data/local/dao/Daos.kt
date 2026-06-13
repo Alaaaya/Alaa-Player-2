@@ -1430,6 +1430,15 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE provider_id = :providerId")
     suspend fun getByProviderSync(providerId: Long): List<MovieEntity>
 
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND tmdb_id = :tmdbId")
+    suspend fun getByProviderAndTmdbIdSync(providerId: Long, tmdbId: Long): List<MovieEntity>
+
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND year = :year")
+    suspend fun getByProviderAndYearSync(providerId: Long, year: String): List<MovieEntity>
+
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND release_date LIKE :yearPrefix")
+    suspend fun getByProviderAndReleaseYearPrefixSync(providerId: Long, yearPrefix: String): List<MovieEntity>
+
     @Query("SELECT tmdb_id FROM movies WHERE provider_id = :providerId AND tmdb_id IS NOT NULL")
     suspend fun getTmdbIdsByProvider(providerId: Long): List<TmdbIdMapping>
 
@@ -2421,6 +2430,12 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE provider_id = :providerId")
     suspend fun getByProviderSync(providerId: Long): List<SeriesEntity>
+
+    @Query("SELECT * FROM series WHERE provider_id = :providerId AND tmdb_id = :tmdbId")
+    suspend fun getByProviderAndTmdbIdSync(providerId: Long, tmdbId: Long): List<SeriesEntity>
+
+    @Query("SELECT * FROM series WHERE provider_id = :providerId AND release_date LIKE :yearPrefix")
+    suspend fun getByProviderAndReleaseYearPrefixSync(providerId: Long, yearPrefix: String): List<SeriesEntity>
 
     @Query("SELECT tmdb_id FROM series WHERE provider_id = :providerId AND tmdb_id IS NOT NULL")
     suspend fun getTmdbIdsByProvider(providerId: Long): List<TmdbIdMapping>

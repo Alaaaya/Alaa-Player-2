@@ -21,6 +21,8 @@ internal class SettingsScreenDialogState(
     private val showLiveVariantPreferenceDialogState: MutableState<Boolean>,
     private val showLandingScreenDialogState: MutableState<Boolean>,
     private val showVodViewModeDialogState: MutableState<Boolean>,
+    private val showVodDuplicateHandlingDialogState: MutableState<Boolean>,
+    private val showVodVariantPreferenceDialogState: MutableState<Boolean>,
     private val showGuideDefaultCategoryDialogState: MutableState<Boolean>,
     private val showPlaybackSpeedDialogState: MutableState<Boolean>,
     private val showExternalPlaybackModeDialogState: MutableState<Boolean>,
@@ -78,6 +80,8 @@ internal class SettingsScreenDialogState(
     var showLiveVariantPreferenceDialog by showLiveVariantPreferenceDialogState
     var showLandingScreenDialog by showLandingScreenDialogState
     var showVodViewModeDialog by showVodViewModeDialogState
+    var showVodDuplicateHandlingDialog by showVodDuplicateHandlingDialogState
+    var showVodVariantPreferenceDialog by showVodVariantPreferenceDialogState
     var showGuideDefaultCategoryDialog by showGuideDefaultCategoryDialogState
     var showPlaybackSpeedDialog by showPlaybackSpeedDialogState
     var showExternalPlaybackModeDialog by showExternalPlaybackModeDialogState
@@ -203,6 +207,8 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showLiveVariantPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showLandingScreenDialogState = rememberSaveable { mutableStateOf(false) }
     val showVodViewModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showVodDuplicateHandlingDialogState = rememberSaveable { mutableStateOf(false) }
+    val showVodVariantPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showGuideDefaultCategoryDialogState = rememberSaveable { mutableStateOf(false) }
     val showPlaybackSpeedDialogState = rememberSaveable { mutableStateOf(false) }
     val showExternalPlaybackModeDialogState = rememberSaveable { mutableStateOf(false) }
@@ -269,6 +275,8 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showLiveVariantPreferenceDialogState = showLiveVariantPreferenceDialogState,
         showLandingScreenDialogState = showLandingScreenDialogState,
         showVodViewModeDialogState = showVodViewModeDialogState,
+        showVodDuplicateHandlingDialogState = showVodDuplicateHandlingDialogState,
+        showVodVariantPreferenceDialogState = showVodVariantPreferenceDialogState,
         showGuideDefaultCategoryDialogState = showGuideDefaultCategoryDialogState,
         showPlaybackSpeedDialogState = showPlaybackSpeedDialogState,
         showExternalPlaybackModeDialogState = showExternalPlaybackModeDialogState,

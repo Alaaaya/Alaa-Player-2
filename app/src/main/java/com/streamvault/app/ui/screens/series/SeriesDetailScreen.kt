@@ -68,6 +68,7 @@ import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.ExternalRatings
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.VodSeriesVariant
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
@@ -122,6 +123,7 @@ fun SeriesDetailScreen(
         externalRatings = uiState.externalRatings,
         isLoadingExternalRatings = uiState.isLoadingExternalRatings,
         onToggleFavorite = viewModel::toggleFavorite,
+        onSelectVariant = viewModel::selectSeriesVariant,
         onSeasonSelected = viewModel::selectSeason,
         onEpisodeClick = onEpisodeClick,
         onResumeClick = onResumeClick ?: onEpisodeClick,
@@ -148,6 +150,7 @@ private fun SeriesDetailContent(
     externalRatings: ExternalRatings,
     isLoadingExternalRatings: Boolean,
     onToggleFavorite: () -> Unit,
+    onSelectVariant: (Long) -> Unit,
     onSeasonSelected: (Season) -> Unit,
     onEpisodeClick: (Episode) -> Unit,
     onResumeClick: (Episode) -> Unit,
@@ -286,6 +289,11 @@ private fun SeriesDetailContent(
                                 ratings = externalRatings,
                                 isLoading = isLoadingExternalRatings
                             )
+                            SeriesVersionSelector(
+                                variants = series.variants,
+                                selectedVariantId = series.selectedVariantId ?: series.id,
+                                onSelectVariant = onSelectVariant
+                            )
                             Text(
                                 text = series.plot ?: stringResource(R.string.series_plot_fallback),
                                 style = MaterialTheme.typography.bodyLarge,
@@ -366,6 +374,11 @@ private fun SeriesDetailContent(
                             ExternalRatingsStrip(
                                 ratings = externalRatings,
                                 isLoading = isLoadingExternalRatings
+                            )
+                            SeriesVersionSelector(
+                                variants = series.variants,
+                                selectedVariantId = series.selectedVariantId ?: series.id,
+                                onSelectVariant = onSelectVariant
                             )
                             Text(
                                 text = series.plot ?: stringResource(R.string.series_plot_fallback),
@@ -457,6 +470,40 @@ private fun SeriesDetailContent(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesVersionSelector(
+    variants: List<VodSeriesVariant>,
+    selectedVariantId: Long,
+    onSelectVariant: (Long) -> Unit
+) {
+    if (variants.size <= 1) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.series_detail_versions),
+            style = MaterialTheme.typography.titleMedium,
+            color = AppColors.TextPrimary
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(variants, key = { it.rawSeriesId }) { variant ->
+                val selected = variant.rawSeriesId == selectedVariantId
+                TvButton(
+                    onClick = { onSelectVariant(variant.rawSeriesId) },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (selected) AppColors.Brand else AppColors.SurfaceEmphasis,
+                        contentColor = if (selected) Color.White else AppColors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        text = variant.label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }

@@ -47,6 +47,7 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.RecordingItem
@@ -58,6 +59,7 @@ import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.VirtualCategoryIds
+import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.usecase.ExportBackup
 import com.streamvault.domain.usecase.ExportBackupCommand
 import com.streamvault.domain.usecase.ExportBackupResult
@@ -538,6 +540,18 @@ class SettingsViewModel @Inject constructor(
     fun setVodInfiniteScroll(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setVodInfiniteScroll(enabled)
+        }
+    }
+
+    fun setVodDuplicateHandlingMode(mode: VodDuplicateHandlingMode) {
+        viewModelScope.launch {
+            preferencesRepository.setVodDuplicateHandlingMode(mode)
+        }
+    }
+
+    fun setVodVariantPreferenceMode(mode: VodVariantPreferenceMode) {
+        viewModelScope.launch {
+            preferencesRepository.setVodVariantPreferenceMode(mode)
         }
     }
 

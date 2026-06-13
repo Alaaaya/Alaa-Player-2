@@ -201,7 +201,21 @@ fun DashboardScreen(
 
                     DashboardHomeSection.CONTINUE_WATCHING -> ContinueWatchingRow(
                         items = uiState.continueWatching,
-                        onItemClick = onPlaybackHistoryClick
+                        onItemClick = { history ->
+                            val rawSeriesId = history.seriesId ?: history.contentId
+                            val presentedSeries = if (history.contentType == com.streamvault.domain.model.ContentType.SERIES) {
+                                uiState.continueWatchingSeries.firstOrNull { series ->
+                                    series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                                }
+                            } else {
+                                null
+                            }
+                            if (presentedSeries != null) {
+                                onSeriesClick(presentedSeries)
+                            } else {
+                                onPlaybackHistoryClick(history)
+                            }
+                        }
                     )
 
                     DashboardHomeSection.RECENT_MOVIES -> CategoryRow(
@@ -324,6 +338,9 @@ private fun DashboardHero(
         )
     }
 }
+
+private fun Series.rawSeriesIdsForNavigation(): List<Long> =
+    variants.map { it.rawSeriesId }.ifEmpty { listOf(selectedVariantId ?: id) }
 
 @Composable
 private fun DashboardStatRow(

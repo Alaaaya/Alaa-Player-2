@@ -337,6 +337,7 @@ data class SeriesBrowseEntity(
     val genre: String? = null,
     @ColumnInfo(name = "release_date") val releaseDate: String? = null,
     val rating: Float = 0f,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Long? = null,
     @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,

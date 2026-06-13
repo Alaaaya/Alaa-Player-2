@@ -260,6 +260,7 @@ class PlayerViewModel @Inject constructor(
     internal var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
     private var currentStreamClassLabel: String = "Primary"
     internal var lastRecordedVariantObservationSignature: String? = null
+    internal var lastRecordedVodVariantObservationSignature: String? = null
     internal var prepareRequestVersion: Long = 0L
     internal var readySideEffectsRequestVersion: Long? = null
     internal var currentArtworkUrl: String? = null
@@ -491,6 +492,7 @@ class PlayerViewModel @Inject constructor(
                             }
                         }
                     } else {
+                        recordMovieVariantSuccessObservation()
                         startThumbnailPreload()
                     }
                 }
@@ -779,6 +781,7 @@ class PlayerViewModel @Inject constructor(
             )
             return
         }
+        recordMovieVariantFailureObservation(error)
         // After software decoder retry fails, also try an alternate stream format
         // (e.g. HLS→MPEG-TS or MPEG-TS→HLS) before giving up.
         if (error is PlayerError.DecoderError && hasRetriedWithSoftwareDecoder) {
@@ -989,6 +992,7 @@ class PlayerViewModel @Inject constructor(
         thumbnailPreloadJob?.cancel()
         hasRetriedXtreamAuthRefresh = false
         lastRecordedVariantObservationSignature = null
+        lastRecordedVodVariantObservationSignature = null
         livePlaybackReadyForCurrentSession = false
         readySideEffectsRequestVersion = null
         currentResolvedPlaybackUrl = ""

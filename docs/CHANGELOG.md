@@ -6,6 +6,10 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed grouped movie duplicate actions so favorites and custom-group dialogs account for all raw versions while play, copy URL, download, and add actions target the selected version.
+- Fixed grouped movie detail loading to reuse the already-known variant group from browse navigation instead of re-discovering duplicate versions again on the detail screen.
+- Fixed grouped series detail loading to reuse the already-known variant group from browse, search, continue-watching, and dashboard history navigation instead of re-discovering duplicate versions again on the detail screen.
+- Fixed movie library multi-word search so FTS4 prefix matching no longer drops results like `No Place to Be Single` for queries such as `no place`.
 - Fixed Stalker endpoint handling so authenticated requests stay on the discovered API endpoint instead of retrying the sibling `portal.php` or `server/load.php` path automatically.
 - Fixed Stalker request and playback cookies to only send the required `mac`, `stb_lang`, and `timezone` client values, with encoded cookie formatting and no extra device-identity cookies.
 - Fixed Stalker device-profile generation so empty Serial Number, Device ID, Device ID2, and Signature fields stay empty instead of being auto-generated.
@@ -18,6 +22,8 @@ All notable product changes are recorded in this document.
 
 ### Added
 
+- Added Movies duplicate handling with smart/grouped presentation, preferred version ranking, detail-page version selection, sticky manual choices, and playback observations for reliability-based movie variant selection.
+- Added Series duplicate handling with smart/grouped browse and search presentation, preferred version ranking, detail-page version selection with sticky manual choice, and raw-safe favorites/custom-group actions across grouped variants.
 - Added Stalker advanced HTTP header overrides, including support for custom headers and removing default request/playback headers by leaving an override value blank.
 - Added Stalker-specific SSL bypass handling for portal requests and player playback so invalid HTTPS certificates no longer block those connections.
 - Added Stalker advanced compatibility options for hw_version, separate API/player User-Agent values, Ethernet/WiFi X-User-Agent link type, HTTP proxy support for API and playback, and action-scoped request blocking/parameter overrides.

@@ -146,6 +146,28 @@ internal fun SettingsScreenDialogs(
         )
     }
 
+    if (dialogState.showVodDuplicateHandlingDialog) {
+        VodDuplicateHandlingModeDialog(
+            selectedMode = uiState.vodDuplicateHandlingMode,
+            onDismiss = { dialogState.showVodDuplicateHandlingDialog = false },
+            onModeSelected = { mode ->
+                viewModel.setVodDuplicateHandlingMode(mode)
+                dialogState.showVodDuplicateHandlingDialog = false
+            }
+        )
+    }
+
+    if (dialogState.showVodVariantPreferenceDialog) {
+        VodVariantPreferenceModeDialog(
+            selectedMode = uiState.vodVariantPreferenceMode,
+            onDismiss = { dialogState.showVodVariantPreferenceDialog = false },
+            onModeSelected = { mode ->
+                viewModel.setVodVariantPreferenceMode(mode)
+                dialogState.showVodVariantPreferenceDialog = false
+            }
+        )
+    }
+
     SettingsPreferenceDialogs(
         uiState = uiState,
         viewModel = viewModel,
