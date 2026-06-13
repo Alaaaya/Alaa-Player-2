@@ -1034,7 +1034,25 @@ private fun ProviderFormContent(
                         stalkerDeviceId2 = stalkerDeviceId2,
                         onStalkerDeviceId2Change = onStalkerDeviceId2Change,
                         stalkerSignature = stalkerSignature,
-                        onStalkerSignatureChange = onStalkerSignatureChange
+                        onStalkerSignatureChange = onStalkerSignatureChange,
+                        stalkerHwVersion = stalkerHwVersion,
+                        onStalkerHwVersionChange = onStalkerHwVersionChange,
+                        stalkerApiUserAgent = stalkerApiUserAgent,
+                        onStalkerApiUserAgentChange = onStalkerApiUserAgentChange,
+                        stalkerPlayerUserAgent = stalkerPlayerUserAgent,
+                        onStalkerPlayerUserAgentChange = onStalkerPlayerUserAgentChange,
+                        stalkerXUserAgentLink = stalkerXUserAgentLink,
+                        onStalkerXUserAgentLinkChange = onStalkerXUserAgentLinkChange,
+                        stalkerProxyEnabled = stalkerProxyEnabled,
+                        onStalkerProxyEnabledChange = onStalkerProxyEnabledChange,
+                        stalkerProxyHost = stalkerProxyHost,
+                        onStalkerProxyHostChange = onStalkerProxyHostChange,
+                        stalkerProxyPort = stalkerProxyPort,
+                        onStalkerProxyPortChange = onStalkerProxyPortChange,
+                        stalkerRequestRules = stalkerRequestRules,
+                        onAddStalkerRequestRule = onAddStalkerRequestRule,
+                        onUpdateStalkerRequestRule = onUpdateStalkerRequestRule,
+                        onRemoveStalkerRequestRule = onRemoveStalkerRequestRule
                     )
                     FormErrors(uiState.validationError, uiState.error)
                     ActionButton(
@@ -1610,8 +1628,7 @@ private fun AdvancedProviderOptionsSection(
                             ),
                             focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
                         ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow.None)
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1630,7 +1647,10 @@ private fun AdvancedProviderOptionsSection(
                                     color = OnSurfaceDim
                                 )
                             }
-                            ProxyToggleIndicator(checked = stalkerProxyEnabled)
+                            Switch(
+                                checked = stalkerProxyEnabled,
+                                onCheckedChange = onStalkerProxyEnabledChange
+                            )
                         }
                     }
                     AnimatedVisibility(stalkerProxyEnabled) {
@@ -1685,31 +1705,6 @@ private fun StalkerLinkOptionButton(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall,
             color = TextPrimary
-        )
-    }
-}
-
-@Composable
-private fun ProxyToggleIndicator(checked: Boolean) {
-    val trackColor = if (checked) Primary else SurfaceHighlight
-    val thumbColor = if (checked) Color.White else OnSurfaceDim
-    Box(
-        modifier = Modifier
-            .width(54.dp)
-            .height(32.dp)
-            .background(trackColor, RoundedCornerShape(999.dp))
-            .border(
-                2.dp,
-                if (checked) PrimaryLight else OnSurfaceDim.copy(alpha = 0.45f),
-                RoundedCornerShape(999.dp)
-            )
-            .padding(4.dp),
-        contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-    ) {
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .background(thumbColor, RoundedCornerShape(999.dp))
         )
     }
 }
