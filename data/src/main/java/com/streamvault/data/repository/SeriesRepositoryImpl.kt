@@ -1461,6 +1461,9 @@ class SeriesRepositoryImpl @Inject constructor(
             provider.serverUrl,
             provider.username,
             provider.password,
+            provider.httpUserAgent,
+            provider.httpHeaders,
+            provider.allowedOutputFormatsJson,
             enableBase64TextCompatibility.toString()
         ).joinToString("\u0000")
         return requireNotNull(
@@ -1496,6 +1499,8 @@ class SeriesRepositoryImpl @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = credentialCrypto.decryptIfNeeded(provider.password),
+            httpUserAgent = provider.httpUserAgent,
+            httpHeaders = provider.httpHeaders,
             portalFingerprintHint = provider.stalkerPortalFingerprint,
             magPresetHint = provider.stalkerMagPreset,
             bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
@@ -1511,7 +1516,8 @@ class SeriesRepositoryImpl @Inject constructor(
             serialNumber = provider.stalkerSerialNumber,
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature
+            signature = provider.stalkerSignature,
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson
         )
     }
 }

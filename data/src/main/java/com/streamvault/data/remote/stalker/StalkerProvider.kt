@@ -899,10 +899,13 @@ class StalkerProvider(
         }
     }
 
-    private fun resolvePlaybackUserAgent(profile: StalkerDeviceProfile): String? =
+    private fun resolvePlaybackUserAgent(profile: StalkerDeviceProfile): String? {
+        profile.advancedOptions.playerUserAgent.trim().takeIf { it.isNotBlank() }?.let { return it }
         profile.headerOverrides.entries.firstOrNull { (name, _) ->
             name.equals("User-Agent", ignoreCase = true)
-        }?.value ?: profile.playerUserAgent.ifBlank { profile.userAgent.ifBlank { null } }
+        }?.let { (_, value) -> return value }
+        return profile.playerUserAgent.ifBlank { profile.userAgent.ifBlank { null } }
+    }
 
     private fun shouldOmitPlaybackAuthorization(url: String): Boolean {
         val path = runCatching { URI(url).path?.lowercase(Locale.ROOT).orEmpty() }.getOrDefault("")

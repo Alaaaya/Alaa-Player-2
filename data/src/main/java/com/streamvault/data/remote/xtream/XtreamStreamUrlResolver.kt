@@ -50,6 +50,8 @@ class XtreamStreamUrlResolver @Inject constructor(
         val authMode: StalkerAuthMode,
         val username: String,
         val password: String,
+        val httpUserAgent: String,
+        val httpHeaders: String,
         val portalFingerprint: StalkerPortalFingerprint,
         val magPreset: StalkerMagPreset,
         val bootstrapRecipe: StalkerBootstrapRecipe,
@@ -358,6 +360,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.authMode == provider.stalkerAuthMode &&
             cached.username == provider.username &&
             cached.password == provider.password &&
+            cached.httpUserAgent == provider.httpUserAgent &&
+            cached.httpHeaders == provider.httpHeaders &&
             cached.portalFingerprint == provider.stalkerPortalFingerprint &&
             cached.magPreset == provider.stalkerMagPreset &&
             cached.bootstrapRecipe == provider.stalkerLastBootstrapRecipe &&
@@ -385,6 +389,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = decryptedPassword,
+            httpUserAgent = provider.httpUserAgent,
+            httpHeaders = provider.httpHeaders,
             portalFingerprintHint = provider.stalkerPortalFingerprint,
             magPresetHint = provider.stalkerMagPreset,
             bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
@@ -409,6 +415,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = provider.password,
+            httpUserAgent = provider.httpUserAgent,
+            httpHeaders = provider.httpHeaders,
             portalFingerprint = provider.stalkerPortalFingerprint,
             magPreset = provider.stalkerMagPreset,
             bootstrapRecipe = provider.stalkerLastBootstrapRecipe,

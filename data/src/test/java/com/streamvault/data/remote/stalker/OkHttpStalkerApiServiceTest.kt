@@ -35,7 +35,7 @@ class OkHttpStalkerApiServiceTest {
                     }
                     val body = when (action) {
                         "handshake" -> """{"js":{"token":"token-123"}}"""
-                        "get_profile" -> if (requestedVersions.size <= 2) {
+                        "get_profile" -> if (request.url.queryParameter("image_version") != "216") {
                             ""
                         } else {
                             """{"js":{"id":"42","name":"Legacy Box","status":"1","auth_access":true}}"""
@@ -73,7 +73,7 @@ class OkHttpStalkerApiServiceTest {
         assertThat(success.data.second.magPreset).isEqualTo(StalkerMagPreset.MAG250_LEGACY)
         assertThat(success.data.second.bootstrapRecipe).isEqualTo(StalkerBootstrapRecipe.LEGACY_MAG)
         assertThat(success.data.first.recipeEvidence).containsAtLeast("fallback_recipe", "rediscovery_attempted")
-        assertThat(requestedImages).containsExactly("218", "218", "216").inOrder()
+        assertThat(requestedImages).containsAtLeast("218", "216").inOrder()
         assertThat(requestedVersions.last()).contains("0.2.16-r17-250")
     }
 
@@ -102,6 +102,55 @@ class OkHttpStalkerApiServiceTest {
         assertThat(success.data.first.token).isEqualTo("token-123")
         assertThat(success.data.second.accountName).isEqualTo("Living Room")
         assertThat(success.data.second.maxConnections).isEqualTo(2)
+    }
+
+    @Test
+    fun authenticate_doesNotSwitchEndpointsAfterHandshakeSucceeds() = runTest {
+        val requestedPaths = mutableListOf<String>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedPaths += request.url.encodedPath
+                    val action = request.url.queryParameter("action").orEmpty()
+                    val body = when (request.url.encodedPath) {
+                        "/server/load.php" -> when (action) {
+                            "handshake" -> """{"js":{"token":"token-123"}}"""
+                            "get_profile" -> ""
+                            else -> """{"js":{}}"""
+                        }
+                        "/portal.php" -> when (action) {
+                            "handshake" -> """{"js":{"token":"portal-token"}}"""
+                            "get_profile" -> """{"js":{"name":"Portal Endpoint","status":"1"}}"""
+                            else -> """{"js":{}}"""
+                        }
+                        else -> error("Unexpected path ${request.url.encodedPath}")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat(requestedPaths).doesNotContain("/portal.php")
+        assertThat(requestedPaths).contains("/server/load.php")
     }
 
     @Test
@@ -240,6 +289,51 @@ class OkHttpStalkerApiServiceTest {
         assertThat(seenUserAgents).contains("Header Agent/2.0")
         assertThat(seenReferers).doesNotContain("https://portal.example.com/c/")
         assertThat(seenCustomHeaders).contains("enabled")
+    }
+
+    @Test
+    fun authenticate_dedicatedApiUserAgentOverridesCustomHeaderUserAgent() = runTest {
+        val seenUserAgents = mutableListOf<String?>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    seenUserAgents += request.header("User-Agent")
+                    val action = request.url.queryParameter("action").orEmpty()
+                    val body = when (action) {
+                        "handshake" -> """{"js":{"token":"token-123"}}"""
+                        "get_profile" -> """{"js":{"name":"Living Room","status":"1"}}"""
+                        else -> error("Unexpected action '$action'")
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.authenticate(
+            buildStalkerDeviceProfile(
+                portalUrl = "https://portal.example.com/c",
+                macAddress = "00:1A:79:12:34:56",
+                deviceProfile = "MAG250",
+                timezone = "UTC",
+                locale = "en",
+                httpHeadersOverride = "User-Agent: Header Agent/2.0",
+                stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(
+                    StalkerAdvancedOptions(apiUserAgent = "API Agent/9.0")
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(seenUserAgents).contains("API Agent/9.0")
+        assertThat(seenUserAgents).doesNotContain("Header Agent/2.0")
     }
 
     @Test

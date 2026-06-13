@@ -70,12 +70,16 @@ class OkHttpStalkerApiService @Inject constructor(
 
     override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
         var lastError: Throwable? = null
+        var lockedLoadUrl: String? = null
         val authModes = candidateAuthModes(profile)
         for (effectiveAuthMode in authModes) {
             for (attempt in candidateAuthAttempts(profile, effectiveAuthMode)) {
                 val recipeIndex = attempt.recipeIndex
                 val recipe = attempt.recipe
                 val loadUrl = attempt.loadUrl
+                if (lockedLoadUrl != null && lockedLoadUrl != loadUrl) {
+                    continue
+                }
                     cookieJar.clear()
                     val referer = StalkerUrlFactory.portalReferer(loadUrl)
                     val evidence = mutableListOf<String>()
@@ -86,7 +90,6 @@ class OkHttpStalkerApiService @Inject constructor(
                             url = loadUrl,
                             profile = attemptProfile,
                             referer = referer,
-                            allowAlternateEndpointRetry = true,
                             query = mapOf(
                                 "type" to "stb",
                                 "action" to "handshake",
@@ -105,6 +108,7 @@ class OkHttpStalkerApiService @Inject constructor(
                             lastError = IOException("Portal handshake did not return a token.")
                             continue
                         }
+                    lockedLoadUrl = loadUrl
 
                     if (recipe.authMode.requiresCredentials()) {
                         if (attemptProfile.username.isBlank()) {
@@ -117,7 +121,7 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true
+                                allowAlternateEndpointRetry = false
                             )
                         }.getOrElse { error ->
                             lastError = error
@@ -139,7 +143,6 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true,
                                 query = mapOf(
                                     "type" to "stb",
                                     "action" to "get_localization",
@@ -156,7 +159,6 @@ class OkHttpStalkerApiService @Inject constructor(
                             profile = attemptProfile,
                             referer = referer,
                             token = token,
-                            allowAlternateEndpointRetry = true,
                             query = buildProfileQuery(attemptProfile)
                         )
                     }.getOrElse { error ->
@@ -183,7 +185,6 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true,
                                 query = mapOf(
                                     "type" to "account_info",
                                     "action" to "get_main_info",
@@ -203,7 +204,6 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true,
                                 query = mapOf(
                                     "type" to "stb",
                                     "action" to "get_localization",
@@ -221,7 +221,6 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true,
                                 query = mapOf(
                                     "type" to "stb",
                                     "action" to "get_modules",
@@ -246,7 +245,6 @@ class OkHttpStalkerApiService @Inject constructor(
                                 profile = attemptProfile,
                                 referer = referer,
                                 token = token,
-                                allowAlternateEndpointRetry = true,
                                 query = mapOf(
                                     "type" to "stb",
                                     "action" to "get_events",
@@ -936,7 +934,10 @@ class OkHttpStalkerApiService @Inject constructor(
             .apply {
                 token?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
             }
-            .applyStalkerHeaderOverrides(profile.headerOverrides)
+            .applyStalkerHeaderOverrides(
+                headerOverrides = profile.headerOverrides,
+                preserveUserAgent = profile.advancedOptions.apiUserAgent.isNotBlank()
+            )
         val requestBody = body?.toRequestBody(FORM_URL_ENCODED_MEDIA_TYPE)
         val request = requestBuilder
             .method(method, requestBody)
@@ -957,7 +958,10 @@ class OkHttpStalkerApiService @Inject constructor(
                 .url(buildUrl(alternateUrl, effectiveQuery))
                 .header("Referer", StalkerUrlFactory.portalReferer(alternateUrl))
                 .header("Cookie", buildCookieHeader(buildUrl(alternateUrl, effectiveQuery), profile))
-                .applyStalkerHeaderOverrides(profile.headerOverrides)
+                .applyStalkerHeaderOverrides(
+                    headerOverrides = profile.headerOverrides,
+                    preserveUserAgent = profile.advancedOptions.apiUserAgent.isNotBlank()
+                )
                 .method(method, requestBody)
                 .build()
             executeJsonRequest(alternateRequest, action, profile)
@@ -1056,7 +1060,10 @@ class OkHttpStalkerApiService @Inject constructor(
             .header("Accept", "*/*")
             .header("Cookie", buildCookieHeader(fullUrl, profile))
             .header("Authorization", "Bearer $token")
-            .applyStalkerHeaderOverrides(profile.headerOverrides)
+            .applyStalkerHeaderOverrides(
+                headerOverrides = profile.headerOverrides,
+                preserveUserAgent = profile.advancedOptions.apiUserAgent.isNotBlank()
+            )
             .get()
             .build()
 
@@ -1191,7 +1198,10 @@ class OkHttpStalkerApiService @Inject constructor(
             .header("Accept", "*/*")
             .header("Cookie", buildCookieHeader(fullUrl, profile))
             .header("Authorization", "Bearer $token")
-            .applyStalkerHeaderOverrides(profile.headerOverrides)
+            .applyStalkerHeaderOverrides(
+                headerOverrides = profile.headerOverrides,
+                preserveUserAgent = profile.advancedOptions.apiUserAgent.isNotBlank()
+            )
             .get()
             .build()
 
@@ -2611,9 +2621,13 @@ private fun resolveStalkerUserAgent(
 }
 
 private fun Request.Builder.applyStalkerHeaderOverrides(
-    headerOverrides: Map<String, String?>
+    headerOverrides: Map<String, String?>,
+    preserveUserAgent: Boolean = false
 ): Request.Builder = apply {
     headerOverrides.forEach { (name, value) ->
+        if (preserveUserAgent && name.equals("User-Agent", ignoreCase = true)) {
+            return@forEach
+        }
         if (value == null) {
             removeHeader(name)
         } else {

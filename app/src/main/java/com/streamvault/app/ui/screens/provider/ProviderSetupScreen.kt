@@ -280,7 +280,8 @@ fun ProviderSetupScreen(
             username = uiState.username
             password = uiState.password
             m3uUrl = uiState.m3uUrl
-            httpUserAgent = uiState.httpUserAgent
+            val isEditingStalker = uiState.selectedTab == 1
+            httpUserAgent = if (isEditingStalker) "" else uiState.httpUserAgent
             httpHeaders = uiState.httpHeaders
             stalkerMacAddress = uiState.stalkerMacAddress
             stalkerAuthMode = uiState.stalkerAuthMode
@@ -293,7 +294,9 @@ fun ProviderSetupScreen(
             stalkerSignature = uiState.stalkerSignature
             val advanced = StalkerAdvancedOptionsCodec.decode(uiState.stalkerAdvancedOptionsJson)
             stalkerHwVersion = advanced.hwVersion
-            stalkerApiUserAgent = advanced.apiUserAgent
+            stalkerApiUserAgent = advanced.apiUserAgent.ifBlank {
+                if (isEditingStalker) uiState.httpUserAgent else ""
+            }
             stalkerPlayerUserAgent = advanced.playerUserAgent
             stalkerXUserAgentLink = advanced.normalizedLink
             stalkerProxyEnabled = advanced.proxyEnabled
@@ -450,7 +453,7 @@ fun ProviderSetupScreen(
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, httpUserAgent, httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
@@ -505,7 +508,7 @@ fun ProviderSetupScreen(
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, httpUserAgent, httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
@@ -1218,20 +1221,30 @@ private fun AdvancedProviderOptionsSection(
         val hasNonDefaultSelection = ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER) && uiState.epgSyncMode != defaultEpgSyncMode) ||
             (sourceType == SourceType.XTREAM && uiState.xtreamLiveSyncMode != ProviderXtreamLiveSyncMode.AUTO) ||
             ((sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) && !uiState.m3uVodClassificationEnabled) ||
+            ((sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
+                httpUserAgent.isNotBlank()) ||
             ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
-                (httpUserAgent.isNotBlank() || httpHeaders.isNotBlank())) ||
+                httpHeaders.isNotBlank()) ||
             (sourceType == SourceType.STALKER && (
                 stalkerAuthMode != StalkerAuthMode.AUTO ||
                     username.isNotBlank() ||
                     password.isNotBlank() ||
                     stalkerMacAddress.isBlank() ||
-                stalkerDeviceProfile.isNotBlank() ||
+                    stalkerDeviceProfile.isNotBlank() ||
                     stalkerDeviceTimezone.isNotBlank() ||
                     stalkerDeviceLocale.isNotBlank() ||
                     stalkerSerialNumber.isNotBlank() ||
                     stalkerDeviceId.isNotBlank() ||
                     stalkerDeviceId2.isNotBlank() ||
-                    stalkerSignature.isNotBlank()
+                    stalkerSignature.isNotBlank() ||
+                    stalkerHwVersion.isNotBlank() ||
+                    stalkerApiUserAgent.isNotBlank() ||
+                    stalkerPlayerUserAgent.isNotBlank() ||
+                    stalkerXUserAgentLink != StalkerAdvancedOptions.LINK_ETHERNET ||
+                    stalkerProxyEnabled ||
+                    stalkerProxyHost.isNotBlank() ||
+                    stalkerProxyPort.isNotBlank() ||
+                    stalkerRequestRules.isNotEmpty()
                 ))
         if (uiState.isEditing && hasNonDefaultSelection) {
             showAdvancedOptions = true
@@ -1341,7 +1354,7 @@ private fun AdvancedProviderOptionsSection(
                     }
                 }
 
-                if (sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) {
+                if (sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) {
                     ProviderTextField(
                         value = httpUserAgent,
                         onValueChange = onHttpUserAgentChange,
@@ -1353,6 +1366,9 @@ private fun AdvancedProviderOptionsSection(
                             imeAction = ImeAction.Next
                         )
                     )
+                }
+
+                if (sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) {
                     ProviderTextField(
                         value = httpHeaders,
                         onValueChange = onHttpHeadersChange,
@@ -2363,7 +2379,7 @@ private fun ProviderTextField(
                         modifier = Modifier.weight(1f),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        if (value.isEmpty()) {
+                        if (fieldValue.text.isEmpty()) {
                             Text(text = placeholder, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceDim)
                         }
                         innerTextField()
