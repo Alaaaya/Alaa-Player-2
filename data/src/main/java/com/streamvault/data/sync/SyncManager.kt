@@ -4093,9 +4093,8 @@ class SyncManager @Inject constructor(
         val warnings = mutableListOf<String>()
         try {
             val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
-            val tokenPreview = decryptedPassword.take(8)
-            android.util.Log.e("JellyfinSync", "syncJellyfin: provider=${provider.id} url=${provider.serverUrl} user=${provider.username} pwd.len=${provider.password.length} pwd.prefix=${provider.password.take(10)} decrypted.len=${decryptedPassword.length} token=$tokenPreview")
             val decryptedProvider = provider.copy(password = decryptedPassword)
+            android.util.Log.d("JellyfinSync", "Starting Jellyfin sync for provider=${provider.id}")
             progress(provider.id, onProgress, "Loading Jellyfin library...")
             val (resolvedMovies, resolvedSeries) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val movieResult = jellyfinProvider.fetchMovies(decryptedProvider)
