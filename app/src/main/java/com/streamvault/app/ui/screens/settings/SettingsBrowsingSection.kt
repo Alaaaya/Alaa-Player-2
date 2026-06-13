@@ -43,6 +43,7 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.RemoteColorButton
 import com.streamvault.domain.model.RemoteShortcutProfile
+import com.streamvault.domain.model.VodDuplicateHandlingMode
 
 internal fun LazyListScope.settingsBrowsingSection(
     uiState: SettingsUiState,
@@ -63,6 +64,8 @@ internal fun LazyListScope.settingsBrowsingSection(
     onShowGuideDefaultCategoryDialogChange: (Boolean) -> Unit,
     onShowTimeFormatDialogChange: (Boolean) -> Unit,
     onShowVodViewModeDialogChange: (Boolean) -> Unit,
+    onShowVodDuplicateHandlingDialogChange: (Boolean) -> Unit,
+    onShowVodVariantPreferenceDialogChange: (Boolean) -> Unit,
     onCategorySortDialogTypeChange: (String?) -> Unit,
     onShowLanguageDialogChange: (Boolean) -> Unit,
     onRemoteShortcutDialogTargetChange: (RemoteShortcutDialogTarget?) -> Unit
@@ -202,6 +205,18 @@ internal fun LazyListScope.settingsBrowsingSection(
             checked = uiState.vodInfiniteScroll,
             onCheckedChange = { viewModel.setVodInfiniteScroll(it) },
             enabled = uiState.vodViewMode == VodViewMode.MODERN,
+            indent = 24.dp
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_vod_duplicate_handling_mode),
+            value = stringResource(uiState.vodDuplicateHandlingMode.labelResId()),
+            onClick = { onShowVodDuplicateHandlingDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_vod_variant_preference_mode),
+            value = stringResource(uiState.vodVariantPreferenceMode.labelResId()),
+            onClick = { onShowVodVariantPreferenceDialogChange(true) },
+            enabled = uiState.vodDuplicateHandlingMode != VodDuplicateHandlingMode.SHOW_ALL,
             indent = 24.dp
         )
         HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))

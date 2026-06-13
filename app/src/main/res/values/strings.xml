@@ -508,6 +508,28 @@
     <string name="settings_vod_infinite_scroll">Infinite scroll</string>
     <string name="settings_vod_infinite_scroll_on">Auto-load more category rows as you scroll near the end.</string>
     <string name="settings_vod_infinite_scroll_off">Show a Load more button to fetch the next batch of category rows.</string>
+    <string name="settings_vod_duplicate_handling_mode">VOD duplicate handling</string>
+    <string name="settings_vod_duplicate_handling_mode_subtitle">Choose whether movie versions stay separate or appear as grouped title variants.</string>
+    <string name="settings_vod_duplicate_handling_show_all">Show All Versions</string>
+    <string name="settings_vod_duplicate_handling_show_all_desc">Keep every provider movie entry visible exactly as imported.</string>
+    <string name="settings_vod_duplicate_handling_grouped">Group Duplicates</string>
+    <string name="settings_vod_duplicate_handling_grouped_desc">Group strong and likely movie matches into one title with selectable versions.</string>
+    <string name="settings_vod_duplicate_handling_smart">Smart Grouping</string>
+    <string name="settings_vod_duplicate_handling_smart_desc">Only group high-confidence matches so remakes and weak title matches stay separate.</string>
+    <string name="settings_vod_variant_preference_mode">Preferred VOD version</string>
+    <string name="settings_vod_variant_preference_mode_subtitle">Choose which version is selected first when duplicate movies are grouped.</string>
+    <string name="settings_vod_variant_preference_balanced">Balanced</string>
+    <string name="settings_vod_variant_preference_balanced_desc">Balance quality, recency, reliability, metadata, and rating.</string>
+    <string name="settings_vod_variant_preference_force_latest">Force Latest</string>
+    <string name="settings_vod_variant_preference_force_latest_desc">Prefer the newest release or title year first, then quality and reliability.</string>
+    <string name="settings_vod_variant_preference_best_quality">Best Quality</string>
+    <string name="settings_vod_variant_preference_best_quality_desc">Prefer tags like 4K, HDR, Remux, BluRay, HEVC, and high-resolution versions.</string>
+    <string name="settings_vod_variant_preference_latest_best_quality">Latest + Best Quality</string>
+    <string name="settings_vod_variant_preference_latest_best_quality_desc">Give strong weight to both recency and quality before using reliability as a tie-breaker.</string>
+    <string name="settings_vod_variant_preference_most_reliable">Most Reliable</string>
+    <string name="settings_vod_variant_preference_most_reliable_desc">Prefer versions with successful playback history and fewer failures.</string>
+    <string name="settings_vod_variant_preference_manual_last_choice">Manual Last Choice</string>
+    <string name="settings_vod_variant_preference_manual_last_choice_desc">Use the version you manually selected last, then fall back to balanced ranking.</string>
     <string name="vod_classic_categories_title">Categories</string>
     <string name="vod_classic_category_search">Search in categories</string>
     <string name="vod_classic_all">All</string>
@@ -1004,6 +1026,15 @@
     <string name="setup_discard_draft_cancel">Keep editing</string>
     <string name="setup_validating">Validating...</string>
     <string name="setup_add">Add Playlist</string>
+    <string name="setup_tab_jellyfin">Jellyfin</string>
+    <string name="setup_jellyfin_quick_connect">Quick Connect</string>
+    <string name="setup_jellyfin_quick_connect_code">Code: %s</string>
+    <string name="setup_jellyfin_quick_connect_code_instructions">Open your Jellyfin server in a browser and enter this code, or scan the QR code with your phone.</string>
+    <string name="setup_server_url">Server URL</string>
+    <string name="setup_username">Username</string>
+    <string name="setup_password">Password</string>
+    <string name="setup_name">Name</string>
+    <string name="setup_name_placeholder">My Jellyfin Server</string>
 
     
     <string name="player_buffering">Buffering...</string>
@@ -1358,6 +1389,7 @@
     <string name="series_unwatched_badge">%1$d left to finish</string>
     <string name="series_detail_resume">Resume · Season %1$d Ep %2$d · %3$s</string>
     <string name="series_detail_play_episode">Play · Season %1$d Ep %2$d</string>
+    <string name="series_detail_versions">Versions</string>
     <string name="stream_url_copy">Copy URL</string>
     <string name="stream_url_copied">Stream URL copied</string>
     <string name="stream_url_copy_failed">Could not resolve stream URL</string>
@@ -1372,6 +1404,7 @@
     <string name="movie_detail_back">Back to library</string>
     <string name="movie_detail_play">Play</string>
     <string name="movie_detail_resume_from">Resume from %1$s</string>
+    <string name="movie_detail_versions">Versions</string>
     <string name="movie_detail_trailer">Trailer</string>
     <string name="movie_detail_related">More Like This</string>
     <string name="favorites_add">Add to favourites</string>

@@ -3,6 +3,7 @@ package com.streamvault.data.remote.xtream
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.remote.jellyfin.buildJellyfinAuthorizationHeader
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
@@ -35,7 +36,10 @@ data class ResolvedStreamUrl(
     val expirationTime: Long? = null,
     val containerExtension: String? = null,
     val headers: Map<String, String> = emptyMap(),
-    val userAgent: String? = null
+    val userAgent: String? = null,
+    val allowInvalidSsl: Boolean = false,
+    val proxyHost: String = "",
+    val proxyPort: Int? = null
 )
 
 @Singleton
@@ -51,6 +55,8 @@ class XtreamStreamUrlResolver @Inject constructor(
         val authMode: StalkerAuthMode,
         val username: String,
         val password: String,
+        val httpUserAgent: String,
+        val httpHeaders: String,
         val portalFingerprint: StalkerPortalFingerprint,
         val magPreset: StalkerMagPreset,
         val bootstrapRecipe: StalkerBootstrapRecipe,
@@ -64,6 +70,7 @@ class XtreamStreamUrlResolver @Inject constructor(
         val deviceId: String,
         val deviceId2: String,
         val signature: String,
+        val stalkerAdvancedOptionsJson: String,
         val provider: StalkerProvider
     )
 
@@ -122,6 +129,13 @@ class XtreamStreamUrlResolver @Inject constructor(
                     url = url,
                     fallbackStreamId = fallbackStreamId,
                     fallbackContentType = fallbackContentType,
+                    fallbackContainerExtension = fallbackContainerExtension
+                )?.let { return it }
+            }
+            if (provider?.type == ProviderType.JELLYFIN) {
+                resolveDirectJellyfinUrl(
+                    provider = provider,
+                    url = url,
                     fallbackContainerExtension = fallbackContainerExtension
                 )?.let { return it }
             }
@@ -194,7 +208,10 @@ class XtreamStreamUrlResolver @Inject constructor(
                     expirationTime = extractStreamExpirationTime(playbackInfo.url),
                     containerExtension = token.containerExtension ?: fallbackContainerExtension,
                     headers = playbackInfo.headers,
-                    userAgent = playbackInfo.userAgent
+                    userAgent = playbackInfo.userAgent,
+                    allowInvalidSsl = playbackInfo.allowInvalidSsl,
+                    proxyHost = playbackInfo.proxyHost,
+                    proxyPort = playbackInfo.proxyPort
                 )
             }
             ProviderType.M3U -> url.takeIf { it.isNotBlank() }?.let { passthroughUrl ->
@@ -205,6 +222,8 @@ class XtreamStreamUrlResolver @Inject constructor(
                     )
                 )
             }
+            ProviderType.M3U,
+            ProviderType.JELLYFIN -> null
         }
     }
 
@@ -266,6 +285,31 @@ class XtreamStreamUrlResolver @Inject constructor(
         }
     }
 
+    private fun resolveDirectJellyfinUrl(
+        provider: ProviderEntity,
+        url: String,
+        fallbackContainerExtension: String?
+    ): ResolvedStreamUrl? {
+        if (url.isBlank()) {
+            return null
+        }
+        val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
+        return provider.applyPlaybackRequestProfile(
+            ResolvedStreamUrl(
+                url = url,
+                expirationTime = extractStreamExpirationTime(url),
+                containerExtension = fallbackContainerExtension,
+                headers = mapOf(
+                    "Authorization" to buildJellyfinAuthorizationHeader(
+                        provider.serverUrl,
+                        provider.username,
+                        decryptedPassword
+                    )
+                )
+            )
+        )
+    }
+
     private suspend fun resolveDirectStalkerUrl(
         provider: ProviderEntity,
         url: String,
@@ -301,7 +345,10 @@ class XtreamStreamUrlResolver @Inject constructor(
             expirationTime = extractStreamExpirationTime(playbackInfo.url),
             containerExtension = fallbackContainerExtension,
             headers = playbackInfo.headers,
-            userAgent = playbackInfo.userAgent
+            userAgent = playbackInfo.userAgent,
+            allowInvalidSsl = playbackInfo.allowInvalidSsl,
+            proxyHost = playbackInfo.proxyHost,
+            proxyPort = playbackInfo.proxyPort
         )
     }
 
@@ -368,6 +415,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.authMode == provider.stalkerAuthMode &&
             cached.username == provider.username &&
             cached.password == provider.password &&
+            cached.httpUserAgent == provider.httpUserAgent &&
+            cached.httpHeaders == provider.httpHeaders &&
             cached.portalFingerprint == provider.stalkerPortalFingerprint &&
             cached.magPreset == provider.stalkerMagPreset &&
             cached.bootstrapRecipe == provider.stalkerLastBootstrapRecipe &&
@@ -380,7 +429,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.serialNumber == provider.stalkerSerialNumber &&
             cached.deviceId == provider.stalkerDeviceId &&
             cached.deviceId2 == provider.stalkerDeviceId2 &&
-            cached.signature == provider.stalkerSignature
+            cached.signature == provider.stalkerSignature &&
+            cached.stalkerAdvancedOptionsJson == provider.stalkerAdvancedOptionsJson
         ) {
             return cached.provider
         }
@@ -394,6 +444,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = decryptedPassword,
+            httpUserAgent = provider.httpUserAgent,
+            httpHeaders = provider.httpHeaders,
             portalFingerprintHint = provider.stalkerPortalFingerprint,
             magPresetHint = provider.stalkerMagPreset,
             bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
@@ -409,7 +461,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             serialNumber = provider.stalkerSerialNumber,
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature
+            signature = provider.stalkerSignature,
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson
         )
         stalkerProviders[providerId] = CachedStalkerProvider(
             serverUrl = provider.serverUrl,
@@ -417,6 +470,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             authMode = provider.stalkerAuthMode,
             username = provider.username,
             password = provider.password,
+            httpUserAgent = provider.httpUserAgent,
+            httpHeaders = provider.httpHeaders,
             portalFingerprint = provider.stalkerPortalFingerprint,
             magPreset = provider.stalkerMagPreset,
             bootstrapRecipe = provider.stalkerLastBootstrapRecipe,
@@ -430,6 +485,7 @@ class XtreamStreamUrlResolver @Inject constructor(
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
             signature = provider.stalkerSignature,
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
             provider = resolvedProvider
         )
         return resolvedProvider

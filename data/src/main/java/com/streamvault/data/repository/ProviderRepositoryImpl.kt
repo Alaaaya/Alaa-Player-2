@@ -8,6 +8,7 @@ import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.mapper.*
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.http.buildGenericProviderRequestProfile
+import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
@@ -56,7 +57,8 @@ class ProviderRepositoryImpl @Inject constructor(
     private val syncMetadataRepository: SyncMetadataRepository,
     private val transactionRunner: DatabaseTransactionRunner,
     private val recordingAlarmScheduler: RecordingAlarmScheduler,
-    private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler
+    private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler,
+    private val jellyfinProvider: JellyfinProvider
 ) : ProviderRepository {
     private companion object {
         const val XTREAM_GUIDE_BATCH_CONCURRENCY = 4
@@ -345,6 +347,121 @@ class ProviderRepositoryImpl @Inject constructor(
         Result.error("Failed to add M3U provider: ${e.message}", e)
     }
 
+    override suspend fun loginJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        onProgress: ((String) -> Unit)?,
+        id: Long?
+    ): Result<Provider> {
+        return try {
+            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
+            val normalizedPassword = ProviderInputSanitizer.normalizePassword(password)
+            val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+            ProviderInputSanitizer.validateUrl(normalizedServerUrl)?.let { return Result.error(it) }
+            if (normalizedUsername.isBlank()) return Result.error("Please enter Jellyfin username")
+            val providerName = normalizedName.ifBlank {
+                normalizedServerUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" }
+            }
+            val existingProviderEntity = if (id != null) {
+                val collision = providerDao.getByUrlAndUser(normalizedServerUrl, normalizedUsername)
+                if (collision != null && collision.id != id) return Result.error("A Jellyfin provider with this server URL and username already exists.")
+                providerDao.getById(id)
+            } else {
+                providerDao.getByUrlAndUser(normalizedServerUrl, normalizedUsername)
+            }
+            val existingProvider = existingProviderEntity?.toDomain()
+            val authResult = when {
+                normalizedPassword.isNotBlank() -> {
+                    onProgress?.invoke("Signing in to Jellyfin...")
+                    when (val loginResult = jellyfinProvider.authenticate(normalizedServerUrl, normalizedUsername, normalizedPassword)) {
+                        is Result.Success -> loginResult.data
+                        is Result.Error -> return Result.error(loginResult.message, loginResult.exception)
+                        is Result.Loading -> return Result.error("Unexpected loading state")
+                    }
+                }
+                existingProvider != null -> try { credentialCrypto.decryptIfNeeded(existingProvider.password) }
+                    catch (e: CredentialDecryptionException) { return Result.error(e.message ?: CredentialDecryptionException.MESSAGE, e) }
+                else -> return Result.error("Please enter Jellyfin password")
+            }
+            val providerData = if (existingProvider != null) {
+                val updated = existingProvider.copy(
+                    name = providerName.ifBlank { existingProvider.name }, type = ProviderType.JELLYFIN,
+                    serverUrl = normalizedServerUrl, username = normalizedUsername, password = authResult,
+                    m3uUrl = "", epgUrl = "", httpUserAgent = "", httpHeaders = "",
+                    isActive = false, status = ProviderStatus.PARTIAL, lastSyncedAt = 0
+                )
+                providerDao.update(updated.toSecureEntity())
+                updated.copy(password = "")
+            } else {
+                val provider = Provider(name = providerName, type = ProviderType.JELLYFIN,
+                    serverUrl = normalizedServerUrl, username = normalizedUsername, password = authResult,
+                    isActive = false, status = ProviderStatus.PARTIAL)
+                val newId = providerDao.insert(provider.toSecureEntity())
+                provider.copy(id = newId).copy(password = "")
+            }
+            handleInitialOnboardingSync(providerData = providerData,
+                syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress),
+                syncFailurePrefix = "Jellyfin provider saved, but initial sync failed. The provider was saved and can be retried from Settings")
+        } catch (e: Exception) {
+            Result.error("Failed to add Jellyfin provider: ${e.message}", e)
+        }
+    }
+
+    override suspend fun loginJellyfinQuickConnect(
+        serverUrl: String, name: String, onCode: ((String) -> Unit)?, onProgress: ((String) -> Unit)?, id: Long?
+    ): Result<Provider> {
+        return try {
+            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+            ProviderInputSanitizer.validateUrl(normalizedServerUrl)?.let { return Result.error(it) }
+            val providerName = normalizedName.ifBlank {
+                normalizedServerUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" }
+            }
+            val existingProvider = if (id != null) providerDao.getById(id)?.toDomain() else null
+            onProgress?.invoke("Requesting Quick Connect code...")
+            val quickConnect = when (val quickConnectResult = jellyfinProvider.authenticateQuickConnect(
+                serverUrl = normalizedServerUrl, onCode = onCode, onProgress = onProgress
+            )) {
+                is Result.Success -> quickConnectResult.data
+                is Result.Error -> return Result.error(quickConnectResult.message, quickConnectResult.exception)
+                is Result.Loading -> return Result.error("Unexpected loading state")
+            }
+            val providerData = saveJellyfinProvider(providerName = providerName,
+                serverUrl = normalizedServerUrl, username = quickConnect.userName.ifBlank { providerName },
+                password = quickConnect.accessToken, existingProvider = existingProvider)
+            handleInitialOnboardingSync(providerData = providerData,
+                syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress),
+                syncFailurePrefix = "Jellyfin provider saved, but initial sync failed. The provider was saved and can be retried from Settings")
+        } catch (e: Exception) {
+            Result.error("Failed to add Jellyfin provider: ${e.message}", e)
+        }
+    }
+
+    private suspend fun saveJellyfinProvider(
+        providerName: String, serverUrl: String, username: String, password: String, existingProvider: Provider?
+    ): Provider {
+        return if (existingProvider != null) {
+            val updated = existingProvider.copy(
+                name = providerName.ifBlank { existingProvider.name }, type = ProviderType.JELLYFIN,
+                serverUrl = serverUrl, username = username, password = password,
+                m3uUrl = "", epgUrl = "", httpUserAgent = "", httpHeaders = "",
+                isActive = false, status = ProviderStatus.PARTIAL, lastSyncedAt = 0
+            )
+            providerDao.update(updated.toSecureEntity())
+            updated.copy(password = "")
+        } else {
+            val provider = Provider(name = providerName, type = ProviderType.JELLYFIN,
+                serverUrl = serverUrl, username = username, password = password,
+                isActive = false, status = ProviderStatus.PARTIAL)
+            val newId = providerDao.insert(provider.toSecureEntity())
+            provider.copy(id = newId).copy(password = "")
+        }
+    }
+
+
     override suspend fun loginStalker(
         portalUrl: String,
         macAddress: String,
@@ -352,6 +469,8 @@ class ProviderRepositoryImpl @Inject constructor(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -359,6 +478,7 @@ class ProviderRepositoryImpl @Inject constructor(
         deviceId: String,
         deviceId2: String,
         signature: String,
+        stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -374,6 +494,7 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedDeviceId = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId)
         val normalizedDeviceId2 = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId2)
         val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
+        val normalizedAdvancedOptionsJson = stalkerAdvancedOptionsJson.trim()
 
         ProviderInputSanitizer.validateUrl(normalizedPortalUrl)?.let { message ->
             return Result.error(message)
@@ -414,13 +535,16 @@ class ProviderRepositoryImpl @Inject constructor(
             authMode = authMode,
             username = normalizedUsername,
             password = effectivePassword,
+            httpUserAgent = httpUserAgent,
+            httpHeaders = httpHeaders,
             deviceProfile = normalizedDeviceProfile,
             timezone = normalizedTimezone,
             locale = normalizedLocale,
             serialNumber = normalizedSerialNumber,
             deviceId = normalizedDeviceId,
             deviceId2 = normalizedDeviceId2,
-            signature = normalizedSignature
+            signature = normalizedSignature,
+            stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson
         )
 
         return when (val authResult = provider.authenticate()) {
@@ -433,6 +557,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         serverUrl = normalizedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
+                        httpUserAgent = httpUserAgent,
+                        httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -441,6 +567,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId = normalizedDeviceId,
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
+                        stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
@@ -458,6 +585,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         serverUrl = normalizedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
+                        httpUserAgent = httpUserAgent,
+                        httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
                         stalkerDeviceProfile = normalizedDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
@@ -466,6 +595,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId = normalizedDeviceId,
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
+                        stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgSyncMode = epgSyncMode,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
@@ -643,7 +773,8 @@ class ProviderRepositoryImpl @Inject constructor(
                     is Result.Loading -> Result.error("Unexpected loading state")
                 }
             }
-            ProviderType.M3U -> Result.error("On-demand guide lookup is unavailable for this provider.")
+            ProviderType.M3U,
+            ProviderType.JELLYFIN -> Result.error("On-demand guide lookup is unavailable for this provider.")
         }
     }
 
@@ -714,7 +845,8 @@ class ProviderRepositoryImpl @Inject constructor(
                 }
                 results
             }
-            ProviderType.M3U -> normalizedRequests.associateWith {
+            ProviderType.M3U,
+            ProviderType.JELLYFIN -> normalizedRequests.associateWith {
                 Result.error("On-demand guide lookup is unavailable for this provider.")
             }
         }
@@ -751,6 +883,7 @@ class ProviderRepositoryImpl @Inject constructor(
                 sourceStreamUrl = channel?.streamUrl,
                 sourceCatchUpSource = channel?.catchUpSource
             )
+            ProviderType.JELLYFIN -> emptyList()
         }
     }
 
@@ -787,6 +920,8 @@ class ProviderRepositoryImpl @Inject constructor(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String = "",
+        httpHeaders: String = "",
         portalFingerprintHint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
         magPresetHint: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
         bootstrapRecipeHint: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
@@ -801,7 +936,8 @@ class ProviderRepositoryImpl @Inject constructor(
         serialNumber: String = "",
         deviceId: String = "",
         deviceId2: String = "",
-        signature: String = ""
+        signature: String = "",
+        stalkerAdvancedOptionsJson: String = ""
     ): StalkerProvider {
         return StalkerProvider(
             providerId = providerId,
@@ -811,6 +947,8 @@ class ProviderRepositoryImpl @Inject constructor(
             authMode = authMode,
             username = username,
             password = password,
+            httpUserAgent = httpUserAgent,
+            httpHeaders = httpHeaders,
             portalFingerprintHint = portalFingerprintHint,
             magPresetHint = magPresetHint,
             bootstrapRecipeHint = bootstrapRecipeHint,
@@ -825,7 +963,8 @@ class ProviderRepositoryImpl @Inject constructor(
             serialNumber = serialNumber,
             deviceId = deviceId,
             deviceId2 = deviceId2,
-            signature = signature
+            signature = signature,
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
         )
     }
 
@@ -841,6 +980,8 @@ class ProviderRepositoryImpl @Inject constructor(
             } catch (_: Throwable) {
                 ""
             },
+            httpUserAgent = entity.httpUserAgent,
+            httpHeaders = entity.httpHeaders,
             portalFingerprintHint = entity.stalkerPortalFingerprint,
             magPresetHint = entity.stalkerMagPreset,
             bootstrapRecipeHint = entity.stalkerLastBootstrapRecipe,
@@ -856,7 +997,8 @@ class ProviderRepositoryImpl @Inject constructor(
             serialNumber = entity.stalkerSerialNumber,
             deviceId = entity.stalkerDeviceId,
             deviceId2 = entity.stalkerDeviceId2,
-            signature = entity.stalkerSignature
+            signature = entity.stalkerSignature,
+            stalkerAdvancedOptionsJson = entity.stalkerAdvancedOptionsJson
         )
     }
 

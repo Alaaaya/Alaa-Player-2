@@ -29,7 +29,10 @@ import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveChannelObservedQuality
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
+import com.streamvault.domain.model.VodVariantObservation
+import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.RemoteColorButton
 import com.streamvault.domain.model.RemoteShortcutPreferences
@@ -111,6 +114,10 @@ class PreferencesRepository @Inject constructor(
         val LIVE_VARIANT_OBSERVATIONS = stringPreferencesKey("live_variant_observations")
         val VOD_VIEW_MODE = stringPreferencesKey("vod_view_mode")
         val VOD_INFINITE_SCROLL = booleanPreferencesKey("vod_infinite_scroll")
+        val VOD_DUPLICATE_HANDLING_MODE = stringPreferencesKey("vod_duplicate_handling_mode")
+        val VOD_VARIANT_PREFERENCE_MODE = stringPreferencesKey("vod_variant_preference_mode")
+        val VOD_VARIANT_SELECTIONS = stringPreferencesKey("vod_variant_selections")
+        val VOD_VARIANT_OBSERVATIONS = stringPreferencesKey("vod_variant_observations")
         val GUIDE_DENSITY = stringPreferencesKey("guide_density")
         val GUIDE_CHANNEL_MODE = stringPreferencesKey("guide_channel_mode")
         val GUIDE_DEFAULT_CATEGORY_ID = longPreferencesKey("guide_default_category_id")
@@ -1431,6 +1438,65 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
+    val vodDuplicateHandlingMode: Flow<VodDuplicateHandlingMode> = context.dataStore.data.map { preferences ->
+        VodDuplicateHandlingMode.fromStorage(preferences[PreferencesKeys.VOD_DUPLICATE_HANDLING_MODE])
+    }
+
+    suspend fun setVodDuplicateHandlingMode(mode: VodDuplicateHandlingMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.VOD_DUPLICATE_HANDLING_MODE] = mode.storageValue
+        }
+    }
+
+    val vodVariantPreferenceMode: Flow<VodVariantPreferenceMode> = context.dataStore.data.map { preferences ->
+        VodVariantPreferenceMode.fromStorage(preferences[PreferencesKeys.VOD_VARIANT_PREFERENCE_MODE])
+    }
+
+    suspend fun setVodVariantPreferenceMode(mode: VodVariantPreferenceMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.VOD_VARIANT_PREFERENCE_MODE] = mode.storageValue
+        }
+    }
+
+    val vodVariantSelections: Flow<Map<String, Long>> = context.dataStore.data.map { preferences ->
+        decodeVodVariantSelections(preferences[PreferencesKeys.VOD_VARIANT_SELECTIONS])
+    }
+
+    suspend fun setPreferredVodVariant(providerId: Long, logicalGroupId: String, rawItemId: Long) {
+        if (providerId <= 0L || logicalGroupId.isBlank() || rawItemId <= 0L) return
+        context.dataStore.edit { preferences ->
+            val updated = decodeVodVariantSelections(preferences[PreferencesKeys.VOD_VARIANT_SELECTIONS]).toMutableMap()
+            updated[vodVariantSelectionKey(providerId, logicalGroupId)] = rawItemId
+            preferences[PreferencesKeys.VOD_VARIANT_SELECTIONS] = encodeVodVariantSelections(updated)
+        }
+    }
+
+    suspend fun clearPreferredVodVariant(providerId: Long, logicalGroupId: String) {
+        if (providerId <= 0L || logicalGroupId.isBlank()) return
+        context.dataStore.edit { preferences ->
+            val updated = decodeVodVariantSelections(preferences[PreferencesKeys.VOD_VARIANT_SELECTIONS]).toMutableMap()
+            updated.remove(vodVariantSelectionKey(providerId, logicalGroupId))
+            if (updated.isEmpty()) {
+                preferences.remove(PreferencesKeys.VOD_VARIANT_SELECTIONS)
+            } else {
+                preferences[PreferencesKeys.VOD_VARIANT_SELECTIONS] = encodeVodVariantSelections(updated)
+            }
+        }
+    }
+
+    val vodVariantObservations: Flow<Map<Long, VodVariantObservation>> = context.dataStore.data.map { preferences ->
+        decodeVodVariantObservations(preferences[PreferencesKeys.VOD_VARIANT_OBSERVATIONS])
+    }
+
+    suspend fun recordVodVariantObservation(rawItemId: Long, observation: VodVariantObservation) {
+        if (rawItemId <= 0L) return
+        context.dataStore.edit { preferences ->
+            val updated = decodeVodVariantObservations(preferences[PreferencesKeys.VOD_VARIANT_OBSERVATIONS]).toMutableMap()
+            updated[rawItemId] = observation
+            preferences[PreferencesKeys.VOD_VARIANT_OBSERVATIONS] = encodeVodVariantObservations(updated)
+        }
+    }
+
     val vodViewMode: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.VOD_VIEW_MODE]
     }
@@ -1856,6 +1922,9 @@ class PreferencesRepository @Inject constructor(
     private fun liveVariantSelectionKey(providerId: Long, logicalGroupId: String): String =
         "${providerId}|${logicalGroupId.trim()}"
 
+    private fun vodVariantSelectionKey(providerId: Long, logicalGroupId: String): String =
+        "${providerId}|${logicalGroupId.trim()}"
+
     private fun encodeLiveVariantSelections(values: Map<String, Long>): String =
         values.entries
             .sortedBy { it.key }
@@ -1905,6 +1974,55 @@ class PreferencesRepository @Inject constructor(
                     lastObservedFrameRate = parts[4].toFloatOrNull() ?: 0f,
                     successCount = parts[5].toIntOrNull() ?: 0,
                     lastSuccessfulAt = parts[6].toLongOrNull() ?: 0L
+                )
+            }
+            .toMap()
+
+    private fun encodeVodVariantSelections(values: Map<String, Long>): String =
+        values.entries
+            .sortedBy { it.key }
+            .joinToString("\n") { (key, rawItemId) -> "$key=$rawItemId" }
+
+    private fun decodeVodVariantSelections(encoded: String?): Map<String, Long> =
+        encoded
+            .orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val separator = line.indexOf('=')
+                if (separator <= 0) return@mapNotNull null
+                val key = line.substring(0, separator).trim()
+                val rawItemId = line.substring(separator + 1).trim().toLongOrNull() ?: return@mapNotNull null
+                key.takeIf { it.isNotBlank() }?.let { it to rawItemId }
+            }
+            .toMap()
+
+    private fun encodeVodVariantObservations(values: Map<Long, VodVariantObservation>): String =
+        values.entries
+            .sortedByDescending { maxOf(it.value.lastSuccessfulAt, it.value.lastFailedAt) }
+            .take(500)
+            .joinToString("\n") { (rawItemId, observation) ->
+                listOf(
+                    rawItemId,
+                    observation.successCount,
+                    observation.failureCount,
+                    observation.lastSuccessfulAt,
+                    observation.lastFailedAt
+                ).joinToString("|")
+            }
+
+    private fun decodeVodVariantObservations(encoded: String?): Map<Long, VodVariantObservation> =
+        encoded
+            .orEmpty()
+            .lineSequence()
+            .mapNotNull { line ->
+                val parts = line.split('|')
+                if (parts.size != 5) return@mapNotNull null
+                val rawItemId = parts[0].toLongOrNull() ?: return@mapNotNull null
+                rawItemId to VodVariantObservation(
+                    successCount = parts[1].toIntOrNull() ?: 0,
+                    failureCount = parts[2].toIntOrNull() ?: 0,
+                    lastSuccessfulAt = parts[3].toLongOrNull() ?: 0L,
+                    lastFailedAt = parts[4].toLongOrNull() ?: 0L
                 )
             }
             .toMap()

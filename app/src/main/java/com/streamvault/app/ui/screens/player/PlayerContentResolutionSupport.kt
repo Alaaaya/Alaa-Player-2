@@ -170,6 +170,9 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                     title = currentTitle,
                     headers = resolved.headers,
                     userAgent = resolved.userAgent,
+                    allowInvalidSsl = resolved.allowInvalidSsl,
+                    proxyHost = resolved.proxyHost,
+                    proxyPort = resolved.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
                     expirationTime = resolved.expirationTime

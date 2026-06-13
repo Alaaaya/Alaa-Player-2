@@ -405,19 +405,57 @@ class XtreamStreamUrlResolverTest {
         assertThat(firstResolved?.url).isEqualTo("http://edge.example.com/live/77.m3u8")
         assertThat(firstResolved?.expirationTime).isNull()
         assertThat(firstResolved?.headers?.get("Referer")).isEqualTo("https://portal.example.com/c/")
-        assertThat(firstResolved?.headers?.get("Cookie")).contains("mac=00:1A:79:12:34:56")
+        assertThat(firstResolved?.headers?.get("Cookie")).contains("mac=00%3A1A%3A79%3A12%3A34%3A56")
         assertThat(firstResolved?.headers?.get("Cookie")).contains("stb_lang=en")
         assertThat(firstResolved?.headers?.get("Cookie")).contains("timezone=UTC")
-        assertThat(firstResolved?.headers?.get("Cookie")).contains("sn=0001A79123456")
-        assertThat(firstResolved?.headers?.get("Cookie")).contains("device_id=")
-        assertThat(firstResolved?.headers?.get("Cookie")).contains("device_id2=")
-        assertThat(firstResolved?.headers?.get("Cookie")).contains("signature=")
+        assertThat(firstResolved?.headers?.get("Cookie")).doesNotContain("sn=")
+        assertThat(firstResolved?.headers?.get("Cookie")).doesNotContain("device_id=")
+        assertThat(firstResolved?.headers?.get("Cookie")).doesNotContain("device_id2=")
+        assertThat(firstResolved?.headers?.get("Cookie")).doesNotContain("signature=")
         assertThat(firstResolved?.headers?.get("Authorization")).isEqualTo("Bearer token")
         assertThat(firstResolved?.headers?.get("X-User-Agent")).isEqualTo("Model: MAG250; Link: Ethernet")
         assertThat(firstResolved?.userAgent).contains("MAG250 stbapp")
         assertThat(secondResolved?.url).isEqualTo("http://edge.example.com/live/77.m3u8")
         assertThat(fakeStalkerApiService.authenticateCalls).isEqualTo(1)
         assertThat(fakeStalkerApiService.createLinkCalls).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun resolveWithMetadata_applies_stalker_custom_headers_through_cached_provider() {
+        runBlocking {
+        val fakeStalkerApiService = FakeStalkerApiService()
+        val resolver = XtreamStreamUrlResolver(
+            providerDao = FakeProviderDao(
+                ProviderEntity(
+                    id = 14,
+                    name = "Stalker",
+                    type = ProviderType.STALKER_PORTAL,
+                    serverUrl = "https://portal.example.com",
+                    httpHeaders = "X-Test: enabled | Referer: https://custom.example.com/ref",
+                    stalkerMacAddress = "00:1A:79:12:34:56",
+                    stalkerDeviceProfile = "MAG250",
+                    stalkerDeviceTimezone = "UTC",
+                    stalkerDeviceLocale = "en"
+                )
+            ),
+            credentialCrypto = credentialCrypto,
+            stalkerApiService = fakeStalkerApiService
+        )
+        val internalUrl = StalkerUrlFactory.buildInternalStreamUrl(
+            providerId = 14,
+            kind = StalkerStreamKind.LIVE,
+            itemId = 77,
+            cmd = "ffrt http://edge.example.com/live/77.m3u8",
+            containerExtension = "m3u8"
+        )
+
+        val resolved = resolver.resolveWithMetadata(internalUrl)
+
+        assertThat(resolved?.headers).containsEntry("X-Test", "enabled")
+        assertThat(resolved?.headers).containsEntry("Referer", "https://custom.example.com/ref")
+        assertThat(fakeStalkerApiService.lastAuthenticateProfile?.httpHeaders)
+            .contains("X-Test: enabled")
         }
     }
 
@@ -653,6 +691,8 @@ class XtreamStreamUrlResolverTest {
         override suspend fun getById(id: Long): ProviderEntity? = provider?.takeIf { it.id == id }
         override suspend fun getByIds(ids: List<Long>): List<ProviderEntity> =
             listOfNotNull(provider).filter { it.id in ids }
+        override fun getByTypeSync(type: ProviderType): List<ProviderEntity> =
+            listOfNotNull(provider).filter { it.type == type }
         override suspend fun insertDirect(provider: ProviderEntity): Long = provider.id
         override suspend fun updateDirect(provider: ProviderEntity) = Unit
         override suspend fun insert(provider: ProviderEntity): Long = provider.id
@@ -668,10 +708,12 @@ class XtreamStreamUrlResolverTest {
         var authenticateCalls: Int = 0
         var createLinkCalls: Int = 0
         var lastCreateLinkSeriesNumber: Int? = null
+        var lastAuthenticateProfile: StalkerDeviceProfile? = null
         var createLinkResponse: String = "http://edge.example.com/live/77.m3u8?exp=1774017000"
 
         override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
             authenticateCalls += 1
+            lastAuthenticateProfile = profile
             return Result.success(
                 StalkerSession(
                     loadUrl = "https://portal.example.com/server/load.php",

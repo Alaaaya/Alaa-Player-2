@@ -61,6 +61,7 @@ import com.streamvault.player.timeshift.LiveTimeshiftBackend
 import com.streamvault.player.timeshift.LiveTimeshiftState
 import com.streamvault.player.timeshift.LiveTimeshiftStatus
 import com.streamvault.player.timeshift.TimeshiftConfig
+import com.streamvault.player.playback.applyUnsafeTlsBypass
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -73,6 +74,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import android.content.Context
 import javax.inject.Inject
+import java.net.InetSocketAddress
+import java.net.Proxy
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -257,6 +260,7 @@ class PlayerViewModel @Inject constructor(
     internal var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
     private var currentStreamClassLabel: String = "Primary"
     internal var lastRecordedVariantObservationSignature: String? = null
+    internal var lastRecordedVodVariantObservationSignature: String? = null
     internal var prepareRequestVersion: Long = 0L
     internal var readySideEffectsRequestVersion: Long? = null
     internal var currentArtworkUrl: String? = null
@@ -483,6 +487,7 @@ class PlayerViewModel @Inject constructor(
                             }
                         }
                     } else {
+                        recordMovieVariantSuccessObservation()
                         startThumbnailPreload()
                     }
                 }
@@ -763,21 +768,38 @@ class PlayerViewModel @Inject constructor(
                         "PlayerVM",
                         "Decoder error on live HLS. Keeping hardware path to match Sparkle-like playback on ${appContext.packageName}."
                     )
-                } else {
-                    hasRetriedWithSoftwareDecoder = true
-                    android.util.Log.w("PlayerVM", "Decoder error detected. Retrying with software decoder mode.")
-                    playerEngine.setDecoderMode(DecoderMode.SOFTWARE)
-                    updateDecoderMode(DecoderMode.SOFTWARE)
-                    setLastFailureReason(error.message)
-                    appendRecoveryAction("Switched to software decoder")
-                    playerEngine.play()
-                    showPlayerNotice(
-                        message = "Retrying with software decoding for this stream.",
-                        recoveryType = PlayerRecoveryType.DECODER,
-                        actions = buildRecoveryActions(PlayerRecoveryType.DECODER)
-                    )
-                    return
                 }
+            }
+            hasRetriedWithSoftwareDecoder = true
+            android.util.Log.w("PlayerVM", "Decoder error detected. Retrying with software decoder mode.")
+            playerEngine.setDecoderMode(DecoderMode.SOFTWARE)
+            updateDecoderMode(DecoderMode.SOFTWARE)
+            setLastFailureReason(error.message)
+            appendRecoveryAction("Switched to software decoder")
+            playerEngine.play()
+            showPlayerNotice(
+                message = "Retrying with software decoding for this stream.",
+                recoveryType = PlayerRecoveryType.DECODER,
+                actions = buildRecoveryActions(PlayerRecoveryType.DECODER)
+            )
+            return
+        }
+        recordMovieVariantFailureObservation(error)
+        // After software decoder retry fails, also try an alternate stream format
+        // (e.g. HLS→MPEG-TS or MPEG-TS→HLS) before giving up.
+        if (error is PlayerError.DecoderError && hasRetriedWithSoftwareDecoder && currentContentType == ContentType.LIVE) {
+            if (!isActivePlaybackSession(requestVersion, playbackUrl)) return
+            val channel = currentChannelFlow.value?.sanitizedForPlayer() ?: return
+            val switched = tryAlternateStreamInternal(channel)
+            if (switched) {
+                appendRecoveryAction("Trying alternate stream format after decoder error")
+                showPlayerNotice(
+                    message = "Trying alternate stream format for ${channel.name}.",
+                    recoveryType = PlayerRecoveryType.DECODER,
+                    actions = buildRecoveryActions(PlayerRecoveryType.DECODER),
+                    isRetryNotice = true
+                )
+                return
             }
         }
         recoveryJob = viewModelScope.launch {
@@ -786,22 +808,6 @@ class PlayerViewModel @Inject constructor(
                 if (tryFallbackToAvcMovieVariant(requestVersion, playbackUrl)) {
                     return@launch
                 }
-            }
-            if (error is PlayerError.DecoderError && !hasRetriedWithSoftwareDecoder && currentContentType != ContentType.LIVE) {
-                if (!isActivePlaybackSession(requestVersion, playbackUrl)) return@launch
-                hasRetriedWithSoftwareDecoder = true
-                android.util.Log.w("PlayerVM", "Decoder error detected. Retrying with software decoder mode.")
-                playerEngine.setDecoderMode(DecoderMode.SOFTWARE)
-                updateDecoderMode(DecoderMode.SOFTWARE)
-                setLastFailureReason(error.message)
-                appendRecoveryAction("Switched to software decoder")
-                playerEngine.play()
-                showPlayerNotice(
-                    message = "Retrying with software decoding for this stream.",
-                    recoveryType = PlayerRecoveryType.DECODER,
-                    actions = buildRecoveryActions(PlayerRecoveryType.DECODER)
-                )
-                return@launch
             }
             if (tryRefreshXtreamPlaybackAfterAuthError(error, requestVersion, playbackUrl)) {
                 return@launch
@@ -991,6 +997,7 @@ class PlayerViewModel @Inject constructor(
         thumbnailPreloadJob?.cancel()
         hasRetriedXtreamAuthRefresh = false
         lastRecordedVariantObservationSignature = null
+        lastRecordedVodVariantObservationSignature = null
         livePlaybackReadyForCurrentSession = false
         readySideEffectsRequestVersion = null
         playerEngine.setScrubbingMode(false)
@@ -1305,7 +1312,19 @@ class PlayerViewModel @Inject constructor(
                         }
                     }
                     .build()
-                okHttpClient.newCall(request).execute().use { response ->
+                val probeClient = if (streamInfo.allowInvalidSsl || streamInfo.proxyHost.isNotBlank()) {
+                    okHttpClient.newBuilder()
+                        .apply {
+                            if (streamInfo.allowInvalidSsl) {
+                                applyUnsafeTlsBypass()
+                            }
+                            streamInfo.httpProxy()?.let { proxy(it) }
+                        }
+                        .build()
+                } else {
+                    okHttpClient
+                }
+                probeClient.newCall(request).execute().use { response ->
                     resolvePlaybackProbeFailure(response.code)
                 }
             }
@@ -1328,6 +1347,12 @@ class PlayerViewModel @Inject constructor(
                 provider.type == com.streamvault.domain.model.ProviderType.STALKER_PORTAL
             ) &&
             (xtreamStreamUrlResolver.isInternalStreamUrl(currentStreamUrl) || xtreamStreamUrlResolver.isInternalStreamUrl(url))
+    }
+
+    private fun StreamInfo.httpProxy(): Proxy? {
+        val host = proxyHost.trim().takeIf { it.isNotBlank() } ?: return null
+        val port = proxyPort ?: return null
+        return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }
 
     fun prepare(
@@ -1472,6 +1497,7 @@ class PlayerViewModel @Inject constructor(
                                 com.streamvault.domain.model.ProviderType.XTREAM_CODES -> "Xtream Codes"
                                 com.streamvault.domain.model.ProviderType.M3U -> "M3U Playlist"
                                 com.streamvault.domain.model.ProviderType.STALKER_PORTAL -> "Stalker/MAG Portal"
+                                com.streamvault.domain.model.ProviderType.JELLYFIN -> "Jellyfin"
                             }
                         )
                     }

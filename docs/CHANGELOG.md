@@ -2,6 +2,38 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.15] - 2026-06-13
+
+### Fixed
+
+- Fixed grouped movie duplicate actions so favorites and custom-group dialogs account for all raw versions while play, copy URL, download, and add actions target the selected version.
+- Fixed grouped movie detail loading to reuse the already-known variant group from browse navigation instead of re-discovering duplicate versions again on the detail screen.
+- Fixed grouped series detail loading to reuse the already-known variant group from browse, search, continue-watching, and dashboard history navigation instead of re-discovering duplicate versions again on the detail screen.
+- Fixed movie library multi-word search so FTS4 prefix matching no longer drops results like `No Place to Be Single` for queries such as `no place`.
+- Fixed Stalker endpoint handling so authenticated requests stay on the discovered API endpoint instead of retrying the sibling `portal.php` or `server/load.php` path automatically.
+- Fixed Stalker request and playback cookies to only send the required `mac`, `stb_lang`, and `timezone` client values, with encoded cookie formatting and no extra device-identity cookies.
+- Fixed Stalker device-profile generation so empty Serial Number, Device ID, Device ID2, and Signature fields stay empty instead of being auto-generated.
+- Fixed Stalker profile metrics so `uid` uses Device ID2, and removed `video_out` and `signature` from the generated metrics payload.
+- Fixed Stalker profile requests to send `prehash=false` literally instead of numeric `0`/`1` values.
+- Fixed the default Stalker `get_profile` version string to use the legacy MAG 250 `5.6.10` profile value expected by stricter portals.
+- Fixed Stalker and Xtream setup overrides so saved User-Agent, custom headers, and Stalker advanced compatibility settings are respected across login, sync, playback resolution, and VOD/series detail requests.
+- Fixed Stalker HTTP proxy playback support so proxy metadata is preserved through resolved streams and also used by Android TV Input playback.
+- Fixed Live TV favorites, recents, and custom-group ordered lists still collapsing SD/HD/FHD channel variants after grouped variants were disabled.
+
+### Added
+
+- Added Movies duplicate handling with smart/grouped presentation, preferred version ranking, detail-page version selection, sticky manual choices, and playback observations for reliability-based movie variant selection.
+- Added Series duplicate handling with smart/grouped browse and search presentation, preferred version ranking, detail-page version selection with sticky manual choice, and raw-safe favorites/custom-group actions across grouped variants.
+- Added Stalker advanced HTTP header overrides, including support for custom headers and removing default request/playback headers by leaving an override value blank.
+- Added Stalker-specific SSL bypass handling for portal requests and player playback so invalid HTTPS certificates no longer block those connections.
+- Added Stalker advanced compatibility options for hw_version, separate API/player User-Agent values, Ethernet/WiFi X-User-Agent link type, HTTP proxy support for API and playback, and action-scoped request blocking/parameter overrides.
+- Added Jellyfin provider support for direct Movies and Series library sync, playback, and provider setup from the main onboarding flow.
+- Added Jellyfin Quick Connect onboarding with on-screen code and QR flow for signing into compatible servers without typing a password on TV.
+
+### Changed
+
+- Changed the Stalker `Device profile` field label in setup to `MAG Type` while keeping the same underlying saved value and behavior.
+
 ## [1.0.14] - 2026-06-06
 
 ### Added
@@ -28,18 +60,6 @@ All notable product changes are recorded in this document.
 ### Changed
 
 - Changed VOD downloads to use a single FIFO provider-stream scheduler with fresh provider URL resolution before each capture attempt.
-- Changed provider playback/download coordination so provider-backed internal or external playback pauses active downloads, deletes partial output, and restarts from zero after playback ends.
-- Changed the live player EPG flow so a second right-press can expand the channel EPG into the full transparent guide grid, with an on-screen directional cue and overlay-specific grid navigation.
-
-### Fixed
-
-- Attempted to fix Android TV backup export/import creating empty backup JSON or showing version `0` with `0` items on restore. Needs testing.
-- Fixed the Settings crash report viewer so the latest crash content can scroll with the TV D-pad.
-- Fixed provider delete confirmation staying open when a follow-up TV integration refresh failed after the provider had already been deleted.
-- Fixed the bundled FFmpeg Media3 artifact so MPEG Layer II audio (`audio/mpeg-L2`) maps to the bundled `mp2` decoder and release builds pass FFmpeg verification again.
-- Fixed a broken player content-resolution merge that could leave the app failing to compile.
-- Fixed Xtream provider connection-limit parsing so placeholder values like `0`, empty, and `N/A` fall back safely instead of producing invalid limits.
-- Fixed Xtream and Stalker onboarding/sync so VOD-only providers are not treated as failed when Live TV is empty, and Movies/Series loading still continues.
 - Fixed player stream-info failures to preserve and surface the underlying error message instead of dropping it.
 - Fixed decoder error recovery to retry against alternate stream formats when available.
 - Fixed XMLTV parsing for ISO timestamps that include timezone offsets.

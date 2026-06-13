@@ -27,8 +27,10 @@ import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.util.ChannelNormalizer
 import java.io.IOException
 import java.net.URI
+import java.net.URLEncoder
 import java.util.Base64
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -36,6 +38,9 @@ data class StalkerPlaybackInfo(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val userAgent: String? = null,
+    val allowInvalidSsl: Boolean = false,
+    val proxyHost: String = "",
+    val proxyPort: Int? = null,
     val playbackMode: StalkerPlaybackMode = StalkerPlaybackMode.DIRECT_URL,
     val endpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
     val cookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
@@ -59,6 +64,8 @@ class StalkerProvider(
     private val authMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     private val username: String = "",
     private val password: String = "",
+    private val httpUserAgent: String = "",
+    private val httpHeaders: String = "",
     private val portalFingerprintHint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
     private val magPresetHint: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
     private val bootstrapRecipeHint: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
@@ -73,11 +80,22 @@ class StalkerProvider(
     private val serialNumber: String = "",
     private val deviceId: String = "",
     private val deviceId2: String = "",
-    private val signature: String = ""
+    private val signature: String = "",
+    private val stalkerAdvancedOptionsJson: String = ""
 ) : IptvProvider {
-    private companion object {
+    internal companion object {
         private const val TAG = "StalkerProvider"
+        private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
+
+        fun clearSharedAuthCacheForTests() {
+            sharedAuthCache.clear()
+        }
     }
+
+    private data class CachedAuth(
+        val session: StalkerSession,
+        val profile: StalkerProviderProfile
+    )
 
     private data class CategorySeed(
         val id: Long,
@@ -95,6 +113,7 @@ class StalkerProvider(
             sessionCache = null
             accountProfileCache = null
             categoryCache.clear()
+            sharedAuthCache.remove(authCacheKey())
         }
     }
 
@@ -123,6 +142,7 @@ class StalkerProvider(
                         stalkerDeviceId = learnedDeviceProfile.deviceId,
                         stalkerDeviceId2 = learnedDeviceProfile.deviceId2,
                         stalkerSignature = learnedDeviceProfile.signature,
+                        stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
                         stalkerAuthMode = profile.effectiveAuthMode,
                         stalkerPortalProfile = profile.portalProfile,
                         stalkerPortalFingerprint = profile.portalFingerprint,
@@ -464,7 +484,10 @@ class StalkerProvider(
                                 StalkerPlaybackInfo(
                                     url = candidate,
                                     headers = buildPlaybackHeaders(session, profile, candidate),
-                                    userAgent = profile.userAgent,
+                                    userAgent = resolvePlaybackUserAgent(profile),
+                                    allowInvalidSsl = true,
+                                    proxyHost = profile.advancedOptions.proxy?.host.orEmpty(),
+                                    proxyPort = profile.advancedOptions.proxy?.port,
                                     playbackMode = adapter.adapterMode,
                                     endpointPreference = effectiveArchiveEndpointPreference(
                                         kind = kind,
@@ -514,7 +537,10 @@ class StalkerProvider(
                                 StalkerPlaybackInfo(
                                     url = resolvedUrl,
                                     headers = buildPlaybackHeaders(session, profile, resolvedUrl),
-                                    userAgent = profile.userAgent,
+                                    userAgent = resolvePlaybackUserAgent(profile),
+                                    allowInvalidSsl = true,
+                                    proxyHost = profile.advancedOptions.proxy?.host.orEmpty(),
+                                    proxyPort = profile.advancedOptions.proxy?.port,
                                     playbackMode = adapter.adapterMode,
                                     endpointPreference = effectiveArchiveEndpointPreference(
                                         kind = kind,
@@ -771,6 +797,11 @@ class StalkerProvider(
             if (cachedSession != null && cachedProfile != null) {
                 return@withLock Result.success(cachedSession to cachedProfile)
             }
+            sharedAuthCache[authCacheKey()]?.let { cachedAuth ->
+                sessionCache = cachedAuth.session
+                accountProfileCache = cachedAuth.profile
+                return@withLock Result.success(cachedAuth.session to cachedAuth.profile)
+            }
 
             val profile = buildStalkerDeviceProfile(
                 portalUrl = portalUrl,
@@ -784,18 +815,25 @@ class StalkerProvider(
                 playbackBackendHint = playbackBackendHint,
                 username = normalizedUsername(),
                 password = normalizedPassword(),
+                httpUserAgentOverride = httpUserAgent.trim(),
+                httpHeadersOverride = httpHeaders,
                 deviceProfile = normalizedDeviceProfile(),
                 timezone = normalizedTimezone(),
                 locale = normalizedLocale(),
                 serialNumberOverride = normalizedSerialNumber(),
                 deviceIdOverride = normalizedDeviceId(),
                 deviceId2Override = normalizedDeviceId2(),
-                signatureOverride = normalizedSignature()
+                signatureOverride = normalizedSignature(),
+                stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
             )
             when (val authResult = api.authenticate(profile)) {
                 is Result.Success -> {
                     sessionCache = authResult.data.first
                     accountProfileCache = authResult.data.second
+                    sharedAuthCache[authCacheKey()] = CachedAuth(
+                        session = authResult.data.first,
+                        profile = authResult.data.second
+                    )
                     Result.success(authResult.data)
                 }
                 is Result.Error -> Result.error(authResult.message, authResult.exception)
@@ -816,13 +854,16 @@ class StalkerProvider(
             playbackBackendHint = playbackBackendHint,
             username = normalizedUsername(),
             password = normalizedPassword(),
+            httpUserAgentOverride = httpUserAgent.trim(),
+            httpHeadersOverride = httpHeaders,
             deviceProfile = normalizedDeviceProfile(),
             timezone = normalizedTimezone(),
             locale = normalizedLocale(),
             serialNumberOverride = normalizedSerialNumber(),
             deviceIdOverride = normalizedDeviceId(),
             deviceId2Override = normalizedDeviceId2(),
-            signatureOverride = normalizedSignature()
+            signatureOverride = normalizedSignature(),
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
         )
     }
 
@@ -839,13 +880,16 @@ class StalkerProvider(
             playbackBackendHint = profile.fingerprintEvidence.playbackBackendHint,
             username = normalizedUsername(),
             password = normalizedPassword(),
+            httpUserAgentOverride = httpUserAgent.trim(),
+            httpHeadersOverride = httpHeaders,
             deviceProfile = normalizedDeviceProfile(),
             timezone = normalizedTimezone(),
             locale = normalizedLocale(),
             serialNumberOverride = normalizedSerialNumber(),
             deviceIdOverride = normalizedDeviceId(),
             deviceId2Override = normalizedDeviceId2(),
-            signatureOverride = normalizedSignature()
+            signatureOverride = normalizedSignature(),
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
         )
     }
 
@@ -854,6 +898,7 @@ class StalkerProvider(
         profile: StalkerDeviceProfile,
         url: String
     ): Map<String, String> = buildMap {
+        val playerHeaderOverrides = parseStalkerHeaderOverrides(profile.advancedOptions.playerHeaders)
         val omitAuthorization = shouldOmitPlaybackAuthorization(url)
         val serverCookieHeader = api.currentCookieHeader(session)
             .ifBlank { session.serverCookieHeader }
@@ -865,6 +910,35 @@ class StalkerProvider(
         session.token.takeIf { it.isNotBlank() && !omitAuthorization }?.let { token ->
             put("Authorization", "Bearer $token")
         }
+        profile.headerOverrides.forEach { (name, value) ->
+            if (value == null) {
+                remove(name)
+            } else if (name.equals("User-Agent", ignoreCase = true)) {
+                // Playback user agent is surfaced separately on StalkerPlaybackInfo.
+            } else {
+                put(name, value)
+            }
+        }
+        playerHeaderOverrides.forEach { (name, value) ->
+            if (value == null) {
+                remove(name)
+            } else if (name.equals("User-Agent", ignoreCase = true)) {
+                // Playback user agent is surfaced separately on StalkerPlaybackInfo.
+            } else {
+                put(name, value)
+            }
+        }
+    }
+
+    private fun resolvePlaybackUserAgent(profile: StalkerDeviceProfile): String? {
+        profile.advancedOptions.playerUserAgent.trim().takeIf { it.isNotBlank() }?.let { return it }
+        parseStalkerHeaderOverrides(profile.advancedOptions.playerHeaders).entries.firstOrNull { (name, _) ->
+            name.equals("User-Agent", ignoreCase = true)
+        }?.let { (_, value) -> return value }
+        profile.headerOverrides.entries.firstOrNull { (name, _) ->
+            name.equals("User-Agent", ignoreCase = true)
+        }?.let { (_, value) -> return value }
+        return profile.playerUserAgent.ifBlank { profile.userAgent.ifBlank { null } }
     }
 
     private fun shouldOmitPlaybackAuthorization(url: String): Boolean {
@@ -877,13 +951,9 @@ class StalkerProvider(
         profile: StalkerDeviceProfile
     ): String {
         val cookies = linkedMapOf(
-            "mac" to profile.macAddress,
-            "stb_lang" to profile.locale,
-            "timezone" to profile.timezone,
-            "sn" to profile.serialNumber,
-            "device_id" to profile.deviceId,
-            "device_id2" to profile.deviceId2,
-            "signature" to profile.signature
+            "mac" to encodeCookieValue(profile.macAddress),
+            "stb_lang" to encodeCookieValue(profile.locale),
+            "timezone" to encodeCookieValue(profile.timezone)
         )
         serverCookieHeader.split(';')
             .mapNotNull { part ->
@@ -895,6 +965,9 @@ class StalkerProvider(
         }
         return cookies.entries.joinToString("; ") { (key, value) -> "$key=$value" }
     }
+
+    private fun encodeCookieValue(value: String): String =
+        URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 
     private fun derivePlaybackCookieMode(
         current: StalkerCookieMode,
@@ -1456,6 +1529,33 @@ class StalkerProvider(
 
     private fun normalizedSignature(): String =
         signature.trim().uppercase(Locale.ROOT)
+
+    private fun authCacheKey(): String = listOf(
+        providerId.toString(),
+        StalkerUrlFactory.normalizePortalUrl(portalUrl),
+        normalizedMacAddress(),
+        authMode.name,
+        normalizedUsername(),
+        normalizedPassword(),
+        httpUserAgent.trim(),
+        httpHeaders,
+        portalFingerprintHint.name,
+        magPresetHint.name,
+        bootstrapRecipeHint.name,
+        endpointPreferenceHint.name,
+        cookieModeHint.name,
+        playbackBackendHint.name,
+        portalProfileHint.name,
+        preferredPlaybackMode?.name.orEmpty(),
+        normalizedDeviceProfile(),
+        normalizedTimezone(),
+        normalizedLocale(),
+        normalizedSerialNumber(),
+        normalizedDeviceId(),
+        normalizedDeviceId2(),
+        normalizedSignature(),
+        stalkerAdvancedOptionsJson
+    ).joinToString(separator = "\u001f")
 
     private fun resolveProviderStatus(profile: StalkerProviderProfile): ProviderStatus {
         val normalizedStatus = profile.statusLabel?.trim()?.lowercase(Locale.ROOT).orEmpty()

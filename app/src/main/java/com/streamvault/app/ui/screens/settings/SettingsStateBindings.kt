@@ -15,7 +15,9 @@ import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
+import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -89,6 +91,8 @@ internal fun observeSettingsPreferenceSnapshot(
             liveVariantPreferenceMode = LiveVariantPreferenceMode.BALANCED,
             vodViewMode = VodViewMode.MODERN,
             vodInfiniteScroll = true,
+            vodDuplicateHandlingMode = VodDuplicateHandlingMode.SHOW_ALL,
+            vodVariantPreferenceMode = VodVariantPreferenceMode.BALANCED,
             guideDefaultCategoryId = VirtualCategoryIds.FAVORITES,
             guideDefaultCategoryOptions = emptyList(),
             preventStandbyDuringPlayback = true,
@@ -208,6 +212,10 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(vodViewMode = VodViewMode.fromStorage(vodViewMode))
     }.combine(preferencesRepository.vodInfiniteScroll) { snapshot, vodInfiniteScroll ->
         snapshot.copy(vodInfiniteScroll = vodInfiniteScroll)
+    }.combine(preferencesRepository.vodDuplicateHandlingMode) { snapshot, vodDuplicateHandlingMode ->
+        snapshot.copy(vodDuplicateHandlingMode = vodDuplicateHandlingMode)
+    }.combine(preferencesRepository.vodVariantPreferenceMode) { snapshot, vodVariantPreferenceMode ->
+        snapshot.copy(vodVariantPreferenceMode = vodVariantPreferenceMode)
     }.combine(preferencesRepository.guideDefaultCategoryId) { snapshot, guideDefaultCategoryId ->
         snapshot.copy(guideDefaultCategoryId = guideDefaultCategoryId ?: VirtualCategoryIds.FAVORITES)
     }.combine(preferencesRepository.preventStandbyDuringPlayback) { snapshot, preventStandby ->

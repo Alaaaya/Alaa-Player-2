@@ -34,12 +34,17 @@ import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.ui.screens.downloads.DownloadsScreen
 import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.MovieDetailPresentationHint
+import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.SeriesDetailPresentationHint
 import java.io.Serializable
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 
 private const val PLAYER_REQUEST_KEY = "player_request"
+internal const val MOVIE_DETAIL_PRESENTATION_HINT_KEY = "movie_detail_presentation_hint"
+internal const val SERIES_DETAIL_PRESENTATION_HINT_KEY = "series_detail_presentation_hint"
 private const val TAG = "AppNavigation"
 
 data class PlayerNavigationRequest(
@@ -253,6 +258,40 @@ private fun NavHostController.navigateToPlayer(request: PlayerNavigationRequest)
     return true
 }
 
+private fun NavHostController.navigateToMovieDetail(movie: Movie, returnRoute: String? = null): Boolean {
+    if (currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return false
+    currentBackStackEntry?.savedStateHandle?.set(MOVIE_DETAIL_PRESENTATION_HINT_KEY, movie.toMovieDetailPresentationHint())
+    navigate(Routes.movieDetail(movie.id, returnRoute))
+    return true
+}
+
+private fun Movie.toMovieDetailPresentationHint(): MovieDetailPresentationHint? {
+    if (variants.isEmpty()) return null
+    return MovieDetailPresentationHint(
+        providerId = providerId,
+        logicalGroupId = logicalGroupId,
+        variants = variants,
+        duplicateConfidence = duplicateConfidence
+    )
+}
+
+private fun NavHostController.navigateToSeriesDetail(series: Series, returnRoute: String? = null): Boolean {
+    if (currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return false
+    currentBackStackEntry?.savedStateHandle?.set(SERIES_DETAIL_PRESENTATION_HINT_KEY, series.toSeriesDetailPresentationHint())
+    navigate(Routes.seriesDetail(series.id, returnRoute))
+    return true
+}
+
+private fun Series.toSeriesDetailPresentationHint(): SeriesDetailPresentationHint? {
+    if (variants.isEmpty()) return null
+    return SeriesDetailPresentationHint(
+        providerId = providerId,
+        logicalGroupId = logicalGroupId,
+        variants = variants,
+        duplicateConfidence = duplicateConfidence
+    )
+}
+
 private fun NavHostController.navigateToExternalPlayer(request: PlayerNavigationRequest): Boolean {
     if (currentBackStackEntry?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) != true) return false
     currentBackStackEntry?.savedStateHandle?.set(PLAYER_REQUEST_KEY, request)
@@ -409,10 +448,10 @@ fun AppNavigation(mainActivity: MainActivity) {
                     )
                 },
                 onMovieClick = { movie ->
-                    navController.navigateIfResumed(Routes.movieDetail(movie.id, Routes.HOME))
+                    navController.navigateToMovieDetail(movie, Routes.HOME)
                 },
                 onSeriesClick = { series ->
-                    navController.navigateIfResumed(Routes.seriesDetail(series.id, Routes.HOME))
+                    navController.navigateToSeriesDetail(series, Routes.HOME)
                 },
                 onPlaybackHistoryClick = { history ->
                     val route = when (history.contentType) {
@@ -494,7 +533,7 @@ fun AppNavigation(mainActivity: MainActivity) {
         composable(Routes.MOVIES) {
             MoviesScreen(
                 onMovieClick = { movie ->
-                    navController.navigateIfResumed(Routes.movieDetail(movie.id, Routes.MOVIES))
+                    navController.navigateToMovieDetail(movie, Routes.MOVIES)
                 },
                 onContinueWatchingPlay = { history ->
                     navController.navigateToPlayer(
@@ -508,7 +547,10 @@ fun AppNavigation(mainActivity: MainActivity) {
 
         composable(Routes.SERIES) {
             SeriesScreen(
-                onSeriesClick = { seriesId ->
+                onSeriesClick = { series ->
+                    navController.navigateToSeriesDetail(series, Routes.SERIES)
+                },
+                onSeriesIdClick = { seriesId ->
                     navController.navigateIfResumed(Routes.seriesDetail(seriesId, Routes.SERIES))
                 },
                 onNavigate = { route -> tabNavigate(route) },
@@ -640,13 +682,15 @@ fun AppNavigation(mainActivity: MainActivity) {
                     )
                 },
                 onMovieClick = { movie ->
-                     navController.navigateIfResumed(
-                         Routes.movieDetail(movie.id, Routes.search(backStackEntry.arguments?.getString("query").orEmpty()))
+                     navController.navigateToMovieDetail(
+                         movie,
+                         Routes.search(backStackEntry.arguments?.getString("query").orEmpty())
                      )
                 },
                 onSeriesClick = { series ->
-                     navController.navigateIfResumed(
-                         Routes.seriesDetail(series.id, Routes.search(backStackEntry.arguments?.getString("query").orEmpty()))
+                     navController.navigateToSeriesDetail(
+                         series,
+                         Routes.search(backStackEntry.arguments?.getString("query").orEmpty())
                      )
                 },
                 onNavigate = { route -> tabNavigate(route) },
@@ -726,6 +770,10 @@ fun AppNavigation(mainActivity: MainActivity) {
                 navArgument("returnRoute") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
+            val moviePresentationHint = backStackEntry.savedStateHandle.get<MovieDetailPresentationHint>(MOVIE_DETAIL_PRESENTATION_HINT_KEY)
+                ?: navController.previousBackStackEntry?.savedStateHandle?.get<MovieDetailPresentationHint>(MOVIE_DETAIL_PRESENTATION_HINT_KEY)?.also {
+                    backStackEntry.savedStateHandle[MOVIE_DETAIL_PRESENTATION_HINT_KEY] = it
+                }
             val returnRoute = backStackEntry.arguments?.getString("returnRoute").orEmpty().takeIf { it.isNotBlank() }
             val movieId = backStackEntry.arguments?.getLong("movieId") ?: -1L
             com.streamvault.app.ui.screens.movies.MovieDetailScreen(
@@ -759,6 +807,10 @@ fun AppNavigation(mainActivity: MainActivity) {
                 navArgument("returnRoute") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
+            val seriesPresentationHint = backStackEntry.savedStateHandle.get<SeriesDetailPresentationHint>(SERIES_DETAIL_PRESENTATION_HINT_KEY)
+                ?: navController.previousBackStackEntry?.savedStateHandle?.get<SeriesDetailPresentationHint>(SERIES_DETAIL_PRESENTATION_HINT_KEY)?.also {
+                    backStackEntry.savedStateHandle[SERIES_DETAIL_PRESENTATION_HINT_KEY] = it
+                }
             val returnRoute = backStackEntry.arguments?.getString("returnRoute").orEmpty().takeIf { it.isNotBlank() }
             val seriesId = backStackEntry.arguments?.getLong("seriesId") ?: -1L
             com.streamvault.app.ui.screens.series.SeriesDetailScreen(
