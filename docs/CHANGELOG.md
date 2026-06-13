@@ -15,8 +15,6 @@ All notable product changes are recorded in this document.
 - Fixed Stalker and Xtream setup overrides so saved User-Agent, custom headers, and Stalker advanced compatibility settings are respected across login, sync, playback resolution, and VOD/series detail requests.
 - Fixed Stalker HTTP proxy playback support so proxy metadata is preserved through resolved streams and also used by Android TV Input playback.
 - Fixed Live TV favorites, recents, and custom-group ordered lists still collapsing SD/HD/FHD channel variants after grouped variants were disabled.
-- Fixed Jellyfin playback and artwork authentication so provider credentials are applied at request time instead of being embedded into stored poster, backdrop, or cover URLs.
-- Fixed Jellyfin sync diagnostics to avoid logging token-derived credential data.
 
 ### Added
 
