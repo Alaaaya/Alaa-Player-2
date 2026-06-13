@@ -1591,63 +1591,47 @@ private fun AdvancedProviderOptionsSection(
                             )
                         }
                     }
-                    Row(
+                    TvClickableSurface(
+                        onClick = { onStalkerProxyEnabledChange(!stalkerProxyEnabled) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onPreviewKeyEvent { event ->
-                                val nativeEvent = event.nativeKeyEvent
-                                val isActivationKey = when (nativeEvent.keyCode) {
-                                    android.view.KeyEvent.KEYCODE_DPAD_CENTER,
-                                    android.view.KeyEvent.KEYCODE_ENTER,
-                                    android.view.KeyEvent.KEYCODE_NUMPAD_ENTER,
-                                    android.view.KeyEvent.KEYCODE_SPACE,
-                                    android.view.KeyEvent.KEYCODE_BUTTON_A -> true
-                                    else -> false
-                                }
-                                if (!isActivationKey) {
-                                    false
-                                } else {
-                                    if (nativeEvent.action == android.view.KeyEvent.ACTION_UP) {
-                                        onStalkerProxyEnabledChange(!stalkerProxyEnabled)
-                                    }
-                                    nativeEvent.action == android.view.KeyEvent.ACTION_DOWN ||
-                                        nativeEvent.action == android.view.KeyEvent.ACTION_UP
-                                }
-                            }
-                            .mouseClickable { onStalkerProxyEnabledChange(!stalkerProxyEnabled) }
-                            .focusable()
-                            .background(
-                                if (stalkerProxyEnabled) Primary.copy(alpha = 0.1f) else Surface,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .border(
-                                1.dp,
-                                if (stalkerProxyEnabled) Primary.copy(alpha = 0.4f) else SurfaceHighlight,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .semantics { contentDescription = "Use HTTP proxy" },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (stalkerProxyEnabled) Primary.copy(alpha = 0.1f) else Surface,
+                            focusedContainerColor = Primary.copy(alpha = 0.22f)
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (stalkerProxyEnabled) Primary.copy(alpha = 0.4f) else SurfaceHighlight
+                                )
+                            ),
+                            focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
+                        ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow.None)
                     ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "Use HTTP proxy",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Applies to Stalker API and playback only.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnSurfaceDim
-                            )
-                        }
-                        Switch(
-                            checked = stalkerProxyEnabled,
-                            onCheckedChange = { onStalkerProxyEnabledChange(it) },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Use HTTP proxy"
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Use HTTP proxy",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Applies to Stalker API and playback only.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceDim
+                                )
                             }
-                        )
+                            ProxyToggleIndicator(checked = stalkerProxyEnabled)
+                        }
                     }
                     AnimatedVisibility(stalkerProxyEnabled) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1701,6 +1685,31 @@ private fun StalkerLinkOptionButton(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall,
             color = TextPrimary
+        )
+    }
+}
+
+@Composable
+private fun ProxyToggleIndicator(checked: Boolean) {
+    val trackColor = if (checked) Primary else SurfaceHighlight
+    val thumbColor = if (checked) Color.White else OnSurfaceDim
+    Box(
+        modifier = Modifier
+            .width(54.dp)
+            .height(32.dp)
+            .background(trackColor, RoundedCornerShape(999.dp))
+            .border(
+                2.dp,
+                if (checked) PrimaryLight else OnSurfaceDim.copy(alpha = 0.45f),
+                RoundedCornerShape(999.dp)
+            )
+            .padding(4.dp),
+        contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .background(thumbColor, RoundedCornerShape(999.dp))
         )
     }
 }
