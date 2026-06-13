@@ -309,6 +309,13 @@ class StalkerProviderTest {
             portalUrl = "https://portal.example.com/c/",
             macAddress = "00:1A:79:12:34:56",
             httpHeaders = "User-Agent: | Referer: | X-Test: enabled",
+            stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(
+                StalkerAdvancedOptions(
+                    proxyEnabled = true,
+                    proxyHost = "127.0.0.1",
+                    proxyPort = 8080
+                )
+            ),
             playbackBackendHint = com.streamvault.domain.model.StalkerPlaybackBackendHint.TEMP_LINK_STRICT,
             cookieModeHint = com.streamvault.domain.model.StalkerCookieMode.CREATE_LINK,
             deviceProfile = "MAG322",
@@ -330,6 +337,8 @@ class StalkerProviderTest {
         val success = result as Result.Success
         assertThat(success.data.userAgent).isNull()
         assertThat(success.data.allowInvalidSsl).isTrue()
+        assertThat(success.data.proxyHost).isEqualTo("127.0.0.1")
+        assertThat(success.data.proxyPort).isEqualTo(8080)
         assertThat(success.data.headers).doesNotContainKey("Referer")
         assertThat(success.data.headers["X-Test"]).isEqualTo("enabled")
     }
@@ -467,6 +476,41 @@ class StalkerProviderTest {
         assertThat(success.data.stalkerDeviceProfile).isEqualTo("MAG322")
         assertThat(success.data.stalkerDeviceId).isEmpty()
         assertThat(success.data.stalkerSignature).isEmpty()
+    }
+
+    @Test
+    fun resolvePlaybackInfo_dedicatedPlayerUserAgentOverridesCustomHeaderUserAgent() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://cdn.example.com/live.ts"
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            httpHeaders = "User-Agent: Header Agent/2.0",
+            stalkerAdvancedOptionsJson = StalkerAdvancedOptionsCodec.encode(
+                StalkerAdvancedOptions(
+                    apiUserAgent = "API Agent/9.0",
+                    playerUserAgent = "Player Agent/10.0"
+                )
+            ),
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = buildStalkerPlaybackDescriptor(
+                primaryCmd = "ffmpeg http://portal.example.com/ch/390414_"
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.userAgent).isEqualTo("Player Agent/10.0")
+        assertThat(success.data.headers).doesNotContainKey("User-Agent")
     }
 
     private class FakeStalkerApiService(
