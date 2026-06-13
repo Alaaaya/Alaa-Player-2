@@ -2,6 +2,18 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.15] - 2026-06-13
+
+### Added
+
+- Added Jellyfin provider support for direct Movies and Series library sync, playback, and provider setup from the main onboarding flow.
+- Added Jellyfin Quick Connect onboarding with on-screen code and QR flow for signing into compatible servers without typing a password on TV.
+
+### Fixed
+
+- Fixed Jellyfin playback and artwork authentication so provider credentials are applied at request time instead of being embedded into stored poster, backdrop, or cover URLs.
+- Fixed Jellyfin sync diagnostics to avoid logging token-derived credential data.
+
 ## [1.0.13] - 2026-06-06
 
 ### Added
