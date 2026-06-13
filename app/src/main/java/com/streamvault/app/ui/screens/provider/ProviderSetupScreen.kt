@@ -1698,6 +1698,17 @@ private fun StalkerRequestRulesEditor(
     onUpdateRule: (Int, StalkerRequestRuleUiState) -> Unit,
     onRemoveRule: (Int) -> Unit
 ) {
+    val newestRuleBringIntoViewRequester = remember { BringIntoViewRequester() }
+    var previousRuleCount by remember { mutableIntStateOf(rules.size) }
+
+    LaunchedEffect(rules.size) {
+        if (rules.size > previousRuleCount) {
+            delay(120)
+            runCatching { newestRuleBringIntoViewRequester.bringIntoView() }
+        }
+        previousRuleCount = rules.size
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1719,12 +1730,19 @@ private fun StalkerRequestRulesEditor(
                     color = OnSurfaceDim
                 )
             }
-            TextButton(onClick = onAddRule) { Text("Add") }
+            RequestRuleActionButton(text = "Add Rule", onClick = onAddRule)
         }
         rules.forEachIndexed { index, rule ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(
+                        if (index == rules.lastIndex) {
+                            Modifier.bringIntoViewRequester(newestRuleBringIntoViewRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
                     .border(1.dp, SurfaceHighlight.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1735,7 +1753,11 @@ private fun StalkerRequestRulesEditor(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Rule ${index + 1}", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
-                    TextButton(onClick = { onRemoveRule(index) }) { Text("Delete") }
+                    RequestRuleActionButton(
+                        text = "Delete",
+                        onClick = { onRemoveRule(index) },
+                        compact = true
+                    )
                 }
                 ProviderTextField(
                     value = rule.action,
@@ -1766,6 +1788,47 @@ private fun StalkerRequestRulesEditor(
                     placeholder = "Param overrides: name=value | remove_me="
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun RequestRuleActionButton(
+    text: String,
+    onClick: () -> Unit,
+    compact: Boolean = false
+) {
+    TvClickableSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .width(if (compact) 88.dp else 124.dp)
+            .height(40.dp)
+            .mouseClickable(onClick = onClick)
+            .semantics { contentDescription = text },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (compact) SurfaceHighlight.copy(alpha = 0.9f) else Primary,
+            focusedContainerColor = if (compact) SurfaceHighlight else PrimaryLight
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow.None),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                BorderStroke(
+                    1.dp,
+                    if (compact) SurfaceHighlight.copy(alpha = 0.8f) else PrimaryLight
+                )
+            ),
+            focusedBorder = Border(BorderStroke(3.dp, FocusBorder))
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextPrimary,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
