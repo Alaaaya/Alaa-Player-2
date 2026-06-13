@@ -10,6 +10,7 @@ import com.streamvault.data.local.dao.CatalogSyncDao
 import com.streamvault.data.local.dao.ChannelStageCategorySummary
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.EpisodeDao
 import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
@@ -49,6 +50,7 @@ import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerDeviceProfile
+import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.ContentType
 import kotlinx.coroutines.CompletableDeferred
@@ -113,6 +115,8 @@ class SyncManagerTest {
         override fun getAll() = kotlinx.coroutines.flow.flowOf(listOfNotNull(provider))
         override suspend fun getAllSync(): List<ProviderEntity> = listOfNotNull(provider)
         override fun getActive() = kotlinx.coroutines.flow.flowOf(provider)
+        override fun getByTypeSync(type: ProviderType): List<ProviderEntity> =
+            listOfNotNull(provider).filter { it.type == type }
         override suspend fun insertDirect(provider: ProviderEntity) = this.provider?.id ?: 0L
         override suspend fun updateDirect(provider: ProviderEntity) = Unit
         override suspend fun insert(provider: ProviderEntity) = this.provider?.id ?: 0L
@@ -216,6 +220,7 @@ class SyncManagerTest {
     private val channelDao: ChannelDao = mock()
     private val movieDao: MovieDao = mock()
     private val seriesDao: SeriesDao = mock()
+    private val episodeDao: EpisodeDao = mock()
     private val programDao: ProgramDao = mock()
     private val categoryDao: CategoryDao = mock()
     private val catalogSyncDao: CatalogSyncDao = mock()
@@ -229,6 +234,7 @@ class SyncManagerTest {
     private val epgSourceRepo: EpgSourceRepository = mock()
     private val preferencesRepo: PreferencesRepository = mock()
     private val stalkerApiService: StalkerApiService = mock()
+    private val jellyfinProvider: JellyfinProvider = mock()
     private val xtreamBackend = FakeXtreamBackend()
     private val xtreamJson = Json {
         ignoreUnknownKeys = true
@@ -353,6 +359,8 @@ class SyncManagerTest {
         xtreamIndexJobDao = xtreamIndexJobDao,
         xtreamLiveOnboardingDao = xtreamLiveOnboardingDao,
         stalkerApiService = stalkerApiService,
+        episodeDao = episodeDao,
+        jellyfinProvider = jellyfinProvider,
         xtreamJson = xtreamJson,
         m3uParser = M3uParser(),
         epgRepository = epgRepo,

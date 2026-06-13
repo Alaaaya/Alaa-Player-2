@@ -65,6 +65,21 @@ interface ProviderRepository {
         onProgress: ((String) -> Unit)? = null,
         id: Long? = null
     ): Result<Provider>
+    suspend fun loginJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        onProgress: ((String) -> Unit)? = null,
+        id: Long? = null
+    ): Result<Provider>
+    suspend fun loginJellyfinQuickConnect(
+        serverUrl: String,
+        name: String,
+        onCode: ((String) -> Unit)? = null,
+        onProgress: ((String) -> Unit)? = null,
+        id: Long? = null
+    ): Result<Provider>
     suspend fun refreshProviderData(
         providerId: Long,
         force: Boolean = false,

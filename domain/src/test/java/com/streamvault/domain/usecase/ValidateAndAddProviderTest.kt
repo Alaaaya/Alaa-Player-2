@@ -3,6 +3,8 @@ package com.streamvault.domain.usecase
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.manager.ProviderSetupInputValidator
+import com.streamvault.domain.manager.ValidatedJellyfinProviderInput
+import com.streamvault.domain.manager.ValidatedJellyfinQuickConnectProviderInput
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.manager.ValidatedM3uProviderInput
 import com.streamvault.domain.manager.ValidatedStalkerProviderInput
@@ -514,6 +516,20 @@ private class FakeProviderSetupInputValidator(
             timezone = "UTC",
             locale = "en"
         )
+    ),
+    private val jellyfinResult: Result<ValidatedJellyfinProviderInput> = Result.success(
+        ValidatedJellyfinProviderInput(
+            serverUrl = "https://jellyfin.example.com",
+            username = "user",
+            password = "secret",
+            name = "Jellyfin"
+        )
+    ),
+    private val jellyfinQuickConnectResult: Result<ValidatedJellyfinQuickConnectProviderInput> = Result.success(
+        ValidatedJellyfinQuickConnectProviderInput(
+            serverUrl = "https://jellyfin.example.com",
+            name = "Jellyfin"
+        )
     )
 ) : ProviderSetupInputValidator {
     override fun validateXtream(
@@ -552,6 +568,19 @@ private class FakeProviderSetupInputValidator(
         signature: String,
         stalkerAdvancedOptionsJson: String
     ): Result<ValidatedStalkerProviderInput> = stalkerResult
+
+    override fun validateJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        allowBlankPassword: Boolean
+    ): Result<ValidatedJellyfinProviderInput> = jellyfinResult
+
+    override fun validateJellyfinQuickConnect(
+        serverUrl: String,
+        name: String
+    ): Result<ValidatedJellyfinQuickConnectProviderInput> = jellyfinQuickConnectResult
 }
 
 private data class XtreamCall(
@@ -716,6 +745,40 @@ private class FakeProviderRepository : ProviderRepository {
                 stalkerDeviceId = deviceId,
                 stalkerDeviceId2 = deviceId2,
                 stalkerSignature = signature
+            )
+        )
+    }
+
+    override suspend fun loginJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        onProgress: ((String) -> Unit)?,
+        id: Long?
+    ): Result<Provider> {
+        return Result.success(
+            provider(id = id ?: 4L, name = name, type = ProviderType.JELLYFIN).copy(
+                serverUrl = serverUrl,
+                username = username,
+                password = password
+            )
+        )
+    }
+
+    override suspend fun loginJellyfinQuickConnect(
+        serverUrl: String,
+        name: String,
+        onCode: ((String) -> Unit)?,
+        onProgress: ((String) -> Unit)?,
+        id: Long?
+    ): Result<Provider> {
+        onCode?.invoke("ABCD")
+        return Result.success(
+            provider(id = id ?: 5L, name = name, type = ProviderType.JELLYFIN).copy(
+                serverUrl = serverUrl,
+                username = name,
+                password = "quick-connect-token"
             )
         )
     }

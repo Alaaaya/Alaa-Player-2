@@ -2,6 +2,7 @@ package com.streamvault.data.local.dao
 
 import androidx.room.*
 import com.streamvault.data.local.entity.*
+import com.streamvault.domain.model.ProviderType
 import kotlinx.coroutines.flow.Flow
 
 data class RemoteIdMapping(
@@ -41,6 +42,9 @@ abstract class ProviderDao {
 
     @Query("SELECT * FROM providers WHERE id IN (:ids)")
     abstract suspend fun getByIds(ids: List<Long>): List<ProviderEntity>
+
+    @Query("SELECT * FROM providers WHERE type = :type")
+    abstract fun getByTypeSync(type: ProviderType): List<ProviderEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun insertDirect(provider: ProviderEntity): Long

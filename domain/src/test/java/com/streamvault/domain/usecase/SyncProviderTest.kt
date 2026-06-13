@@ -161,6 +161,23 @@ private class FakeSyncProviderRepository(
         id: Long?
     ): Result<Provider> = error("Not used in test")
 
+    override suspend fun loginJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        onProgress: ((String) -> Unit)?,
+        id: Long?
+    ): Result<Provider> = error("Not used in test")
+
+    override suspend fun loginJellyfinQuickConnect(
+        serverUrl: String,
+        name: String,
+        onCode: ((String) -> Unit)?,
+        onProgress: ((String) -> Unit)?,
+        id: Long?
+    ): Result<Provider> = error("Not used in test")
+
     override suspend fun refreshProviderData(
         providerId: Long,
         force: Boolean,

@@ -2,6 +2,7 @@ package com.streamvault.data.remote.xtream
 
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.remote.jellyfin.buildJellyfinAuthorizationHeader
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
@@ -127,6 +128,13 @@ class XtreamStreamUrlResolver @Inject constructor(
                     fallbackContainerExtension = fallbackContainerExtension
                 )?.let { return it }
             }
+            if (provider?.type == ProviderType.JELLYFIN) {
+                resolveDirectJellyfinUrl(
+                    provider = provider,
+                    url = url,
+                    fallbackContainerExtension = fallbackContainerExtension
+                )?.let { return it }
+            }
             return provider.applyPlaybackRequestProfile(
                 ResolvedStreamUrl(
                     url = url,
@@ -209,6 +217,8 @@ class XtreamStreamUrlResolver @Inject constructor(
                     )
                 )
             }
+            ProviderType.M3U,
+            ProviderType.JELLYFIN -> null
         }
     }
 
@@ -251,6 +261,31 @@ class XtreamStreamUrlResolver @Inject constructor(
                 url = resolvedUrl,
                 expirationTime = extractStreamExpirationTime(resolvedUrl),
                 containerExtension = ext
+            )
+        )
+    }
+
+    private fun resolveDirectJellyfinUrl(
+        provider: ProviderEntity,
+        url: String,
+        fallbackContainerExtension: String?
+    ): ResolvedStreamUrl? {
+        if (url.isBlank()) {
+            return null
+        }
+        val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
+        return provider.applyPlaybackRequestProfile(
+            ResolvedStreamUrl(
+                url = url,
+                expirationTime = extractStreamExpirationTime(url),
+                containerExtension = fallbackContainerExtension,
+                headers = mapOf(
+                    "Authorization" to buildJellyfinAuthorizationHeader(
+                        provider.serverUrl,
+                        provider.username,
+                        decryptedPassword
+                    )
+                )
             )
         )
     }

@@ -1487,6 +1487,7 @@ class EpgViewModel @Inject constructor(
             com.streamvault.domain.model.ProviderType.XTREAM_CODES -> "Xtream Codes"
             com.streamvault.domain.model.ProviderType.M3U -> "M3U Playlist"
             com.streamvault.domain.model.ProviderType.STALKER_PORTAL -> "Stalker/MAG Portal"
+            com.streamvault.domain.model.ProviderType.JELLYFIN -> "Jellyfin"
         }
     }
 
@@ -1505,6 +1506,12 @@ class EpgViewModel @Inject constructor(
                     "Portal guide falls back to on-demand Stalker data when XMLTV is unavailable."
                 } else {
                     "Guide combines optional XMLTV with on-demand Stalker portal data."
+                }
+            com.streamvault.domain.model.ProviderType.JELLYFIN ->
+                if (provider.epgUrl.isBlank()) {
+                    "Jellyfin replay depends on the server guide data being populated."
+                } else {
+                    "Jellyfin replay combines server guide data with optional XMLTV import."
                 }
         }
     }

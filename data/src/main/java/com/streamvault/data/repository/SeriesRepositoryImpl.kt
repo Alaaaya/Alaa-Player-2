@@ -5,6 +5,7 @@ import android.util.Log
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.*
 import com.streamvault.data.mapper.*
+import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
@@ -64,7 +65,8 @@ class SeriesRepositoryImpl @Inject constructor(
     private val xtreamContentIndexDao: XtreamContentIndexDao,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
-    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao
+    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
+    private val jellyfinProvider: JellyfinProvider
 ) : SeriesRepository {
     private companion object {
         const val TAG = "SeriesRepository"
@@ -360,6 +362,33 @@ class SeriesRepositoryImpl @Inject constructor(
                     seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString()
                 )
                 ProviderType.M3U -> return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                ProviderType.JELLYFIN -> {
+                    val remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() }
+                        ?: return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                    val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
+                    when (val episodesResult = jellyfinProvider.fetchEpisodes(
+                        provider = com.streamvault.domain.model.Provider(
+                            id = providerId, name = "Jellyfin", type = ProviderType.JELLYFIN,
+                            serverUrl = provider.serverUrl, username = provider.username,
+                            password = decryptedPassword
+                        ),
+                        seriesRemoteId = remoteId,
+                        seriesLocalId = seriesEntity.id
+                    )) {
+                        is com.streamvault.domain.model.Result.Success -> {
+                            if (episodesResult.data.isNotEmpty()) {
+                                episodeDao.replaceAll(seriesEntity.id, providerId, episodesResult.data)
+                            }
+                            return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                        }
+                        is com.streamvault.domain.model.Result.Error -> {
+                            Log.w(TAG, "Failed to fetch Jellyfin episodes: ${episodesResult.message}")
+                            return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                        }
+                        is com.streamvault.domain.model.Result.Loading -> {}
+                    }
+                    return Result.success(buildSeriesWithPersistedEpisodes(seriesEntity))
+                }
             }
         } catch (e: Exception) {
             if (provider.type == ProviderType.XTREAM_CODES) {

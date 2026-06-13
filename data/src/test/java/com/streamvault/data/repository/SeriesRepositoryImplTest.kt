@@ -18,6 +18,7 @@ import com.streamvault.data.local.entity.SeriesBrowseEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.dto.XtreamSeason
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
 import com.streamvault.data.remote.stalker.StalkerCategoryRecord
@@ -78,6 +79,7 @@ class SeriesRepositoryImplTest {
     private val preferencesRepository: PreferencesRepository = mock()
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
+    private val jellyfinProvider: JellyfinProvider = mock()
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
     private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
@@ -773,6 +775,7 @@ class SeriesRepositoryImplTest {
         xtreamContentIndexDao = xtreamContentIndexDao,
         xtreamIndexJobDao = xtreamIndexJobDao,
         syncManager = syncManager,
-        seriesCategoryHydrationDao = seriesCategoryHydrationDao
+        seriesCategoryHydrationDao = seriesCategoryHydrationDao,
+        jellyfinProvider = jellyfinProvider
     )
 }
