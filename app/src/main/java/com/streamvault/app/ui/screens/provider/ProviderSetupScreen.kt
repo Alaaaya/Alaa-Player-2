@@ -1591,27 +1591,49 @@ private fun AdvancedProviderOptionsSection(
                             )
                         }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        onClick = { onStalkerProxyEnabledChange(!stalkerProxyEnabled) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .mouseClickable { onStalkerProxyEnabledChange(!stalkerProxyEnabled) },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (stalkerProxyEnabled) Primary.copy(alpha = 0.1f) else Surface,
+                            focusedContainerColor = Primary.copy(alpha = 0.22f)
+                        ),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(
+                                BorderStroke(
+                                    1.dp,
+                                    if (stalkerProxyEnabled) Primary.copy(alpha = 0.4f) else SurfaceHighlight
+                                )
+                            ),
+                            focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
+                        ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Use HTTP proxy",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Applies to Stalker API and playback only.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnSurfaceDim
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Use HTTP proxy",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Applies to Stalker API and playback only.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceDim
+                                )
+                            }
+                            Switch(
+                                checked = stalkerProxyEnabled,
+                                onCheckedChange = onStalkerProxyEnabledChange
                             )
                         }
-                        Switch(
-                            checked = stalkerProxyEnabled,
-                            onCheckedChange = onStalkerProxyEnabledChange
-                        )
                     }
                     AnimatedVisibility(stalkerProxyEnabled) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
