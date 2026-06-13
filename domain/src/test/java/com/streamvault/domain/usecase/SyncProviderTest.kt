@@ -146,6 +146,8 @@ private class FakeSyncProviderRepository(
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -153,6 +155,7 @@ private class FakeSyncProviderRepository(
         deviceId: String,
         deviceId2: String,
         signature: String,
+        stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?

@@ -26,13 +26,16 @@ data class ValidatedStalkerProviderInput(
     val authMode: StalkerAuthMode,
     val username: String,
     val password: String,
+    val httpUserAgent: String,
+    val httpHeaders: String,
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
     val serialNumber: String = "",
     val deviceId: String = "",
     val deviceId2: String = "",
-    val signature: String = ""
+    val signature: String = "",
+    val stalkerAdvancedOptionsJson: String = ""
 )
 
 interface ProviderSetupInputValidator {
@@ -61,12 +64,15 @@ interface ProviderSetupInputValidator {
         username: String,
         password: String,
         allowBlankPassword: Boolean = false,
+        httpUserAgent: String = "",
+        httpHeaders: String = "",
         deviceProfile: String,
         timezone: String,
         locale: String,
         serialNumber: String = "",
         deviceId: String = "",
         deviceId2: String = "",
-        signature: String = ""
+        signature: String = "",
+        stalkerAdvancedOptionsJson: String = ""
     ): Result<ValidatedStalkerProviderInput>
 }

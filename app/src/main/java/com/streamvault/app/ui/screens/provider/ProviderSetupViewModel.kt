@@ -221,6 +221,7 @@ class ProviderSetupViewModel @Inject constructor(
                         stalkerDeviceId = provider.stalkerDeviceId,
                         stalkerDeviceId2 = provider.stalkerDeviceId2,
                         stalkerSignature = provider.stalkerSignature,
+                        stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
                         epgSyncMode = provider.epgSyncMode,
                         xtreamLiveSyncMode = provider.xtreamLiveSyncMode,
                         hasCustomizedEpgSyncMode = true,
@@ -272,13 +273,16 @@ class ProviderSetupViewModel @Inject constructor(
         username: String,
         password: String,
         name: String,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
         serialNumber: String = "",
         deviceId: String = "",
         deviceId2: String = "",
-        signature: String = ""
+        signature: String = "",
+        stalkerAdvancedOptionsJson: String = ""
     ) {
         _uiState.update {
             it.copy(
@@ -302,6 +306,8 @@ class ProviderSetupViewModel @Inject constructor(
                     username = username,
                     password = password,
                     name = name,
+                    httpUserAgent = httpUserAgent,
+                    httpHeaders = httpHeaders,
                     deviceProfile = deviceProfile,
                     timezone = timezone,
                     locale = locale,
@@ -309,6 +315,7 @@ class ProviderSetupViewModel @Inject constructor(
                     deviceId = deviceId,
                     deviceId2 = deviceId2,
                     signature = signature,
+                    stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
                     epgSyncMode = _uiState.value.epgSyncMode,
                     existingProviderId = existingId
                 ),
@@ -859,6 +866,7 @@ data class ProviderSetupState(
     val stalkerDeviceId: String = "",
     val stalkerDeviceId2: String = "",
     val stalkerSignature: String = "",
+    val stalkerAdvancedOptionsJson: String = "",
     val createdProviderId: Long? = null,
     val createdProviderName: String? = null,
     val pendingCombinedAttachProfileId: Long? = null,

@@ -532,6 +532,9 @@ class SeriesRepositoryImpl @Inject constructor(
                     title = episode.title,
                     headers = resolvedStream.headers,
                     userAgent = resolvedStream.userAgent,
+                    allowInvalidSsl = resolvedStream.allowInvalidSsl,
+                    proxyHost = resolvedStream.proxyHost,
+                    proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
                     expirationTime = resolvedStream.expirationTime

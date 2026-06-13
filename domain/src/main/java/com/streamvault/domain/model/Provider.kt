@@ -19,6 +19,7 @@ data class Provider(
     val stalkerDeviceId: String = "",
     val stalkerDeviceId2: String = "",
     val stalkerSignature: String = "",
+    val stalkerAdvancedOptionsJson: String = "",
     val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
     val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,

@@ -295,6 +295,43 @@ class StalkerProviderTest {
         assertThat(success.data.headers["Cookie"]).doesNotContain("device_id2=")
         assertThat(success.data.headers["Cookie"]).doesNotContain("signature=")
         assertThat(success.data.headers["Accept-Encoding"]).isEqualTo("identity")
+        assertThat(success.data.allowInvalidSsl).isTrue()
+    }
+
+    @Test
+    fun resolvePlaybackInfo_applies_custom_header_overrides_and_user_agent_removal() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://fdox.org:8080/play/live.php?stream=228556&play_token=abc123"
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            httpHeaders = "User-Agent: | Referer: | X-Test: enabled",
+            playbackBackendHint = com.streamvault.domain.model.StalkerPlaybackBackendHint.TEMP_LINK_STRICT,
+            cookieModeHint = com.streamvault.domain.model.StalkerCookieMode.CREATE_LINK,
+            deviceProfile = "MAG322",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = checkNotNull(
+                buildStalkerPlaybackDescriptor(
+                    primaryCmd = "ffmpeg http://localhost/ch/1200_",
+                    capabilities = StalkerPortalCapabilities(useHttpTemporaryLink = true)
+                )
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.userAgent).isNull()
+        assertThat(success.data.allowInvalidSsl).isTrue()
+        assertThat(success.data.headers).doesNotContainKey("Referer")
+        assertThat(success.data.headers["X-Test"]).isEqualTo("enabled")
     }
 
     @Test

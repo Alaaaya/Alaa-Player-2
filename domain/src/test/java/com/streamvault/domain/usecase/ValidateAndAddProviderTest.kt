@@ -431,6 +431,8 @@ class ValidateAndAddProviderTest {
                         username = "",
                         password = "",
                         name = "MAG",
+                        httpUserAgent = "Stalker Agent/1.0",
+                        httpHeaders = "Referer: | X-Test: enabled",
                         deviceProfile = "MAG250",
                         timezone = "UTC",
                         locale = "en"
@@ -448,6 +450,8 @@ class ValidateAndAddProviderTest {
                 username = "",
                 password = "",
                 name = " MAG ",
+                httpUserAgent = " Stalker Agent/1.0 ",
+                httpHeaders = " Referer: | X-Test: enabled ",
                 deviceProfile = " MAG250 ",
                 timezone = " UTC ",
                 locale = " en ",
@@ -465,6 +469,8 @@ class ValidateAndAddProviderTest {
                 username = "",
                 password = "",
                 name = "MAG",
+                httpUserAgent = "Stalker Agent/1.0",
+                httpHeaders = "Referer: | X-Test: enabled",
                 deviceProfile = "MAG250",
                 timezone = "UTC",
                 locale = "en",
@@ -502,6 +508,8 @@ private class FakeProviderSetupInputValidator(
             username = "",
             password = "",
             name = "Provider",
+            httpUserAgent = "",
+            httpHeaders = "",
             deviceProfile = "MAG250",
             timezone = "UTC",
             locale = "en"
@@ -533,13 +541,16 @@ private class FakeProviderSetupInputValidator(
         username: String,
         password: String,
         allowBlankPassword: Boolean,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
         serialNumber: String,
         deviceId: String,
         deviceId2: String,
-        signature: String
+        signature: String,
+        stalkerAdvancedOptionsJson: String
     ): Result<ValidatedStalkerProviderInput> = stalkerResult
 }
 
@@ -573,6 +584,8 @@ private data class StalkerCall(
     val username: String,
     val password: String,
     val name: String,
+    val httpUserAgent: String,
+    val httpHeaders: String,
     val deviceProfile: String,
     val timezone: String,
     val locale: String,
@@ -580,6 +593,7 @@ private data class StalkerCall(
     val deviceId: String = "",
     val deviceId2: String = "",
     val signature: String = "",
+    val stalkerAdvancedOptionsJson: String = "",
     val epgSyncMode: ProviderEpgSyncMode,
     val id: Long?
 )
@@ -652,6 +666,8 @@ private class FakeProviderRepository : ProviderRepository {
         authMode: StalkerAuthMode,
         username: String,
         password: String,
+        httpUserAgent: String,
+        httpHeaders: String,
         deviceProfile: String,
         timezone: String,
         locale: String,
@@ -659,6 +675,7 @@ private class FakeProviderRepository : ProviderRepository {
         deviceId: String,
         deviceId2: String,
         signature: String,
+        stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
         onProgress: ((String) -> Unit)?,
         id: Long?
@@ -670,6 +687,8 @@ private class FakeProviderRepository : ProviderRepository {
             username = username,
             password = password,
             name = name,
+            httpUserAgent = httpUserAgent,
+            httpHeaders = httpHeaders,
             deviceProfile = deviceProfile,
             timezone = timezone,
             locale = locale,
@@ -677,6 +696,7 @@ private class FakeProviderRepository : ProviderRepository {
             deviceId = deviceId,
             deviceId2 = deviceId2,
             signature = signature,
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
             epgSyncMode = epgSyncMode,
             id = id
         )
@@ -685,6 +705,8 @@ private class FakeProviderRepository : ProviderRepository {
                 serverUrl = portalUrl,
                 username = username,
                 password = password,
+                httpUserAgent = httpUserAgent,
+                httpHeaders = httpHeaders,
                 stalkerMacAddress = macAddress,
                 stalkerAuthMode = authMode,
                 stalkerDeviceProfile = deviceProfile,

@@ -44,6 +44,7 @@ data class ProviderEntity(
     @ColumnInfo(name = "stalker_device_id") val stalkerDeviceId: String = "",
     @ColumnInfo(name = "stalker_device_id2") val stalkerDeviceId2: String = "",
     @ColumnInfo(name = "stalker_signature") val stalkerSignature: String = "",
+    @ColumnInfo(name = "stalker_advanced_options_json") val stalkerAdvancedOptionsJson: String = "",
     @ColumnInfo(name = "stalker_auth_mode") val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     @ColumnInfo(name = "stalker_portal_profile") val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
     @ColumnInfo(name = "stalker_portal_fingerprint") val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,

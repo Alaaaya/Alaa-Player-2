@@ -32,7 +32,10 @@ data class ResolvedStreamUrl(
     val expirationTime: Long? = null,
     val containerExtension: String? = null,
     val headers: Map<String, String> = emptyMap(),
-    val userAgent: String? = null
+    val userAgent: String? = null,
+    val allowInvalidSsl: Boolean = false,
+    val proxyHost: String = "",
+    val proxyPort: Int? = null
 )
 
 @Singleton
@@ -60,6 +63,7 @@ class XtreamStreamUrlResolver @Inject constructor(
         val deviceId: String,
         val deviceId2: String,
         val signature: String,
+        val stalkerAdvancedOptionsJson: String,
         val provider: StalkerProvider
     )
 
@@ -189,7 +193,10 @@ class XtreamStreamUrlResolver @Inject constructor(
                     expirationTime = extractStreamExpirationTime(playbackInfo.url),
                     containerExtension = token.containerExtension ?: fallbackContainerExtension,
                     headers = playbackInfo.headers,
-                    userAgent = playbackInfo.userAgent
+                    userAgent = playbackInfo.userAgent,
+                    allowInvalidSsl = playbackInfo.allowInvalidSsl,
+                    proxyHost = playbackInfo.proxyHost,
+                    proxyPort = playbackInfo.proxyPort
                 )
             }
             ProviderType.M3U -> url.takeIf { it.isNotBlank() }?.let { passthroughUrl ->
@@ -281,7 +288,10 @@ class XtreamStreamUrlResolver @Inject constructor(
             expirationTime = extractStreamExpirationTime(playbackInfo.url),
             containerExtension = fallbackContainerExtension,
             headers = playbackInfo.headers,
-            userAgent = playbackInfo.userAgent
+            userAgent = playbackInfo.userAgent,
+            allowInvalidSsl = playbackInfo.allowInvalidSsl,
+            proxyHost = playbackInfo.proxyHost,
+            proxyPort = playbackInfo.proxyPort
         )
     }
 
@@ -360,7 +370,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.serialNumber == provider.stalkerSerialNumber &&
             cached.deviceId == provider.stalkerDeviceId &&
             cached.deviceId2 == provider.stalkerDeviceId2 &&
-            cached.signature == provider.stalkerSignature
+            cached.signature == provider.stalkerSignature &&
+            cached.stalkerAdvancedOptionsJson == provider.stalkerAdvancedOptionsJson
         ) {
             return cached.provider
         }
@@ -389,7 +400,8 @@ class XtreamStreamUrlResolver @Inject constructor(
             serialNumber = provider.stalkerSerialNumber,
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature
+            signature = provider.stalkerSignature,
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson
         )
         stalkerProviders[providerId] = CachedStalkerProvider(
             serverUrl = provider.serverUrl,
@@ -410,6 +422,7 @@ class XtreamStreamUrlResolver @Inject constructor(
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
             signature = provider.stalkerSignature,
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
             provider = resolvedProvider
         )
         return resolvedProvider
