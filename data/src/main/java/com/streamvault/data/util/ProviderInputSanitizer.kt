@@ -56,6 +56,28 @@ object ProviderInputSanitizer {
         return raw
     }
 
+    suspend fun resolveUrlProtocol(url: String): String {
+        val protocolMatch = URL_PROTOCOL_REGEX.find(url)
+        if (protocolMatch != null) return url
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val httpsUrl = "https://$url"
+            try {
+                val urlObj = java.net.URL(httpsUrl)
+                val connection = urlObj.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                connection.requestMethod = "HEAD"
+                connection.instanceFollowRedirects = false
+                connection.connect()
+                val responseCode = connection.responseCode
+                connection.disconnect()
+                if (responseCode in 200..499) httpsUrl else "http://$url"
+            } catch (_: Exception) {
+                "http://$url"
+            }
+        }
+    }
+
     fun normalizeUsername(input: String): String = sanitizeSingleLine(input, MAX_USERNAME_LENGTH).trim()
 
     fun normalizePassword(input: String): String = sanitizeRaw(input, MAX_PASSWORD_LENGTH)
@@ -148,4 +170,5 @@ object ProviderInputSanitizer {
     private val WHITESPACE_REGEX = Regex("\\s+")
     private val HEADER_SEPARATOR_REGEX = Regex("\\s*\\|\\s*")
     private val MAC_ADDRESS_REGEX = Regex("^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
+    private val URL_PROTOCOL_REGEX = Regex("^https?://", RegexOption.IGNORE_CASE)
 }
