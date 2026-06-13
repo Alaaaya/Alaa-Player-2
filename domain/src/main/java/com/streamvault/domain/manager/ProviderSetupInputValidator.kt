@@ -35,6 +35,18 @@ data class ValidatedStalkerProviderInput(
     val signature: String = ""
 )
 
+data class ValidatedJellyfinProviderInput(
+    val serverUrl: String,
+    val username: String,
+    val password: String,
+    val name: String
+)
+
+data class ValidatedJellyfinQuickConnectProviderInput(
+    val serverUrl: String,
+    val name: String
+)
+
 interface ProviderSetupInputValidator {
     fun validateXtream(
         serverUrl: String,
@@ -69,4 +81,17 @@ interface ProviderSetupInputValidator {
         deviceId2: String = "",
         signature: String = ""
     ): Result<ValidatedStalkerProviderInput>
+
+    fun validateJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        allowBlankPassword: Boolean = false
+    ): Result<ValidatedJellyfinProviderInput>
+
+    fun validateJellyfinQuickConnect(
+        serverUrl: String,
+        name: String
+    ): Result<ValidatedJellyfinQuickConnectProviderInput>
 }

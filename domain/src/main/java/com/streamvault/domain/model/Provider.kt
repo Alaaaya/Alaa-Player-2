@@ -61,7 +61,8 @@ data class Provider(
 enum class ProviderType {
     XTREAM_CODES,
     M3U,
-    STALKER_PORTAL
+    STALKER_PORTAL,
+    JELLYFIN
 }
 
 enum class ProviderEpgSyncMode {

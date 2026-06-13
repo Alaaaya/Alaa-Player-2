@@ -397,6 +397,7 @@ class MovieRepositoryImpl @Inject constructor(
                 ProviderType.XTREAM_CODES -> getOrCreateXtreamProvider(providerId, provider).getVodInfo(movieEntity.streamId)
                 ProviderType.STALKER_PORTAL -> return Result.success(movieEntity.toDomain())
                 ProviderType.M3U -> return Result.success(movieEntity.toDomain())
+                ProviderType.JELLYFIN -> return Result.success(movieEntity.toDomain())
             }
         } catch (e: Exception) {
             if (provider.type == ProviderType.XTREAM_CODES) {

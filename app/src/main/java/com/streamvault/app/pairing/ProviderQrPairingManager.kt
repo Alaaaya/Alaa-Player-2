@@ -14,6 +14,10 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.data.remote.jellyfin.JellyfinProvider
+import com.streamvault.domain.model.Provider
+import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.usecase.JellyfinProviderSetupCommand
 import com.streamvault.domain.usecase.M3uProviderSetupCommand
 import com.streamvault.domain.usecase.StalkerProviderSetupCommand
 import com.streamvault.domain.usecase.ValidateAndAddProvider
@@ -53,7 +57,9 @@ private const val TAG = "ProviderQrPairing"
 @Singleton
 class ProviderQrPairingManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val validateAndAddProvider: ValidateAndAddProvider
+    private val validateAndAddProvider: ValidateAndAddProvider,
+    private val providerRepository: ProviderRepository,
+    private val jellyfinProvider: JellyfinProvider
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val secureRandom = SecureRandom()
@@ -196,23 +202,74 @@ class ProviderQrPairingManager @Inject constructor(
                         status = ProviderQrPairingStatus.RECEIVING,
                         message = "Phone submitted provider details. Validating..."
                     )
-                    val result = addProviderFromForm(form)
-                    when (result) {
+                    val providerName = form["name"].orEmpty().ifBlank {
+                        when (form["type"].orEmpty().lowercase(Locale.US)) {
+                            "m3u" -> "Phone M3U Playlist"
+                            "stalker" -> "Phone Stalker Portal"
+                            "jellyfin" -> "Phone Jellyfin"
+                            else -> "Phone Xtream Provider"
+                        }
+                    }
+                    val saveResult = saveProviderOnly(form, providerName)
+                    when (saveResult) {
                         is ProviderPairingSubmitResult.Success -> {
-                            writeHtml(client.getOutputStream(), 200, successPage(result.providerName))
-                            invalidateAfterSuccess(result.providerName)
+                            writeHtml(client.getOutputStream(), 200, successPage(providerName))
+                            invalidateAfterSuccess(providerName)
                         }
                         is ProviderPairingSubmitResult.Error -> {
                             _state.value = _state.value.copy(
                                 status = ProviderQrPairingStatus.READY,
-                                message = result.message
+                                message = saveResult.message
                             )
-                            writeHtml(client.getOutputStream(), 400, errorPage(result.message))
+                            writeHtml(client.getOutputStream(), 400, errorPage(saveResult.message))
                         }
                     }
                 }
                 else -> writeResponse(client.getOutputStream(), 404, "text/plain", "Not found")
             }
+        }
+    }
+
+    private suspend fun saveProviderOnly(form: Map<String, String>, providerName: String): ProviderPairingSubmitResult {
+        val type = form["type"].orEmpty().lowercase(Locale.US)
+        return try {
+            val provider = when (type) {
+                "m3u" -> {
+                    val url = form["m3uUrl"].orEmpty()
+                    if (url.isBlank()) return ProviderPairingSubmitResult.Error("Please enter M3U URL")
+                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.M3U, serverUrl = "", m3uUrl = url, isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
+                }
+                "stalker" -> {
+                    val portalUrl = form["serverUrl"].orEmpty()
+                    val macAddress = form["macAddress"].orEmpty()
+                    if (portalUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter portal URL")
+                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.STALKER_PORTAL, serverUrl = portalUrl, stalkerMacAddress = macAddress, username = form["username"].orEmpty(), password = form["password"].orEmpty(), isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
+                }
+                "jellyfin" -> {
+                    val serverUrl = form["serverUrl"].orEmpty()
+                    val username = form["username"].orEmpty()
+                    val password = form["password"].orEmpty()
+                    if (serverUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter server URL")
+                    if (password.isBlank()) return ProviderPairingSubmitResult.Error("Please enter password")
+                    val authResult = jellyfinProvider.authenticate(serverUrl, username, password)
+                    val accessToken = when (authResult) {
+                        is com.streamvault.domain.model.Result.Success -> authResult.data
+                        is com.streamvault.domain.model.Result.Error -> return ProviderPairingSubmitResult.Error("Jellyfin authentication failed: ${authResult.message}")
+                        is com.streamvault.domain.model.Result.Loading -> return ProviderPairingSubmitResult.Error("Authentication failed")
+                    }
+                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.JELLYFIN, serverUrl = serverUrl, username = username, password = accessToken, isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
+                }
+                else -> {
+                    val serverUrl = form["serverUrl"].orEmpty()
+                    if (serverUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter server URL")
+                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.XTREAM_CODES, serverUrl = serverUrl, username = form["username"].orEmpty(), password = form["password"].orEmpty(), isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
+                }
+            }
+            val providerId = providerRepository.addProvider(provider).getOrNull()
+                ?: return ProviderPairingSubmitResult.Error("Failed to save provider")
+            ProviderPairingSubmitResult.Success(providerName)
+        } catch (e: Exception) {
+            ProviderPairingSubmitResult.Error("Failed to save provider: ${e.message ?: "unknown error"}")
         }
     }
 
@@ -222,6 +279,7 @@ class ProviderQrPairingManager @Inject constructor(
             when (type) {
                 "m3u" -> "Phone M3U Playlist"
                 "stalker" -> "Phone Stalker Portal"
+                "jellyfin" -> "Phone Jellyfin"
                 else -> "Phone Xtream Provider"
             }
         }
@@ -243,6 +301,15 @@ class ProviderQrPairingManager @Inject constructor(
                     password = form["password"].orEmpty(),
                     name = name,
                     epgSyncMode = ProviderEpgSyncMode.BACKGROUND
+                ),
+                onProgress = ::updateProgress
+            )
+            "jellyfin" -> validateAndAddProvider.loginJellyfin(
+                JellyfinProviderSetupCommand(
+                    serverUrl = form["serverUrl"].orEmpty(),
+                    username = form["username"].orEmpty(),
+                    password = form["password"].orEmpty(),
+                    name = name
                 ),
                 onProgress = ::updateProgress
             )
@@ -348,8 +415,11 @@ class ProviderQrPairingManager @Inject constructor(
             }
             .toMap()
 
-    private fun decode(value: String): String =
+    private fun decode(value: String): String = try {
         URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+    } catch (e: IllegalArgumentException) {
+        value
+    }
 
     private fun writeHtml(output: OutputStream, status: Int, html: String) {
         writeResponse(output, status, "text/html; charset=utf-8", html)
@@ -408,6 +478,7 @@ class ProviderQrPairingManager @Inject constructor(
               <option value="xtream">Xtream Codes</option>
               <option value="m3u">M3U Playlist URL</option>
               <option value="stalker">Stalker / MAG Portal</option>
+              <option value="jellyfin">Jellyfin</option>
             </select>
             <label>Provider name</label>
             <input name="name" placeholder="Provider Name">
@@ -428,13 +499,17 @@ class ProviderQrPairingManager @Inject constructor(
               <input name="macAddress" placeholder="00:1A:79:AA:BB:CC">
               <p class="hint">For credential-only portals, leave MAC blank and fill username/password above.</p>
             </div>
+            <div id="jellyfinFields" class="field-group">
+              <p class="hint">Enter your Jellyfin server details below, then press Quick Connect in the app.</p>
+            </div>
             <button type="submit">Send to TV</button>
           </form>
         </main>
         <script>
           function updateType(){
             const t=document.getElementById('type').value;
-            document.getElementById('serverFields').classList.toggle('active', t !== 'm3u');
+            const showServer = t !== 'm3u';
+            document.getElementById('serverFields').classList.toggle('active', showServer);
             document.getElementById('m3uFields').classList.toggle('active', t === 'm3u');
             document.getElementById('stalkerFields').classList.toggle('active', t === 'stalker');
           }

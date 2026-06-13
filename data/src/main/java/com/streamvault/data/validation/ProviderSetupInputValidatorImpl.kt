@@ -3,6 +3,8 @@ package com.streamvault.data.validation
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.manager.ProviderSetupInputValidator
+import com.streamvault.domain.manager.ValidatedJellyfinProviderInput
+import com.streamvault.domain.manager.ValidatedJellyfinQuickConnectProviderInput
 import com.streamvault.domain.manager.ValidatedM3uProviderInput
 import com.streamvault.domain.manager.ValidatedStalkerProviderInput
 import com.streamvault.domain.manager.ValidatedXtreamProviderInput
@@ -248,6 +250,34 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
                 signature = normalizedSignature
             )
         )
+    }
+
+    override fun validateJellyfin(
+        serverUrl: String,
+        username: String,
+        password: String,
+        name: String,
+        allowBlankPassword: Boolean
+    ): Result<ValidatedJellyfinProviderInput> {
+        val trimmedUrl = serverUrl.trim()
+        if (trimmedUrl.isBlank()) return Result.error("Server URL is required")
+        if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
+            return Result.error("Server URL must start with http:// or https://")
+        }
+        val trimmedName = name.trim().ifBlank { trimmedUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
+        val trimmedUser = username.trim()
+        if (!allowBlankPassword && password.isBlank()) return Result.error("Password is required")
+        return Result.success(ValidatedJellyfinProviderInput(serverUrl = trimmedUrl, username = trimmedUser, password = password.trim(), name = trimmedName))
+    }
+
+    override fun validateJellyfinQuickConnect(serverUrl: String, name: String): Result<ValidatedJellyfinQuickConnectProviderInput> {
+        val trimmedUrl = serverUrl.trim()
+        if (trimmedUrl.isBlank()) return Result.error("Server URL is required")
+        if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
+            return Result.error("Server URL must start with http:// or https://")
+        }
+        val trimmedName = name.trim().ifBlank { trimmedUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
+        return Result.success(ValidatedJellyfinQuickConnectProviderInput(serverUrl = trimmedUrl, name = trimmedName))
     }
 
     private companion object {

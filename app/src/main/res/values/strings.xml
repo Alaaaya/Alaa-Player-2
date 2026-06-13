@@ -1004,6 +1004,15 @@
     <string name="setup_discard_draft_cancel">Keep editing</string>
     <string name="setup_validating">Validating...</string>
     <string name="setup_add">Add Playlist</string>
+    <string name="setup_tab_jellyfin">Jellyfin</string>
+    <string name="setup_jellyfin_quick_connect">Quick Connect</string>
+    <string name="setup_jellyfin_quick_connect_code">Code: %s</string>
+    <string name="setup_jellyfin_quick_connect_code_instructions">Open your Jellyfin server in a browser and enter this code, or scan the QR code with your phone.</string>
+    <string name="setup_server_url">Server URL</string>
+    <string name="setup_username">Username</string>
+    <string name="setup_password">Password</string>
+    <string name="setup_name">Name</string>
+    <string name="setup_name_placeholder">My Jellyfin Server</string>
 
     
     <string name="player_buffering">Buffering...</string>

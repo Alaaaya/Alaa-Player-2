@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -73,14 +75,20 @@ import com.streamvault.app.pairing.ProviderQrPairingStatus
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 import com.streamvault.app.ui.components.extractProgressFraction
+import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.screens.settings.BackupImportPreviewDialog
 import com.streamvault.app.ui.theme.*
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.BarcodeFormat
+import android.graphics.Bitmap
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.usecase.JellyfinProviderSetupCommand
+import com.streamvault.domain.usecase.JellyfinQuickConnectProviderSetupCommand
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,7 +97,7 @@ import android.widget.Toast
 
 // ??? Source type ?????????????????????????????????????????????????????????????
 
-private enum class SourceType { XTREAM, STALKER, M3U_URL, M3U_FILE }
+private enum class SourceType { XTREAM, STALKER, M3U_URL, M3U_FILE, JELLYFIN }
 
 // ??? Screen ??????????????????????????????????????????????????????????????????
 
@@ -126,6 +134,7 @@ fun ProviderSetupScreen(
     var stalkerDeviceId by rememberSaveable { mutableStateOf("") }
     var stalkerDeviceId2 by rememberSaveable { mutableStateOf("") }
     var stalkerSignature by rememberSaveable { mutableStateOf("") }
+    var jellyfinQuickConnectCode by rememberSaveable { mutableStateOf("") }
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
     var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
     var showDiscardDraftDialog by rememberSaveable { mutableStateOf(false) }
@@ -252,6 +261,7 @@ fun ProviderSetupScreen(
     val sourceType = when {
         selectedTab == 0 -> SourceType.XTREAM
         selectedTab == 1 -> SourceType.STALKER
+        selectedTab == 3 -> SourceType.JELLYFIN
         uiState.m3uTab == 1 -> SourceType.M3U_FILE
         else -> SourceType.M3U_URL
     }
@@ -276,6 +286,10 @@ fun ProviderSetupScreen(
                 selectedTab = 2
                 viewModel.updateM3uTab(1)
                 viewModel.applySourceDefaults(ProviderSetupViewModel.SetupSourceType.M3U)
+            }
+            SourceType.JELLYFIN -> {
+                selectedTab = 3
+                viewModel.applySourceDefaults(ProviderSetupViewModel.SetupSourceType.JELLYFIN)
             }
         }
     }
@@ -360,6 +374,9 @@ fun ProviderSetupScreen(
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
                         onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
+                        onLoginJellyfin = { viewModel.loginJellyfin(serverUrl, username, password, name) },
+                        quickConnectCode = uiState.jellyfinQuickConnectCode,
+                        onQuickConnectRequest = { viewModel.loginJellyfinQuickConnect(serverUrl.trim(), name.trim()) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
@@ -404,6 +421,9 @@ fun ProviderSetupScreen(
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
                         onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
+                        onLoginJellyfin = { viewModel.loginJellyfin(serverUrl, username, password, name) },
+                        quickConnectCode = uiState.jellyfinQuickConnectCode,
+                        onQuickConnectRequest = { viewModel.loginJellyfinQuickConnect(serverUrl.trim(), name.trim()) },
                         onStartPhonePairing = viewModel::startPhonePairing,
                         onStopPhonePairing = viewModel::stopPhonePairing,
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
@@ -428,7 +448,12 @@ fun ProviderSetupScreen(
     }
 
     if (uiState.syncProgress != null) {
-        SyncProgressDialog(message = uiState.syncProgress!!)
+        SyncProgressDialog(
+            message = uiState.syncProgress!!,
+            quickConnectCode = if (uiState.jellyfinQuickConnectCode.isNotBlank()) uiState.jellyfinQuickConnectCode else null,
+            serverUrl = serverUrl,
+            onCancel = if (uiState.jellyfinQuickConnectCode.isNotBlank()) ({ viewModel.cancelJellyfinQuickConnect() }) else null
+        )
     }
 
     val backupPreview = uiState.backupPreview
@@ -708,6 +733,9 @@ private fun ProviderFormContent(
     onLoginXtream: () -> Unit,
     onLoginStalker: () -> Unit,
     onAddM3u: () -> Unit,
+    onLoginJellyfin: () -> Unit,
+    quickConnectCode: String,
+    onQuickConnectRequest: () -> Unit,
     onStartPhonePairing: () -> Unit,
     onStopPhonePairing: () -> Unit,
     onToggleM3uVodClassification: () -> Unit,
@@ -999,6 +1027,32 @@ private fun ProviderFormContent(
                         onClick = onAddM3u
                     )
                 }
+
+                SourceType.JELLYFIN -> {
+                    JellyfinProviderForm(
+                        serverUrl = serverUrl,
+                        onServerUrlChange = onServerUrlChange,
+                        username = username,
+                        onUsernameChange = onUsernameChange,
+                        password = password,
+                        onPasswordChange = onPasswordChange,
+                        name = name,
+                        onNameChange = onNameChange,
+                        quickConnectCode = quickConnectCode,
+                        onQuickConnectRequest = onQuickConnectRequest,
+                        isEditing = uiState.isEditing
+                    )
+                    FormErrors(uiState.validationError, uiState.error)
+                    ActionButton(
+                        text = when {
+                            uiState.isLoading -> stringResource(R.string.setup_validating)
+                            uiState.isEditing -> stringResource(R.string.setup_save)
+                            else -> stringResource(R.string.setup_add)
+                        },
+                        isLoading = uiState.isLoading,
+                        onClick = onLoginJellyfin
+                    )
+                }
             }
         }
     }
@@ -1043,7 +1097,8 @@ private fun AdvancedProviderOptionsSection(
         SourceType.STALKER -> ProviderEpgSyncMode.BACKGROUND
         SourceType.XTREAM,
         SourceType.M3U_URL,
-        SourceType.M3U_FILE -> ProviderEpgSyncMode.UPFRONT
+        SourceType.M3U_FILE,
+        SourceType.JELLYFIN -> ProviderEpgSyncMode.UPFRONT
     }
 
     LaunchedEffect(uiState.isEditing, uiState.epgSyncMode, uiState.xtreamLiveSyncMode, sourceType) {
@@ -1647,6 +1702,15 @@ private fun SourceTypeSelectorPanel(
                     onClick = { onSelect(SourceType.M3U_FILE) }
                 )
             }
+            if (!isEditing || sourceType == SourceType.JELLYFIN) {
+                SourceTypeCard(
+                    title = androidx.compose.ui.res.stringResource(R.string.setup_tab_jellyfin),
+                    subtitle = "Jellyfin media server",
+                    selected = sourceType == SourceType.JELLYFIN,
+                    enabled = !isEditing,
+                    onClick = { onSelect(SourceType.JELLYFIN) }
+                )
+            }
             if (!isEditing) {
                 ImportOptionsButton(
                     text = stringResource(R.string.settings_restore_data),
@@ -1758,6 +1822,13 @@ private fun SourceTypeTabRow(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_tab_file),
                 isSelected = sourceType == SourceType.M3U_FILE,
                 onClick = { if (!isEditing) onSelect(SourceType.M3U_FILE) }
+            )
+        }
+        if (!isEditing || sourceType == SourceType.JELLYFIN) {
+            TabButton(
+                text = androidx.compose.ui.res.stringResource(R.string.setup_tab_jellyfin),
+                isSelected = sourceType == SourceType.JELLYFIN,
+                onClick = { if (!isEditing) onSelect(SourceType.JELLYFIN) }
             )
         }
     }
@@ -2076,51 +2147,108 @@ private fun PasswordVisibilityGlyph(
 // ??? Sync progress dialog ?????????????????????????????????????????????????????
 
 @Composable
-fun SyncProgressDialog(message: String) {
-    val fraction = extractProgressFraction(message)
-    val animatedFraction by animateFloatAsState(
-        targetValue = fraction ?: 0f,
-        animationSpec = tween(durationMillis = 400),
-        label = "syncFraction"
-    )
-    PremiumDialog(
-        title = androidx.compose.ui.res.stringResource(R.string.settings_syncing_title),
-        subtitle = androidx.compose.ui.res.stringResource(R.string.settings_syncing_subtitle),
-        onDismissRequest = {},
-        widthFraction = 0.32f,
-        heightFraction = null,
-        content = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator(color = Primary)
-                StatusPill(
-                    label = androidx.compose.ui.res.stringResource(R.string.settings_syncing_btn),
-                    containerColor = PrimaryGlow
-                )
-                if (fraction != null) {
-                    LinearProgressIndicator(
-                        progress = { animatedFraction },
-                        color = Primary,
-                        modifier = Modifier.fillMaxWidth()
+fun SyncProgressDialog(
+    message: String,
+    quickConnectCode: String? = null,
+    serverUrl: String? = null,
+    onCancel: (() -> Unit)? = null
+) {
+    if (quickConnectCode != null && serverUrl != null) {
+        val qrCodeBitmap = remember(quickConnectCode, serverUrl) {
+            generateJellyfinQuickConnectQrCode(serverUrl, quickConnectCode)
+        }
+        PremiumDialog(
+            title = "Quick Connect",
+            subtitle = "Enter this code on your Jellyfin server",
+            onDismissRequest = {},
+            widthFraction = 0.38f,
+            heightFraction = null,
+            content = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (qrCodeBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(200.dp)
+                                .background(Color.White, RoundedCornerShape(12.dp))
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = qrCodeBitmap.asImageBitmap(),
+                                contentDescription = "Quick Connect QR Code",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    Text(
+                        text = stringResource(R.string.setup_jellyfin_quick_connect_code, quickConnectCode),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White
                     )
-                } else {
-                    LinearProgressIndicator(
-                        color = Primary,
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    if (onCancel != null) {
+                        TextButton(onClick = onCancel) {
+                            Text("Cancel", color = Color.White)
+                        }
+                    }
+                }
+            }
+        )
+    } else {
+        val fraction = extractProgressFraction(message)
+        val animatedFraction by animateFloatAsState(
+            targetValue = fraction ?: 0f,
+            animationSpec = tween(durationMillis = 400),
+            label = "syncFraction"
+        )
+        PremiumDialog(
+            title = androidx.compose.ui.res.stringResource(R.string.settings_syncing_title),
+            subtitle = androidx.compose.ui.res.stringResource(R.string.settings_syncing_subtitle),
+            onDismissRequest = {},
+            widthFraction = 0.32f,
+            heightFraction = null,
+            content = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = Primary)
+                    StatusPill(
+                        label = androidx.compose.ui.res.stringResource(R.string.settings_syncing_btn),
+                        containerColor = PrimaryGlow
+                    )
+                    if (fraction != null) {
+                        LinearProgressIndicator(
+                            progress = { animatedFraction },
+                            color = Primary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            color = Primary,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OnBackground,
+                        textAlign = TextAlign.Center
                     )
                 }
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OnBackground,
-                    textAlign = TextAlign.Center
-                )
             }
-        }
-    )
+        )
+    }
 }
 
 // ??? ActionButton ?????????????????????????????????????????????????????????????
@@ -2442,4 +2570,116 @@ private fun resolveFileImportError(context: android.content.Context, error: Thro
         msg.contains("space left", ignoreCase = true)
     return if (isStorageFull) context.getString(R.string.setup_file_import_storage_full)
            else context.getString(R.string.setup_file_import_failed)
+}
+
+// ??? Jellyfin form ?????????????????????????????????????????????????????????????
+
+@Composable
+private fun JellyfinProviderForm(
+    serverUrl: String,
+    onServerUrlChange: (String) -> Unit,
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    name: String,
+    onNameChange: (String) -> Unit,
+    quickConnectCode: String,
+    onQuickConnectRequest: () -> Unit,
+    isEditing: Boolean
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(
+            text = stringResource(R.string.setup_tab_jellyfin),
+            style = MaterialTheme.typography.titleLarge,
+            color = TextPrimary
+        )
+
+        // Step 1: Server URL
+        ProviderTextField(
+            value = serverUrl,
+            onValueChange = onServerUrlChange,
+            placeholder = stringResource(R.string.setup_server_url)
+        )
+
+        // Quick Connect button + QR code display
+        if (!isEditing) {
+            TvButton(
+                onClick = onQuickConnectRequest,
+                colors = ButtonDefaults.colors(containerColor = AccentCyan, contentColor = Color.Black)
+            ) {
+                Text(stringResource(R.string.setup_jellyfin_quick_connect))
+            }
+        }
+
+        // QR code and code text (shown after quick connect is initiated)
+        if (quickConnectCode.isNotBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            val qrCodeBitmap = remember(quickConnectCode, serverUrl) {
+                generateJellyfinQuickConnectQrCode(serverUrl, quickConnectCode)
+            }
+            if (qrCodeBitmap != null) {
+                Box(
+                    modifier = Modifier
+                        .size(240.dp)
+                        .background(Color.White, RoundedCornerShape(12.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = qrCodeBitmap.asImageBitmap(),
+                        contentDescription = "Quick Connect QR Code",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Text(
+                text = stringResource(R.string.setup_jellyfin_quick_connect_code, quickConnectCode),
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Text(
+                text = stringResource(R.string.setup_jellyfin_quick_connect_code_instructions),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextTertiary
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        // Step 2: Manual credentials (for password auth or existing provider edit)
+        ProviderTextField(
+            value = username,
+            onValueChange = onUsernameChange,
+            placeholder = stringResource(R.string.setup_username)
+        )
+        ProviderTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            placeholder = stringResource(R.string.setup_password),
+            isPassword = true
+        )
+        ProviderTextField(
+            value = name,
+            onValueChange = onNameChange,
+            placeholder = stringResource(R.string.setup_name_placeholder)
+        )
+    }
+}
+
+private fun generateJellyfinQuickConnectQrCode(serverUrl: String, code: String): Bitmap? {
+    return try {
+        val qrUrl = "${serverUrl.trimEnd('/')}/web/index.html#!/quickconnect.html?code=$code"
+        val writer = QRCodeWriter()
+        val bitMatrix = writer.encode(qrUrl, BarcodeFormat.QR_CODE, 512, 512)
+        val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.RGB_565)
+        for (x in 0 until 512) {
+            for (y in 0 until 512) {
+                bitmap.setPixel(x, y, if (bitMatrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+            }
+        }
+        bitmap
+    } catch (e: Exception) {
+        null
+    }
 }

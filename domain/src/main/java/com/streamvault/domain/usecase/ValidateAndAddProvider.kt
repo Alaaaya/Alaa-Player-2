@@ -54,6 +54,20 @@ data class StalkerProviderSetupCommand(
     val existingProviderId: Long? = null
 )
 
+data class JellyfinProviderSetupCommand(
+    val serverUrl: String,
+    val username: String,
+    val password: String,
+    val name: String,
+    val existingProviderId: Long? = null
+)
+
+data class JellyfinQuickConnectProviderSetupCommand(
+    val serverUrl: String,
+    val name: String,
+    val existingProviderId: Long? = null
+)
+
 sealed class ValidateAndAddProviderResult {
     data class Success(val provider: Provider) : ValidateAndAddProviderResult()
     data class SavedWithWarning(val provider: Provider, val warning: String) : ValidateAndAddProviderResult()
@@ -265,6 +279,57 @@ class ValidateAndAddProvider @Inject constructor(
                 deviceId2 = validated.data.deviceId2,
                 signature = validated.data.signature,
                 epgSyncMode = command.epgSyncMode,
+                onProgress = onProgress,
+                id = command.existingProviderId
+            ).toUseCaseResult()
+
+            is Result.Error -> ValidateAndAddProviderResult.ValidationError(validated.message)
+            is Result.Loading -> ValidateAndAddProviderResult.Error("Unexpected loading state")
+        }
+    }
+
+    suspend fun loginJellyfin(
+        command: JellyfinProviderSetupCommand,
+        onProgress: ((String) -> Unit)? = null
+    ): ValidateAndAddProviderResult {
+        return when (
+            val validated = providerSetupInputValidator.validateJellyfin(
+                serverUrl = command.serverUrl,
+                username = command.username,
+                password = command.password,
+                allowBlankPassword = command.existingProviderId != null,
+                name = command.name
+            )
+        ) {
+            is Result.Success -> providerRepository.loginJellyfin(
+                serverUrl = validated.data.serverUrl,
+                username = validated.data.username,
+                password = validated.data.password,
+                name = validated.data.name,
+                onProgress = onProgress,
+                id = command.existingProviderId
+            ).toUseCaseResult()
+
+            is Result.Error -> ValidateAndAddProviderResult.ValidationError(validated.message)
+            is Result.Loading -> ValidateAndAddProviderResult.Error("Unexpected loading state")
+        }
+    }
+
+    suspend fun loginJellyfinQuickConnect(
+        command: JellyfinQuickConnectProviderSetupCommand,
+        onCode: ((String) -> Unit)? = null,
+        onProgress: ((String) -> Unit)? = null
+    ): ValidateAndAddProviderResult {
+        return when (
+            val validated = providerSetupInputValidator.validateJellyfinQuickConnect(
+                serverUrl = command.serverUrl,
+                name = command.name
+            )
+        ) {
+            is Result.Success -> providerRepository.loginJellyfinQuickConnect(
+                serverUrl = validated.data.serverUrl,
+                name = validated.data.name,
+                onCode = onCode,
                 onProgress = onProgress,
                 id = command.existingProviderId
             ).toUseCaseResult()
