@@ -6,6 +6,7 @@ import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
@@ -42,6 +43,7 @@ internal fun observeSettingsPreferenceSnapshot(
             hasParentalPin = hasParentalPin,
             appLanguage = "system",
             appLandingDestination = AppLandingDestination.HOME,
+            appTopLevelDestinations = AppTopLevelDestination.defaultOrder,
             appTimeFormat = AppTimeFormat.SYSTEM,
             preferredAudioLanguage = "auto",
             playerMediaSessionEnabled = true,
@@ -112,6 +114,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(appLanguage = language)
     }.combine(preferencesRepository.appLandingDestination) { snapshot, destination ->
         snapshot.copy(appLandingDestination = destination)
+    }.combine(preferencesRepository.appTopLevelDestinations) { snapshot, destinations ->
+        snapshot.copy(appTopLevelDestinations = destinations)
     }.combine(preferencesRepository.appTimeFormat) { snapshot, timeFormat ->
         snapshot.copy(appTimeFormat = timeFormat)
     }.combine(preferencesRepository.preferredAudioLanguage) { snapshot, preferredAudioLanguage ->

@@ -36,6 +36,7 @@ import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
@@ -435,7 +436,35 @@ class SettingsViewModel @Inject constructor(
 
     fun setAppLandingDestination(destination: AppLandingDestination) {
         viewModelScope.launch {
-            preferencesRepository.setAppLandingDestination(destination)
+            preferencesRepository.setAppLandingDestination(
+                AppTopLevelDestination.resolveLandingDestination(
+                    preferred = destination,
+                    destinations = _uiState.value.appTopLevelDestinations
+                )
+            )
+        }
+    }
+
+    fun setAppTopLevelDestinations(destinations: List<AppTopLevelDestination>) {
+        viewModelScope.launch {
+            val normalized = AppTopLevelDestination.normalizeForStorage(destinations)
+            val currentLanding = _uiState.value.appLandingDestination
+            val resolvedLanding = AppTopLevelDestination.resolveLandingDestination(
+                preferred = currentLanding,
+                destinations = normalized
+            )
+            preferencesRepository.setAppTopLevelDestinations(normalized)
+            if (resolvedLanding != currentLanding) {
+                preferencesRepository.setAppLandingDestination(resolvedLanding)
+                _uiState.update {
+                    it.copy(
+                        userMessage = appContext.getString(
+                            R.string.settings_top_navigation_default_updated,
+                            appContext.getString(resolvedLanding.labelResId())
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -951,6 +980,17 @@ class SettingsViewModel @Inject constructor(
 
     fun showUserMessage(message: String) {
         _uiState.update { it.copy(userMessage = message) }
+    }
+
+    private fun AppLandingDestination.labelResId(): Int = when (this) {
+        AppLandingDestination.HOME -> R.string.nav_home
+        AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+        AppLandingDestination.MOVIES -> R.string.nav_movies
+        AppLandingDestination.SERIES -> R.string.nav_series
+        AppLandingDestination.GUIDE -> R.string.nav_epg
+        AppLandingDestination.DOWNLOADS -> R.string.nav_downloads
+        AppLandingDestination.PLUGINS -> R.string.nav_plugins
+        AppLandingDestination.SETTINGS -> R.string.nav_settings
     }
 
     fun refreshProvider(

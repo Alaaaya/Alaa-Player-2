@@ -11,6 +11,7 @@ import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
@@ -63,6 +64,7 @@ data class SettingsUiState(
     val hasParentalPin: Boolean = false,
     val appLanguage: String = "system",
     val appLandingDestination: AppLandingDestination = AppLandingDestination.HOME,
+    val appTopLevelDestinations: List<AppTopLevelDestination> = AppTopLevelDestination.defaultOrder,
     val appTimeFormat: AppTimeFormat = AppTimeFormat.SYSTEM,
     val preferredAudioLanguage: String = "auto",
     val playerMediaSessionEnabled: Boolean = true,

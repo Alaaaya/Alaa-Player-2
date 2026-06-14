@@ -23,6 +23,7 @@ import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.manager.RecordingScheduleImportDisposition
 import com.streamvault.domain.manager.ScheduledRecordingBackup
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.PlaybackHistory
@@ -435,6 +436,67 @@ class BackupManagerImplTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         verify(preferencesRepository).setPlayerAudioVideoSyncEnabled(true)
         verify(preferencesRepository).setPlayerAudioVideoOffsetMs(150)
+    }
+
+    @Test
+    fun `importConfig restores top navigation destinations preference`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        whenever(context.contentResolver).thenReturn(contentResolver)
+
+        val providerDao: ProviderDao = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        val gson = Gson()
+        val backupData = BackupData(
+            preferences = mapOf(
+                "appTopLevelDestinations" to "home,search,settings"
+            )
+        )
+        whenever(contentResolver.openInputStream(Uri.parse("content://backup-top-navigation"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backupData).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = preferencesRepository,
+            credentialCrypto = mock<CredentialCrypto>(),
+            providerDao = providerDao,
+            favoriteDao = mock<FavoriteDao>(),
+            virtualGroupDao = mock<VirtualGroupDao>(),
+            playbackHistoryDao = mock<PlaybackHistoryDao>(),
+            movieDao = mock<MovieDao>(),
+            episodeDao = mock<EpisodeDao>(),
+            categoryRepository = mock<CategoryRepository>(),
+            recordingScheduleDao = mock<RecordingScheduleDao>(),
+            recordingManager = mock<RecordingManager>(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://backup-top-navigation",
+            plan = BackupImportPlan(
+                importPreferences = true,
+                importProviders = false,
+                importSavedLibrary = false,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.KEEP_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(preferencesRepository).setAppTopLevelDestinations(
+            listOf(
+                AppTopLevelDestination.HOME,
+                AppTopLevelDestination.SEARCH,
+                AppTopLevelDestination.SETTINGS
+            )
+        )
     }
 
     @Test

@@ -362,8 +362,22 @@
     <string name="settings_browsing">Browsing</string>
     <string name="settings_live_tv_channel_mode">Live TV Channel Mode</string>
     <string name="settings_live_tv_channel_mode_subtitle">Choose how the Live TV browser should present channels and whether it should preview before playback.</string>
+    <string name="settings_top_navigation">Top navigation</string>
+    <string name="settings_top_navigation_dialog_title">Customize top navigation</string>
+    <string name="settings_top_navigation_dialog_subtitle">Choose which tabs appear and arrange them in the order you want. Settings always stays available.</string>
+    <string name="settings_top_navigation_landing_note">Only visible tabs can be used as the startup landing screen.</string>
+    <string name="settings_top_navigation_required">Always visible</string>
+    <string name="settings_top_navigation_visible">Visible</string>
+    <string name="settings_top_navigation_hidden">Hidden</string>
+    <string name="settings_top_navigation_move_up">Up</string>
+    <string name="settings_top_navigation_move_down">Down</string>
+    <string name="settings_top_navigation_default_updated">Default landing screen changed to %1$s because the previous tab is no longer visible.</string>
     <string name="settings_default_landing_screen">Default landing screen</string>
     <string name="settings_select_default_landing_screen">Select default landing screen</string>
+    <plurals name="settings_top_navigation_count">
+        <item quantity="one">%d tab</item>
+        <item quantity="other">%d tabs</item>
+    </plurals>
     <string name="settings_live_tv_quick_filters">Live TV Quick Filters</string>
     <string name="settings_live_tv_quick_filters_none">None</string>
     <plurals name="settings_live_tv_quick_filters_count">

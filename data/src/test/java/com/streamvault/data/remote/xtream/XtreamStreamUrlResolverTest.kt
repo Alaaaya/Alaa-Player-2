@@ -440,7 +440,8 @@ class XtreamStreamUrlResolverTest {
                 )
             ),
             credentialCrypto = credentialCrypto,
-            stalkerApiService = fakeStalkerApiService
+            stalkerApiService = fakeStalkerApiService,
+            preferencesRepository = preferencesRepository()
         )
         val internalUrl = StalkerUrlFactory.buildInternalStreamUrl(
             providerId = 14,
