@@ -7,6 +7,7 @@ All notable product changes are recorded in this document.
 ### Fixed
 
 - Fixed Picture-in-Picture compatibility on Android 7.1 / API 25 devices.
+- Fixed series episode preview fallback so missing or failed preview images still show the episode label instead of an empty tile.
 - Fixed live playback recovery so decoder failures can retry with an alternate stream format after a software-decoder attempt.
 - Fixed movie decoder fallback so HEVC playback failures can retry against an AVC/H.264 variant when another version is available.
 - Fixed bundled FFmpeg validation and artifact support so MPEG Layer II (`MP2` / `audio/mpeg-L2`) audio remains available for compatible streams.
@@ -23,17 +24,20 @@ All notable product changes are recorded in this document.
 - Fixed Stalker and Xtream setup overrides so saved User-Agent, custom headers, and Stalker advanced compatibility settings are respected across login, sync, playback resolution, and VOD/series detail requests.
 - Fixed Stalker HTTP proxy playback support so proxy metadata is preserved through resolved streams and also used by Android TV Input playback.
 - Fixed Stalker authentication so a handshake token is only accepted after `get_profile` succeeds without an `Authorization failed` portal error, and cached portal auth now stays reused until that specific authorization failure happens.
+- Fixed provider onboarding URL handling so bare-host Xtream and Stalker server inputs resolve their protocol before validation and duplicate checks, allowing auto-detected `http://` or `https://` URLs to save correctly.
 - Fixed default Stalker player requests to use MAG-style playback defaults, including `Lavf53.32.100` as the player User-Agent plus explicit `Accept`, `Connection`, and `Host` headers.
 - Fixed Live TV favorites, recents, and custom-group ordered lists still collapsing SD/HD/FHD channel variants after grouped variants were disabled.
 
 ### Added
 
+- Added episode preview artwork in series details, preferring episode thumbnails and falling back to series poster/backdrop artwork when episode art is missing.
 - Added a playback setting to prefer live stream format selection with `Auto`, `HLS`, or `MPEG-TS` modes for Xtream live playback.
 - Added Movies duplicate handling with smart/grouped presentation, preferred version ranking, detail-page version selection, sticky manual choices, and playback observations for reliability-based movie variant selection.
 - Added Series duplicate handling with smart/grouped browse and search presentation, preferred version ranking, detail-page version selection with sticky manual choice, and raw-safe favorites/custom-group actions across grouped variants.
 - Added Stalker advanced HTTP header overrides, including support for custom headers and removing default request/playback headers by leaving an override value blank.
 - Added Stalker-specific SSL bypass handling for portal requests and player playback so invalid HTTPS certificates no longer block those connections.
 - Added Stalker advanced compatibility options for hw_version, separate API/player User-Agent values, Ethernet/WiFi X-User-Agent link type, HTTP proxy support for API and playback, and action-scoped request blocking/parameter overrides.
+- Added automatic HTTP/HTTPS protocol detection for Xtream and Stalker provider server URLs when users enter a bare host, while preserving full URLs that already include a scheme.
 - Added Jellyfin provider support for direct Movies and Series library sync, playback, and provider setup from the main onboarding flow.
 - Added Jellyfin Quick Connect onboarding with on-screen code and QR flow for signing into compatible servers without typing a password on TV.
 
