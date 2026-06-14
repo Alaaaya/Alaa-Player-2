@@ -225,9 +225,9 @@ class JellyfinProvider @Inject constructor(
         return MovieEntity(
             streamId = stableRemoteId(remoteId),
             name = item.name.orEmpty(),
-            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary"), provider.password),
+            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
             backdropUrl = item.backdropImageTags?.firstOrNull()?.let { tag ->
-                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, provider.password, imageIndex = 0)
+                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, imageIndex = 0)
             },
             categoryId = MOVIE_CATEGORY_ID,
             categoryName = "Movies",
@@ -253,9 +253,9 @@ class JellyfinProvider @Inject constructor(
             seriesId = stableRemoteId(remoteId),
             providerSeriesId = remoteId,
             name = item.name.orEmpty(),
-            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary"), provider.password),
+            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
             backdropUrl = item.backdropImageTags?.firstOrNull()?.let { tag ->
-                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, provider.password, imageIndex = 0)
+                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, imageIndex = 0)
             },
             categoryId = SERIES_CATEGORY_ID,
             categoryName = "Series",
@@ -282,7 +282,7 @@ class JellyfinProvider @Inject constructor(
             seasonNumber = item.parentIndexNumber ?: 0,
             streamUrl = buildStreamUrl(provider.serverUrl, remoteId),
             containerExtension = item.primaryMediaSource?.container?.takeIf { it.isNotBlank() },
-            coverUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary"), provider.password),
+            coverUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
             plot = item.overview,
             duration = item.runTimeTicks?.let(::ticksToDurationString),
             durationSeconds = item.runTimeTicks?.let(::ticksToSeconds)?.toInt() ?: 0,
@@ -323,9 +323,8 @@ class JellyfinProvider @Inject constructor(
     private fun buildStreamUrl(baseUrl: String, itemId: String): String =
         "${baseUrl.trimEnd('/')}/Videos/$itemId/stream"
 
-    private fun buildImageUrl(baseUrl: String, itemId: String, imageType: String, tag: String?, apiKey: String?, imageIndex: Int? = null): String {
+    private fun buildImageUrl(baseUrl: String, itemId: String, imageType: String, tag: String?, imageIndex: Int? = null): String {
         val qs = buildList {
-            apiKey?.takeIf { it.isNotBlank() }?.let { add("api_key=${enc(it)}") }
             tag?.takeIf { it.isNotBlank() }?.let { add("tag=${enc(it)}") }
         }.joinToString("&")
         val path = if (imageIndex != null) "/Items/$itemId/Images/$imageType/$imageIndex" else "/Items/$itemId/Images/$imageType"
