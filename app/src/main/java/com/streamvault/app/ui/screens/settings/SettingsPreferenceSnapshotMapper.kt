@@ -9,6 +9,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         hasParentalPin = snapshot.hasParentalPin,
         appLanguage = snapshot.appLanguage,
         appLandingDestination = snapshot.appLandingDestination,
+        appTopLevelDestinations = snapshot.appTopLevelDestinations,
         appTimeFormat = snapshot.appTimeFormat,
         preferredAudioLanguage = snapshot.preferredAudioLanguage,
         playerMediaSessionEnabled = snapshot.playerMediaSessionEnabled,

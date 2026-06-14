@@ -172,6 +172,8 @@ internal fun SettingsScreenDialogs(
         uiState = uiState,
         viewModel = viewModel,
         context = context,
+        showTopNavigationDialog = dialogState.showTopNavigationDialog,
+        onShowTopNavigationDialogChange = { dialogState.showTopNavigationDialog = it },
         showLandingScreenDialog = dialogState.showLandingScreenDialog,
         onShowLandingScreenDialogChange = { dialogState.showLandingScreenDialog = it },
         showGuideDefaultCategoryDialog = dialogState.showGuideDefaultCategoryDialog,

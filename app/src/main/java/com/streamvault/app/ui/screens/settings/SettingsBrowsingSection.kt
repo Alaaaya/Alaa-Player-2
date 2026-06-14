@@ -50,6 +50,7 @@ internal fun LazyListScope.settingsBrowsingSection(
     viewModel: SettingsViewModel,
     context: android.content.Context,
     appLandingDestinationLabel: String,
+    topNavigationSummaryLabel: String,
     guideDefaultCategoryLabel: String,
     timeFormatLabel: String,
     appLanguageLabel: String,
@@ -60,6 +61,7 @@ internal fun LazyListScope.settingsBrowsingSection(
     onShowLiveChannelGroupingDialogChange: (Boolean) -> Unit,
     onShowGroupedChannelLabelDialogChange: (Boolean) -> Unit,
     onShowLiveVariantPreferenceDialogChange: (Boolean) -> Unit,
+    onShowTopNavigationDialogChange: (Boolean) -> Unit,
     onShowLandingScreenDialogChange: (Boolean) -> Unit,
     onShowGuideDefaultCategoryDialogChange: (Boolean) -> Unit,
     onShowTimeFormatDialogChange: (Boolean) -> Unit,
@@ -75,6 +77,11 @@ internal fun LazyListScope.settingsBrowsingSection(
             label = stringResource(R.string.settings_live_tv_channel_mode),
             value = stringResource(uiState.liveTvChannelMode.labelResId()),
             onClick = { onShowLiveTvModeDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_top_navigation),
+            value = topNavigationSummaryLabel,
+            onClick = { onShowTopNavigationDialogChange(true) }
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_default_landing_screen),

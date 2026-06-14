@@ -7,6 +7,7 @@ import androidx.compose.ui.res.stringResource
 import com.streamvault.app.R
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
@@ -18,6 +19,8 @@ internal fun SettingsPreferenceDialogs(
     uiState: SettingsUiState,
     viewModel: SettingsViewModel,
     context: Context,
+    showTopNavigationDialog: Boolean,
+    onShowTopNavigationDialogChange: (Boolean) -> Unit,
     showLandingScreenDialog: Boolean,
     onShowLandingScreenDialogChange: (Boolean) -> Unit,
     showGuideDefaultCategoryDialog: Boolean,
@@ -105,12 +108,26 @@ internal fun SettingsPreferenceDialogs(
         onShowDiagnosticsTimeoutDialogChange = onShowDiagnosticsTimeoutDialogChange
     )
 
+    if (showTopNavigationDialog) {
+        TopNavigationDialog(
+            currentDestinations = uiState.appTopLevelDestinations,
+            onDismiss = { onShowTopNavigationDialogChange(false) },
+            onSave = { destinations ->
+                viewModel.setAppTopLevelDestinations(destinations)
+                onShowTopNavigationDialogChange(false)
+            }
+        )
+    }
+
     if (showLandingScreenDialog) {
+        val availableLandingDestinations = remember(uiState.appTopLevelDestinations) {
+            AppTopLevelDestination.availableLandingDestinations(uiState.appTopLevelDestinations)
+        }
         PremiumSelectionDialog(
             title = stringResource(R.string.settings_select_default_landing_screen),
             onDismiss = { onShowLandingScreenDialogChange(false) }
         ) {
-            AppLandingDestination.entries.forEachIndexed { index, destination ->
+            availableLandingDestinations.forEachIndexed { index, destination ->
                 LevelOption(
                     level = index,
                     text = stringResource(destination.labelResId()),

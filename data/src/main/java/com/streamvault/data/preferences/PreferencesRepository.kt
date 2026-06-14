@@ -29,6 +29,7 @@ import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveChannelObservedQuality
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantObservation
@@ -99,6 +100,7 @@ class PreferencesRepository @Inject constructor(
         val DEFAULT_CATEGORY_ID = longPreferencesKey("default_category_id")
         val APP_LANGUAGE = stringPreferencesKey("app_language")
         val APP_LANDING_DESTINATION = stringPreferencesKey("app_landing_destination")
+        val APP_TOP_LEVEL_DESTINATIONS = stringPreferencesKey("app_top_level_destinations")
         val APP_TIME_FORMAT = stringPreferencesKey("app_time_format")
         val LIVE_TV_CHANNEL_MODE = stringPreferencesKey("live_tv_channel_mode")
         val SHOW_LIVE_SOURCE_SWITCHER = booleanPreferencesKey("show_live_source_switcher")
@@ -1254,9 +1256,20 @@ class PreferencesRepository @Inject constructor(
         AppLandingDestination.fromStorage(preferences[PreferencesKeys.APP_LANDING_DESTINATION])
     }
 
+    val appTopLevelDestinations: Flow<List<AppTopLevelDestination>> = context.dataStore.data.map { preferences ->
+        decodeAppTopLevelDestinations(preferences[PreferencesKeys.APP_TOP_LEVEL_DESTINATIONS])
+    }
+
     suspend fun setAppLandingDestination(destination: AppLandingDestination) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.APP_LANDING_DESTINATION] = destination.storageValue
+        }
+    }
+
+    suspend fun setAppTopLevelDestinations(destinations: List<AppTopLevelDestination>) {
+        val normalized = AppTopLevelDestination.normalizeForStorage(destinations)
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.APP_TOP_LEVEL_DESTINATIONS] = encodeAppTopLevelDestinations(normalized)
         }
     }
 
@@ -1929,6 +1942,24 @@ class PreferencesRepository @Inject constructor(
         values.entries
             .sortedBy { it.key }
             .joinToString("\n") { (key, rawChannelId) -> "$key=$rawChannelId" }
+
+    private fun encodeAppTopLevelDestinations(destinations: List<AppTopLevelDestination>): String =
+        AppTopLevelDestination.normalizeForStorage(destinations)
+            .joinToString(",") { it.storageValue }
+
+    private fun decodeAppTopLevelDestinations(encoded: String?): List<AppTopLevelDestination> {
+        val decoded = encoded
+            .orEmpty()
+            .split(',')
+            .asSequence()
+            .mapNotNull { token -> AppTopLevelDestination.fromStorage(token.trim()) }
+            .toList()
+        return if (decoded.isEmpty()) {
+            AppTopLevelDestination.defaultOrder
+        } else {
+            AppTopLevelDestination.normalizeForStorage(decoded)
+        }
+    }
 
     private fun decodeLiveVariantSelections(encoded: String?): Map<String, Long> =
         encoded

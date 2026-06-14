@@ -32,6 +32,7 @@ import com.streamvault.domain.manager.RecordingScheduleImportSummary
 import com.streamvault.domain.manager.ProtectedCategoryBackup
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.manager.ScheduledRecordingBackup
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingRequest
@@ -85,6 +86,10 @@ class BackupManagerImpl @Inject constructor(
                 put("parentalPinSalt", parentalPinBackup?.saltBase64 ?: "")
                 put("appLanguage", preferencesRepository.appLanguage.first())
                 put("appLandingDestination", preferencesRepository.appLandingDestination.first().storageValue)
+                put(
+                    "appTopLevelDestinations",
+                    preferencesRepository.appTopLevelDestinations.first().joinToString(",") { it.storageValue }
+                )
                 put("liveTvCategoryFilters", preferencesRepository.liveTvCategoryFilters.first().joinToString("\n"))
                 put("liveTvQuickFilterVisibility", preferencesRepository.liveTvQuickFilterVisibility.first() ?: "always")
                 put("playerMediaSessionEnabled", preferencesRepository.playerMediaSessionEnabled.first().toString())
@@ -559,6 +564,14 @@ class BackupManagerImpl @Inject constructor(
             preferencesRepository.setAppLandingDestination(
                 com.streamvault.domain.model.AppLandingDestination.fromStorage(savedDestination)
             )
+        }
+        prefs["appTopLevelDestinations"]?.let { encoded ->
+            val destinations = encoded
+                .split(',')
+                .mapNotNull { token -> AppTopLevelDestination.fromStorage(token.trim()) }
+            if (destinations.isNotEmpty()) {
+                preferencesRepository.setAppTopLevelDestinations(destinations)
+            }
         }
         prefs["liveTvCategoryFilters"]?.let { preferencesRepository.setLiveTvCategoryFilters(it.split('\n')) }
         prefs["liveTvQuickFilterVisibility"]?.takeIf { it.isNotBlank() }

@@ -34,6 +34,7 @@ import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.ui.screens.downloads.DownloadsScreen
 import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.MovieDetailPresentationHint
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.SeriesDetailPresentationHint
@@ -310,15 +311,33 @@ internal fun AppLandingDestination.toAppRoute(): String = when (this) {
     AppLandingDestination.SETTINGS -> Routes.SETTINGS
 }
 
+internal fun AppTopLevelDestination.toAppRoute(): String = when (this) {
+    AppTopLevelDestination.HOME -> Routes.HOME
+    AppTopLevelDestination.LIVE_TV -> Routes.LIVE_TV
+    AppTopLevelDestination.MOVIES -> Routes.MOVIES
+    AppTopLevelDestination.SERIES -> Routes.SERIES
+    AppTopLevelDestination.DOWNLOADS -> Routes.DOWNLOADS
+    AppTopLevelDestination.GUIDE -> Routes.EPG
+    AppTopLevelDestination.SEARCH -> Routes.SEARCH
+    AppTopLevelDestination.PLUGINS -> Routes.PLUGINS
+    AppTopLevelDestination.SETTINGS -> Routes.SETTINGS
+}
+
 @Composable
 fun AppNavigation(mainActivity: MainActivity) {
     val navController = rememberNavController()
     val currentBackStackEntry = navController.currentBackStackEntryAsState().value
     val externalNavigationRequest = mainActivity.externalNavigationRequestFlow.collectAsStateWithLifecycle().value
+    val topLevelDestinations = mainActivity.preferencesRepository.appTopLevelDestinations
+        .collectAsStateWithLifecycle(initialValue = AppTopLevelDestination.defaultOrder)
+        .value
     val appLandingDestination = mainActivity.preferencesRepository.appLandingDestination
         .collectAsStateWithLifecycle(initialValue = AppLandingDestination.HOME)
         .value
-    val landingRoute = appLandingDestination.toAppRoute()
+    val landingRoute = AppTopLevelDestination.resolveLandingDestination(
+        preferred = appLandingDestination,
+        destinations = topLevelDestinations
+    ).toAppRoute()
 
     LaunchedEffect(externalNavigationRequest, currentBackStackEntry) {
         val entry = currentBackStackEntry ?: return@LaunchedEffect

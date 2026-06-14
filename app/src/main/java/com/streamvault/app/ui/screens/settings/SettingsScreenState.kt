@@ -9,6 +9,7 @@ import com.streamvault.app.R
 import com.streamvault.app.ui.time.createDateTimeFormat
 import com.streamvault.app.util.OfficialBuildStatus
 import com.streamvault.domain.model.AppLandingDestination
+import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveStreamFormatMode
@@ -18,6 +19,7 @@ internal data class SettingsScreenLabels(
     val buildVerificationLabel: String,
     val appLanguageLabel: String,
     val appLandingDestinationLabel: String,
+    val topNavigationSummaryLabel: String,
     val timeFormatLabel: String,
     val preferredAudioLanguageLabel: String,
     val playbackSpeedLabel: String,
@@ -60,6 +62,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val appLandingDestinationLabel = remember(uiState.appLandingDestination, context) {
         formatAppLandingDestinationLabel(uiState.appLandingDestination, context)
+    }
+    val topNavigationSummaryLabel = remember(uiState.appTopLevelDestinations, context) {
+        formatTopNavigationSummaryLabel(uiState.appTopLevelDestinations, context)
     }
     val timeFormatLabel = remember(uiState.appTimeFormat, context) {
         formatAppTimeFormatLabel(uiState.appTimeFormat, context)
@@ -163,6 +168,7 @@ internal fun rememberSettingsScreenLabels(
         buildVerificationLabel = buildVerificationLabel,
         appLanguageLabel = appLanguageLabel,
         appLandingDestinationLabel = appLandingDestinationLabel,
+        topNavigationSummaryLabel = topNavigationSummaryLabel,
         timeFormatLabel = timeFormatLabel,
         preferredAudioLanguageLabel = preferredAudioLanguageLabel,
         playbackSpeedLabel = playbackSpeedLabel,
@@ -215,6 +221,15 @@ private fun formatAppLandingDestinationLabel(
         AppLandingDestination.PLUGINS -> R.string.nav_plugins
         AppLandingDestination.SETTINGS -> R.string.nav_settings
     }
+)
+
+private fun formatTopNavigationSummaryLabel(
+    destinations: List<AppTopLevelDestination>,
+    context: Context
+): String = context.resources.getQuantityString(
+    R.plurals.settings_top_navigation_count,
+    destinations.size,
+    destinations.size
 )
 
 private fun formatOfficialBuildStatusLabel(
