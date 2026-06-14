@@ -183,24 +183,25 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
         val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+        val resolvedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(normalizedServerUrl)
 
-        ProviderInputSanitizer.validateUrl(normalizedServerUrl)?.let { message ->
+        ProviderInputSanitizer.validateUrl(resolvedServerUrl)?.let { message ->
             return Result.error(message)
         }
-        UrlSecurityPolicy.validateXtreamServerUrl(normalizedServerUrl)?.let { message ->
+        UrlSecurityPolicy.validateXtreamServerUrl(resolvedServerUrl)?.let { message ->
             return Result.error(message)
         }
         onProgress?.invoke("Authenticating...")
         val existingProvider = if (id != null) {
             // Edit path: check that the new normalized identity does not collide with a
             // different provider before we commit the update.
-            val collision = providerDao.getByUrlAndUser(normalizedServerUrl, normalizedUsername)
+            val collision = providerDao.getByUrlAndUser(resolvedServerUrl, normalizedUsername)
             if (collision != null && collision.id != id) {
                 return Result.error("A provider with this server URL and username already exists.")
             }
             providerDao.getById(id)
         } else {
-            providerDao.getByUrlAndUser(normalizedServerUrl, normalizedUsername)
+            providerDao.getByUrlAndUser(resolvedServerUrl, normalizedUsername)
         }
         val effectivePassword = try {
             password.takeIf { it.isNotBlank() }
@@ -211,7 +212,7 @@ class ProviderRepositoryImpl @Inject constructor(
         }
         val provider = createXtreamProvider(
             providerId = 0,
-            serverUrl = normalizedServerUrl,
+            serverUrl = resolvedServerUrl,
             username = normalizedUsername,
             password = effectivePassword,
             httpUserAgent = httpUserAgent,
@@ -224,7 +225,7 @@ class ProviderRepositoryImpl @Inject constructor(
                     val updated = authResult.data.copy(
                         id = existingProvider.id,
                         name = normalizedName.ifBlank { existingProvider.name },
-                        serverUrl = normalizedServerUrl,
+                        serverUrl = resolvedServerUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
                         httpUserAgent = httpUserAgent,
@@ -487,6 +488,7 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedMacAddress = ProviderInputSanitizer.normalizeMacAddress(macAddress)
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
         val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
+        val resolvedPortalUrl = ProviderInputSanitizer.resolveUrlProtocol(normalizedPortalUrl)
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
@@ -496,10 +498,10 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
         val normalizedAdvancedOptionsJson = stalkerAdvancedOptionsJson.trim()
 
-        ProviderInputSanitizer.validateUrl(normalizedPortalUrl)?.let { message ->
+        ProviderInputSanitizer.validateUrl(resolvedPortalUrl)?.let { message ->
             return Result.error(message)
         }
-        UrlSecurityPolicy.validateStalkerPortalUrl(normalizedPortalUrl)?.let { message ->
+        UrlSecurityPolicy.validateStalkerPortalUrl(resolvedPortalUrl)?.let { message ->
             return Result.error(message)
         }
         if (normalizedMacAddress.isNotBlank()) {
@@ -512,13 +514,13 @@ class ProviderRepositoryImpl @Inject constructor(
         val existingProvider = if (id != null) {
             // Edit path: check that the new normalized identity does not collide with a
             // different provider before we commit the update.
-            val collision = providerDao.getByUrlAndUser(normalizedPortalUrl, normalizedUsername, normalizedMacAddress)
+            val collision = providerDao.getByUrlAndUser(resolvedPortalUrl, normalizedUsername, normalizedMacAddress)
             if (collision != null && collision.id != id) {
                 return Result.error("A Stalker provider with this portal URL and identity already exists.")
             }
             providerDao.getById(id)
         } else {
-            providerDao.getByUrlAndUser(normalizedPortalUrl, normalizedUsername, normalizedMacAddress)
+            providerDao.getByUrlAndUser(resolvedPortalUrl, normalizedUsername, normalizedMacAddress)
         }
         val effectivePassword = try {
             password.takeIf { it.isNotBlank() }
@@ -530,7 +532,7 @@ class ProviderRepositoryImpl @Inject constructor(
 
         val provider = createStalkerProvider(
             providerId = 0L,
-            portalUrl = normalizedPortalUrl,
+            portalUrl = resolvedPortalUrl,
             macAddress = normalizedMacAddress,
             authMode = authMode,
             username = normalizedUsername,
@@ -554,7 +556,7 @@ class ProviderRepositoryImpl @Inject constructor(
                     val updated = authResult.data.copy(
                         id = existingProvider.id,
                         name = normalizedName.ifBlank { existingProvider.name },
-                        serverUrl = normalizedPortalUrl,
+                        serverUrl = resolvedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
                         httpUserAgent = httpUserAgent,
@@ -582,7 +584,7 @@ class ProviderRepositoryImpl @Inject constructor(
                 } else {
                     val newData = authResult.data.copy(
                         name = normalizedName.ifBlank { authResult.data.name },
-                        serverUrl = normalizedPortalUrl,
+                        serverUrl = resolvedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
                         httpUserAgent = httpUserAgent,
