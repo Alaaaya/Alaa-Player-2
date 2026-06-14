@@ -404,19 +404,17 @@ fun EpisodeRowCard(
                         .background(AppColors.SurfaceEmphasis),
                     contentAlignment = Alignment.Center
                 ) {
+                    Text(
+                        text = stringResource(R.string.label_episode, episode.episodeNumber),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = AppColors.TextSecondary
+                    )
                     if (displayUrl != null) {
                         AsyncImage(
                             model = displayUrl,
                             contentDescription = episode.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        // Fallback: episode number label when no image is available
-                        Text(
-                            text = stringResource(R.string.label_episode, episode.episodeNumber),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = AppColors.TextSecondary
                         )
                     }
                 }
