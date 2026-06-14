@@ -14,8 +14,6 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
-import com.streamvault.data.remote.jellyfin.JellyfinProvider
-import com.streamvault.domain.model.Provider
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.JellyfinProviderSetupCommand
 import com.streamvault.domain.usecase.M3uProviderSetupCommand
@@ -58,8 +56,7 @@ private const val TAG = "ProviderQrPairing"
 class ProviderQrPairingManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val validateAndAddProvider: ValidateAndAddProvider,
-    private val providerRepository: ProviderRepository,
-    private val jellyfinProvider: JellyfinProvider
+    private val providerRepository: ProviderRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val secureRandom = SecureRandom()
@@ -202,19 +199,11 @@ class ProviderQrPairingManager @Inject constructor(
                         status = ProviderQrPairingStatus.RECEIVING,
                         message = "Phone submitted provider details. Validating..."
                     )
-                    val providerName = form["name"].orEmpty().ifBlank {
-                        when (form["type"].orEmpty().lowercase(Locale.US)) {
-                            "m3u" -> "Phone M3U Playlist"
-                            "stalker" -> "Phone Stalker Portal"
-                            "jellyfin" -> "Phone Jellyfin"
-                            else -> "Phone Xtream Provider"
-                        }
-                    }
-                    val saveResult = saveProviderOnly(form, providerName)
+                    val saveResult = addProviderFromForm(form)
                     when (saveResult) {
                         is ProviderPairingSubmitResult.Success -> {
-                            writeHtml(client.getOutputStream(), 200, successPage(providerName))
-                            invalidateAfterSuccess(providerName)
+                            writeHtml(client.getOutputStream(), 200, successPage(saveResult.providerName))
+                            invalidateAfterSuccess(saveResult.providerName)
                         }
                         is ProviderPairingSubmitResult.Error -> {
                             _state.value = _state.value.copy(
@@ -230,48 +219,6 @@ class ProviderQrPairingManager @Inject constructor(
         }
     }
 
-    private suspend fun saveProviderOnly(form: Map<String, String>, providerName: String): ProviderPairingSubmitResult {
-        val type = form["type"].orEmpty().lowercase(Locale.US)
-        return try {
-            val provider = when (type) {
-                "m3u" -> {
-                    val url = form["m3uUrl"].orEmpty()
-                    if (url.isBlank()) return ProviderPairingSubmitResult.Error("Please enter M3U URL")
-                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.M3U, serverUrl = "", m3uUrl = url, isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
-                }
-                "stalker" -> {
-                    val portalUrl = form["serverUrl"].orEmpty()
-                    val macAddress = form["macAddress"].orEmpty()
-                    if (portalUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter portal URL")
-                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.STALKER_PORTAL, serverUrl = portalUrl, stalkerMacAddress = macAddress, username = form["username"].orEmpty(), password = form["password"].orEmpty(), isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
-                }
-                "jellyfin" -> {
-                    val serverUrl = form["serverUrl"].orEmpty()
-                    val username = form["username"].orEmpty()
-                    val password = form["password"].orEmpty()
-                    if (serverUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter server URL")
-                    if (password.isBlank()) return ProviderPairingSubmitResult.Error("Please enter password")
-                    val authResult = jellyfinProvider.authenticate(serverUrl, username, password)
-                    val accessToken = when (authResult) {
-                        is com.streamvault.domain.model.Result.Success -> authResult.data
-                        is com.streamvault.domain.model.Result.Error -> return ProviderPairingSubmitResult.Error("Jellyfin authentication failed: ${authResult.message}")
-                        is com.streamvault.domain.model.Result.Loading -> return ProviderPairingSubmitResult.Error("Authentication failed")
-                    }
-                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.JELLYFIN, serverUrl = serverUrl, username = username, password = accessToken, isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
-                }
-                else -> {
-                    val serverUrl = form["serverUrl"].orEmpty()
-                    if (serverUrl.isBlank()) return ProviderPairingSubmitResult.Error("Please enter server URL")
-                    Provider(name = providerName, type = com.streamvault.domain.model.ProviderType.XTREAM_CODES, serverUrl = serverUrl, username = form["username"].orEmpty(), password = form["password"].orEmpty(), isActive = false, status = com.streamvault.domain.model.ProviderStatus.PARTIAL)
-                }
-            }
-            val providerId = providerRepository.addProvider(provider).getOrNull()
-                ?: return ProviderPairingSubmitResult.Error("Failed to save provider")
-            ProviderPairingSubmitResult.Success(providerName)
-        } catch (e: Exception) {
-            ProviderPairingSubmitResult.Error("Failed to save provider: ${e.message ?: "unknown error"}")
-        }
-    }
 
     private suspend fun addProviderFromForm(form: Map<String, String>): ProviderPairingSubmitResult {
         val type = form["type"].orEmpty().lowercase(Locale.US)
