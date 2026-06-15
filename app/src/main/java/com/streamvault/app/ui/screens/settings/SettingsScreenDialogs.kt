@@ -188,6 +188,8 @@ internal fun SettingsScreenDialogs(
         onShowAudioVideoOffsetDialogChange = { dialogState.showAudioVideoOffsetDialog = it },
         showDecoderModeDialog = dialogState.showDecoderModeDialog,
         onShowDecoderModeDialogChange = { dialogState.showDecoderModeDialog = it },
+        showPlaybackBufferModeDialog = dialogState.showPlaybackBufferModeDialog,
+        onShowPlaybackBufferModeDialogChange = { dialogState.showPlaybackBufferModeDialog = it },
         showAudioOutputPreferenceDialog = dialogState.showAudioOutputPreferenceDialog,
         onShowAudioOutputPreferenceDialogChange = { dialogState.showAudioOutputPreferenceDialog = it },
         showSurfaceModeDialog = dialogState.showSurfaceModeDialog,

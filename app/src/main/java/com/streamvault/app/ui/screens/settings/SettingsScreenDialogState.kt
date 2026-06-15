@@ -30,6 +30,7 @@ internal class SettingsScreenDialogState(
     private val showExternalPlaybackModeDialogState: MutableState<Boolean>,
     private val showAudioVideoOffsetDialogState: MutableState<Boolean>,
     private val showDecoderModeDialogState: MutableState<Boolean>,
+    private val showPlaybackBufferModeDialogState: MutableState<Boolean>,
     private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
     private val showSurfaceModeDialogState: MutableState<Boolean>,
     private val showVodHttpProtocolDialogState: MutableState<Boolean>,
@@ -91,6 +92,7 @@ internal class SettingsScreenDialogState(
     var showExternalPlaybackModeDialog by showExternalPlaybackModeDialogState
     var showAudioVideoOffsetDialog by showAudioVideoOffsetDialogState
     var showDecoderModeDialog by showDecoderModeDialogState
+    var showPlaybackBufferModeDialog by showPlaybackBufferModeDialogState
     var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
     var showSurfaceModeDialog by showSurfaceModeDialogState
     var showVodHttpProtocolDialog by showVodHttpProtocolDialogState
@@ -220,6 +222,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showExternalPlaybackModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioVideoOffsetDialogState = rememberSaveable { mutableStateOf(false) }
     val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showPlaybackBufferModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showVodHttpProtocolDialogState = rememberSaveable { mutableStateOf(false) }
@@ -290,6 +293,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showExternalPlaybackModeDialogState = showExternalPlaybackModeDialogState,
         showAudioVideoOffsetDialogState = showAudioVideoOffsetDialogState,
         showDecoderModeDialogState = showDecoderModeDialogState,
+        showPlaybackBufferModeDialogState = showPlaybackBufferModeDialogState,
         showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
         showSurfaceModeDialogState = showSurfaceModeDialogState,
         showVodHttpProtocolDialogState = showVodHttpProtocolDialogState,

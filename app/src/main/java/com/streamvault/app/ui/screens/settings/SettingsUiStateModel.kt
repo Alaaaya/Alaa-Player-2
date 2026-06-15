@@ -25,6 +25,7 @@ import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ExternalPlaybackMode
@@ -72,6 +73,7 @@ data class SettingsUiState(
     val playerMediaSessionEnabled: Boolean = true,
     val playerFastRetryOnTransientFailures: Boolean = false,
     val playerDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val playerPlaybackBufferMode: PlaybackBufferMode = PlaybackBufferMode.AUTO,
     val playerAudioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO,
     val playerCompatibilityMemoryEnabled: Boolean = true,
     val playerSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO,

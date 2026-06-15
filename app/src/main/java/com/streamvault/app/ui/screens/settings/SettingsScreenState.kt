@@ -14,6 +14,7 @@ import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveStreamFormatMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 
 internal data class SettingsScreenLabels(
@@ -27,6 +28,7 @@ internal data class SettingsScreenLabels(
     val playbackSpeedLabel: String,
     val audioVideoOffsetLabel: String,
     val decoderModeLabel: String,
+    val playbackBufferModeLabel: String,
     val audioOutputPreferenceLabel: String,
     val surfaceModeLabel: String,
     val vodHttpProtocolLabel: String,
@@ -86,6 +88,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val decoderModeLabel = remember(uiState.playerDecoderMode, context) {
         formatDecoderModeLabel(uiState.playerDecoderMode, context)
+    }
+    val playbackBufferModeLabel = remember(uiState.playerPlaybackBufferMode, context) {
+        formatPlaybackBufferModeLabel(uiState.playerPlaybackBufferMode, context)
     }
     val audioOutputPreferenceLabel = remember(uiState.playerAudioOutputPreference, context) {
         formatAudioOutputPreferenceLabel(uiState.playerAudioOutputPreference, context)
@@ -180,6 +185,7 @@ internal fun rememberSettingsScreenLabels(
         playbackSpeedLabel = playbackSpeedLabel,
         audioVideoOffsetLabel = audioVideoOffsetLabel,
         decoderModeLabel = decoderModeLabel,
+        playbackBufferModeLabel = playbackBufferModeLabel,
         audioOutputPreferenceLabel = audioOutputPreferenceLabel,
         surfaceModeLabel = surfaceModeLabel,
         vodHttpProtocolLabel = vodHttpProtocolLabel,
@@ -282,6 +288,16 @@ internal fun formatVodHttpProtocolModeLabel(
 ): String = when (mode) {
     VodHttpProtocolMode.COMPATIBILITY_HTTP1 -> context.getString(R.string.settings_vod_http_protocol_compatibility)
     VodHttpProtocolMode.AUTO -> context.getString(R.string.settings_vod_http_protocol_auto)
+}
+
+internal fun formatPlaybackBufferModeLabel(
+    mode: PlaybackBufferMode,
+    context: Context
+): String = when (mode) {
+    PlaybackBufferMode.AUTO -> context.getString(R.string.settings_live_buffer_auto)
+    PlaybackBufferMode.SMALL -> context.getString(R.string.settings_live_buffer_small)
+    PlaybackBufferMode.MEDIUM -> context.getString(R.string.settings_live_buffer_medium)
+    PlaybackBufferMode.LARGE -> context.getString(R.string.settings_live_buffer_large)
 }
 
 internal fun formatLiveStreamFormatModeLabel(mode: LiveStreamFormatMode): String = when (mode) {

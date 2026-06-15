@@ -30,6 +30,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.MediaSession
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackCompatibilityKey
 import com.streamvault.domain.model.PlaybackCompatibilityRecord
@@ -45,9 +46,11 @@ import com.streamvault.player.playback.AudioVideoOffsetAudioSink
 import com.streamvault.player.playback.PlaybackCodecSelector
 import com.streamvault.player.playback.PlaybackCompatibilityProfile
 import com.streamvault.player.playback.PlaybackBufferPolicies
+import com.streamvault.player.playback.PlaybackBufferPolicy
 import com.streamvault.player.playback.PlaybackErrorCategory
 import com.streamvault.player.playback.FfmpegAudioFallbackRequest
 import com.streamvault.player.playback.FfmpegExtensionSupport
+import com.streamvault.player.playback.LiveHlsBufferPromotionDecider
 import com.streamvault.player.playback.PlaybackLogSanitizer
 import com.streamvault.player.playback.PlaybackPreparationPlan
 import com.streamvault.player.playback.PlaybackExtensionRendererMode
@@ -167,6 +170,7 @@ class Media3PlayerEngine @Inject constructor(
     private var mediaSession: MediaSession? = null
     private var requestedDecoderMode: DecoderMode = DecoderMode.AUTO
     private var activeDecoderMode: DecoderMode = DecoderMode.HARDWARE
+    private var requestedPlaybackBufferMode: PlaybackBufferMode = PlaybackBufferMode.AUTO
     private var requestedSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO
     private var requestedVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1
     private var sessionSurfaceModeOverride: PlayerSurfaceMode? = null
@@ -205,6 +209,8 @@ class Media3PlayerEngine @Inject constructor(
     private var retryGeneration = 0L
     private var currentBufferIsLive: Boolean? = null
     private var currentBufferPolicyLabel: String? = null
+    private var currentBufferPolicy: PlaybackBufferPolicy? = null
+    private val promotedLiveHlsBufferReasonsByMediaId = mutableMapOf<String, String>()
     private var audioCodecUnsupportedReported = false
     private var lastSupportErrorMessage: String? = null
     private val isLowMemoryPlaybackDevice: Boolean = run {
@@ -364,6 +370,9 @@ class Media3PlayerEngine @Inject constructor(
                 if (shouldRefreshPlaybackSupportSnapshot()) {
                     playbackSupportSnapshotStore.write(buildPlaybackSupportSnapshot())
                 }
+                if (promoteLiveHlsBufferIfNeeded()) {
+                    continue
+                }
                 if (shouldFallbackTextureViewBeforeFirstFrame(stats)) {
                     fallbackTextureViewSurface("NO_FIRST_FRAME")
                     continue
@@ -503,6 +512,16 @@ class Media3PlayerEngine @Inject constructor(
     override fun setDecoderMode(mode: DecoderMode) {
         if (requestedDecoderMode == mode) return
         requestedDecoderMode = mode
+        lastStreamInfo?.let { streamInfo ->
+            val wasPlaying = exoPlayer?.playWhenReady == true
+            val position = exoPlayer?.currentPosition
+            prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = position, autoPlay = wasPlaying)
+        }
+    }
+
+    override fun setPlaybackBufferMode(mode: PlaybackBufferMode) {
+        if (requestedPlaybackBufferMode == mode) return
+        requestedPlaybackBufferMode = mode
         lastStreamInfo?.let { streamInfo ->
             val wasPlaying = exoPlayer?.playWhenReady == true
             val position = exoPlayer?.currentPosition
@@ -825,6 +844,9 @@ class Media3PlayerEngine @Inject constructor(
         lastMediaId = null
         currentRetryPolicy = null
         currentRetryContext = null
+        currentBufferIsLive = null
+        currentBufferPolicyLabel = null
+        currentBufferPolicy = null
         playbackStarted = false
         liveBufferingRecoveryArmed = false
         playbackStartedRecoveryArmed = false
@@ -962,7 +984,12 @@ class Media3PlayerEngine @Inject constructor(
         val previousDecoderPolicy = activeDecoderPolicy
         val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = currentResolvedStreamType,
-            compatibilityMode = nextDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY
+            compatibilityMode = nextDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
+            lowMemoryDevice = isLowMemoryPlaybackDevice,
+            bufferMode = requestedPlaybackBufferMode,
+            streamInfo = streamInfo,
+            observedVideoFormat = _videoFormat.value,
+            qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId[mediaId]
         )
         val needsRecreate = activeDecoderMode != preferredDecoderMode ||
             previousDecoderPolicy != nextDecoderPolicy ||
@@ -973,6 +1000,7 @@ class Media3PlayerEngine @Inject constructor(
         activeDecoderPolicy = nextDecoderPolicy
         currentBufferIsLive = isLiveBuffer
         currentBufferPolicyLabel = nextBufferPolicy.label
+        currentBufferPolicy = nextBufferPolicy
         updateRenderSurfaceForMode()
         if (needsRecreate) {
             recreatePlayer()
@@ -982,6 +1010,7 @@ class Media3PlayerEngine @Inject constructor(
             TAG,
             "prepare resolvedStreamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile decoderPreference=$activeDecoderMode activePolicy=$activeDecoderPolicy audioOutputPreference=$audioOutputPreference compatibilitySource=$compatibilityDecisionSource surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
+        Log.i(TAG, nextBufferPolicy.describeForLog(currentResolvedStreamType, requestedPlaybackBufferMode))
 
         try {
             val player = getOrCreatePlayer()
@@ -1063,10 +1092,14 @@ class Media3PlayerEngine @Inject constructor(
 
     private fun createPlayer(): ExoPlayer {
         val renderersFactory = buildRenderersFactory()
-        val bufferPolicy = PlaybackBufferPolicies.forPlayback(
+        val bufferPolicy = currentBufferPolicy ?: PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = currentResolvedStreamType,
             compatibilityMode = activeDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
-            lowMemoryDevice = isLowMemoryPlaybackDevice
+            lowMemoryDevice = isLowMemoryPlaybackDevice,
+            bufferMode = requestedPlaybackBufferMode,
+            streamInfo = lastStreamInfo,
+            observedVideoFormat = _videoFormat.value,
+            qualityReasonOverride = lastMediaId?.let(promotedLiveHlsBufferReasonsByMediaId::get)
         )
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
@@ -1105,6 +1138,16 @@ class Media3PlayerEngine @Inject constructor(
                 addAnalyticsListener(createAnalyticsListener())
                 addListener(createPlayerListener())
             }
+    }
+
+    private fun PlaybackBufferPolicy.describeForLog(
+        resolvedStreamType: ResolvedStreamType,
+        bufferMode: PlaybackBufferMode
+    ): String {
+        return "buffer-policy label=$label streamType=$resolvedStreamType mode=$bufferMode " +
+            "reason=$qualityReason minMs=$minBufferMs maxMs=$maxBufferMs " +
+            "playbackMs=$playbackBufferMs rebufferMs=$rebufferMs " +
+            "targetBytes=$targetBufferBytes lowMemoryCapped=$lowMemoryCapped"
     }
 
 
@@ -1616,6 +1659,41 @@ class Media3PlayerEngine @Inject constructor(
             playbackStarted = playbackStarted,
             liveBufferingRecoveryArmed = liveBufferingRecoveryArmed || playbackStartedRecoveryArmed
         )
+
+    private fun promoteLiveHlsBufferIfNeeded(): Boolean {
+        val streamInfo = lastStreamInfo ?: return false
+        val mediaId = lastMediaId ?: return false
+        val observedFormat = _videoFormat.value.takeUnless(VideoFormat::isEmpty) ?: return false
+        val decision = LiveHlsBufferPromotionDecider.decide(
+            bufferMode = requestedPlaybackBufferMode,
+            resolvedStreamType = currentResolvedStreamType,
+            isLive = isCurrentStreamLive(),
+            mediaAlreadyPromoted = mediaId in promotedLiveHlsBufferReasonsByMediaId,
+            currentPolicyLabel = currentBufferPolicyLabel,
+            streamInfo = streamInfo,
+            observedVideoFormat = observedFormat,
+            compatibilityMode = activeDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
+            lowMemoryDevice = isLowMemoryPlaybackDevice
+        ) ?: return false
+
+        promotedLiveHlsBufferReasonsByMediaId[mediaId] = decision.qualityReason
+        val wasPlaying = exoPlayer?.playWhenReady ?: true
+        Log.i(
+            TAG,
+            "buffer-policy promote mediaId=$mediaId from=${currentBufferPolicyLabel.orEmpty()} " +
+                "to=${decision.policy.label} reason=${decision.qualityReason} " +
+                "format=${observedFormat.width}x${observedFormat.height} " +
+                "bitrate=${observedFormat.bitrate} hdr=${observedFormat.isHdr} " +
+                "target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+        )
+        prepareInternal(
+            streamInfo = streamInfo,
+            preserveRetryState = true,
+            seekPositionMs = null,
+            autoPlay = wasPlaying
+        )
+        return true
+    }
 
     private fun handleVideoStall() {
         val streamInfo = lastStreamInfo ?: return

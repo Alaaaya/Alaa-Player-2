@@ -50,6 +50,7 @@ import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ProviderStatus
@@ -783,6 +784,12 @@ class SettingsViewModel @Inject constructor(
     fun setPlayerDecoderMode(mode: DecoderMode) {
         viewModelScope.launch {
             preferencesRepository.setPlayerDecoderMode(mode)
+        }
+    }
+
+    fun setPlayerPlaybackBufferMode(mode: PlaybackBufferMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerPlaybackBufferMode(mode)
         }
     }
 

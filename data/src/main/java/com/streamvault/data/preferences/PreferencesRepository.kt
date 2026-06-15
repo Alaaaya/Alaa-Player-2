@@ -31,6 +31,7 @@ import com.streamvault.domain.model.LiveChannelObservedQuality
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.AppTopLevelDestination
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantObservation
@@ -70,6 +71,10 @@ private fun sanitizePlaybackTimerMinutes(minutes: Int): Int = when (minutes) {
     in 76..105 -> 90
     else -> 120
 }
+
+internal fun parsePlaybackBufferModePreference(saved: String?): PlaybackBufferMode =
+    saved?.let { value -> PlaybackBufferMode.entries.firstOrNull { it.name == value } }
+        ?: PlaybackBufferMode.AUTO
 
 @Singleton
 class PreferencesRepository @Inject constructor(
@@ -142,6 +147,7 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_FAST_RETRY_ON_TRANSIENT_FAILURES =
             booleanPreferencesKey("player_fast_retry_on_transient_failures")
         val PLAYER_DECODER_MODE = stringPreferencesKey("player_decoder_mode")
+        val PLAYER_PLAYBACK_BUFFER_MODE = stringPreferencesKey("player_playback_buffer_mode")
         val PLAYER_LIVE_STREAM_FORMAT_MODE = stringPreferencesKey("player_live_stream_format_mode")
         val PLAYER_VOD_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_vod_http_protocol_mode")
         val LEGACY_PLAYER_MOVIE_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_movie_http_protocol_mode")
@@ -303,6 +309,10 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_DECODER_MODE]
             ?.let { saved -> DecoderMode.entries.firstOrNull { it.name == saved } }
             ?: DecoderMode.AUTO
+    }
+
+    val playerPlaybackBufferMode: Flow<PlaybackBufferMode> = context.dataStore.data.map { preferences ->
+        parsePlaybackBufferModePreference(preferences[PreferencesKeys.PLAYER_PLAYBACK_BUFFER_MODE])
     }
 
     val playerSurfaceMode: Flow<PlayerSurfaceMode> = context.dataStore.data.map { preferences ->
@@ -861,6 +871,12 @@ class PreferencesRepository @Inject constructor(
     suspend fun setPlayerDecoderMode(mode: DecoderMode) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.PLAYER_DECODER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setPlayerPlaybackBufferMode(mode: PlaybackBufferMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_PLAYBACK_BUFFER_MODE] = mode.name
         }
     }
 

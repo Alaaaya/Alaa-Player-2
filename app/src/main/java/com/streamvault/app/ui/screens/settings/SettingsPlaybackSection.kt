@@ -36,6 +36,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     viewModel: SettingsViewModel,
     timeshiftDepthLabel: String,
     decoderModeLabel: String,
+    playbackBufferModeLabel: String,
     audioOutputPreferenceLabel: String,
     externalPlaybackModeLabel: String,
     surfaceModeLabel: String,
@@ -59,6 +60,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     speedTestRecommendationLabel: String,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     onShowExternalPlaybackModeDialogChange: (Boolean) -> Unit,
     onShowSurfaceModeDialogChange: (Boolean) -> Unit,
@@ -273,6 +275,11 @@ internal fun LazyListScope.settingsPlaybackSection(
             label = stringResource(R.string.settings_decoder_mode),
             value = decoderModeLabel,
             onClick = { onShowDecoderModeDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_live_buffer_size),
+            value = playbackBufferModeLabel,
+            onClick = { onShowPlaybackBufferModeDialogChange(true) }
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_audio_output_mode),

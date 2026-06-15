@@ -8,6 +8,7 @@ import com.streamvault.app.R
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 
@@ -24,6 +25,8 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowAudioVideoOffsetDialogChange: (Boolean) -> Unit,
     showDecoderModeDialog: Boolean,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showPlaybackBufferModeDialog: Boolean,
+    onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     showAudioOutputPreferenceDialog: Boolean,
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     showSurfaceModeDialog: Boolean,
@@ -118,6 +121,33 @@ internal fun SettingsPlayerPreferenceDialogs(
                     onSelect = {
                         viewModel.setPlayerDecoderMode(option.first)
                         onShowDecoderModeDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showPlaybackBufferModeDialog) {
+        val bufferOptions = remember(context) {
+            listOf(
+                PlaybackBufferMode.AUTO to context.getString(R.string.settings_live_buffer_auto),
+                PlaybackBufferMode.SMALL to context.getString(R.string.settings_live_buffer_small),
+                PlaybackBufferMode.MEDIUM to context.getString(R.string.settings_live_buffer_medium),
+                PlaybackBufferMode.LARGE to context.getString(R.string.settings_live_buffer_large)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_live_buffer_size),
+            onDismiss = { onShowPlaybackBufferModeDialogChange(false) }
+        ) {
+            bufferOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerPlaybackBufferMode == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerPlaybackBufferMode(option.first)
+                        onShowPlaybackBufferModeDialogChange(false)
                     }
                 )
             }

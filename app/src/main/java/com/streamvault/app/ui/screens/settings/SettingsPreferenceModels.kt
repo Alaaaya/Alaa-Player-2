@@ -17,6 +17,7 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
@@ -53,6 +54,7 @@ internal data class SettingsPreferenceSnapshot(
     val playerMediaSessionEnabled: Boolean,
     val playerFastRetryOnTransientFailures: Boolean,
     val playerDecoderMode: DecoderMode,
+    val playerPlaybackBufferMode: PlaybackBufferMode,
     val playerAudioOutputPreference: AudioOutputPreference,
     val playerCompatibilityMemoryEnabled: Boolean,
     val playerSurfaceMode: PlayerSurfaceMode,

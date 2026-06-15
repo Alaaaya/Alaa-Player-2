@@ -575,6 +575,11 @@
     <string name="settings_decoder_hardware">Hardware Only</string>
     <string name="settings_decoder_software">Prefer Software Decoder</string>
     <string name="settings_decoder_compatibility">Compatibility Mode</string>
+    <string name="settings_live_buffer_size">Live buffer size</string>
+    <string name="settings_live_buffer_auto">Auto</string>
+    <string name="settings_live_buffer_small">Small</string>
+    <string name="settings_live_buffer_medium">Medium</string>
+    <string name="settings_live_buffer_large">Large</string>
     <string name="settings_audio_output_mode">Audio Output</string>
     <string name="settings_audio_output_auto">Auto</string>
     <string name="settings_audio_output_prefer_passthrough">Prefer passthrough</string>

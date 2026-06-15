@@ -17,6 +17,7 @@ import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
+import com.streamvault.domain.model.PlaybackBufferMode
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
@@ -51,6 +52,7 @@ internal fun observeSettingsPreferenceSnapshot(
             playerMediaSessionEnabled = true,
             playerFastRetryOnTransientFailures = false,
             playerDecoderMode = DecoderMode.AUTO,
+            playerPlaybackBufferMode = PlaybackBufferMode.AUTO,
             playerAudioOutputPreference = AudioOutputPreference.AUTO,
             playerCompatibilityMemoryEnabled = true,
             playerSurfaceMode = com.streamvault.domain.model.PlayerSurfaceMode.AUTO,
@@ -130,6 +132,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerFastRetryOnTransientFailures = enabled)
     }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
         snapshot.copy(playerDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerPlaybackBufferMode) { snapshot, bufferMode ->
+        snapshot.copy(playerPlaybackBufferMode = bufferMode)
     }.combine(preferencesRepository.playerAudioOutputPreference) { snapshot, audioOutputPreference ->
         snapshot.copy(playerAudioOutputPreference = audioOutputPreference)
     }.combine(preferencesRepository.playerCompatibilityMemoryEnabled) { snapshot, enabled ->

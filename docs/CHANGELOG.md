@@ -7,6 +7,7 @@ All notable product changes are recorded in this document.
 ### Fixed
 
 - Fixed Picture-in-Picture compatibility on Android 7.1 / API 25 devices.
+- Fixed 4K / UHD / HDR live HLS playback stability by allowing live streams to promote to deeper HLS buffer policies when metadata or observed video format indicates high-resolution or high-bitrate playback needs.
 - Fixed series episode preview fallback so missing or failed preview images still show the episode label instead of an empty tile.
 - Fixed live playback recovery so decoder failures can retry with an alternate stream format after a software-decoder attempt.
 - Fixed movie decoder fallback so HEVC playback failures can retry against an AVC/H.264 variant when another version is available.
@@ -33,6 +34,7 @@ All notable product changes are recorded in this document.
 - Added episode preview artwork in series details, preferring episode thumbnails and falling back to series poster/backdrop artwork when episode art is missing.
 - Added customizable Home dashboard shelves so users can hide default rows, enable extra built-in rows, and reorder the Home layout.
 - Added customizable top navigation so users can show, hide, and reorder primary tabs while keeping Settings always available and automatically constraining the default landing screen to visible tabs.
+- Added a `Live buffer size` playback setting with `Auto`, `Small`, `Medium`, and `Large` modes for tuning live-stream buffering behavior.
 - Added a playback setting to prefer live stream format selection with `Auto`, `HLS`, or `MPEG-TS` modes for Xtream live playback.
 - Added Movies duplicate handling with smart/grouped presentation, preferred version ranking, detail-page version selection, sticky manual choices, and playback observations for reliability-based movie variant selection.
 - Added Series duplicate handling with smart/grouped browse and search presentation, preferred version ranking, detail-page version selection with sticky manual choice, and raw-safe favorites/custom-group actions across grouped variants.
@@ -46,6 +48,8 @@ All notable product changes are recorded in this document.
 ### Changed
 
 - Changed the app minimum supported Android version to Android 7.1 / API 25.
+- Changed live HLS buffering to use content-aware auto scaling instead of one fixed live profile, keeping normal HD channels responsive while automatically using deeper buffers for detected or observed UHD / HDR / high-bitrate streams.
+- Changed low-memory playback devices to cap automatic UHD live-HLS buffer promotion at the medium profile instead of always jumping to the largest buffer target.
 - Changed the Stalker `Device profile` field label in setup to `MAG Type` while keeping the same underlying saved value and behavior.
 
 ## [1.0.14] - 2026-06-06

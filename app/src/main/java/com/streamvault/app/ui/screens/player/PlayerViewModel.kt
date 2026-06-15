@@ -666,6 +666,13 @@ class PlayerViewModel @Inject constructor(
                 }
         }
         viewModelScope.launch {
+            preferencesRepository.playerPlaybackBufferMode
+                .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
+                .collect { (engine, mode) ->
+                    engine.setPlaybackBufferMode(mode)
+                }
+        }
+        viewModelScope.launch {
             preferencesRepository.playerAudioOutputPreference
                 .combine(activePlayerEngineFlow) { preference, engine -> engine to preference }
                 .collect { (engine, preference) ->
@@ -1145,6 +1152,7 @@ class PlayerViewModel @Inject constructor(
             ethernetMaxHeight = preferencesRepository.playerEthernetMaxVideoHeight.first()
         )
         playerEngine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
+        playerEngine.setPlaybackBufferMode(preferencesRepository.playerPlaybackBufferMode.first())
         playerEngine.setVodHttpProtocolMode(preferencesRepository.playerVodHttpProtocolMode.first())
         playerEngine.setFastRetryOnTransientFailures(preferencesRepository.playerFastRetryOnTransientFailures.first())
         playerEngine.setAudioVideoOffsetMs(_audioVideoOffsetUiState.value.effectiveOffsetMs)
