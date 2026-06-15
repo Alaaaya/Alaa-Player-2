@@ -5,10 +5,12 @@ import androidx.media3.common.text.Cue
 import com.streamvault.player.LiveAudioPcmBuffer
 import com.streamvault.player.PlayerEngine
 import java.io.ByteArrayOutputStream
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,7 +35,7 @@ private const val MIN_PARTIAL_DISPLAY_MS = 1_500L
 // Clear the caption after this much idle time with no new text (TV-caption feel).
 private const val SUBTITLE_LINGER_MS = 20_000L
 
-private data class CaptionTick(
+internal data class CaptionTick(
     val text: String,
     val isFinal: Boolean,
     val chunkId: Long
@@ -55,7 +57,6 @@ class LiveTranslationSession(
     // Latest pending caption text waiting to be displayed. Conflated: if several
     // updates arrive during a dwell, only the most recent is kept.
     private var captionUpdates = newCaptionChannel()
-    private var hasVisibleCaption = false
 
     fun start() {
         stop()
@@ -151,30 +152,17 @@ class LiveTranslationSession(
         )
     }
 
-    /**
-     * Paces caption changes for readability: every rendered text dwells on screen
-     * (finals [MIN_CAPTION_DISPLAY_MS], partials [MIN_PARTIAL_DISPLAY_MS]) before
-     * the line may change. The channel is conflated, so after a dwell we always
-     * jump straight to the newest text — pacing can never build up a backlog.
-     * Clears after [SUBTITLE_LINGER_MS] of no updates.
-     */
+    // Pacing/coalescing of caption changes lives in [runCaptionDisplayLoop] so it
+    // can be unit-tested without the audio/network plumbing.
     private suspend fun displayLoop() {
-        while (scope.isActive) {
-            val result = withTimeoutOrNull(SUBTITLE_LINGER_MS) { captionUpdates.receiveCatching() }
-            if (result == null) {
-                if (hasVisibleCaption) clearCues()
-                continue
-            }
-            val tick = result.getOrNull() ?: break // channel closed -> session ended
-            showCaptionTick(tick)
-        }
-    }
-
-    private suspend fun showCaptionTick(tick: CaptionTick) {
-        if (tick.text.isBlank()) return
-        renderCaption(tick.text)
-        hasVisibleCaption = true
-        delay(if (tick.isFinal) MIN_CAPTION_DISPLAY_MS else MIN_PARTIAL_DISPLAY_MS)
+        runCaptionDisplayLoop(
+            captionUpdates = captionUpdates,
+            lingerMs = SUBTITLE_LINGER_MS,
+            finalDwellMs = MIN_CAPTION_DISPLAY_MS,
+            partialDwellMs = MIN_PARTIAL_DISPLAY_MS,
+            render = ::renderCaption,
+            clear = ::clearCues
+        )
     }
 
     private fun renderCaption(text: String) {
@@ -184,8 +172,49 @@ class LiveTranslationSession(
     }
 
     private fun clearCues() {
-        hasVisibleCaption = false
         playerEngine.clearInjectedSubtitleCues()
+    }
+}
+
+/**
+ * Paces caption changes for readability: each rendered line dwells on screen
+ * ([finalDwellMs] for finals, [partialDwellMs] for partials) before the line may
+ * change, and [clear] is invoked after [lingerMs] of no new text.
+ *
+ * [captionUpdates] is expected to be a *conflated* channel: while a line is
+ * dwelling, newer updates collapse to the most recent one, so after the dwell we
+ * jump straight to the latest text and pacing can never build up a backlog.
+ *
+ * Intentional tradeoff: because only the newest pending update survives the dwell
+ * window, a finalized phrase can be skipped entirely if a newer (partial) update
+ * arrives before its predecessor's dwell elapses. This is deliberate — we favour
+ * showing the most current state over replaying superseded revisions, accepting
+ * that an occasional finalized phrase is never rendered. See
+ * LiveTranslationCaptionPacingTest for the behavior this guarantees.
+ */
+internal suspend fun runCaptionDisplayLoop(
+    captionUpdates: ReceiveChannel<CaptionTick>,
+    lingerMs: Long,
+    finalDwellMs: Long,
+    partialDwellMs: Long,
+    render: (String) -> Unit,
+    clear: () -> Unit
+) {
+    var hasVisibleCaption = false
+    while (coroutineContext.isActive) {
+        val result = withTimeoutOrNull(lingerMs) { captionUpdates.receiveCatching() }
+        if (result == null) {
+            if (hasVisibleCaption) {
+                clear()
+                hasVisibleCaption = false
+            }
+            continue
+        }
+        val tick = result.getOrNull() ?: break // channel closed -> session ended
+        if (tick.text.isBlank()) continue
+        render(tick.text)
+        hasVisibleCaption = true
+        delay(if (tick.isFinal) finalDwellMs else partialDwellMs)
     }
 }
 

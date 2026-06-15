@@ -11,15 +11,17 @@ model, tuning), see [LOCAL_LIVE_TRANSLATION.md](LOCAL_LIVE_TRANSLATION.md).
 
 ## Start
 
+Run from the repository root:
+
 ```bash
-/Users/a/Desktop/iptv-ui/tools/live-translation-service/run-native.sh
+./tools/live-translation-service/run-native.sh
 ```
 
 Runs in the foreground on port **8765** (Ctrl-C to stop). To keep it running
 after the terminal closes, start it in the background with logging:
 
 ```bash
-nohup /Users/a/Desktop/iptv-ui/tools/live-translation-service/run-native.sh \
+nohup ./tools/live-translation-service/run-native.sh \
   >> ~/Library/Logs/live-translation.log 2>&1 &
 ```
 
@@ -66,9 +68,11 @@ Sessions are in-memory only; stopping mid-playback is safe. The app shows
 
 ## Restart (e.g. after changing settings)
 
+From the repository root:
+
 ```bash
 kill $(lsof -ti :8765)
-nohup /Users/a/Desktop/iptv-ui/tools/live-translation-service/run-native.sh \
+nohup ./tools/live-translation-service/run-native.sh \
   >> ~/Library/Logs/live-translation.log 2>&1 &
 sleep 5 && curl -s http://localhost:8765/health
 ```
@@ -76,11 +80,12 @@ sleep 5 && curl -s http://localhost:8765/health
 ## After a reboot
 
 The service does **not** start automatically — you must rerun the start
-command. A LaunchAgent can't do it: macOS privacy protection (TCC) blocks
-launchd background processes from reading anything under `~/Desktop`, where
-this repo lives ("Operation not permitted"). If auto-start ever matters,
-either move the repo out of `~/Desktop` or grant `/bin/zsh` Full Disk Access
-in System Settings → Privacy & Security.
+command. A LaunchAgent can't reliably do it if the repo is checked out under a
+TCC-protected location such as `~/Desktop`, `~/Documents`, or `~/Downloads`:
+macOS privacy protection blocks launchd background processes from reading those
+directories ("Operation not permitted"). If auto-start matters, check the repo
+out somewhere unprotected (e.g. `~/src`) or grant `/bin/zsh` Full Disk Access in
+System Settings → Privacy & Security.
 
 ## Endpoints the app uses
 

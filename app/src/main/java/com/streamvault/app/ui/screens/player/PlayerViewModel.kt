@@ -359,8 +359,10 @@ class PlayerViewModel @Inject constructor(
     internal var playbackTimerDefaultsApplied = false
     internal var sleepTimerExitEmitted = false
     internal var activeStalkerPlaybackProviderId: Long? = null
-    internal val _liveTranslationEnabled = MutableStateFlow(false)
-    val liveTranslationEnabled: StateFlow<Boolean> = _liveTranslationEnabled.asStateFlow()
+    internal val _liveTranslationAvailable = MutableStateFlow(false)
+    val liveTranslationAvailable: StateFlow<Boolean> = _liveTranslationAvailable.asStateFlow()
+    internal val _liveTranslationActive = MutableStateFlow(false)
+    val liveTranslationActive: StateFlow<Boolean> = _liveTranslationActive.asStateFlow()
     internal val _liveTranslationDetectedLanguage = MutableStateFlow<String?>(null)
     val liveTranslationDetectedLanguage: StateFlow<String?> = _liveTranslationDetectedLanguage.asStateFlow()
     internal var liveTranslationSession: LiveTranslationSession? = null
@@ -546,9 +548,8 @@ class PlayerViewModel @Inject constructor(
                 .collect { (engine, style) -> engine.setSubtitleStyle(style) }
         }
         viewModelScope.launch {
-            preferencesRepository.playerLiveTranslationEnabled.collect { enabled ->
-                _liveTranslationEnabled.value = enabled
-                evaluateLiveTranslationSession()
+            preferencesRepository.playerLiveTranslationEnabled.collect {
+                refreshLiveTranslationAvailability()
             }
         }
         viewModelScope.launch {
@@ -996,7 +997,7 @@ class PlayerViewModel @Inject constructor(
     internal fun beginPlaybackSession(): Long {
         recoveryJob?.cancel()
         thumbnailPreloadJob?.cancel()
-        stopLiveTranslationSession(clearEnabledState = false)
+        stopLiveTranslationSession()
         hasRetriedXtreamAuthRefresh = false
         lastRecordedVariantObservationSignature = null
         livePlaybackReadyForCurrentSession = false
@@ -1275,7 +1276,7 @@ class PlayerViewModel @Inject constructor(
         currentResolvedStreamInfo = preparedStreamInfo
         readySideEffectsRequestVersion = requestVersion
         playerEngine.prepare(preparedStreamInfo)
-        evaluateLiveTranslationSession()
+        refreshLiveTranslationAvailability()
         startTokenRenewalMonitoring(preparedStreamInfo.expirationTime)
         maybeStartLiveTimeshift(preparedStreamInfo)
         return true

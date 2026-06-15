@@ -1,53 +1,52 @@
 package com.streamvault.app.ui.screens.player
 
+import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderType
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Test
 
 class PlayerLiveTranslationActionsTest {
 
     @Test
     fun shouldEnableLiveTranslationSession_requiresEnabledSupportedProviderAndLiveContent() {
-        assertTrue(
+        assertThat(
             shouldEnableLiveTranslationSession(
                 enabledPreference = true,
                 contentType = ContentType.LIVE,
                 providerType = ProviderType.XTREAM_CODES
             )
-        )
+        ).isTrue()
 
-        assertFalse(
+        assertThat(
             shouldEnableLiveTranslationSession(
                 enabledPreference = false,
                 contentType = ContentType.LIVE,
                 providerType = ProviderType.XTREAM_CODES
             )
-        )
+        ).isFalse()
 
-        assertFalse(
+        assertThat(
             shouldEnableLiveTranslationSession(
                 enabledPreference = true,
                 contentType = ContentType.MOVIE,
                 providerType = ProviderType.XTREAM_CODES
             )
-        )
+        ).isFalse()
 
-        assertFalse(
+        assertThat(
             shouldEnableLiveTranslationSession(
                 enabledPreference = true,
                 contentType = ContentType.LIVE,
                 providerType = ProviderType.STALKER_PORTAL
             )
-        )
+        ).isFalse()
 
-        assertTrue(
+        assertThat(
             shouldEnableLiveTranslationSession(
                 enabledPreference = true,
                 contentType = ContentType.LIVE,
                 providerType = ProviderType.M3U
             )
-        )
+        ).isTrue()
     }
 }

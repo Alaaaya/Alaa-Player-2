@@ -1110,6 +1110,7 @@
     <string name="player_track_audio">Select Audio Track</string>
     <string name="player_track_subs">Select Subtitles</string>
     <string name="player_track_off">Off</string>
+    <string name="player_track_live_translation">Real-time translation</string>
     <string name="player_video_quality">Video Quality</string>
     <string name="player_stream_format">Stream Format</string>
     <string name="player_channel_variants">Channel Variants</string>

@@ -1,11 +1,13 @@
 package com.streamvault.app.player
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import com.google.common.truth.Truth.assertThat
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+// parseTranslationUpdate relies on org.json, which is only a throwing stub in
+// plain JVM unit tests; Robolectric supplies a real implementation.
+@RunWith(RobolectricTestRunner::class)
 class LiveTranslationClientTest {
 
     @Test
@@ -22,10 +24,10 @@ class LiveTranslationClientTest {
 
         val update = parseTranslationUpdate(payload)
 
-        assertEquals(7L, update.chunkId)
-        assertTrue(update.isFinal)
-        assertEquals("hello world", update.text)
-        assertEquals("es", update.sourceLanguage)
+        assertThat(update.chunkId).isEqualTo(7L)
+        assertThat(update.isFinal).isTrue()
+        assertThat(update.text).isEqualTo("hello world")
+        assertThat(update.sourceLanguage).isEqualTo("es")
     }
 
     @Test
@@ -41,9 +43,9 @@ class LiveTranslationClientTest {
 
         val update = parseTranslationUpdate(payload)
 
-        assertEquals(8L, update.chunkId)
-        assertFalse(update.isFinal)
-        assertEquals("", update.text)
-        assertNull(update.sourceLanguage)
+        assertThat(update.chunkId).isEqualTo(8L)
+        assertThat(update.isFinal).isFalse()
+        assertThat(update.text).isEqualTo("")
+        assertThat(update.sourceLanguage).isNull()
     }
 }
