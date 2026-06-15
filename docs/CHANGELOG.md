@@ -7,6 +7,7 @@ All notable product changes are recorded in this document.
 ### Fixed
 
 - Fixed Picture-in-Picture compatibility on Android 7.1 / API 25 devices.
+- Fixed live custom-group counts so badges include grouped favorites correctly, no longer show zero for populated groups, and follow the same grouped channel count users see when opening a group.
 - Fixed 4K / UHD / HDR live HLS playback stability by allowing live streams to promote to deeper HLS buffer policies when metadata or observed video format indicates high-resolution or high-bitrate playback needs.
 - Fixed series episode preview fallback so missing or failed preview images still show the episode label instead of an empty tile.
 - Fixed live playback recovery so decoder failures can retry with an alternate stream format after a software-decoder attempt.

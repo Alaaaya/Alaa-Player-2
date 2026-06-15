@@ -3035,6 +3035,9 @@ abstract class FavoriteDao {
     @Query("SELECT * FROM favorites WHERE provider_id = :providerId AND content_type = :contentType ORDER BY position ASC")
     abstract fun getAllByType(providerId: Long, contentType: String): Flow<List<FavoriteEntity>>
 
+    @Query("SELECT * FROM favorites WHERE provider_id IN (:providerIds) AND content_type = :contentType ORDER BY provider_id ASC, position ASC")
+    abstract fun getAllByTypeForProviders(providerIds: List<Long>, contentType: String): Flow<List<FavoriteEntity>>
+
     @Query(
         """
         SELECT f.*
