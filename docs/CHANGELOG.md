@@ -32,6 +32,7 @@ All notable product changes are recorded in this document.
 
 ### Added
 
+- Added optional real-time translation subtitles for supported live playback, with subtitle-menu activation, a configurable external translation-service endpoint, and local Whisper service setup documentation.
 - Added episode preview artwork in series details, preferring episode thumbnails and falling back to series poster/backdrop artwork when episode art is missing.
 - Added customizable Home dashboard shelves so users can hide default rows, enable extra built-in rows, and reorder the Home layout.
 - Added customizable top navigation so users can show, hide, and reorder primary tabs while keeping Settings always available and automatically constraining the default landing screen to visible tabs.
