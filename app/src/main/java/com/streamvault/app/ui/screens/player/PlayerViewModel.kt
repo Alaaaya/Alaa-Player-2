@@ -10,10 +10,12 @@ import com.streamvault.app.cast.CastMediaRequest
 import com.streamvault.app.cast.CastStartResult
 import com.streamvault.app.di.MainPlayerEngine
 import com.streamvault.app.player.LivePreviewHandoffManager
+import com.streamvault.app.player.LiveTranslationSession
 import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
+import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.security.CredentialDecryptionException
@@ -50,6 +52,7 @@ import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.SeriesRepository
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.player.Media3PlayerEngine
 import com.streamvault.player.AUDIO_VIDEO_OFFSET_MAX_MS
 import com.streamvault.player.AUDIO_VIDEO_OFFSET_MIN_MS
@@ -106,7 +109,9 @@ class PlayerViewModel @Inject constructor(
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
-    private val okHttpClient: OkHttpClient,
+    internal val syncManager: SyncManager,
+    private val downloadManager: DownloadManager,
+    internal val okHttpClient: OkHttpClient,
 ) : ViewModel() {
     companion object {
         private const val MAX_PROGRAM_HISTORY_ITEMS = 18
@@ -360,6 +365,17 @@ class PlayerViewModel @Inject constructor(
     private var defaultIdleStandbyTimerMinutes: Int = 0
     internal var playbackTimerDefaultsApplied = false
     internal var sleepTimerExitEmitted = false
+    internal var activeStalkerPlaybackProviderId: Long? = null
+    internal val _liveTranslationAvailable = MutableStateFlow(false)
+    val liveTranslationAvailable: StateFlow<Boolean> = _liveTranslationAvailable.asStateFlow()
+    internal val _liveTranslationActive = MutableStateFlow(false)
+    val liveTranslationActive: StateFlow<Boolean> = _liveTranslationActive.asStateFlow()
+    internal val _liveTranslationDetectedLanguage = MutableStateFlow<String?>(null)
+    val liveTranslationDetectedLanguage: StateFlow<String?> = _liveTranslationDetectedLanguage.asStateFlow()
+    internal var liveTranslationSession: LiveTranslationSession? = null
+    private var downloadPlaybackSlotActive = false
+    private var currentPlaybackUsesDownloadSlot = false
+    private var externalProviderPlaybackHold = false
 
     val castConnectionState: StateFlow<CastConnectionState> = castManager.connectionState
 
@@ -527,6 +543,11 @@ class PlayerViewModel @Inject constructor(
                 )
             }.combine(activePlayerEngineFlow) { style, engine -> engine to style }
                 .collect { (engine, style) -> engine.setSubtitleStyle(style) }
+        }
+        viewModelScope.launch {
+            preferencesRepository.playerLiveTranslationEnabled.collect {
+                refreshLiveTranslationAvailability()
+            }
         }
         viewModelScope.launch {
             combine(
@@ -1002,6 +1023,7 @@ class PlayerViewModel @Inject constructor(
     internal fun beginPlaybackSession(): Long {
         recoveryJob?.cancel()
         thumbnailPreloadJob?.cancel()
+        stopLiveTranslationSession()
         hasRetriedXtreamAuthRefresh = false
         lastRecordedVariantObservationSignature = null
         lastRecordedVodVariantObservationSignature = null
@@ -1298,6 +1320,7 @@ class PlayerViewModel @Inject constructor(
         currentResolvedStreamInfo = preparedStreamInfo
         readySideEffectsRequestVersion = requestVersion
         playerEngine.prepare(preparedStreamInfo)
+        refreshLiveTranslationAvailability()
         startTokenRenewalMonitoring(preparedStreamInfo.expirationTime)
         maybeStartLiveTimeshift(preparedStreamInfo)
         return true

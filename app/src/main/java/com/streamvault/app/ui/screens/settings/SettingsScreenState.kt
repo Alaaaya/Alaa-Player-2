@@ -39,6 +39,7 @@ internal data class SettingsScreenLabels(
     val subtitleSizeLabel: String,
     val subtitleTextColorLabel: String,
     val subtitleBackgroundLabel: String,
+    val liveTranslationEndpointLabel: String,
     val wifiQualityLabel: String,
     val ethernetQualityLabel: String,
     val timeshiftDepthLabel: String,
@@ -122,6 +123,9 @@ internal fun rememberSettingsScreenLabels(
     val subtitleBackgroundLabel = remember(uiState.subtitleBackgroundColor, context) {
         formatSubtitleColorLabel(uiState.subtitleBackgroundColor, subtitleBackgroundColorOptions(context))
     }
+    val liveTranslationEndpointLabel = remember(uiState.playerLiveTranslationEndpoint) {
+        uiState.playerLiveTranslationEndpoint
+    }
     val wifiQualityLabel = remember(uiState.wifiMaxVideoHeight, context) {
         formatQualityCapLabel(uiState.wifiMaxVideoHeight, context.getString(R.string.settings_quality_cap_auto))
     }
@@ -196,6 +200,7 @@ internal fun rememberSettingsScreenLabels(
         subtitleSizeLabel = subtitleSizeLabel,
         subtitleTextColorLabel = subtitleTextColorLabel,
         subtitleBackgroundLabel = subtitleBackgroundLabel,
+        liveTranslationEndpointLabel = liveTranslationEndpointLabel,
         wifiQualityLabel = wifiQualityLabel,
         ethernetQualityLabel = ethernetQualityLabel,
         timeshiftDepthLabel = timeshiftDepthLabel,

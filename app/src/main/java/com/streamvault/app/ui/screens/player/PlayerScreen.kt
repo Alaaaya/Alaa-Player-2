@@ -200,6 +200,8 @@ fun PlayerScreen(
     val availableAudioTracks by viewModel.availableAudioTracks.collectAsStateWithLifecycle()
     val availableSubtitleTracks by viewModel.availableSubtitleTracks.collectAsStateWithLifecycle()
     val availableVideoQualities by viewModel.availableVideoQualities.collectAsStateWithLifecycle()
+    val liveTranslationAvailable by viewModel.liveTranslationAvailable.collectAsStateWithLifecycle()
+    val liveTranslationActive by viewModel.liveTranslationActive.collectAsStateWithLifecycle()
     val aspectRatio by viewModel.aspectRatio.collectAsStateWithLifecycle()
     val showDiagnostics by viewModel.showDiagnostics.collectAsStateWithLifecycle()
     val playerDiagnostics by viewModel.playerDiagnostics.collectAsStateWithLifecycle()
@@ -990,6 +992,7 @@ fun PlayerScreen(
             displayChannelNumber = displayChannelNumber,
             aspectRatioLabel = aspectRatio.modeName,
             subtitleTrackCount = availableSubtitleTracks.size,
+            liveTranslationAvailable = liveTranslationAvailable,
             audioTrackCount = availableAudioTracks.size,
             videoQualityCount = availableVideoQualities.size,
             currentRecordingStatus = currentChannelRecording?.status,
@@ -1126,10 +1129,19 @@ fun PlayerScreen(
                 audioTracks = availableAudioTracks,
                 subtitleTracks = availableSubtitleTracks,
                 videoTracks = availableVideoQualities,
+                liveTranslationAvailable = liveTranslationAvailable,
+                liveTranslationActive = liveTranslationActive,
                 onDismiss = { showTrackSelection = null },
                 onSelectAudio = viewModel::selectAudioTrack,
                 onSelectVideo = viewModel::selectVideoQuality,
-                onSelectSubtitle = viewModel::selectSubtitleTrack
+                onSelectSubtitle = { trackId ->
+                    viewModel.deactivateLiveTranslation()
+                    viewModel.selectSubtitleTrack(trackId)
+                },
+                onSelectLiveTranslation = {
+                    viewModel.selectSubtitleTrack(null)
+                    viewModel.activateLiveTranslation()
+                }
             )
             ChannelVariantSelectionDialog(
                 visible = showVariantSelection,
@@ -1341,6 +1353,7 @@ fun PlayerScreen(
                     isDiagnosticsEnabled = showDiagnostics,
                     onOpenSplitScreen = { showSplitDialog = true },
                     subtitleTrackCount = availableSubtitleTracks.size,
+                    liveTranslationAvailable = liveTranslationAvailable,
                     audioTrackCount = availableAudioTracks.size,
                     videoQualityCount = availableVideoQualities.size,
                     channelVariantCount = currentChannel?.variants?.size ?: 0,
@@ -1398,6 +1411,7 @@ private fun PlayerControlsOverlayHost(
     displayChannelNumber: Int,
     aspectRatioLabel: String,
     subtitleTrackCount: Int,
+    liveTranslationAvailable: Boolean,
     audioTrackCount: Int,
     videoQualityCount: Int,
     currentRecordingStatus: com.streamvault.domain.model.RecordingStatus?,
@@ -1460,6 +1474,7 @@ private fun PlayerControlsOverlayHost(
         duration = duration,
         aspectRatioLabel = aspectRatioLabel,
         subtitleTrackCount = subtitleTrackCount,
+        liveTranslationAvailable = liveTranslationAvailable,
         audioTrackCount = audioTrackCount,
         videoQualityCount = videoQualityCount,
         currentRecordingStatus = currentRecordingStatus,
