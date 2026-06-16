@@ -177,6 +177,43 @@ class ChannelRepositoryImplTest {
     }
 
     @Test
+    fun `getChannelsByCategory filters hash wrapped provider headers`() = runTest {
+        whenever(channelDao.getByCategory(7L, 10L)).thenReturn(
+            flowOf(
+                listOf(
+                    ChannelBrowseEntity(
+                        id = 1L,
+                        streamId = 101L,
+                        name = "#### GENERAL HD/4K ####",
+                        categoryId = 10L,
+                        categoryName = "News",
+                        streamUrl = "https://stream/header",
+                        number = 1,
+                        providerId = 7L
+                    ),
+                    ChannelBrowseEntity(
+                        id = 2L,
+                        streamId = 102L,
+                        name = "News One HD",
+                        categoryId = 10L,
+                        categoryName = "News",
+                        streamUrl = "https://stream/news-one",
+                        number = 2,
+                        providerId = 7L
+                    )
+                )
+            )
+        )
+        whenever(parentalControlManager.unlockedCategoriesForProvider(7L)).thenReturn(flowOf(emptySet()))
+
+        val repository = createRepository()
+
+        val result = repository.getChannelsByCategory(7L, 10L).first()
+
+        assertThat(result.map { it.name }).containsExactly("News One")
+    }
+
+    @Test
     fun `offset pages keep group numbering relative to full list`() = runTest {
         whenever(channelDao.getByProviderWithoutErrorsBrowsePageOffset(7L, 60, 60)).thenReturn(
             listOf(
