@@ -115,6 +115,7 @@ class PreferencesRepository @Inject constructor(
         val SHOW_RECENT_CHANNELS_CATEGORY = booleanPreferencesKey("show_recent_channels_category")
         val LIVE_TV_CATEGORY_FILTERS = stringPreferencesKey("live_tv_category_filters")
         val LIVE_TV_QUICK_FILTER_VISIBILITY = stringPreferencesKey("live_tv_quick_filter_visibility")
+        val HIDE_DECORATIVE_LIVE_ROWS = booleanPreferencesKey("hide_decorative_live_rows")
         val LIVE_CHANNEL_NUMBERING_MODE = stringPreferencesKey("live_channel_numbering_mode")
         val LIVE_CHANNEL_GROUPING_MODE = stringPreferencesKey("live_channel_grouping_mode")
         val GROUPED_CHANNEL_LABEL_MODE = stringPreferencesKey("grouped_channel_label_mode")
@@ -1429,6 +1430,16 @@ class PreferencesRepository @Inject constructor(
         }
         setLiveTvCategoryFilters(updated)
         return true
+    }
+
+    val hideDecorativeLiveRows: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.HIDE_DECORATIVE_LIVE_ROWS] ?: true
+    }
+
+    suspend fun setHideDecorativeLiveRows(hide: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.HIDE_DECORATIVE_LIVE_ROWS] = hide
+        }
     }
 
     val liveChannelNumberingMode: Flow<ChannelNumberingMode> = context.dataStore.data.map { preferences ->

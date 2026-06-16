@@ -408,6 +408,9 @@ abstract class ChannelDao {
     )
     abstract suspend fun getByLogicalGroupId(providerId: Long, logicalGroupId: String): List<ChannelBrowseEntity>
 
+    @Query("SELECT category_id, COUNT(*) as item_count FROM channels WHERE provider_id = :providerId AND category_id IS NOT NULL GROUP BY category_id")
+    abstract fun getRawCategoryCounts(providerId: Long): Flow<List<CategoryCount>>
+
     @Query(
         """
         SELECT category_id, COUNT(*) as item_count
@@ -433,11 +436,32 @@ abstract class ChannelDao {
         FROM channels
         WHERE provider_id = :providerId
           AND category_id IS NOT NULL
+        GROUP BY category_id
+        """
+    )
+    abstract fun getRawGroupedCategoryCounts(providerId: Long): Flow<List<CategoryCount>>
+
+    @Query(
+        """
+        SELECT
+            category_id,
+            COUNT(
+                DISTINCT CASE
+                    WHEN logical_group_id IS NOT NULL AND logical_group_id != '' THEN logical_group_id
+                    ELSE CAST(id AS TEXT)
+                END
+            ) AS item_count
+        FROM channels
+        WHERE provider_id = :providerId
+          AND category_id IS NOT NULL
           AND NOT (TRIM(name) LIKE '##%' AND TRIM(name) LIKE '%##')
         GROUP BY category_id
         """
     )
     abstract fun getGroupedCategoryCounts(providerId: Long): Flow<List<CategoryCount>>
+
+    @Query("SELECT COUNT(*) FROM channels WHERE provider_id = :providerId")
+    abstract fun getRawCount(providerId: Long): Flow<Int>
 
     @Query(
         """
