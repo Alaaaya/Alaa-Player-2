@@ -11,10 +11,13 @@ permissions:
 
 jobs:
   build-beta:
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Read app version
         id: app_version
@@ -41,7 +44,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
           cache: gradle
 
       - name: Set up Gradle
@@ -80,10 +83,12 @@ jobs:
         run: |
           mkdir -p dist
           APK_PATH=$(find app/build/outputs/apk/beta -maxdepth 1 -name '*.apk' | head -n 1)
+
           if [ -z "$APK_PATH" ]; then
             echo "No beta APK produced."
             exit 1
           fi
+
           cp "$APK_PATH" "dist/${{ steps.app_version.outputs.apk_name }}"
           cp "$APK_PATH" dist/StreamVault-beta.apk
 
@@ -97,11 +102,13 @@ jobs:
 
   publish-beta:
     needs: build-beta
-    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Read app version
         id: app_version
@@ -110,6 +117,12 @@ jobs:
           VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)
           SHORT_SHA="${GITHUB_SHA::7}"
           BETA_SEQUENCE=$(printf "%06d.%02d" "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT")
+
+          if [ -z "$VERSION_NAME" ]; then
+            echo "Failed to read app version from app/build.gradle.kts"
+            exit 1
+          fi
+
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "beta_sequence=$BETA_SEQUENCE" >> "$GITHUB_OUTPUT"
@@ -125,6 +138,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.app_version.outputs.beta_tag }}
+          target_commitish: ${{ github.sha }}
           name: StreamVault Beta ${{ steps.app_version.outputs.version_name }} build ${{ steps.app_version.outputs.beta_sequence }}
           body: |
             Automated beta build from `develop`.
