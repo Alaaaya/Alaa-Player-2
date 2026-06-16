@@ -93,6 +93,7 @@ internal fun observeSettingsPreferenceSnapshot(
             remoteShortcutPreferences = com.streamvault.domain.model.RemoteShortcutPreferences(),
             liveTvCategoryFilters = emptyList(),
             liveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.ALWAYS_VISIBLE,
+            hideDecorativeLiveRows = true,
             liveChannelNumberingMode = ChannelNumberingMode.GROUP,
             liveChannelGroupingMode = LiveChannelGroupingMode.RAW_VARIANTS,
             groupedChannelLabelMode = GroupedChannelLabelMode.HYBRID,
@@ -218,6 +219,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(
             liveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.fromStorage(visibilityMode)
         )
+    }.combine(preferencesRepository.hideDecorativeLiveRows) { snapshot, hideDecorativeLiveRows ->
+        snapshot.copy(hideDecorativeLiveRows = hideDecorativeLiveRows)
     }.combine(preferencesRepository.liveChannelNumberingMode) { snapshot, liveChannelNumberingMode ->
         snapshot.copy(liveChannelNumberingMode = liveChannelNumberingMode)
     }.combine(preferencesRepository.liveChannelGroupingMode) { snapshot, liveChannelGroupingMode ->

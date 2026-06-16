@@ -171,6 +171,28 @@ internal fun LazyListScope.settingsBrowsingSection(
             value = stringResource(uiState.liveTvQuickFilterVisibilityMode.labelResId()),
             onClick = { onShowLiveTvQuickFilterVisibilityDialogChange(true) }
         )
+        TvClickableSurface(
+            onClick = { viewModel.setHideDecorativeLiveRows(!uiState.hideDecorativeLiveRows) },
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Primary.copy(alpha = 0.15f)
+            ),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = stringResource(R.string.settings_hide_decorative_live_rows), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                    Text(text = stringResource(R.string.settings_hide_decorative_live_rows_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                }
+                Switch(checked = uiState.hideDecorativeLiveRows, onCheckedChange = { viewModel.setHideDecorativeLiveRows(it) })
+            }
+        }
         ClickableSettingsRow(
             label = stringResource(R.string.settings_live_channel_numbering_mode),
             value = stringResource(uiState.liveChannelNumberingMode.labelResId()),

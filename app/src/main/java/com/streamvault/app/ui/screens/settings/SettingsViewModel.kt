@@ -565,6 +565,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setHideDecorativeLiveRows(hide: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setHideDecorativeLiveRows(hide)
+        }
+    }
+
     fun setLiveChannelGroupingMode(mode: LiveChannelGroupingMode) {
         viewModelScope.launch {
             preferencesRepository.setLiveChannelGroupingMode(mode)

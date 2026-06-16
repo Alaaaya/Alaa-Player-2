@@ -216,6 +216,8 @@
     <string name="settings_live_channel_grouping_grouped_desc">Show one logical live channel with selectable variants.</string>
     <string name="settings_live_channel_grouping_raw_variants">Raw Variants</string>
     <string name="settings_live_channel_grouping_raw_variants_desc">Show every imported live stream as its own channel entry.</string>
+    <string name="settings_hide_decorative_live_rows">Hide decorative provider rows</string>
+    <string name="settings_hide_decorative_live_rows_subtitle">Hide non-playable section headers such as `#### GENERAL HD/4K ####` from Live TV lists and counts.</string>
     <string name="settings_grouped_channel_label_mode">Grouped label style</string>
     <string name="settings_grouped_channel_label_mode_subtitle">Control how grouped live channels are named in browse surfaces and overlays.</string>
     <string name="settings_grouped_channel_label_canonical">Canonical</string>

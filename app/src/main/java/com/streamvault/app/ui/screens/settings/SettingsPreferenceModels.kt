@@ -95,6 +95,7 @@ internal data class SettingsPreferenceSnapshot(
     val remoteShortcutPreferences: RemoteShortcutPreferences,
     val liveTvCategoryFilters: List<String>,
     val liveTvQuickFilterVisibilityMode: LiveTvQuickFilterVisibilityMode,
+    val hideDecorativeLiveRows: Boolean,
     val liveChannelNumberingMode: ChannelNumberingMode,
     val liveChannelGroupingMode: LiveChannelGroupingMode,
     val groupedChannelLabelMode: GroupedChannelLabelMode,
