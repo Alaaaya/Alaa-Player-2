@@ -58,7 +58,8 @@ internal fun PlayerViewModel.applyPrepareSessionState(
     episodeNumber: Int?,
     episodeId: Long?,
     hasArchiveRequest: Boolean,
-    preferredDecoderMode: DecoderMode,
+    preferredAudioDecoderMode: DecoderMode,
+    preferredVideoDecoderMode: DecoderMode,
     preferredSurfaceMode: PlayerSurfaceMode
 ): Boolean {
     val previousProviderId = currentProviderId
@@ -126,9 +127,15 @@ internal fun PlayerViewModel.applyPrepareSessionState(
 
     hasRetriedWithSoftwareDecoder = false
     hasRetriedWithAvcMovieVariant = false
-    playerEngine.setDecoderMode(preferredDecoderMode)
+    playerEngine.setDecoderModes(
+        audioMode = preferredAudioDecoderMode,
+        videoMode = preferredVideoDecoderMode
+    )
     playerEngine.setSurfaceMode(preferredSurfaceMode)
-    updateDecoderMode(preferredDecoderMode)
+    updateDecoderModes(
+        audioMode = preferredAudioDecoderMode,
+        videoMode = preferredVideoDecoderMode
+    )
     updateStreamClass(streamClassLabel)
 
     triedAlternativeStreams.clear()

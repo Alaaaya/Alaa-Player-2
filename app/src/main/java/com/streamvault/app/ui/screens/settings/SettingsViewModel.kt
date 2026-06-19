@@ -806,9 +806,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setPlayerDecoderMode(mode: DecoderMode) {
+    fun setPlayerAudioDecoderMode(mode: DecoderMode) {
         viewModelScope.launch {
-            preferencesRepository.setPlayerDecoderMode(mode)
+            preferencesRepository.setPlayerAudioDecoderMode(mode)
+        }
+    }
+
+    fun setPlayerVideoDecoderMode(mode: DecoderMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerVideoDecoderMode(mode)
         }
     }
 

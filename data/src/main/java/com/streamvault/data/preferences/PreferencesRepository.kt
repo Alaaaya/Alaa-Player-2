@@ -77,6 +77,11 @@ internal fun parsePlaybackBufferModePreference(saved: String?): PlaybackBufferMo
     saved?.let { value -> PlaybackBufferMode.entries.firstOrNull { it.name == value } }
         ?: PlaybackBufferMode.AUTO
 
+internal fun parseDecoderModePreference(saved: String?, legacySaved: String? = null): DecoderMode =
+    saved?.let { value -> DecoderMode.entries.firstOrNull { it.name == value } }
+        ?: legacySaved?.let { value -> DecoderMode.entries.firstOrNull { it.name == value } }
+        ?: DecoderMode.AUTO
+
 internal fun parseTimeshiftBackendPreference(saved: String?): TimeshiftBackendPreference =
     saved?.let { value -> TimeshiftBackendPreference.entries.firstOrNull { it.name == value } }
         ?: TimeshiftBackendPreference.AUTOMATIC
@@ -153,6 +158,8 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_FAST_RETRY_ON_TRANSIENT_FAILURES =
             booleanPreferencesKey("player_fast_retry_on_transient_failures")
         val PLAYER_DECODER_MODE = stringPreferencesKey("player_decoder_mode")
+        val PLAYER_AUDIO_DECODER_MODE = stringPreferencesKey("player_audio_decoder_mode")
+        val PLAYER_VIDEO_DECODER_MODE = stringPreferencesKey("player_video_decoder_mode")
         val PLAYER_PLAYBACK_BUFFER_MODE = stringPreferencesKey("player_playback_buffer_mode")
         val PLAYER_LIVE_STREAM_FORMAT_MODE = stringPreferencesKey("player_live_stream_format_mode")
         val PLAYER_VOD_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_vod_http_protocol_mode")
@@ -314,10 +321,18 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_FAST_RETRY_ON_TRANSIENT_FAILURES] ?: false
     }
 
-    val playerDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
-        preferences[PreferencesKeys.PLAYER_DECODER_MODE]
-            ?.let { saved -> DecoderMode.entries.firstOrNull { it.name == saved } }
-            ?: DecoderMode.AUTO
+    val playerAudioDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
+        parseDecoderModePreference(
+            saved = preferences[PreferencesKeys.PLAYER_AUDIO_DECODER_MODE],
+            legacySaved = preferences[PreferencesKeys.PLAYER_DECODER_MODE]
+        )
+    }
+
+    val playerVideoDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
+        parseDecoderModePreference(
+            saved = preferences[PreferencesKeys.PLAYER_VIDEO_DECODER_MODE],
+            legacySaved = preferences[PreferencesKeys.PLAYER_DECODER_MODE]
+        )
     }
 
     val playerPlaybackBufferMode: Flow<PlaybackBufferMode> = context.dataStore.data.map { preferences ->
@@ -892,9 +907,15 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
-    suspend fun setPlayerDecoderMode(mode: DecoderMode) {
+    suspend fun setPlayerAudioDecoderMode(mode: DecoderMode) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.PLAYER_DECODER_MODE] = mode.name
+            preferences[PreferencesKeys.PLAYER_AUDIO_DECODER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setPlayerVideoDecoderMode(mode: DecoderMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_VIDEO_DECODER_MODE] = mode.name
         }
     }
 

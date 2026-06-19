@@ -29,7 +29,8 @@ internal class SettingsScreenDialogState(
     private val showPlaybackSpeedDialogState: MutableState<Boolean>,
     private val showExternalPlaybackModeDialogState: MutableState<Boolean>,
     private val showAudioVideoOffsetDialogState: MutableState<Boolean>,
-    private val showDecoderModeDialogState: MutableState<Boolean>,
+    private val showAudioDecoderModeDialogState: MutableState<Boolean>,
+    private val showVideoDecoderModeDialogState: MutableState<Boolean>,
     private val showPlaybackBufferModeDialogState: MutableState<Boolean>,
     private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
     private val showSurfaceModeDialogState: MutableState<Boolean>,
@@ -93,7 +94,8 @@ internal class SettingsScreenDialogState(
     var showPlaybackSpeedDialog by showPlaybackSpeedDialogState
     var showExternalPlaybackModeDialog by showExternalPlaybackModeDialogState
     var showAudioVideoOffsetDialog by showAudioVideoOffsetDialogState
-    var showDecoderModeDialog by showDecoderModeDialogState
+    var showAudioDecoderModeDialog by showAudioDecoderModeDialogState
+    var showVideoDecoderModeDialog by showVideoDecoderModeDialogState
     var showPlaybackBufferModeDialog by showPlaybackBufferModeDialogState
     var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
     var showSurfaceModeDialog by showSurfaceModeDialogState
@@ -225,7 +227,8 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showPlaybackSpeedDialogState = rememberSaveable { mutableStateOf(false) }
     val showExternalPlaybackModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioVideoOffsetDialogState = rememberSaveable { mutableStateOf(false) }
-    val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showAudioDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showVideoDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showPlaybackBufferModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
@@ -298,7 +301,8 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showPlaybackSpeedDialogState = showPlaybackSpeedDialogState,
         showExternalPlaybackModeDialogState = showExternalPlaybackModeDialogState,
         showAudioVideoOffsetDialogState = showAudioVideoOffsetDialogState,
-        showDecoderModeDialogState = showDecoderModeDialogState,
+        showAudioDecoderModeDialogState = showAudioDecoderModeDialogState,
+        showVideoDecoderModeDialogState = showVideoDecoderModeDialogState,
         showPlaybackBufferModeDialogState = showPlaybackBufferModeDialogState,
         showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
         showSurfaceModeDialogState = showSurfaceModeDialogState,

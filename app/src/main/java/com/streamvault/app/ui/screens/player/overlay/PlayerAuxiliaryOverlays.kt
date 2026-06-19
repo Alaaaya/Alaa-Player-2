@@ -847,7 +847,14 @@ fun DiagnosticsOverlay(
                             PlayerMetaRow(stringResource(R.string.player_diagnostics_source), diagnostics.providerSourceLabel)
                         }
                         PlayerOverlaySectionLabel(stringResource(R.string.player_diagnostics_section_playback))
-                        PlayerMetaRow(stringResource(R.string.player_diagnostics_decoder), diagnostics.decoderMode.name)
+                        PlayerMetaRow(
+                            stringResource(R.string.player_diagnostics_audio_decoder_mode),
+                            diagnostics.audioDecoderMode.name
+                        )
+                        PlayerMetaRow(
+                            stringResource(R.string.player_diagnostics_video_decoder_mode),
+                            diagnostics.videoDecoderMode.name
+                        )
                         PlayerMetaRow(stringResource(R.string.player_diagnostics_active_decoder), diagnostics.activeDecoderName)
                         PlayerMetaRow(stringResource(R.string.player_diagnostics_surface), diagnostics.renderSurfaceType)
                         PlayerMetaRow(stringResource(R.string.player_diagnostics_stream_class), diagnostics.streamClassLabel)

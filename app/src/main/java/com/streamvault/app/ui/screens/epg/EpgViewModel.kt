@@ -412,7 +412,10 @@ class EpgViewModel @Inject constructor(
                     }
                     if (!isActivePreviewSession(version, channel.id)) return@launch
                     engine.stop()
-                    engine.setDecoderMode(preferencesRepository.playerDecoderMode.first())
+                    engine.setDecoderModes(
+                        audioMode = preferencesRepository.playerAudioDecoderMode.first(),
+                        videoMode = preferencesRepository.playerVideoDecoderMode.first()
+                    )
                     engine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
                     engine.setPlaybackBufferMode(preferencesRepository.playerPlaybackBufferMode.first())
                     engine.prepare(preparedStreamInfo)

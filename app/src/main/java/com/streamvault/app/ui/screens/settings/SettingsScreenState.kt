@@ -28,7 +28,8 @@ internal data class SettingsScreenLabels(
     val preferredAudioLanguageLabel: String,
     val playbackSpeedLabel: String,
     val audioVideoOffsetLabel: String,
-    val decoderModeLabel: String,
+    val audioDecoderModeLabel: String,
+    val videoDecoderModeLabel: String,
     val playbackBufferModeLabel: String,
     val audioOutputPreferenceLabel: String,
     val surfaceModeLabel: String,
@@ -89,8 +90,11 @@ internal fun rememberSettingsScreenLabels(
     val audioVideoOffsetLabel = remember(uiState.playerAudioVideoOffsetMs) {
         formatAudioVideoOffsetLabel(uiState.playerAudioVideoOffsetMs)
     }
-    val decoderModeLabel = remember(uiState.playerDecoderMode, context) {
-        formatDecoderModeLabel(uiState.playerDecoderMode, context)
+    val audioDecoderModeLabel = remember(uiState.playerAudioDecoderMode, context) {
+        formatDecoderModeLabel(uiState.playerAudioDecoderMode, context)
+    }
+    val videoDecoderModeLabel = remember(uiState.playerVideoDecoderMode, context) {
+        formatDecoderModeLabel(uiState.playerVideoDecoderMode, context)
     }
     val playbackBufferModeLabel = remember(uiState.playerPlaybackBufferMode, context) {
         formatPlaybackBufferModeLabel(uiState.playerPlaybackBufferMode, context)
@@ -193,7 +197,8 @@ internal fun rememberSettingsScreenLabels(
         preferredAudioLanguageLabel = preferredAudioLanguageLabel,
         playbackSpeedLabel = playbackSpeedLabel,
         audioVideoOffsetLabel = audioVideoOffsetLabel,
-        decoderModeLabel = decoderModeLabel,
+        audioDecoderModeLabel = audioDecoderModeLabel,
+        videoDecoderModeLabel = videoDecoderModeLabel,
         playbackBufferModeLabel = playbackBufferModeLabel,
         audioOutputPreferenceLabel = audioOutputPreferenceLabel,
         surfaceModeLabel = surfaceModeLabel,

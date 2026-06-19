@@ -24,8 +24,10 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowTimeFormatDialogChange: (Boolean) -> Unit,
     showAudioVideoOffsetDialog: Boolean,
     onShowAudioVideoOffsetDialogChange: (Boolean) -> Unit,
-    showDecoderModeDialog: Boolean,
-    onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showAudioDecoderModeDialog: Boolean,
+    onShowAudioDecoderModeDialogChange: (Boolean) -> Unit,
+    showVideoDecoderModeDialog: Boolean,
+    onShowVideoDecoderModeDialogChange: (Boolean) -> Unit,
     showPlaybackBufferModeDialog: Boolean,
     onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     showAudioOutputPreferenceDialog: Boolean,
@@ -105,7 +107,7 @@ internal fun SettingsPlayerPreferenceDialogs(
         )
     }
 
-    if (showDecoderModeDialog) {
+    if (showAudioDecoderModeDialog) {
         val decoderOptions = remember(context) {
             listOf(
                 DecoderMode.AUTO to context.getString(R.string.settings_decoder_auto),
@@ -115,17 +117,44 @@ internal fun SettingsPlayerPreferenceDialogs(
             )
         }
         PremiumSelectionDialog(
-            title = stringResource(R.string.settings_select_decoder_mode),
-            onDismiss = { onShowDecoderModeDialogChange(false) }
+            title = stringResource(R.string.settings_select_audio_decoder_mode),
+            onDismiss = { onShowAudioDecoderModeDialogChange(false) }
         ) {
             decoderOptions.forEachIndexed { index, option ->
                 LevelOption(
                     level = index,
                     text = option.second,
-                    currentLevel = if (uiState.playerDecoderMode == option.first) index else -1,
+                    currentLevel = if (uiState.playerAudioDecoderMode == option.first) index else -1,
                     onSelect = {
-                        viewModel.setPlayerDecoderMode(option.first)
-                        onShowDecoderModeDialogChange(false)
+                        viewModel.setPlayerAudioDecoderMode(option.first)
+                        onShowAudioDecoderModeDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showVideoDecoderModeDialog) {
+        val decoderOptions = remember(context) {
+            listOf(
+                DecoderMode.AUTO to context.getString(R.string.settings_decoder_auto),
+                DecoderMode.HARDWARE to context.getString(R.string.settings_decoder_hardware),
+                DecoderMode.SOFTWARE to context.getString(R.string.settings_decoder_software),
+                DecoderMode.COMPATIBILITY to context.getString(R.string.settings_decoder_compatibility)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_video_decoder_mode),
+            onDismiss = { onShowVideoDecoderModeDialogChange(false) }
+        ) {
+            decoderOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerVideoDecoderMode == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerVideoDecoderMode(option.first)
+                        onShowVideoDecoderModeDialogChange(false)
                     }
                 )
             }

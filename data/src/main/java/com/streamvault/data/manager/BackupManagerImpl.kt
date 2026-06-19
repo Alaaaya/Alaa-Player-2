@@ -98,7 +98,8 @@ class BackupManagerImpl @Inject constructor(
                 put("liveTvCategoryFilters", preferencesRepository.liveTvCategoryFilters.first().joinToString("\n"))
                 put("liveTvQuickFilterVisibility", preferencesRepository.liveTvQuickFilterVisibility.first() ?: "always")
                 put("playerMediaSessionEnabled", preferencesRepository.playerMediaSessionEnabled.first().toString())
-                put("playerDecoderMode", preferencesRepository.playerDecoderMode.first().name)
+                put("playerAudioDecoderMode", preferencesRepository.playerAudioDecoderMode.first().name)
+                put("playerVideoDecoderMode", preferencesRepository.playerVideoDecoderMode.first().name)
                 put("playerAudioOutputPreference", preferencesRepository.playerAudioOutputPreference.first().name)
                 put("playerCompatibilityMemoryEnabled", preferencesRepository.playerCompatibilityMemoryEnabled.first().toString())
                 put("playerSurfaceMode", preferencesRepository.playerSurfaceMode.first().name)
@@ -590,13 +591,28 @@ class BackupManagerImpl @Inject constructor(
             ?.let { preferencesRepository.setLiveTvQuickFilterVisibility(it) }
         prefs["playerMediaSessionEnabled"]?.toBooleanStrictOrNull()
             ?.let { preferencesRepository.setPlayerMediaSessionEnabled(it) }
-        prefs["playerDecoderMode"]?.takeIf { it.isNotBlank() }?.let { savedMode ->
-            val decoderMode = com.streamvault.domain.model.DecoderMode.entries
-                .firstOrNull { entry -> entry.name == savedMode }
-            if (decoderMode != null) {
-                preferencesRepository.setPlayerDecoderMode(decoderMode)
+        val legacyDecoderMode = prefs["playerDecoderMode"]
+            ?.takeIf { it.isNotBlank() }
+            ?.let { savedMode ->
+                com.streamvault.domain.model.DecoderMode.entries
+                    .firstOrNull { entry -> entry.name == savedMode }
             }
-        }
+        prefs["playerAudioDecoderMode"]
+            ?.takeIf { it.isNotBlank() }
+            ?.let { savedMode ->
+                com.streamvault.domain.model.DecoderMode.entries
+                    .firstOrNull { entry -> entry.name == savedMode }
+            }
+            ?.let { preferencesRepository.setPlayerAudioDecoderMode(it) }
+            ?: legacyDecoderMode?.let { preferencesRepository.setPlayerAudioDecoderMode(it) }
+        prefs["playerVideoDecoderMode"]
+            ?.takeIf { it.isNotBlank() }
+            ?.let { savedMode ->
+                com.streamvault.domain.model.DecoderMode.entries
+                    .firstOrNull { entry -> entry.name == savedMode }
+            }
+            ?.let { preferencesRepository.setPlayerVideoDecoderMode(it) }
+            ?: legacyDecoderMode?.let { preferencesRepository.setPlayerVideoDecoderMode(it) }
         prefs["playerAudioOutputPreference"]?.takeIf { it.isNotBlank() }?.let { savedPreference ->
             val preference = com.streamvault.domain.model.AudioOutputPreference.entries
                 .firstOrNull { entry -> entry.name == savedPreference }

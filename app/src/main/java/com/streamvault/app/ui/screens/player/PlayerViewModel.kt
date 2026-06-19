@@ -287,7 +287,8 @@ class PlayerViewModel @Inject constructor(
     internal var liveOverlayTimeoutMs: Long = 4_000L
     internal var playerNoticeTimeoutMs: Long = 6_000L
     internal var diagnosticsTimeoutMs: Long = 15_000L
-    private var preferredDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var preferredAudioDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var preferredVideoDecoderMode: DecoderMode = DecoderMode.AUTO
     private var preferredSurfaceMode: com.streamvault.domain.model.PlayerSurfaceMode =
         com.streamvault.domain.model.PlayerSurfaceMode.AUTO
     internal var timeshiftConfig: TimeshiftConfig = TimeshiftConfig()
@@ -679,14 +680,19 @@ class PlayerViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            preferencesRepository.playerDecoderMode
-                .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
-                .collect { (engine, mode) ->
-                    preferredDecoderMode = mode
+            preferencesRepository.playerAudioDecoderMode
+                .combine(preferencesRepository.playerVideoDecoderMode) { audioMode, videoMode ->
+                    audioMode to videoMode
+                }
+                .combine(activePlayerEngineFlow) { modes, engine -> engine to modes }
+                .collect { (engine, modes) ->
+                    val (audioMode, videoMode) = modes
+                    preferredAudioDecoderMode = audioMode
+                    preferredVideoDecoderMode = videoMode
                     if (!hasRetriedWithSoftwareDecoder) {
-                        engine.setDecoderMode(mode)
+                        engine.setDecoderModes(audioMode = audioMode, videoMode = videoMode)
                         if (engine === playerEngine) {
-                            updateDecoderMode(mode)
+                            updateDecoderModes(audioMode = audioMode, videoMode = videoMode)
                         }
                     }
                 }
@@ -805,8 +811,14 @@ class PlayerViewModel @Inject constructor(
             }
             hasRetriedWithSoftwareDecoder = true
             android.util.Log.w("PlayerVM", "Decoder error detected. Retrying with software decoder mode.")
-            playerEngine.setDecoderMode(DecoderMode.SOFTWARE)
-            updateDecoderMode(DecoderMode.SOFTWARE)
+            playerEngine.setDecoderModes(
+                audioMode = DecoderMode.SOFTWARE,
+                videoMode = DecoderMode.SOFTWARE
+            )
+            updateDecoderModes(
+                audioMode = DecoderMode.SOFTWARE,
+                videoMode = DecoderMode.SOFTWARE
+            )
             setLastFailureReason(error.message)
             appendRecoveryAction("Switched to software decoder")
             playerEngine.play()
@@ -1433,7 +1445,8 @@ class PlayerViewModel @Inject constructor(
             episodeNumber = episodeNumber,
             episodeId = episodeId,
             hasArchiveRequest = hasArchiveRequest,
-            preferredDecoderMode = preferredDecoderMode,
+            preferredAudioDecoderMode = preferredAudioDecoderMode,
+            preferredVideoDecoderMode = preferredVideoDecoderMode,
             preferredSurfaceMode = preferredSurfaceMode
         )
 
@@ -1670,8 +1683,13 @@ class PlayerViewModel @Inject constructor(
         failedStreamsThisSession[streamUrl] = (failedStreamsThisSession[streamUrl] ?: 0) + 1
     }
 
-    internal fun updateDecoderMode(mode: DecoderMode) {
-        _playerDiagnostics.update { it.copy(decoderMode = mode) }
+    internal fun updateDecoderModes(audioMode: DecoderMode, videoMode: DecoderMode) {
+        _playerDiagnostics.update {
+            it.copy(
+                audioDecoderMode = audioMode,
+                videoDecoderMode = videoMode
+            )
+        }
     }
 
     internal fun updateStreamClass(label: String) {

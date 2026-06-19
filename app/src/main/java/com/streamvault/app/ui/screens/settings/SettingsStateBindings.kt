@@ -52,7 +52,8 @@ internal fun observeSettingsPreferenceSnapshot(
             preferredAudioLanguage = "auto",
             playerMediaSessionEnabled = true,
             playerFastRetryOnTransientFailures = false,
-            playerDecoderMode = DecoderMode.AUTO,
+            playerAudioDecoderMode = DecoderMode.AUTO,
+            playerVideoDecoderMode = DecoderMode.AUTO,
             playerPlaybackBufferMode = PlaybackBufferMode.AUTO,
             playerAudioOutputPreference = AudioOutputPreference.AUTO,
             playerCompatibilityMemoryEnabled = true,
@@ -135,8 +136,10 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerMediaSessionEnabled = mediaSessionEnabled)
     }.combine(preferencesRepository.playerFastRetryOnTransientFailures) { snapshot, enabled ->
         snapshot.copy(playerFastRetryOnTransientFailures = enabled)
-    }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
-        snapshot.copy(playerDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerAudioDecoderMode) { snapshot, decoderMode ->
+        snapshot.copy(playerAudioDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerVideoDecoderMode) { snapshot, decoderMode ->
+        snapshot.copy(playerVideoDecoderMode = decoderMode)
     }.combine(preferencesRepository.playerPlaybackBufferMode) { snapshot, bufferMode ->
         snapshot.copy(playerPlaybackBufferMode = bufferMode)
     }.combine(preferencesRepository.playerAudioOutputPreference) { snapshot, audioOutputPreference ->
