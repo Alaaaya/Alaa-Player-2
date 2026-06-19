@@ -9,8 +9,9 @@ import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.PlaybackBufferMode
-import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
+import com.streamvault.domain.model.VodHttpProtocolMode
 
 @Composable
 internal fun SettingsPlayerPreferenceDialogs(
@@ -35,6 +36,8 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowVodHttpProtocolDialogChange: (Boolean) -> Unit,
     showTimeshiftDepthDialog: Boolean,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
+    showTimeshiftBackendDialog: Boolean,
+    onShowTimeshiftBackendDialogChange: (Boolean) -> Unit,
     showDefaultStopTimerDialog: Boolean,
     onShowDefaultStopTimerDialogChange: (Boolean) -> Unit,
     showDefaultIdleTimerDialog: Boolean,
@@ -301,6 +304,32 @@ internal fun SettingsPlayerPreferenceDialogs(
                     onSelect = {
                         viewModel.setPlayerTimeshiftDepthMinutes(option.first)
                         onShowTimeshiftDepthDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showTimeshiftBackendDialog) {
+        val backendOptions = remember(context) {
+            listOf(
+                TimeshiftBackendPreference.AUTOMATIC to context.getString(R.string.settings_live_timeshift_backend_auto),
+                TimeshiftBackendPreference.STORAGE to context.getString(R.string.settings_live_timeshift_backend_storage),
+                TimeshiftBackendPreference.MEMORY to context.getString(R.string.settings_live_timeshift_backend_memory)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_live_timeshift_backend),
+            onDismiss = { onShowTimeshiftBackendDialogChange(false) }
+        ) {
+            backendOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerTimeshiftBackend == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerTimeshiftBackend(option.first)
+                        onShowTimeshiftBackendDialogChange(false)
                     }
                 )
             }

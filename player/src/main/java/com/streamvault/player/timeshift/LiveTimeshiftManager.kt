@@ -3,6 +3,7 @@ package com.streamvault.player.timeshift
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.player.playback.applyUnsafeTlsBypass
@@ -133,14 +134,39 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     )
                     return@withLock
                 }
-                val backend = chooseBackend()
-                val sessionDir = File(context.cacheDir, "timeshift/${channelKey.hashCode()}-${System.currentTimeMillis()}").apply { mkdirs() }
+                val sessionRoot = context.cacheDir?.takeIf {
+                    (it.exists() || it.mkdirs()) && it.canWrite()
+                } ?: run {
+                    _state.value = LiveTimeshiftState(
+                        enabled = true,
+                        supported = false,
+                        status = LiveTimeshiftStatus.FAILED,
+                        message = "App storage is unavailable for local live rewind."
+                    )
+                    return@withLock
+                }
+                val sessionDir = File(
+                    sessionRoot,
+                    "timeshift/${channelKey.hashCode()}-${System.currentTimeMillis()}"
+                ).apply { mkdirs() }
 
                 // Crash-safe cleanup: delete all stale timeshift dirs from previous crashes/exits.
                 diskManager.cleanupStaleDirectories(activeSessionDir = sessionDir)
 
+                val backend = chooseBackend(config)
+                if (backend == null) {
+                    sessionDir.deleteRecursively()
+                    _state.value = LiveTimeshiftState(
+                        enabled = true,
+                        supported = false,
+                        status = LiveTimeshiftStatus.FAILED,
+                        message = backendUnavailableMessage(config.backendPreference)
+                    )
+                    return@withLock
+                }
+
                 // Global budget guard: evict LRU stale dirs if needed, then hard-fail if still over.
-                if (!diskManager.isWithinBudget()) {
+                if (backend == LiveTimeshiftBackend.DISK && !diskManager.isWithinBudget()) {
                     diskManager.evictLruUntilWithinBudget(activeSessionDir = sessionDir)
                     if (!diskManager.isWithinBudget()) {
                         sessionDir.deleteRecursively()
@@ -239,13 +265,37 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         activeSession = null
     }
 
-    private fun chooseBackend(): LiveTimeshiftBackend {
+    private fun chooseBackend(config: TimeshiftConfig): LiveTimeshiftBackend? =
+        resolveLiveTimeshiftBackend(
+            preference = config.backendPreference,
+            snapshotStorageAvailable = isSnapshotStorageAvailableForTimeshift(),
+            diskStorageAvailable = isDiskStorageAvailableForTimeshift()
+        )
+
+    private fun backendUnavailableMessage(preference: TimeshiftBackendPreference): String = when (preference) {
+        TimeshiftBackendPreference.STORAGE ->
+            "The storage backend is unavailable for local live rewind right now."
+
+        TimeshiftBackendPreference.AUTOMATIC,
+        TimeshiftBackendPreference.MEMORY ->
+            "App storage is unavailable for local live rewind."
+    }
+
+    private fun isSnapshotStorageAvailableForTimeshift(): Boolean {
         return try {
-            context.cacheDir?.takeIf { (it.exists() || it.mkdirs()) && it.canWrite() }
-                ?.let { LiveTimeshiftBackend.DISK }
-                ?: LiveTimeshiftBackend.MEMORY
+            context.cacheDir?.takeIf { (it.exists() || it.mkdirs()) && it.canWrite() } != null
         } catch (_: Throwable) {
-            LiveTimeshiftBackend.MEMORY
+            false
+        }
+    }
+
+    private fun isDiskStorageAvailableForTimeshift(): Boolean {
+        if (!isSnapshotStorageAvailableForTimeshift()) return false
+        return try {
+            context.cacheDir.usableSpace >= MIN_FREE_DISK_BYTES &&
+                diskManager.isWithinBudget()
+        } catch (_: Throwable) {
+            false
         }
     }
 
@@ -558,7 +608,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                                 currentCoroutineContext().ensureActive()
                                 if (remoteSegment.mediaSequence <= lastProcessedSequence) return@forEach
                                 lastProcessedSequence = remoteSegment.mediaSequence
-                                checkDiskAndBudget()
+                                if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                                 val retained = retainHlsSegment(remoteSegment)
                                 val windowDuration = segmentMutex.withLock {
                                     runningSegmentDurationMs += retained.durationMs
@@ -796,7 +846,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     // Download init segment once (identified by URL; seenSegments deduplicates it).
                     parsed.initSegmentUrl?.let { initUrl ->
                         if (seenSegments.add("__init__:$initUrl")) {
-                            checkDiskAndBudget()
+                            if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                             val retained = retainSegment(RemoteHlsSegment(initUrl, 0L), isInit = true)
                             segmentMutex.withLock { segments += retained }
                         }
@@ -805,7 +855,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                     parsed.mediaSegments.forEach { remote ->
                         currentCoroutineContext().ensureActive()
                         if (!seenSegments.add(remote.uri)) return@forEach
-                        checkDiskAndBudget()
+                        if (backend == LiveTimeshiftBackend.DISK) checkDiskAndBudget()
                         val retained = retainSegment(remote, isInit = false)
                         val windowDuration = segmentMutex.withLock {
                             runningSegmentDurationMs += retained.durationMs

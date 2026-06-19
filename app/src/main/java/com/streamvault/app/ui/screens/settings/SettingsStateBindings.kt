@@ -18,6 +18,7 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.PlaybackBufferMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
@@ -76,6 +77,7 @@ internal fun observeSettingsPreferenceSnapshot(
             ethernetMaxVideoHeight = null,
             playerTimeshiftEnabled = false,
             playerTimeshiftDepthMinutes = 30,
+            playerTimeshiftBackend = TimeshiftBackendPreference.AUTOMATIC,
             defaultStopPlaybackTimerMinutes = 0,
             defaultIdleStandbyTimerMinutes = 0,
             lastSpeedTestMegabits = null,
@@ -183,6 +185,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerTimeshiftEnabled = enabled)
     }.combine(preferencesRepository.playerTimeshiftDepthMinutes) { snapshot, depthMinutes ->
         snapshot.copy(playerTimeshiftDepthMinutes = depthMinutes)
+    }.combine(preferencesRepository.playerTimeshiftBackend) { snapshot, backend ->
+        snapshot.copy(playerTimeshiftBackend = backend)
     }.combine(preferencesRepository.defaultStopPlaybackTimerMinutes) { snapshot, minutes ->
         snapshot.copy(defaultStopPlaybackTimerMinutes = minutes)
     }.combine(preferencesRepository.defaultIdleStandbyTimerMinutes) { snapshot, minutes ->

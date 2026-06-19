@@ -62,6 +62,7 @@ import com.streamvault.domain.model.RemoteShortcutProfile
 import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.usecase.ExportBackup
@@ -760,6 +761,12 @@ class SettingsViewModel @Inject constructor(
     fun setPlayerTimeshiftDepthMinutes(minutes: Int) {
         viewModelScope.launch {
             preferencesRepository.setPlayerTimeshiftDepthMinutes(minutes)
+        }
+    }
+
+    fun setPlayerTimeshiftBackend(preference: TimeshiftBackendPreference) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerTimeshiftBackend(preference)
         }
     }
 
