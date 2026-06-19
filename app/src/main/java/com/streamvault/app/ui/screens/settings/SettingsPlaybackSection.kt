@@ -35,6 +35,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     uiState: SettingsUiState,
     viewModel: SettingsViewModel,
     timeshiftDepthLabel: String,
+    timeshiftBackendLabel: String,
     decoderModeLabel: String,
     playbackBufferModeLabel: String,
     audioOutputPreferenceLabel: String,
@@ -60,6 +61,7 @@ internal fun LazyListScope.settingsPlaybackSection(
     lastSpeedTestSummary: String,
     speedTestRecommendationLabel: String,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
+    onShowTimeshiftBackendDialogChange: (Boolean) -> Unit,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
     onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
@@ -264,8 +266,8 @@ internal fun LazyListScope.settingsPlaybackSection(
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_live_timeshift_backend),
-            value = stringResource(R.string.settings_live_timeshift_backend_value),
-            onClick = {}
+            value = timeshiftBackendLabel,
+            onClick = { onShowTimeshiftBackendDialogChange(true) }
         )
         Text(
             text = stringResource(R.string.settings_live_timeshift_backend_subtitle),

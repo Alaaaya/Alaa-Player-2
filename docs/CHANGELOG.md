@@ -2,6 +2,12 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.16] - 2026-06-19
+
+### Added
+
+- Added a selectable Local Live Rewind backend preference with `Automatic`, `Storage`, and `Memory` modes, so users can control whether live rewind prefers app storage or stays memory-backed when troubleshooting storage-wear or device-compatibility concerns.
+
 ## [1.0.15] - 2026-06-13
 
 ### Fixed

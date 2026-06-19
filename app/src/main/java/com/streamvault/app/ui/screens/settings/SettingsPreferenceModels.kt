@@ -24,6 +24,7 @@ import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RemoteShortcutPreferences
+import com.streamvault.domain.model.TimeshiftBackendPreference
 
 enum class ProviderWarningAction {
     EPG,
@@ -78,6 +79,7 @@ internal data class SettingsPreferenceSnapshot(
     val ethernetMaxVideoHeight: Int?,
     val playerTimeshiftEnabled: Boolean,
     val playerTimeshiftDepthMinutes: Int,
+    val playerTimeshiftBackend: TimeshiftBackendPreference,
     val defaultStopPlaybackTimerMinutes: Int,
     val defaultIdleStandbyTimerMinutes: Int,
     val lastSpeedTestMegabits: Double?,

@@ -40,6 +40,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         ethernetMaxVideoHeight = snapshot.ethernetMaxVideoHeight,
         playerTimeshiftEnabled = snapshot.playerTimeshiftEnabled,
         playerTimeshiftDepthMinutes = snapshot.playerTimeshiftDepthMinutes,
+        playerTimeshiftBackend = snapshot.playerTimeshiftBackend,
         defaultStopPlaybackTimerMinutes = snapshot.defaultStopPlaybackTimerMinutes,
         defaultIdleStandbyTimerMinutes = snapshot.defaultIdleStandbyTimerMinutes,
         lastSpeedTest = snapshot.lastSpeedTestMegabits?.let {

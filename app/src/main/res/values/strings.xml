@@ -457,8 +457,12 @@
     <string name="settings_live_timeshift_depth">Local Live Rewind Depth</string>
     <string name="settings_live_timeshift_backend">Live Rewind Backend</string>
     <string name="settings_live_timeshift_backend_value">Automatic</string>
-    <string name="settings_live_timeshift_backend_subtitle">Prefers app storage for the local ring buffer and falls back to bounded memory when storage is unavailable.</string>
+    <string name="settings_live_timeshift_backend_subtitle">Choose whether local live rewind buffers to app storage or bounded memory. Automatic prefers storage and falls back to memory when the storage backend is constrained.</string>
+    <string name="settings_live_timeshift_backend_auto">Automatic</string>
+    <string name="settings_live_timeshift_backend_storage">Storage</string>
+    <string name="settings_live_timeshift_backend_memory">Memory</string>
     <string name="settings_select_live_timeshift_depth">Select Local Live Rewind Depth</string>
+    <string name="settings_select_live_timeshift_backend">Select Live Rewind Backend</string>
     <string name="settings_live_timeshift_depth_15">15 minutes</string>
     <string name="settings_live_timeshift_depth_30">30 minutes</string>
     <string name="settings_live_timeshift_depth_60">60 minutes</string>

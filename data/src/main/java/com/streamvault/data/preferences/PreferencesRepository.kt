@@ -42,6 +42,7 @@ import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.RemoteShortcutProfile
 import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.SearchHistoryScope
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.manager.ParentalPinVerifier
 import com.streamvault.domain.manager.ParentalControlSessionState
 import com.streamvault.domain.manager.ParentalControlSessionStore
@@ -75,6 +76,10 @@ private fun sanitizePlaybackTimerMinutes(minutes: Int): Int = when (minutes) {
 internal fun parsePlaybackBufferModePreference(saved: String?): PlaybackBufferMode =
     saved?.let { value -> PlaybackBufferMode.entries.firstOrNull { it.name == value } }
         ?: PlaybackBufferMode.AUTO
+
+internal fun parseTimeshiftBackendPreference(saved: String?): TimeshiftBackendPreference =
+    saved?.let { value -> TimeshiftBackendPreference.entries.firstOrNull { it.name == value } }
+        ?: TimeshiftBackendPreference.AUTOMATIC
 
 @Singleton
 class PreferencesRepository @Inject constructor(
@@ -173,6 +178,7 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_ETHERNET_MAX_VIDEO_HEIGHT = intPreferencesKey("player_ethernet_max_video_height")
         val PLAYER_TIMESHIFT_ENABLED = booleanPreferencesKey("player_timeshift_enabled")
         val PLAYER_TIMESHIFT_DEPTH_MINUTES = intPreferencesKey("player_timeshift_depth_minutes")
+        val PLAYER_TIMESHIFT_BACKEND = stringPreferencesKey("player_timeshift_backend")
         val DEFAULT_STOP_PLAYBACK_TIMER_MINUTES = intPreferencesKey("default_stop_playback_timer_minutes")
         val DEFAULT_IDLE_STANDBY_TIMER_MINUTES = intPreferencesKey("default_idle_standby_timer_minutes")
         val LAST_SPEED_TEST_MEGABITS = stringPreferencesKey("last_speed_test_megabits")
@@ -439,6 +445,10 @@ class PreferencesRepository @Inject constructor(
             in 23..45 -> 30
             else -> 60
         }
+    }
+
+    val playerTimeshiftBackend: Flow<TimeshiftBackendPreference> = context.dataStore.data.map { preferences ->
+        parseTimeshiftBackendPreference(preferences[PreferencesKeys.PLAYER_TIMESHIFT_BACKEND])
     }
 
     val defaultStopPlaybackTimerMinutes: Flow<Int> = context.dataStore.data.map { preferences ->
@@ -1058,6 +1068,12 @@ class PreferencesRepository @Inject constructor(
                 in 23..45 -> 30
                 else -> 60
             }
+        }
+    }
+
+    suspend fun setPlayerTimeshiftBackend(preference: TimeshiftBackendPreference) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_TIMESHIFT_BACKEND] = preference.name
         }
     }
 

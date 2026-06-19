@@ -198,6 +198,8 @@ internal fun SettingsScreenDialogs(
         onShowVodHttpProtocolDialogChange = { dialogState.showVodHttpProtocolDialog = it },
         showTimeshiftDepthDialog = dialogState.showTimeshiftDepthDialog,
         onShowTimeshiftDepthDialogChange = { dialogState.showTimeshiftDepthDialog = it },
+        showTimeshiftBackendDialog = dialogState.showTimeshiftBackendDialog,
+        onShowTimeshiftBackendDialogChange = { dialogState.showTimeshiftBackendDialog = it },
         showDefaultStopTimerDialog = dialogState.showDefaultStopTimerDialog,
         onShowDefaultStopTimerDialogChange = { dialogState.showDefaultStopTimerDialog = it },
         showDefaultIdleTimerDialog = dialogState.showDefaultIdleTimerDialog,

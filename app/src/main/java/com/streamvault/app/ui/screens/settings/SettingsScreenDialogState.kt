@@ -35,6 +35,7 @@ internal class SettingsScreenDialogState(
     private val showSurfaceModeDialogState: MutableState<Boolean>,
     private val showVodHttpProtocolDialogState: MutableState<Boolean>,
     private val showTimeshiftDepthDialogState: MutableState<Boolean>,
+    private val showTimeshiftBackendDialogState: MutableState<Boolean>,
     private val showDefaultStopTimerDialogState: MutableState<Boolean>,
     private val showDefaultIdleTimerDialogState: MutableState<Boolean>,
     private val showControlsTimeoutDialogState: MutableState<Boolean>,
@@ -98,6 +99,7 @@ internal class SettingsScreenDialogState(
     var showSurfaceModeDialog by showSurfaceModeDialogState
     var showVodHttpProtocolDialog by showVodHttpProtocolDialogState
     var showTimeshiftDepthDialog by showTimeshiftDepthDialogState
+    var showTimeshiftBackendDialog by showTimeshiftBackendDialogState
     var showDefaultStopTimerDialog by showDefaultStopTimerDialogState
     var showDefaultIdleTimerDialog by showDefaultIdleTimerDialogState
     var showControlsTimeoutDialog by showControlsTimeoutDialogState
@@ -229,6 +231,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showVodHttpProtocolDialogState = rememberSaveable { mutableStateOf(false) }
     val showTimeshiftDepthDialogState = rememberSaveable { mutableStateOf(false) }
+    val showTimeshiftBackendDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultStopTimerDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultIdleTimerDialogState = rememberSaveable { mutableStateOf(false) }
     val showControlsTimeoutDialogState = rememberSaveable { mutableStateOf(false) }
@@ -301,6 +304,7 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showSurfaceModeDialogState = showSurfaceModeDialogState,
         showVodHttpProtocolDialogState = showVodHttpProtocolDialogState,
         showTimeshiftDepthDialogState = showTimeshiftDepthDialogState,
+        showTimeshiftBackendDialogState = showTimeshiftBackendDialogState,
         showDefaultStopTimerDialogState = showDefaultStopTimerDialogState,
         showDefaultIdleTimerDialogState = showDefaultIdleTimerDialogState,
         showControlsTimeoutDialogState = showControlsTimeoutDialogState,

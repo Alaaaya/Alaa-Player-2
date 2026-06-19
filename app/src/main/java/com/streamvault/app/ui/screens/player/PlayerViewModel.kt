@@ -649,9 +649,14 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 preferencesRepository.playerTimeshiftEnabled,
-                preferencesRepository.playerTimeshiftDepthMinutes
-            ) { enabled, depthMinutes ->
-                TimeshiftConfig(enabled = enabled, depthMinutes = depthMinutes)
+                preferencesRepository.playerTimeshiftDepthMinutes,
+                preferencesRepository.playerTimeshiftBackend
+            ) { enabled, depthMinutes, backendPreference ->
+                TimeshiftConfig(
+                    enabled = enabled,
+                    depthMinutes = depthMinutes,
+                    backendPreference = backendPreference
+                )
             }.collect { config ->
                 timeshiftConfig = config
                 _timeshiftUiState.update { current ->

@@ -15,6 +15,7 @@ import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.PlaybackBufferMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodHttpProtocolMode
 
 internal data class SettingsScreenLabels(
@@ -43,6 +44,7 @@ internal data class SettingsScreenLabels(
     val wifiQualityLabel: String,
     val ethernetQualityLabel: String,
     val timeshiftDepthLabel: String,
+    val timeshiftBackendLabel: String,
     val defaultStopTimerLabel: String,
     val defaultIdleTimerLabel: String,
     val lastSpeedTestLabel: String,
@@ -135,6 +137,9 @@ internal fun rememberSettingsScreenLabels(
     val timeshiftDepthLabel = remember(uiState.playerTimeshiftDepthMinutes, context) {
         formatTimeshiftDepthLabel(uiState.playerTimeshiftDepthMinutes, context)
     }
+    val timeshiftBackendLabel = remember(uiState.playerTimeshiftBackend, context) {
+        formatTimeshiftBackendPreferenceLabel(uiState.playerTimeshiftBackend, context)
+    }
     val defaultStopTimerLabel = remember(uiState.defaultStopPlaybackTimerMinutes, context) {
         formatPlaybackTimerMinutesLabel(uiState.defaultStopPlaybackTimerMinutes, context)
     }
@@ -204,6 +209,7 @@ internal fun rememberSettingsScreenLabels(
         wifiQualityLabel = wifiQualityLabel,
         ethernetQualityLabel = ethernetQualityLabel,
         timeshiftDepthLabel = timeshiftDepthLabel,
+        timeshiftBackendLabel = timeshiftBackendLabel,
         defaultStopTimerLabel = defaultStopTimerLabel,
         defaultIdleTimerLabel = defaultIdleTimerLabel,
         lastSpeedTestLabel = lastSpeedTestLabel,
@@ -303,6 +309,15 @@ internal fun formatPlaybackBufferModeLabel(
     PlaybackBufferMode.SMALL -> context.getString(R.string.settings_live_buffer_small)
     PlaybackBufferMode.MEDIUM -> context.getString(R.string.settings_live_buffer_medium)
     PlaybackBufferMode.LARGE -> context.getString(R.string.settings_live_buffer_large)
+}
+
+internal fun formatTimeshiftBackendPreferenceLabel(
+    preference: TimeshiftBackendPreference,
+    context: Context
+): String = when (preference) {
+    TimeshiftBackendPreference.AUTOMATIC -> context.getString(R.string.settings_live_timeshift_backend_auto)
+    TimeshiftBackendPreference.STORAGE -> context.getString(R.string.settings_live_timeshift_backend_storage)
+    TimeshiftBackendPreference.MEMORY -> context.getString(R.string.settings_live_timeshift_backend_memory)
 }
 
 internal fun formatLiveStreamFormatModeLabel(mode: LiveStreamFormatMode): String = when (mode) {
