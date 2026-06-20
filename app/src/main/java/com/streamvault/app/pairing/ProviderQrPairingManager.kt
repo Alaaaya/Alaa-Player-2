@@ -12,6 +12,8 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.streamvault.domain.model.ProviderEpgSyncMode
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.repository.ProviderRepository
@@ -235,7 +237,9 @@ class ProviderQrPairingManager @Inject constructor(
                 M3uProviderSetupCommand(
                     url = form["m3uUrl"].orEmpty(),
                     name = name,
-                    epgSyncMode = ProviderEpgSyncMode.BACKGROUND
+                    epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+                    guideSourcePolicy = GuideSourcePolicy.AUTO,
+                    channelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED
                 ),
                 onProgress = ::updateProgress
             )
@@ -247,7 +251,9 @@ class ProviderQrPairingManager @Inject constructor(
                     username = form["username"].orEmpty(),
                     password = form["password"].orEmpty(),
                     name = name,
-                    epgSyncMode = ProviderEpgSyncMode.BACKGROUND
+                    epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+                    guideSourcePolicy = GuideSourcePolicy.AUTO,
+                    channelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED
                 ),
                 onProgress = ::updateProgress
             )
@@ -267,7 +273,9 @@ class ProviderQrPairingManager @Inject constructor(
                     password = form["password"].orEmpty(),
                     name = name,
                     epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
-                    xtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO
+                    xtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+                    guideSourcePolicy = GuideSourcePolicy.AUTO,
+                    channelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED
                 ),
                 onProgress = ::updateProgress
             )

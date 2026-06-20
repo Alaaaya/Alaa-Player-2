@@ -12,6 +12,8 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.StalkerCookieMode
 import com.streamvault.domain.model.StalkerEndpointPreference
 import com.streamvault.domain.model.StalkerMagPreset
@@ -67,6 +69,8 @@ data class ProviderEntity(
     @ColumnInfo(name = "api_version") val apiVersion: String? = null,
     @ColumnInfo(name = "allowed_output_formats_json") val allowedOutputFormatsJson: String = "[]",
     @ColumnInfo(name = "epg_sync_mode") val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.UPFRONT,
+    @ColumnInfo(name = "guide_source_policy") val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    @ColumnInfo(name = "channel_logo_source_policy") val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     @ColumnInfo(name = "xtream_fast_sync_enabled") val xtreamFastSyncEnabled: Boolean = false,
     @ColumnInfo(name = "xtream_live_sync_mode") val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
     @ColumnInfo(name = "m3u_vod_classification_enabled") val m3uVodClassificationEnabled: Boolean = false,
@@ -130,6 +134,9 @@ data class ChannelBrowseEntity(
     @ColumnInfo(name = "catch_up_days") val catchUpDays: Int = 0,
     val catchUpSource: String? = null,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "guide_source_policy") val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    @ColumnInfo(name = "channel_logo_source_policy") val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
+    @ColumnInfo(name = "epg_icon_url") val epgIconUrl: String? = null,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
     @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
     @ColumnInfo(name = "logical_group_id") val logicalGroupId: String = "",

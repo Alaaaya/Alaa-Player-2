@@ -95,36 +95,48 @@ abstract class ProviderDao {
 abstract class ChannelDao {
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId
+        ORDER BY c.number ASC
         """
     )
     abstract fun getByProvider(providerId: Long): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.error_count = 0
+        ORDER BY c.number ASC
         """
     )
     abstract fun getByProviderWithoutErrors(providerId: Long): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.error_count = 0
+        ORDER BY c.number ASC
         LIMIT :limit
         """
     )
@@ -132,12 +144,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId
+        ORDER BY c.number ASC
         LIMIT :limit
         """
     )
@@ -145,12 +161,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId
+        ORDER BY c.number ASC
         LIMIT :limit
         """
     )
@@ -161,36 +181,48 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId
+        ORDER BY c.number ASC
         """
     )
     abstract fun getByCategory(providerId: Long, categoryId: Long): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId AND c.error_count = 0
+        ORDER BY c.number ASC
         """
     )
     abstract fun getByCategoryWithoutErrors(providerId: Long, categoryId: Long): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId AND c.error_count = 0
+        ORDER BY c.number ASC
         LIMIT :limit
         """
     )
@@ -202,12 +234,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId
+        ORDER BY c.number ASC
         LIMIT :limit OFFSET :offset
         """
     )
@@ -215,12 +251,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.error_count = 0
+        ORDER BY c.number ASC
         LIMIT :limit OFFSET :offset
         """
     )
@@ -228,12 +268,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId
+        ORDER BY c.number ASC
         LIMIT :limit OFFSET :offset
         """
     )
@@ -241,12 +285,16 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND category_id = :categoryId AND error_count = 0
-        ORDER BY number ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.category_id = :categoryId AND c.error_count = 0
+        ORDER BY c.number ASC
         LIMIT :limit OFFSET :offset
         """
     )
@@ -259,9 +307,13 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
+        JOIN providers p ON p.id = c.provider_id
         JOIN channels_fts ON c.id = channels_fts.rowid
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
         WHERE c.provider_id = :providerId
           AND channels_fts MATCH :query
         ORDER BY c.name ASC
@@ -274,8 +326,12 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
         WHERE c.provider_id = :providerId
           AND (
               LOWER(c.name) LIKE LOWER(:queryLike) ESCAPE '\'
@@ -292,9 +348,13 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
+        JOIN providers p ON p.id = c.provider_id
         JOIN channels_fts ON c.id = channels_fts.rowid
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
         WHERE c.provider_id = :providerId
           AND c.category_id = :categoryId
           AND channels_fts MATCH :query
@@ -308,8 +368,12 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
         WHERE c.provider_id = :providerId
           AND c.category_id = :categoryId
           AND (
@@ -325,6 +389,22 @@ abstract class ChannelDao {
 
     @Query("SELECT * FROM channels WHERE id = :id")
     abstract suspend fun getById(id: Long): ChannelEntity?
+
+    @Query(
+        """
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.id = :id
+        LIMIT 1
+        """
+    )
+    abstract suspend fun getBrowseById(id: Long): ChannelBrowseEntity?
 
     @Query(
         """
@@ -375,35 +455,47 @@ abstract class ChannelDao {
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE id IN (:ids)
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.id IN (:ids)
         """
     )
     abstract fun getByIds(ids: List<Long>): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE logical_group_id IN (:logicalGroupIds)
-        ORDER BY provider_id ASC, number ASC, name ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.logical_group_id IN (:logicalGroupIds)
+        ORDER BY c.provider_id ASC, c.number ASC, c.name ASC
         """
     )
     abstract fun getByLogicalGroupIds(logicalGroupIds: List<String>): Flow<List<ChannelBrowseEntity>>
 
     @Query(
         """
-        SELECT id, stream_id, name, logo_url, group_title, category_id, category_name, stream_url,
-               epg_channel_id, number, catch_up_supported, catch_up_days, catchUpSource,
-               provider_id, is_adult, is_user_protected, logical_group_id, error_count
-        FROM channels
-        WHERE provider_id = :providerId AND logical_group_id = :logicalGroupId
-        ORDER BY number ASC, name ASC
+        SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
+               c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
+               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
+        FROM channels c
+        JOIN providers p ON p.id = c.provider_id
+        LEFT JOIN channel_epg_mappings cem ON cem.provider_channel_id = c.id AND cem.provider_id = c.provider_id
+        LEFT JOIN epg_channels ec ON ec.epg_source_id = cem.epg_source_id AND ec.xmltv_channel_id = cem.xmltv_channel_id
+        WHERE c.provider_id = :providerId AND c.logical_group_id = :logicalGroupId
+        ORDER BY c.number ASC, c.name ASC
         """
     )
     abstract suspend fun getByLogicalGroupId(providerId: Long, logicalGroupId: String): List<ChannelBrowseEntity>

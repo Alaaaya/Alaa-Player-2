@@ -1126,7 +1126,7 @@ private fun Iterable<ProviderEntity>.findMatchingProvider(
 }
 
 private const val SHA256_PREFIX = "sha256:"
-private const val CURRENT_BACKUP_VERSION = 7
+private const val CURRENT_BACKUP_VERSION = 8
 private const val FILE_URI_SCHEME = "file"
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type

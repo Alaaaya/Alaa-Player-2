@@ -52,6 +52,7 @@ import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.Channel
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -4201,10 +4202,13 @@ class SyncManager @Inject constructor(
         val warnings = mutableListOf<String>()
         var hasRetryableFailure = false
         val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
+        val guidePolicy = provider.guideSourcePolicy
 
         when (provider.type) {
             ProviderType.XTREAM_CODES -> {
-                if (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now)) {
+                if (shouldUseProviderGuide(guidePolicy) &&
+                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+                ) {
                     try {
                         progress(provider.id, onProgress, "Downloading EPG...")
                         val base = provider.serverUrl.trimEnd('/')
@@ -4225,21 +4229,24 @@ class SyncManager @Inject constructor(
                         )
                         syncMetadataRepository.updateMetadata(updatedMetadata)
                         if (epgCount == 0) {
-                            warnings.add("EPG imported zero programs; live guide will fall back to on-demand Xtream data.")
+                            warnings.add("EPG imported zero programs; live guide may require provider fallback.")
                         }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         Log.e(TAG, "EPG sync failed (non-fatal): ${sanitizeThrowableMessage(e)}")
                         if (isRetryableEpgException(e)) hasRetryableFailure = true
-                        warnings.add("EPG XMLTV sync failed; live guide will fall back to on-demand Xtream data.")
+                        warnings.add("EPG XMLTV sync failed.")
                     }
                 }
             }
 
             ProviderType.M3U -> {
                 val currentEpgUrl = providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
-                if (!currentEpgUrl.isNullOrBlank() && (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))) {
+                if (shouldUseProviderGuide(guidePolicy) &&
+                    !currentEpgUrl.isNullOrBlank() &&
+                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+                ) {
                     val epgValidationError = UrlSecurityPolicy.validateOptionalEpgUrl(currentEpgUrl)
                     if (epgValidationError != null) {
                         warnings.add(epgValidationError)
@@ -4267,7 +4274,9 @@ class SyncManager @Inject constructor(
             }
 
             ProviderType.STALKER_PORTAL -> {
-                if (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now)) {
+                if (shouldUseProviderGuide(guidePolicy) &&
+                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+                ) {
                     val stalkerEpgWarnings = syncStalkerPreferredEpg(
                         provider = provider,
                         now = now,
@@ -4284,22 +4293,30 @@ class SyncManager @Inject constructor(
             ProviderType.JELLYFIN -> Unit
         }
 
-        try {
-            progress(provider.id, onProgress, "Refreshing external EPG sources...")
-            retryTransient {
-                requireResult(
-                    epgSourceRepository.refreshAllForProvider(provider.id),
-                    "External EPG source refresh failed"
-                )
+        if (shouldUseExternalGuide(guidePolicy)) {
+            try {
+                progress(provider.id, onProgress, "Refreshing external EPG sources...")
+                retryTransient {
+                    requireResult(
+                        epgSourceRepository.refreshAllForProvider(provider.id),
+                        "External EPG source refresh failed"
+                    )
+                }
+                progress(provider.id, onProgress, "Resolving EPG mappings...")
+                epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "External EPG resolution failed (non-fatal): ${sanitizeThrowableMessage(e)}")
+                if (isRetryableEpgException(e)) hasRetryableFailure = true
+                warnings.add("External EPG source refresh/resolution failed.")
             }
-            progress(provider.id, onProgress, "Resolving EPG mappings...")
+        } else if (guidePolicy == GuideSourcePolicy.DISABLED) {
+            progress(provider.id, onProgress, "Guide data disabled for this provider.")
             epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "External EPG resolution failed (non-fatal): ${sanitizeThrowableMessage(e)}")
-            if (isRetryableEpgException(e)) hasRetryableFailure = true
-            warnings.add("External EPG source refresh/resolution failed.")
+        } else {
+            progress(provider.id, onProgress, "Resolving provider EPG mappings...")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
         }
 
         return EpgSyncResult(warnings = warnings, hasRetryableFailure = hasRetryableFailure)
@@ -4311,21 +4328,35 @@ class SyncManager @Inject constructor(
     ) {
         progress(provider.id, onProgress, "Retrying EPG...")
         val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
+        val guidePolicy = provider.guideSourcePolicy
+        if (guidePolicy == GuideSourcePolicy.DISABLED) {
+            progress(provider.id, onProgress, "Guide data disabled for this provider.")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            return
+        }
         if (provider.type == ProviderType.STALKER_PORTAL) {
-            syncStalkerPreferredEpg(
-                provider = provider,
-                now = System.currentTimeMillis(),
-                onProgress = onProgress
-            )
-            progress(provider.id, onProgress, "Refreshing external EPG sources...")
-            retryTransient {
-                requireResult(
-                    epgSourceRepository.refreshAllForProvider(provider.id),
-                    "External EPG source refresh failed"
+            if (shouldUseProviderGuide(guidePolicy)) {
+                syncStalkerPreferredEpg(
+                    provider = provider,
+                    now = System.currentTimeMillis(),
+                    onProgress = onProgress
                 )
             }
-            progress(provider.id, onProgress, "Resolving EPG mappings...")
-            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            if (shouldUseExternalGuide(guidePolicy)) {
+                progress(provider.id, onProgress, "Refreshing external EPG sources...")
+                retryTransient {
+                    requireResult(
+                        epgSourceRepository.refreshAllForProvider(provider.id),
+                        "External EPG source refresh failed"
+                    )
+                }
+                progress(provider.id, onProgress, "Resolving EPG mappings...")
+                epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            }
+            if (!shouldUseExternalGuide(guidePolicy)) {
+                progress(provider.id, onProgress, "Resolving provider EPG mappings...")
+                epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            }
             return
         }
         val epgUrl = when (provider.type) {
@@ -4339,8 +4370,8 @@ class SyncManager @Inject constructor(
             ProviderType.STALKER_PORTAL -> providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
             ProviderType.JELLYFIN -> ""
         }
-        if (epgUrl.isBlank()) {
-            if (provider.type == ProviderType.STALKER_PORTAL) {
+        if (!shouldUseProviderGuide(guidePolicy)) {
+            if (shouldUseExternalGuide(guidePolicy)) {
                 progress(provider.id, onProgress, "Refreshing external EPG sources...")
                 retryTransient {
                     requireResult(
@@ -4350,8 +4381,10 @@ class SyncManager @Inject constructor(
                 }
                 progress(provider.id, onProgress, "Resolving EPG mappings...")
                 epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
-                return
             }
+            return
+        }
+        if (epgUrl.isBlank()) {
             throw IllegalStateException("No EPG URL configured for this provider")
         }
         val validationError = when (provider.type) {
@@ -4376,15 +4409,20 @@ class SyncManager @Inject constructor(
         syncMetadataRepository.updateMetadata(metadata)
 
         // Also refresh external sources and run resolution
-        progress(provider.id, onProgress, "Refreshing external EPG sources...")
-        retryTransient {
-            requireResult(
-                epgSourceRepository.refreshAllForProvider(provider.id),
-                "External EPG source refresh failed"
-            )
+        if (shouldUseExternalGuide(guidePolicy)) {
+            progress(provider.id, onProgress, "Refreshing external EPG sources...")
+            retryTransient {
+                requireResult(
+                    epgSourceRepository.refreshAllForProvider(provider.id),
+                    "External EPG source refresh failed"
+                )
+            }
+            progress(provider.id, onProgress, "Resolving EPG mappings...")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+        } else {
+            progress(provider.id, onProgress, "Resolving provider EPG mappings...")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
         }
-        progress(provider.id, onProgress, "Resolving EPG mappings...")
-        epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
     }
 
     private suspend fun syncStalkerPreferredEpg(
@@ -5869,6 +5907,12 @@ class SyncManager @Inject constructor(
 
     private fun isStalkerEmptyResponse(message: String?): Boolean =
         !message.isNullOrBlank() && message.contains("empty response", ignoreCase = true)
+
+    private fun shouldUseProviderGuide(policy: GuideSourcePolicy): Boolean =
+        policy == GuideSourcePolicy.AUTO || policy == GuideSourcePolicy.PROVIDER_ONLY
+
+    private fun shouldUseExternalGuide(policy: GuideSourcePolicy): Boolean =
+        policy == GuideSourcePolicy.AUTO || policy == GuideSourcePolicy.EXTERNAL_ONLY
 
     private fun StalkerProviderProfile.hasLikelyMissingCatalogAccess(): Boolean {
         val normalizedAccountId = accountId?.trim().orEmpty()

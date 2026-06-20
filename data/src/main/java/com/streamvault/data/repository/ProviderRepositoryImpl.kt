@@ -177,6 +177,8 @@ class ProviderRepositoryImpl @Inject constructor(
         xtreamFastSyncEnabled: Boolean,
         epgSyncMode: ProviderEpgSyncMode,
         xtreamLiveSyncMode: com.streamvault.domain.model.ProviderXtreamLiveSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -232,6 +234,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         httpHeaders = httpHeaders,
                         epgSyncMode = epgSyncMode,
                         xtreamLiveSyncMode = xtreamLiveSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         isActive = false,
                         status = ProviderStatus.PARTIAL,
@@ -247,6 +251,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         httpHeaders = httpHeaders,
                         epgSyncMode = epgSyncMode,
                         xtreamLiveSyncMode = xtreamLiveSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         isActive = false,
                         status = ProviderStatus.PARTIAL
@@ -278,6 +284,8 @@ class ProviderRepositoryImpl @Inject constructor(
         httpHeaders: String,
         epgSyncMode: ProviderEpgSyncMode,
         m3uVodClassificationEnabled: Boolean,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> = try {
@@ -316,6 +324,8 @@ class ProviderRepositoryImpl @Inject constructor(
                 httpHeaders = httpHeaders,
                 epgSyncMode = epgSyncMode,
                 m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+                guideSourcePolicy = guideSourcePolicy,
+                channelLogoSourcePolicy = channelLogoSourcePolicy,
                 isActive = false,
                 status = ProviderStatus.PARTIAL,
                 lastSyncedAt = 0
@@ -332,6 +342,8 @@ class ProviderRepositoryImpl @Inject constructor(
                 httpHeaders = httpHeaders,
                 epgSyncMode = epgSyncMode,
                 m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+                guideSourcePolicy = guideSourcePolicy,
+                channelLogoSourcePolicy = channelLogoSourcePolicy,
                 isActive = false,
                 status = ProviderStatus.PARTIAL
             )
@@ -481,6 +493,8 @@ class ProviderRepositoryImpl @Inject constructor(
         signature: String,
         stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -572,6 +586,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
                         isActive = false,
@@ -599,6 +615,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerSignature = normalizedSignature,
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgSyncMode = epgSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
                         isActive = false,
@@ -741,6 +759,9 @@ class ProviderRepositoryImpl @Inject constructor(
     ): Result<List<Program>> {
         val providerEntity = providerDao.getById(providerId)
             ?: return Result.error("Provider $providerId not found")
+        if (!allowsOnDemandGuide(providerEntity.toPublicDomain())) {
+            return Result.error("On-demand guide lookup is disabled for this provider.")
+        }
         return when (providerEntity.type) {
             ProviderType.XTREAM_CODES -> when (val providerContextResult = createXtreamLiveProgramProviderContext(providerId)) {
                 is Result.Success -> {
@@ -794,6 +815,11 @@ class ProviderRepositoryImpl @Inject constructor(
 
         val providerEntity = providerDao.getById(providerId)
             ?: return normalizedRequests.associateWith { Result.error("Provider $providerId not found") }
+        if (!allowsOnDemandGuide(providerEntity.toPublicDomain())) {
+            return normalizedRequests.associateWith {
+                Result.error("On-demand guide lookup is disabled for this provider.")
+            }
+        }
 
         return when (providerEntity.type) {
             ProviderType.XTREAM_CODES -> when (val providerContextResult = createXtreamLiveProgramProviderContext(providerId)) {
@@ -1164,6 +1190,13 @@ class ProviderRepositoryImpl @Inject constructor(
             epgCount = programDao.countByProvider(providerId)
         )
         syncMetadataRepository.updateMetadata(metadata)
+    }
+
+    private fun allowsOnDemandGuide(provider: Provider): Boolean = when (provider.guideSourcePolicy) {
+        GuideSourcePolicy.AUTO,
+        GuideSourcePolicy.PROVIDER_ONLY -> true
+        GuideSourcePolicy.EXTERNAL_ONLY,
+        GuideSourcePolicy.DISABLED -> provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL
     }
 }
 

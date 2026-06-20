@@ -38,6 +38,7 @@ import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AppTopLevelDestination
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
@@ -61,6 +62,7 @@ import com.streamvault.domain.model.RemoteColorButton
 import com.streamvault.domain.model.RemoteShortcutProfile
 import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.EpgResolutionSummary
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VirtualCategoryIds
@@ -419,6 +421,14 @@ class SettingsViewModel @Inject constructor(
 
     fun setM3uVodClassificationEnabled(providerId: Long, enabled: Boolean) {
         providerActions.setM3uVodClassificationEnabled(viewModelScope, providerId, enabled)
+    }
+
+    fun setGuideSourcePolicy(providerId: Long, policy: GuideSourcePolicy) {
+        providerActions.setGuideSourcePolicy(viewModelScope, providerId, policy)
+    }
+
+    fun setChannelLogoSourcePolicy(providerId: Long, policy: ChannelLogoSourcePolicy) {
+        providerActions.setChannelLogoSourcePolicy(viewModelScope, providerId, policy)
     }
 
     fun refreshProviderClassification(providerId: Long) {

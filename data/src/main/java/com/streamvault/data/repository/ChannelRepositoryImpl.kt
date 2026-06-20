@@ -7,7 +7,6 @@ import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.FavoriteDao
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.ChannelBrowseEntity
-import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.CategoryCount
 import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.preferences.PreferencesRepository
@@ -15,6 +14,7 @@ import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.util.rankSearchResults
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ChannelQualityOption
@@ -232,14 +232,14 @@ class ChannelRepositoryImpl @Inject constructor(
     // look up a specific channel by id (e.g. HiddenChannelsDialog resolves the
     // hidden set back to Channel objects), they must not be gated by visibility.
     override suspend fun getChannel(channelId: Long): Channel? {
-        val entity = channelDao.getById(channelId) ?: return null
+        val entity = channelDao.getBrowseById(channelId) ?: return null
         val settings = currentPresentationSettings()
         val observation = settings.observedQualities[channelId]
         if (settings.groupingMode == LiveChannelGroupingMode.RAW_VARIANTS || entity.logicalGroupId.isBlank()) {
             return entity.toPresentedRawChannel(observation)
         }
         val groupedEntities = channelDao.getByLogicalGroupId(entity.providerId, entity.logicalGroupId)
-            .ifEmpty { listOf(entity.toBrowseEntity()) }
+            .ifEmpty { listOf(entity) }
         return buildGroupedChannels(groupedEntities, settings).firstOrNull()
     }
 
@@ -511,7 +511,7 @@ class ChannelRepositoryImpl @Inject constructor(
                 id = selectedVariant.rawChannelId,
                 name = displayName,
                 canonicalName = canonicalName,
-                logoUrl = representative.logoUrl,
+                logoUrl = representative.resolveLogoUrl(),
                 groupTitle = representative.groupTitle,
                 categoryId = representative.categoryId,
                 categoryName = representative.categoryName,
@@ -809,7 +809,7 @@ class ChannelRepositoryImpl @Inject constructor(
             id = id,
             name = name,
             canonicalName = variant.canonicalName,
-            logoUrl = logoUrl,
+            logoUrl = resolveLogoUrl(),
             groupTitle = groupTitle,
             categoryId = categoryId,
             categoryName = categoryName,
@@ -833,39 +833,14 @@ class ChannelRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun ChannelEntity.toPresentedRawChannel(
-        observedQuality: LiveChannelObservedQuality?
-    ): Channel {
-        val domain = toDomain()
-        val variant = toBrowseEntity().toVariant(observedQuality)
-        return domain.copy(
-            canonicalName = variant.canonicalName,
-            logicalGroupId = logicalGroupId.takeIf(String::isNotBlank) ?: variant.logicalGroupId,
-            selectedVariantId = id,
-            variants = listOf(variant),
-            alternativeStreams = domain.alternativeStreams.distinct()
-        )
+    private fun ChannelBrowseEntity.resolveLogoUrl(): String? {
+        val supplierLogo = logoUrl?.takeIf { it.isNotBlank() }
+        val epgLogo = epgIconUrl?.takeIf { it.isNotBlank() }
+        return when (channelLogoSourcePolicy) {
+            ChannelLogoSourcePolicy.SUPPLIER_PREFERRED -> supplierLogo ?: epgLogo
+            ChannelLogoSourcePolicy.EPG_PREFERRED -> epgLogo ?: supplierLogo
+            ChannelLogoSourcePolicy.SUPPLIER_ONLY -> supplierLogo
+            ChannelLogoSourcePolicy.EPG_ONLY -> epgLogo
+        }
     }
-
-    private fun ChannelEntity.toBrowseEntity(): ChannelBrowseEntity =
-        ChannelBrowseEntity(
-            id = id,
-            streamId = streamId,
-            name = name,
-            logoUrl = logoUrl,
-            groupTitle = groupTitle,
-            categoryId = categoryId,
-            categoryName = categoryName,
-            streamUrl = streamUrl,
-            epgChannelId = epgChannelId,
-            number = number,
-            catchUpSupported = catchUpSupported,
-            catchUpDays = catchUpDays,
-            catchUpSource = catchUpSource,
-            providerId = providerId,
-            isAdult = isAdult,
-            isUserProtected = isUserProtected,
-            logicalGroupId = logicalGroupId,
-            errorCount = errorCount
-        )
 }

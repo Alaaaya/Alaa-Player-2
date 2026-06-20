@@ -42,6 +42,8 @@ data class Provider(
     val apiVersion: String? = null,
     val allowedOutputFormats: List<String> = emptyList(),
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.UPFRONT,
+    val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val xtreamFastSyncEnabled: Boolean = true,
     val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
     val m3uVodClassificationEnabled: Boolean = false,
@@ -70,6 +72,20 @@ enum class ProviderEpgSyncMode {
     UPFRONT,
     BACKGROUND,
     SKIP
+}
+
+enum class GuideSourcePolicy {
+    AUTO,
+    EXTERNAL_ONLY,
+    PROVIDER_ONLY,
+    DISABLED
+}
+
+enum class ChannelLogoSourcePolicy {
+    SUPPLIER_PREFERRED,
+    EPG_PREFERRED,
+    SUPPLIER_ONLY,
+    EPG_ONLY
 }
 
 enum class ProviderXtreamLiveSyncMode {
