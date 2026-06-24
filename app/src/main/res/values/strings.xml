@@ -208,6 +208,8 @@
     <string name="settings_show_live_source_switcher_subtitle">Display the M3U source switcher inside Live TV browsing.</string>
     <string name="settings_show_all_channels_category">Show All Channels category</string>
     <string name="settings_show_all_channels_category_subtitle">Display the virtual All Channels group in Live TV and the EPG guide.</string>
+    <string name="settings_show_favorites_category">Show Favorites category</string>
+    <string name="settings_show_favorites_category_subtitle">Display the virtual Favorites group in Live TV browsing.</string>
     <string name="settings_show_recent_channels_category">Show Recent Channels category</string>
     <string name="settings_show_recent_channels_category_subtitle">Display recently watched channels in Live TV browsing and on the Home screen.</string>
     <string name="settings_live_channel_grouping_mode">Channel grouping</string>
@@ -391,6 +393,8 @@
     <string name="settings_home_dashboard_remove">Remove</string>
     <string name="settings_default_landing_screen">Default landing screen</string>
     <string name="settings_select_default_landing_screen">Select default landing screen</string>
+    <string name="settings_startup_first_favorite_live">Play first favorite channel</string>
+    <string name="settings_startup_last_watched_live">Play last watched live channel</string>
     <plurals name="settings_top_navigation_count">
         <item quantity="one">%d tab</item>
         <item quantity="other">%d tabs</item>

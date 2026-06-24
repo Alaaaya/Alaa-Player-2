@@ -4,6 +4,8 @@ import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,11 +37,15 @@ import com.streamvault.app.ui.screens.downloads.DownloadsScreen
 import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.MovieDetailPresentationHint
+import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.SeriesDetailPresentationHint
+import com.streamvault.domain.model.VirtualCategoryIds
 import java.io.Serializable
 import kotlin.coroutines.resume
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 
@@ -47,6 +53,11 @@ private const val PLAYER_REQUEST_KEY = "player_request"
 internal const val MOVIE_DETAIL_PRESENTATION_HINT_KEY = "movie_detail_presentation_hint"
 internal const val SERIES_DETAIL_PRESENTATION_HINT_KEY = "series_detail_presentation_hint"
 private const val TAG = "AppNavigation"
+
+private sealed interface StartupNavigationTarget {
+    data class Route(val route: String) : StartupNavigationTarget
+    data class Player(val request: PlayerNavigationRequest) : StartupNavigationTarget
+}
 
 data class PlayerNavigationRequest(
     val streamUrl: String,
@@ -303,6 +314,8 @@ private fun NavHostController.navigateToExternalPlayer(request: PlayerNavigation
 internal fun AppLandingDestination.toAppRoute(): String = when (this) {
     AppLandingDestination.HOME -> Routes.HOME
     AppLandingDestination.LIVE_TV -> Routes.LIVE_TV
+    AppLandingDestination.FIRST_FAVORITE_LIVE -> Routes.LIVE_TV
+    AppLandingDestination.LAST_WATCHED_LIVE -> Routes.LIVE_TV
     AppLandingDestination.MOVIES -> Routes.MOVIES
     AppLandingDestination.SERIES -> Routes.SERIES
     AppLandingDestination.GUIDE -> Routes.EPG
@@ -334,10 +347,35 @@ fun AppNavigation(mainActivity: MainActivity) {
     val appLandingDestination = mainActivity.preferencesRepository.appLandingDestination
         .collectAsStateWithLifecycle(initialValue = AppLandingDestination.HOME)
         .value
-    val landingRoute = AppTopLevelDestination.resolveLandingDestination(
+    val resolvedLandingDestination = AppTopLevelDestination.resolveLandingDestination(
         preferred = appLandingDestination,
         destinations = topLevelDestinations
-    ).toAppRoute()
+    )
+    val startupTarget by produceState<StartupNavigationTarget>(
+        initialValue = StartupNavigationTarget.Route(resolvedLandingDestination.toAppRoute()),
+        resolvedLandingDestination,
+        topLevelDestinations
+    ) {
+        value = resolveStartupNavigationTarget(
+            mainActivity = mainActivity,
+            landingDestination = resolvedLandingDestination,
+            destinations = topLevelDestinations
+        )
+    }
+
+    fun navigateToStartupTarget(popUpRoute: String): Boolean = when (val target = startupTarget) {
+        is StartupNavigationTarget.Route -> navController.navigateIfResumed(target.route) {
+            popUpTo(popUpRoute) { inclusive = true }
+        }
+        is StartupNavigationTarget.Player -> {
+            if (navController.navigateToPlayer(target.request)) {
+                navController.popBackStack(popUpRoute, inclusive = true)
+                true
+            } else {
+                false
+            }
+        }
+    }
 
     LaunchedEffect(externalNavigationRequest, currentBackStackEntry) {
         val entry = currentBackStackEntry ?: return@LaunchedEffect
@@ -401,9 +439,7 @@ fun AppNavigation(mainActivity: MainActivity) {
         composable(Routes.WELCOME) {
             WelcomeScreen(
                 onNavigateToHome = dropUnlessResumed {
-                    navController.navigate(landingRoute) {
-                        popUpTo(Routes.WELCOME) { inclusive = true }
-                    }
+                    navigateToStartupTarget(Routes.WELCOME)
                 },
                 onNavigateToSetup = dropUnlessResumed {
                     navController.navigate(Routes.providerSetup()) {
@@ -428,9 +464,7 @@ fun AppNavigation(mainActivity: MainActivity) {
                 initialImportUri = importUri,
                 onBack = { navController.popBackStack() },
                 onProviderAdded = dropUnlessResumed {
-                    navController.navigate(landingRoute) {
-                        popUpTo(Routes.PROVIDER_SETUP) { inclusive = true }
-                    }
+                    navigateToStartupTarget(Routes.PROVIDER_SETUP)
                 }
             )
         }
@@ -867,4 +901,118 @@ fun AppNavigation(mainActivity: MainActivity) {
             )
         }
     }
+}
+
+private suspend fun resolveStartupNavigationTarget(
+    mainActivity: MainActivity,
+    landingDestination: AppLandingDestination,
+    destinations: List<AppTopLevelDestination>
+): StartupNavigationTarget {
+    val fallback = fallbackStartupNavigationTarget(destinations)
+    return when (landingDestination) {
+        AppLandingDestination.FIRST_FAVORITE_LIVE -> resolveFirstFavoriteStartupTarget(mainActivity) ?: fallback
+        AppLandingDestination.LAST_WATCHED_LIVE -> resolveLastWatchedStartupTarget(mainActivity) ?: fallback
+        else -> StartupNavigationTarget.Route(landingDestination.toAppRoute())
+    }
+}
+
+private fun fallbackStartupNavigationTarget(
+    destinations: List<AppTopLevelDestination>
+): StartupNavigationTarget = StartupNavigationTarget.Route(
+    AppTopLevelDestination.resolveLandingDestination(
+        preferred = AppLandingDestination.LIVE_TV,
+        destinations = destinations
+    ).toAppRoute()
+)
+
+private suspend fun resolveFirstFavoriteStartupTarget(
+    mainActivity: MainActivity
+): StartupNavigationTarget.Player? {
+    if (!mainActivity.preferencesRepository.showFavoritesCategory.first()) return null
+    val context = resolveLiveStartupContext(mainActivity) ?: return null
+    val favorites = when (context) {
+        is LiveStartupContext.Provider -> mainActivity.favoriteRepository.getFavorites(context.providerId, ContentType.LIVE).first()
+        is LiveStartupContext.Combined -> mainActivity.favoriteRepository.getFavorites(context.providerIds, ContentType.LIVE).first()
+    }.sortedBy { it.position }
+    return resolveStartupChannelTarget(
+        mainActivity = mainActivity,
+        channelIds = favorites.map { it.contentId },
+        sourceContext = context,
+        virtualCategoryId = VirtualCategoryIds.FAVORITES
+    )
+}
+
+private suspend fun resolveLastWatchedStartupTarget(
+    mainActivity: MainActivity
+): StartupNavigationTarget.Player? {
+    val context = resolveLiveStartupContext(mainActivity) ?: return null
+    val recentHistory = when (context) {
+        is LiveStartupContext.Provider -> mainActivity.playbackHistoryRepository.getRecentlyWatchedByProvider(context.providerId, limit = 24).first()
+        is LiveStartupContext.Combined -> mainActivity.playbackHistoryRepository.getRecentlyWatchedByProviders(context.providerIds.toSet(), limit = 24).first()
+    }
+    return resolveStartupChannelTarget(
+        mainActivity = mainActivity,
+        channelIds = recentHistory
+            .filter { it.contentType == ContentType.LIVE }
+            .sortedByDescending { it.lastWatchedAt }
+            .map { it.contentId },
+        sourceContext = context,
+        virtualCategoryId = VirtualCategoryIds.RECENT
+    )
+}
+
+private suspend fun resolveStartupChannelTarget(
+    mainActivity: MainActivity,
+    channelIds: List<Long>,
+    sourceContext: LiveStartupContext,
+    virtualCategoryId: Long
+): StartupNavigationTarget.Player? {
+    if (channelIds.isEmpty()) return null
+    val hiddenChannelIdsByProvider = sourceContext.providerIds.associateWith { providerId ->
+        mainActivity.preferencesRepository.getHiddenChannelIds(providerId).first()
+    }
+    for (channelId in channelIds.distinct()) {
+        val channel = mainActivity.channelRepository.getChannel(channelId) ?: continue
+        if (channel.providerId !in sourceContext.providerIds) continue
+        if (channel.id in hiddenChannelIdsByProvider[channel.providerId].orEmpty()) continue
+        return StartupNavigationTarget.Player(
+            Routes.livePlayer(
+                channel = channel,
+                categoryId = virtualCategoryId,
+                providerId = channel.providerId,
+                isVirtual = true,
+                combinedProfileId = (sourceContext as? LiveStartupContext.Combined)?.profileId,
+                returnRoute = Routes.LIVE_TV
+            )
+        )
+    }
+    return null
+}
+
+private suspend fun resolveLiveStartupContext(
+    mainActivity: MainActivity
+): LiveStartupContext? {
+    return when (val activeSource = mainActivity.combinedM3uRepository.getActiveLiveSource().first()) {
+        is ActiveLiveSource.ProviderSource -> LiveStartupContext.Provider(activeSource.providerId)
+        is ActiveLiveSource.CombinedM3uSource -> {
+            val providerIds = mainActivity.combinedM3uRepository.getProfile(activeSource.profileId)
+                ?.members
+                .orEmpty()
+                .filter { it.enabled }
+                .map { it.providerId }
+                .distinct()
+            if (providerIds.isEmpty()) null else LiveStartupContext.Combined(activeSource.profileId, providerIds)
+        }
+        null -> null
+    }
+}
+
+private sealed interface LiveStartupContext {
+    val providerIds: List<Long>
+
+    data class Provider(val providerId: Long) : LiveStartupContext {
+        override val providerIds: List<Long> = listOf(providerId)
+    }
+
+    data class Combined(val profileId: Long, override val providerIds: List<Long>) : LiveStartupContext
 }

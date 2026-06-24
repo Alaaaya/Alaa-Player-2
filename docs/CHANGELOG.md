@@ -9,11 +9,14 @@ All notable product changes are recorded in this document.
 - Added separate Audio Decoder Mode and Video Decoder Mode playback settings, so users can control audio and video decoder selection independently while existing combined decoder preferences continue migrating to both controls by default.
 - Added a selectable Local Live Rewind backend preference with `Automatic`, `Storage`, and `Memory` modes, so users can control whether live rewind prefers app storage or stays memory-backed when troubleshooting storage-wear or device-compatibility concerns.
 - Added provider-level guide-source and channel-logo source policies for supported IPTV providers, including setup and settings controls to prefer supplier data, prefer external XMLTV data, or disable guide usage entirely on a per-provider basis.
+- Added a `Show Favorites category` Live TV setting plus a matching Live TV category action, so users can hide the virtual Favorites rail the same way they can already hide All Channels and Recent.
+- Added two Live TV-aware startup landing options: `Play first favorite channel`, which launches the current number-one live favorite based on the saved favorites order, and `Play last watched live channel`, with both modes falling back to Live TV when no valid startup channel is available.
 
 ### Fixed
 
 - Fixed Xtream raw live MPEG-TS playback using an HLS-specific Media3 TS extractor mode; direct `.ts` live streams now use the standard single-program TS path, improving compatibility with providers whose endless transport streams were failing during startup and retry recovery.
 - Fixed external-only guide behavior so providers can now strictly avoid supplier Xtream/Stalker guide fallback, clear stale external-vs-provider mapping behavior correctly when policy changes, and resolve channel logos from supplier or matched EPG icons without overwriting stored supplier logos.
+- Fixed Live TV default-category entry so opening Live TV with a saved default category now moves focus into the first channel in that category instead of leaving focus stranded on the sidebar.
 
 ## [1.0.15] - 2026-06-13
 

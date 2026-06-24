@@ -129,6 +129,7 @@ data class SettingsUiState(
     val xtreamBase64TextCompatibility: Boolean = false,
     val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.PRO,
     val showLiveSourceSwitcher: Boolean = false,
+    val showFavoritesCategory: Boolean = true,
     val showAllChannelsCategory: Boolean = true,
     val showRecentChannelsCategory: Boolean = true,
     val remoteShortcutPreferences: RemoteShortcutPreferences = RemoteShortcutPreferences(),

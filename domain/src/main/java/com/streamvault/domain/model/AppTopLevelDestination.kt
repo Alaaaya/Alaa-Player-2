@@ -40,9 +40,26 @@ enum class AppTopLevelDestination(
 
         fun availableLandingDestinations(
             destinations: List<AppTopLevelDestination>
-        ): List<AppLandingDestination> = normalizeForStorage(destinations)
-            .mapNotNull { it.landingDestination }
-            .distinct()
+        ): List<AppLandingDestination> {
+            val normalized = normalizeForStorage(destinations)
+            val available = normalized
+                .mapNotNull { it.landingDestination }
+                .distinct()
+                .toMutableList()
+            if (LIVE_TV in normalized) {
+                val liveTvIndex = available.indexOf(AppLandingDestination.LIVE_TV)
+                if (liveTvIndex >= 0) {
+                    available.add(liveTvIndex + 1, AppLandingDestination.FIRST_FAVORITE_LIVE)
+                    available.add(liveTvIndex + 2, AppLandingDestination.LAST_WATCHED_LIVE)
+                } else {
+                    available += listOf(
+                        AppLandingDestination.FIRST_FAVORITE_LIVE,
+                        AppLandingDestination.LAST_WATCHED_LIVE
+                    )
+                }
+            }
+            return available
+        }
 
         fun resolveLandingDestination(
             preferred: AppLandingDestination,

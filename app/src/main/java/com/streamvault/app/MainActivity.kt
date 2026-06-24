@@ -24,6 +24,10 @@ import com.streamvault.app.tv.WatchNextManager
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.app.ui.theme.StreamVaultTheme
 import com.streamvault.app.ui.time.LocalAppTimeFormat
+import com.streamvault.domain.repository.ChannelRepository
+import com.streamvault.domain.repository.CombinedM3uRepository
+import com.streamvault.domain.repository.FavoriteRepository
+import com.streamvault.domain.repository.PlaybackHistoryRepository
 import dagger.hilt.android.AndroidEntryPoint
 
 import javax.inject.Inject
@@ -72,6 +76,18 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var preferencesRepository: PreferencesRepository
+
+    @Inject
+    lateinit var combinedM3uRepository: CombinedM3uRepository
+
+    @Inject
+    lateinit var favoriteRepository: FavoriteRepository
+
+    @Inject
+    lateinit var playbackHistoryRepository: PlaybackHistoryRepository
+
+    @Inject
+    lateinit var channelRepository: ChannelRepository
 
     @Inject
     lateinit var watchNextManager: WatchNextManager

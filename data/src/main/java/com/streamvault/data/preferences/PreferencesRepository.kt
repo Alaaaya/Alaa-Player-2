@@ -121,6 +121,7 @@ class PreferencesRepository @Inject constructor(
         val APP_TIME_FORMAT = stringPreferencesKey("app_time_format")
         val LIVE_TV_CHANNEL_MODE = stringPreferencesKey("live_tv_channel_mode")
         val SHOW_LIVE_SOURCE_SWITCHER = booleanPreferencesKey("show_live_source_switcher")
+        val SHOW_FAVORITES_CATEGORY = booleanPreferencesKey("show_favorites_category")
         val SHOW_ALL_CHANNELS_CATEGORY = booleanPreferencesKey("show_all_channels_category")
         val SHOW_RECENT_CHANNELS_CATEGORY = booleanPreferencesKey("show_recent_channels_category")
         val LIVE_TV_CATEGORY_FILTERS = stringPreferencesKey("live_tv_category_filters")
@@ -1397,6 +1398,16 @@ class PreferencesRepository @Inject constructor(
     suspend fun setShowLiveSourceSwitcher(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SHOW_LIVE_SOURCE_SWITCHER] = enabled
+        }
+    }
+
+    val showFavoritesCategory: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.SHOW_FAVORITES_CATEGORY] ?: true
+    }
+
+    suspend fun setShowFavoritesCategory(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SHOW_FAVORITES_CATEGORY] = enabled
         }
     }
 

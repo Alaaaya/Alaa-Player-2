@@ -91,6 +91,7 @@ internal fun observeSettingsPreferenceSnapshot(
             xtreamBase64TextCompatibility = false,
             liveTvChannelMode = LiveTvChannelMode.PRO,
             showLiveSourceSwitcher = false,
+            showFavoritesCategory = true,
             showAllChannelsCategory = true,
             showRecentChannelsCategory = true,
             remoteShortcutPreferences = com.streamvault.domain.model.RemoteShortcutPreferences(),
@@ -214,6 +215,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(liveTvChannelMode = LiveTvChannelMode.fromStorage(liveTvChannelMode))
     }.combine(preferencesRepository.showLiveSourceSwitcher) { snapshot, showLiveSourceSwitcher ->
         snapshot.copy(showLiveSourceSwitcher = showLiveSourceSwitcher)
+    }.combine(preferencesRepository.showFavoritesCategory) { snapshot, showFavoritesCategory ->
+        snapshot.copy(showFavoritesCategory = showFavoritesCategory)
     }.combine(preferencesRepository.showAllChannelsCategory) { snapshot, showAllChannelsCategory ->
         snapshot.copy(showAllChannelsCategory = showAllChannelsCategory)
     }.combine(preferencesRepository.showRecentChannelsCategory) { snapshot, showRecentChannelsCategory ->

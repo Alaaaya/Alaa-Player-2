@@ -93,6 +93,7 @@ internal data class SettingsPreferenceSnapshot(
     val xtreamBase64TextCompatibility: Boolean,
     val liveTvChannelMode: LiveTvChannelMode,
     val showLiveSourceSwitcher: Boolean,
+    val showFavoritesCategory: Boolean,
     val showAllChannelsCategory: Boolean,
     val showRecentChannelsCategory: Boolean,
     val remoteShortcutPreferences: RemoteShortcutPreferences,
