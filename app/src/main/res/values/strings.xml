@@ -703,6 +703,8 @@
     <string name="settings_sync_sections_success">Synced: %1$s.</string>
     <string name="settings_sync_sections_failed">Sync failed: %1$s.</string>
     <string name="settings_sync_sections_partial">Synced: %1$s. Failed: %2$s.</string>
+    <string name="settings_sync_cancelled">Sync cancelled.</string>
+    <string name="settings_sync_elapsed">Elapsed: %1$s</string>
     <string name="settings_edit">Edit</string>
     <string name="settings_delete">Delete</string>
     <string name="settings_pc_btn">Parental Control</string>

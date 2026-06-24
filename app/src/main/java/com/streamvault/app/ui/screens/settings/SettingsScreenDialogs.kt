@@ -48,14 +48,18 @@ internal fun SettingsScreenDialogs(
     viewModel: SettingsViewModel,
     context: Context,
     scope: CoroutineScope,
-    dialogState: SettingsScreenDialogState
+    dialogState: SettingsScreenDialogState,
+    onCancelSync: () -> Unit
 ) {
     val providerState = rememberSettingsProviderSectionState(dialogState)
 
     SyncingOverlay(
         isSyncing = uiState.isSyncing,
         providerName = uiState.syncingProviderName,
-        progress = uiState.syncProgress
+        progress = uiState.syncProgress,
+        sectionLabel = uiState.syncSectionLabel,
+        startedAt = uiState.syncStartedAt,
+        onCancel = onCancelSync
     )
 
     if (dialogState.showLiveTvModeDialog) {

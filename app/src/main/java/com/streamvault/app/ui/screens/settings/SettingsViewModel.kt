@@ -1052,6 +1052,10 @@ class SettingsViewModel @Inject constructor(
         syncActions.retryWarningAction(viewModelScope, providerId, action)
     }
 
+    fun cancelSync() {
+        syncActions.cancelSync(viewModelScope)
+    }
+
     fun deleteProvider(providerId: Long, onSuccess: () -> Unit = {}) {
         providerActions.deleteProvider(viewModelScope, providerId, onSuccess)
     }
