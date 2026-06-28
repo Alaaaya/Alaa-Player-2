@@ -282,23 +282,19 @@ class ProviderSetupInputValidatorImpl @Inject constructor() : ProviderSetupInput
     ): Result<ValidatedJellyfinProviderInput> {
         val trimmedUrl = serverUrl.trim()
         if (trimmedUrl.isBlank()) return Result.error("Server URL is required")
-        if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
-            return Result.error("Server URL must start with http:// or https://")
-        }
-        val trimmedName = name.trim().ifBlank { trimmedUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
+        val url = if (trimmedUrl.contains("://")) trimmedUrl else "https://$trimmedUrl"
+        val trimmedName = name.trim().ifBlank { url.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
         val trimmedUser = username.trim()
         if (!allowBlankPassword && password.isBlank()) return Result.error("Password is required")
-        return Result.success(ValidatedJellyfinProviderInput(serverUrl = trimmedUrl, username = trimmedUser, password = password.trim(), name = trimmedName))
+        return Result.success(ValidatedJellyfinProviderInput(serverUrl = url, username = trimmedUser, password = password.trim(), name = trimmedName))
     }
 
     override fun validateJellyfinQuickConnect(serverUrl: String, name: String): Result<ValidatedJellyfinQuickConnectProviderInput> {
         val trimmedUrl = serverUrl.trim()
         if (trimmedUrl.isBlank()) return Result.error("Server URL is required")
-        if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
-            return Result.error("Server URL must start with http:// or https://")
-        }
-        val trimmedName = name.trim().ifBlank { trimmedUrl.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
-        return Result.success(ValidatedJellyfinQuickConnectProviderInput(serverUrl = trimmedUrl, name = trimmedName))
+        val url = if (trimmedUrl.contains("://")) trimmedUrl else "https://$trimmedUrl"
+        val trimmedName = name.trim().ifBlank { url.substringAfter("//").substringBefore("/").ifBlank { "Jellyfin" } }
+        return Result.success(ValidatedJellyfinQuickConnectProviderInput(serverUrl = url, name = trimmedName))
     }
 
     private companion object {

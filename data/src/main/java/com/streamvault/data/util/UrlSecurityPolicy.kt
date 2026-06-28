@@ -131,7 +131,11 @@ object UrlSecurityPolicy {
     ): String? {
         if (containsNewlines(url)) return invalidSchemeMessage
 
-        val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return invalidSchemeMessage
+        val trimmed = url.trim()
+        // If no scheme, prepend https:// — resolveUrlProtocol will later
+        // downgrade to http:// if the server doesn't support HTTPS.
+        val withScheme = if (trimmed.contains("://")) trimmed else "https://$trimmed"
+        val uri = runCatching { URI(withScheme) }.getOrNull() ?: return invalidSchemeMessage
         val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return invalidSchemeMessage
         if (scheme !in allowedSchemes) return invalidSchemeMessage
         if (uri.host.isNullOrBlank()) return missingHostMessage
