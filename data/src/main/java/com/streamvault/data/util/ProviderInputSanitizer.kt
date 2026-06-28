@@ -71,7 +71,9 @@ object ProviderInputSanitizer {
                 connection.connect()
                 val responseCode = connection.responseCode
                 connection.disconnect()
-                if (responseCode in 200..499) httpsUrl else "http://$url"
+                // Only accept 2xx (OK) — 3xx redirect means the server
+                // is sending traffic elsewhere (often to plain HTTP).
+                if (responseCode in 200..299) httpsUrl else "http://$url"
             } catch (_: Exception) {
                 "http://$url"
             }
