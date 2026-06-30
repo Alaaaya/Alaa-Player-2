@@ -1277,7 +1277,8 @@ class PlayerViewModel @Inject constructor(
     internal suspend fun preparePlayer(
         streamInfo: com.streamvault.domain.model.StreamInfo,
         requestVersion: Long,
-        probeBeforePlayback: Boolean = true
+        probeBeforePlayback: Boolean = true,
+        showFailureNotice: Boolean = true
     ): Boolean {
         if (!isActivePlaybackSession(requestVersion)) return false
 
@@ -1289,11 +1290,13 @@ class PlayerViewModel @Inject constructor(
             val expiryMessage = "This stream's subscription has expired. " +
                 "Please renew your subscription with the provider."
             setLastFailureReason(expiryMessage)
-            showPlayerNotice(
-                message = expiryMessage,
-                recoveryType = PlayerRecoveryType.SOURCE,
-                actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
-            )
+            if (showFailureNotice) {
+                showPlayerNotice(
+                    message = expiryMessage,
+                    recoveryType = PlayerRecoveryType.SOURCE,
+                    actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
+                )
+            }
             return false
         }
 
@@ -1302,11 +1305,13 @@ class PlayerViewModel @Inject constructor(
             is Result.Error -> {
                 if (!isActivePlaybackSession(requestVersion)) return false
                 setLastFailureReason(pluginPrepareResult.message)
-                showPlayerNotice(
-                    message = pluginPrepareResult.message,
-                    recoveryType = PlayerRecoveryType.NETWORK,
-                    actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
-                )
+                if (showFailureNotice) {
+                    showPlayerNotice(
+                        message = pluginPrepareResult.message,
+                        recoveryType = PlayerRecoveryType.NETWORK,
+                        actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
+                    )
+                }
                 return false
             }
             Result.Loading -> Unit
@@ -1317,11 +1322,13 @@ class PlayerViewModel @Inject constructor(
             probePlaybackUrl(preparedStreamInfo)?.let { failure ->
                 if (!isActivePlaybackSession(requestVersion)) return false
                 setLastFailureReason(failure.message)
-                showPlayerNotice(
-                    message = failure.message,
-                    recoveryType = failure.recoveryType,
-                    actions = buildRecoveryActions(failure.recoveryType)
-                )
+                if (showFailureNotice) {
+                    showPlayerNotice(
+                        message = failure.message,
+                        recoveryType = failure.recoveryType,
+                        actions = buildRecoveryActions(failure.recoveryType)
+                    )
+                }
                 return false
             }
             probePassedPlaybackKeys.add(
@@ -1639,7 +1646,7 @@ class PlayerViewModel @Inject constructor(
         val timeline = buildProgramTimeline(
             programs = programs,
             now = now,
-            catchUpSupported = currentChannelFlow.value?.catchUpSupported == true,
+            channel = currentChannelFlow.value,
             maxHistoryItems = MAX_PROGRAM_HISTORY_ITEMS,
             maxUpcomingItems = MAX_UPCOMING_PROGRAM_ITEMS
         )

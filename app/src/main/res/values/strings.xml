@@ -1387,6 +1387,7 @@
     <string name="epg_filter_hint">Choose another category or refresh the guide.</string>
     <string name="epg_title">TV Guide</string>
     <string name="epg_catchup_available">Catch-up available (%1$d days)</string>
+    <string name="epg_catchup_available_unknown">Catch-up available</string>
     <string name="epg_archive_ready_hint">Archive or catch-up playback should be available for this program.</string>
     <string name="epg_archive_provider_hint">This provider supports catch-up for the channel, but this program is not marked archive-ready in the current guide window.</string>
     <string name="epg_archive_unavailable_hint">Archive playback is not available for this channel.</string>
@@ -1412,6 +1413,10 @@
     <string name="epg_provider_troubleshooting_no_archive">This channel is not flagged as archive-ready by the provider.</string>
     <string name="epg_provider_troubleshooting_missing_template">Replay may fail because the provider exposed catch-up support without a usable replay template.</string>
     <string name="epg_provider_troubleshooting_missing_stream_id">Replay may fail because the provider did not expose a replay stream identifier.</string>
+    <string name="epg_provider_troubleshooting_incomplete_metadata">Replay may fail because the provider advertises catch-up without enough playback metadata.</string>
+    <string name="epg_provider_troubleshooting_xtream_ready">Xtream replay metadata is present; playback will use the channel stream id and selected archive window.</string>
+    <string name="epg_provider_troubleshooting_stalker_ready">Portal archive metadata is present; playback will request an archive link for the selected window.</string>
+    <string name="epg_provider_troubleshooting_m3u_best_effort">M3U replay is best effort and depends on the playlist catch-up template.</string>
     <string name="epg_provider_troubleshooting_ready">Replay metadata is present, but the provider may still reject this specific program window.</string>
     <string name="epg_provider_troubleshooting_stale">Guide freshness is low, so replay mapping may still be incomplete until the guide refreshes.</string>
 

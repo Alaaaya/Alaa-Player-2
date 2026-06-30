@@ -30,25 +30,79 @@ internal suspend fun PlayerViewModel.startCatchUpPlayback(
         .filter { it.isNotBlank() }
         .distinct()
         .toList()
-    val primaryUrl = candidates.firstOrNull() ?: return
+    if (candidates.isEmpty()) return
 
     currentTitle = title
     pendingCatchUpUrls = candidates
     triedAlternativeStreams.clear()
-    triedAlternativeStreams.add(primaryUrl)
-    currentStreamUrl = primaryUrl
     updateStreamClass("Catch-up")
     appendRecoveryAction(recoveryAction)
 
-    val catchupStream = resolveCatchUpStreamInfo(
-        candidateUrl = primaryUrl,
-        title = currentTitle,
-        currentContentId = currentContentId,
-        currentProviderId = currentProviderId,
-        resolveStreamInfo = ::resolvePlaybackStreamInfo
-    ) ?: return
-    if (!preparePlayer(catchupStream, requestVersion)) return
-    playerEngine.play()
+    var attemptedPreparation = false
+    var showedPreparationFailure = false
+    candidates.forEachIndexed { index, candidateUrl ->
+        if (!isActivePlaybackSession(requestVersion)) return
+        currentStreamUrl = candidateUrl
+        triedAlternativeStreams.add(candidateUrl)
+        appendRecoveryAction("Trying catch-up candidate ${index + 1}/${candidates.size}")
+        android.util.Log.i(
+            "PlayerVM",
+            "catch-up candidate selected index=${index + 1}/${candidates.size}"
+        )
+
+        val catchupStream = resolveCatchUpStreamInfo(
+            candidateUrl = candidateUrl,
+            title = currentTitle,
+            currentContentId = currentContentId,
+            currentProviderId = currentProviderId,
+            resolveStreamInfo = ::resolvePlaybackStreamInfo
+        ) ?: run {
+            android.util.Log.w(
+                "PlayerVM",
+                "catch-up candidate unresolved index=${index + 1}/${candidates.size}"
+            )
+            return@forEachIndexed
+        }
+
+        attemptedPreparation = true
+        val shouldShowFailureNotice = index == candidates.lastIndex
+        if (preparePlayer(
+                streamInfo = catchupStream,
+                requestVersion = requestVersion,
+                showFailureNotice = shouldShowFailureNotice
+            )
+        ) {
+            appendRecoveryAction("Started catch-up candidate ${index + 1}/${candidates.size}")
+            android.util.Log.i(
+                "PlayerVM",
+                "catch-up candidate prepared index=${index + 1}/${candidates.size}"
+            )
+            playerEngine.play()
+            return
+        }
+        if (shouldShowFailureNotice) {
+            showedPreparationFailure = true
+        }
+        android.util.Log.w(
+            "PlayerVM",
+            "catch-up candidate failed index=${index + 1}/${candidates.size}"
+        )
+    }
+
+    if (isActivePlaybackSession(requestVersion) && !showedPreparationFailure) {
+        val fallbackReason = "Replay is unavailable for the selected program right now."
+        val reason = if (attemptedPreparation) {
+            playerDiagnostics.value.lastFailureReason ?: fallbackReason
+        } else {
+            fallbackReason
+        }
+        setLastFailureReason(reason)
+        showPlayerNotice(
+            message = reason,
+            recoveryType = PlayerRecoveryType.CATCH_UP,
+            actions = buildRecoveryActions(PlayerRecoveryType.CATCH_UP)
+        )
+    }
 }
 
 fun PlayerViewModel.playCatchUp(program: Program) {

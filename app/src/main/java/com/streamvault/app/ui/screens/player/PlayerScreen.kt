@@ -45,6 +45,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.*
 import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.ui.theme.*
+import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.VideoFormat
@@ -988,6 +989,7 @@ fun PlayerScreen(
             isCatchUpPlayback = isCatchUpPlayback,
             isPlaying = isPlaying,
             currentProgram = currentProgram,
+            currentChannel = currentChannel,
             currentChannelName = currentChannel?.name,
             displayChannelNumber = displayChannelNumber,
             aspectRatioLabel = aspectRatio.modeName,
@@ -1407,6 +1409,7 @@ private fun PlayerControlsOverlayHost(
     isCatchUpPlayback: Boolean = false,
     isPlaying: Boolean,
     currentProgram: Program?,
+    currentChannel: Channel?,
     currentChannelName: String?,
     displayChannelNumber: Int,
     aspectRatioLabel: String,
@@ -1468,6 +1471,7 @@ private fun PlayerControlsOverlayHost(
         isCatchUpPlayback = isCatchUpPlayback,
         isPlaying = isPlaying,
         currentProgram = currentProgram,
+        currentChannel = currentChannel,
         currentChannelName = currentChannelName,
         displayChannelNumber = displayChannelNumber,
         currentPosition = currentPosition,
