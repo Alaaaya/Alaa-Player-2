@@ -83,6 +83,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         appUpdate = cachedAppUpdate.copy(
             downloadStatus = appUpdate.downloadStatus,
             downloadedVersionName = appUpdate.downloadedVersionName,
+            installPermissionRequired = appUpdate.installPermissionRequired,
             errorMessage = appUpdate.errorMessage
         )
     )

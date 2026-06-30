@@ -217,6 +217,7 @@ class PreferencesRepository @Inject constructor(
         val APP_UPDATE_LATEST_VERSION_CODE = intPreferencesKey("app_update_latest_version_code")
         val APP_UPDATE_RELEASE_URL = stringPreferencesKey("app_update_release_url")
         val APP_UPDATE_DOWNLOAD_URL = stringPreferencesKey("app_update_download_url")
+        val APP_UPDATE_DOWNLOAD_SHA256 = stringPreferencesKey("app_update_download_sha256")
         val APP_UPDATE_RELEASE_NOTES = stringPreferencesKey("app_update_release_notes")
         val APP_UPDATE_PUBLISHED_AT = stringPreferencesKey("app_update_published_at")
         val LAST_MAINTENANCE_AT = longPreferencesKey("last_maintenance_at")
@@ -643,6 +644,10 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_URL]?.takeIf { it.isNotBlank() }
     }
 
+    val cachedAppUpdateDownloadSha256: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256]?.takeIf { it.isNotBlank() }
+    }
+
     val cachedAppUpdateReleaseNotes: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.APP_UPDATE_RELEASE_NOTES].orEmpty()
     }
@@ -810,6 +815,7 @@ class PreferencesRepository @Inject constructor(
         versionCode: Int?,
         releaseUrl: String?,
         downloadUrl: String?,
+        downloadSha256: String?,
         releaseNotes: String?,
         publishedAt: String?
     ) {
@@ -819,6 +825,7 @@ class PreferencesRepository @Inject constructor(
                 preferences.remove(PreferencesKeys.APP_UPDATE_LATEST_VERSION_CODE)
                 preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_URL)
                 preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_URL)
+                preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256)
                 preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_NOTES)
                 preferences.remove(PreferencesKeys.APP_UPDATE_PUBLISHED_AT)
             } else {
@@ -833,6 +840,11 @@ class PreferencesRepository @Inject constructor(
                     preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_URL)
                 } else {
                     preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_URL] = downloadUrl
+                }
+                if (downloadSha256.isNullOrBlank()) {
+                    preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256)
+                } else {
+                    preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256] = downloadSha256
                 }
                 if (releaseNotes.isNullOrBlank()) {
                     preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_NOTES)

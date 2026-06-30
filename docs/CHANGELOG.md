@@ -15,6 +15,7 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed in-app update handling so downloaded APKs are recognized as install-ready, stale downloaded APKs no longer block newer releases, unknown-sources permission prompts preserve the downloaded update for retry, and Home/Settings use the same channel-aware newer-version logic.
 - Fixed Xtream raw live MPEG-TS playback using an HLS-specific Media3 TS extractor mode; direct `.ts` live streams now use the standard single-program TS path, improving compatibility with providers whose endless transport streams were failing during startup and retry recovery.
 - Fixed external-only guide behavior so providers can now strictly avoid supplier Xtream/Stalker guide fallback, clear stale external-vs-provider mapping behavior correctly when policy changes, and resolve channel logos from supplier or matched EPG icons without overwriting stored supplier logos.
 - Fixed Live TV default-category entry so opening Live TV with a saved default category now moves focus into the first channel in that category instead of leaving focus stranded on the sidebar.

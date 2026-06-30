@@ -14,11 +14,9 @@ import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
-import com.streamvault.app.update.AppUpdateDownloadState
-import com.streamvault.app.update.AppUpdateDownloadStatus
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.GitHubReleaseChecker
-import com.streamvault.app.update.GitHubReleaseInfo
+import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
