@@ -17,6 +17,10 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed bare-hostname URL resolution so Jellyfin, M3U playlist, and EPG source paths now probe for HTTPS and fall back to HTTP the same way Xtream and Stalker already did; previously a bare hostname entered for Jellyfin was silently forced to HTTPS with no fallback, and bare-hostname playlists or EPG sources passed validation but failed at fetch because no scheme was stored.
+- Fixed URL scheme detection in bare-hostname resolution so `file://` and `content://` local playlist and EPG URIs are no longer mangled into `http://file://…` by the protocol probe.
+- Fixed HTTPS protocol probe to treat any non-redirect response (including 4xx and 5xx) as proof that the TLS endpoint is reachable, and only fall back to HTTP when the server issues a 3xx redirect or the connection fails entirely.
+- Fixed bare-hostname validation in playlist and EPG URL fields so schemeless input is accepted consistently across all provider setup flows, matching the behavior already present for Xtream and Stalker.
 - Fixed in-app update handling so downloaded APKs are recognized as install-ready, stale downloaded APKs no longer block newer releases, unknown-sources permission prompts preserve the downloaded update for retry, and Home/Settings use the same channel-aware newer-version logic.
 - Fixed Xtream raw live MPEG-TS playback using an HLS-specific Media3 TS extractor mode; direct `.ts` live streams now use the standard single-program TS path, improving compatibility with providers whose endless transport streams were failing during startup and retry recovery.
 - Fixed external-only guide behavior so providers can now strictly avoid supplier Xtream/Stalker guide fallback, clear stale external-vs-provider mapping behavior correctly when policy changes, and resolve channel logos from supplier or matched EPG icons without overwriting stored supplier logos.
