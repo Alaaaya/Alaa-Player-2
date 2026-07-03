@@ -23,6 +23,7 @@ import com.streamvault.domain.model.EpgMatchType
 import com.streamvault.domain.model.EpgOverrideCandidate
 import com.streamvault.domain.model.EpgSourceType
 import com.streamvault.data.parser.XmltvParser
+import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.http.safeRequestIdentitySummary
@@ -96,8 +97,9 @@ class EpgSourceRepositoryImpl @Inject constructor(
         epgSourceDao.getById(id)?.toDomain()
 
     override suspend fun addSource(name: String, url: String): Result<EpgSource> {
-        val trimmedUrl = url.trim()
-        if (trimmedUrl.isBlank()) return Result.error("URL cannot be empty")
+        val trimmed = url.trim()
+        if (trimmed.isBlank()) return Result.error("URL cannot be empty")
+        val trimmedUrl = ProviderInputSanitizer.resolveUrlProtocol(trimmed)
         val validationError = UrlSecurityPolicy.validateOptionalEpgUrl(trimmedUrl)
         if (validationError != null) return Result.error(validationError)
 
@@ -117,7 +119,8 @@ class EpgSourceRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateSource(source: EpgSource): Result<Unit> {
-        val trimmedUrl = source.url.trim()
+        val trimmed = source.url.trim()
+        val trimmedUrl = if (trimmed.isBlank()) trimmed else ProviderInputSanitizer.resolveUrlProtocol(trimmed)
         val validationError = UrlSecurityPolicy.validateOptionalEpgUrl(trimmedUrl)
         if (validationError != null) return Result.error(validationError)
 
