@@ -9,7 +9,6 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -20,11 +19,11 @@ internal class SettingsSyncActions(
     private val syncManager: SyncManager,
     private val tvInputChannelSyncManager: TvInputChannelSyncManager,
     private val uiState: MutableStateFlow<SettingsUiState>,
-    private val refreshProvider: (CoroutineScope, Long, SettingsProviderSyncMode) -> Unit
+    private val refreshProvider: (CoroutineScope, Long, SettingsProviderSyncMode, String?, Long, String?, Boolean) -> Job
 ) {
     private var syncJob: Job? = null
 
-    fun cancelSync(scope: CoroutineScope) {
+    fun cancelSync() {
         syncJob?.cancel()
         syncJob = null
         uiState.update {
@@ -33,19 +32,41 @@ internal class SettingsSyncActions(
                 syncProgress = null,
                 syncingProviderName = null,
                 syncStartedAt = 0L,
-                syncSectionLabel = null
+                syncSectionLabel = null,
+                syncCanCancel = false,
+                userMessage = appContext.getString(R.string.settings_sync_cancelled)
             )
         }
     }
 
     fun syncProviderSection(scope: CoroutineScope, providerId: Long, selection: ProviderSyncSelection) {
+        if (selection == ProviderSyncSelection.REBUILD_INDEX) {
+            val sectionLabel = selection.label(appContext)
+            val job = refreshProvider(
+                scope,
+                providerId,
+                SettingsProviderSyncMode.REBUILD_INDEX,
+                appContext.getString(R.string.settings_syncing_section, sectionLabel),
+                System.currentTimeMillis(),
+                sectionLabel,
+                true
+            )
+            syncJob = job
+            job.invokeOnCompletion {
+                if (syncJob === job) {
+                    syncJob = null
+                }
+            }
+            return
+        }
+
         syncJob = scope.launch {
             when (selection) {
                 ProviderSyncSelection.SYNC_NOW -> runSectionSync(
                     providerId = providerId,
                     selections = syncNowSelections(providerId)
                 )
-                ProviderSyncSelection.REBUILD_INDEX -> refreshProvider(scope, providerId, SettingsProviderSyncMode.REBUILD_INDEX)
+                ProviderSyncSelection.REBUILD_INDEX -> Unit
                 else -> runSectionSync(providerId, listOf(selection))
             }
         }
@@ -83,7 +104,8 @@ internal class SettingsSyncActions(
                     syncProgress = appContext.getString(R.string.settings_syncing_preparing),
                     syncingProviderName = providerName,
                     syncStartedAt = System.currentTimeMillis(),
-                    syncSectionLabel = sectionLabel
+                    syncSectionLabel = sectionLabel,
+                    syncCanCancel = true
                 )
             }
             val section = when (action) {
@@ -108,6 +130,7 @@ internal class SettingsSyncActions(
                         syncingProviderName = null,
                         syncStartedAt = 0L,
                         syncSectionLabel = null,
+                        syncCanCancel = false,
                         userMessage = "Retry failed: ${result.message}"
                     )
                 } else {
@@ -125,6 +148,7 @@ internal class SettingsSyncActions(
                         syncingProviderName = null,
                         syncStartedAt = 0L,
                         syncSectionLabel = null,
+                        syncCanCancel = false,
                         userMessage = if (updatedWarnings.isEmpty()) {
                             "Section retry succeeded. All current warnings cleared."
                         } else {
@@ -136,6 +160,12 @@ internal class SettingsSyncActions(
                             state.syncWarningsByProvider + (providerId to updatedWarnings)
                         }
                     )
+                }
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (syncJob === job) {
+                    syncJob = null
                 }
             }
         }
@@ -153,7 +183,8 @@ internal class SettingsSyncActions(
                 syncProgress = appContext.getString(R.string.settings_syncing_preparing),
                 syncingProviderName = providerName,
                 syncStartedAt = System.currentTimeMillis(),
-                syncSectionLabel = null
+                syncSectionLabel = null,
+                syncCanCancel = true
             )
         }
         try {
@@ -211,6 +242,7 @@ internal class SettingsSyncActions(
                     syncingProviderName = null,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
+                    syncCanCancel = false,
                     userMessage = when {
                         failures.isEmpty() -> appContext.getString(
                             R.string.settings_sync_sections_success,
@@ -236,6 +268,7 @@ internal class SettingsSyncActions(
                     syncingProviderName = null,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
+                    syncCanCancel = false,
                     userMessage = appContext.getString(R.string.settings_sync_cancelled)
                 )
             }
@@ -247,6 +280,7 @@ internal class SettingsSyncActions(
                     syncingProviderName = null,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
+                    syncCanCancel = false,
                     userMessage = "Sync failed: ${e.message}"
                 )
             }

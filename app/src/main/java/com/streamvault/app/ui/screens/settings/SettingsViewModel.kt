@@ -178,7 +178,17 @@ class SettingsViewModel @Inject constructor(
         syncManager = syncManager,
         tvInputChannelSyncManager = tvInputChannelSyncManager,
         uiState = _uiState,
-        refreshProvider = { scope, providerId, syncMode -> providerActions.refreshProvider(scope, providerId, syncMode) }
+        refreshProvider = { scope, providerId, syncMode, progressPrefix, startedAt, sectionLabel, isCancelable ->
+            providerActions.refreshProvider(
+                scope = scope,
+                providerId = providerId,
+                syncMode = syncMode,
+                progressPrefix = progressPrefix,
+                startedAt = startedAt,
+                sectionLabel = sectionLabel,
+                isCancelable = isCancelable
+            )
+        }
     )
     private val epgActions = SettingsEpgActions(
         epgSourceRepository = epgSourceRepository,
@@ -988,14 +998,37 @@ class SettingsViewModel @Inject constructor(
 
     fun clearHistory() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
+            _uiState.update {
+                it.copy(
+                    isSyncing = true,
+                    syncStartedAt = 0L,
+                    syncSectionLabel = null,
+                    syncCanCancel = false
+                )
+            }
             when (val result = playbackHistoryRepository.clearAllHistory()) {
                 is Result.Success -> {
                     preferencesRepository.clearAllRecentData()
-                    _uiState.update { it.copy(isSyncing = false, userMessage = appContext.getString(R.string.settings_history_cleared)) }
+                    _uiState.update {
+                        it.copy(
+                            isSyncing = false,
+                            syncStartedAt = 0L,
+                            syncSectionLabel = null,
+                            syncCanCancel = false,
+                            userMessage = appContext.getString(R.string.settings_history_cleared)
+                        )
+                    }
                 }
                 is Result.Error -> {
-                    _uiState.update { it.copy(isSyncing = false, userMessage = "Failed to clear history: ${result.message}") }
+                    _uiState.update {
+                        it.copy(
+                            isSyncing = false,
+                            syncStartedAt = 0L,
+                            syncSectionLabel = null,
+                            syncCanCancel = false,
+                            userMessage = "Failed to clear history: ${result.message}"
+                        )
+                    }
                 }
                 Result.Loading -> Unit
             }
@@ -1053,7 +1086,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun cancelSync() {
-        syncActions.cancelSync(viewModelScope)
+        syncActions.cancelSync()
     }
 
     fun deleteProvider(providerId: Long, onSuccess: () -> Unit = {}) {

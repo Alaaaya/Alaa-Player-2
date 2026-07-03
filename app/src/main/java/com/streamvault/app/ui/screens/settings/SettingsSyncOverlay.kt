@@ -57,11 +57,16 @@ internal fun SyncingOverlay(
         )
     ) {
         val cancelFocusRequester = remember { FocusRequester() }
-        LaunchedEffect(Unit) { cancelFocusRequester.requestFocus() }
+        LaunchedEffect(onCancel) {
+            if (onCancel != null) {
+                cancelFocusRequester.requestFocus()
+            }
+        }
 
         // Elapsed time counter
         val elapsedSnapshot = remember { mutableStateOf(0L) }
         LaunchedEffect(startedAt) {
+            elapsedSnapshot.value = 0L
             if (startedAt > 0L) {
                 while (true) {
                     kotlinx.coroutines.delay(1000L)
@@ -134,15 +139,17 @@ internal fun SyncingOverlay(
                 }
 
                 // Elapsed time
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_sync_elapsed, elapsedText),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = OnSurfaceDim
-                    )
+                if (startedAt > 0L) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_sync_elapsed, elapsedText),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = OnSurfaceDim
+                        )
+                    }
                 }
 
                 // Cancel button — the only interactive element

@@ -57,6 +57,7 @@ data class SettingsUiState(
     val syncingProviderName: String? = null,
     val syncStartedAt: Long = 0L,
     val syncSectionLabel: String? = null,
+    val syncCanCancel: Boolean = false,
     val userMessage: String? = null,
     val syncWarningsByProvider: Map<Long, List<String>> = emptyMap(),
     val xtreamLiveOnboardingPhaseByProvider: Map<Long, String> = emptyMap(),

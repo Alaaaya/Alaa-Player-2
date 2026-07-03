@@ -59,7 +59,7 @@ internal fun SettingsScreenDialogs(
         progress = uiState.syncProgress,
         sectionLabel = uiState.syncSectionLabel,
         startedAt = uiState.syncStartedAt,
-        onCancel = onCancelSync
+        onCancel = onCancelSync.takeIf { uiState.syncCanCancel }
     )
 
     if (dialogState.showLiveTvModeDialog) {
