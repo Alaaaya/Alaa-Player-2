@@ -124,13 +124,17 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
             ContentType.SERIES,
             ContentType.SERIES_EPISODE -> {
                 val episode = when {
-                    currentEpisode?.id == internalContentId -> currentEpisode
+                    currentEpisode?.id == internalContentId ||
+                        currentEpisode?.playbackEpisodeIdentity() == internalContentId -> currentEpisode
                     else -> currentSeries
                         ?.seasons
                         .sanitizedForPlayer()
                         .asSequence()
                         .flatMap { it.episodes.asSequence() }
-                        .firstOrNull { it.id == internalContentId }
+                        .firstOrNull {
+                            it.id == internalContentId ||
+                                it.playbackEpisodeIdentity() == internalContentId
+                        }
                 }
                 episode?.let {
                     fallbackStreamId = it.episodeId.takeIf { episodeId -> episodeId > 0L } ?: it.id

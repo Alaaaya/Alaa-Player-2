@@ -6,8 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.cast.CastConnectionState
 import com.streamvault.app.cast.CastManager
-import com.streamvault.app.cast.CastMediaRequest
-import com.streamvault.app.cast.CastStartResult
+import com.streamvault.app.cast.CastMediaRequestFactory
+import com.streamvault.app.cast.CastPlaybackCoordinator
+import com.streamvault.app.cast.CastPlaybackReportMode
 import com.streamvault.app.di.MainPlayerEngine
 import com.streamvault.app.player.LivePreviewHandoffManager
 import com.streamvault.app.player.LiveTranslationSession
@@ -86,13 +87,13 @@ import okhttp3.Request
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerViewModel @Inject constructor(
     @ApplicationContext
-    private val appContext: Context,
+    internal val appContext: Context,
     @param:MainPlayerEngine
     private val mainPlayerEngine: PlayerEngine,
     internal val epgRepository: EpgRepository,
     internal val channelRepository: ChannelRepository,
     internal val movieRepository: MovieRepository,
-    private val seriesRepository: SeriesRepository,
+    internal val seriesRepository: SeriesRepository,
     internal val favoriteRepository: com.streamvault.domain.repository.FavoriteRepository,
     internal val playbackHistoryRepository: PlaybackHistoryRepository,
     internal val providerRepository: com.streamvault.domain.repository.ProviderRepository,
@@ -105,6 +106,8 @@ class PlayerViewModel @Inject constructor(
     internal val watchNextManager: WatchNextManager,
     internal val launcherRecommendationsManager: LauncherRecommendationsManager,
     internal val castManager: CastManager,
+    internal val castMediaRequestFactory: CastMediaRequestFactory,
+    internal val castPlaybackCoordinator: CastPlaybackCoordinator,
     internal val pluginManager: StreamVaultPluginManager,
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
@@ -374,6 +377,7 @@ class PlayerViewModel @Inject constructor(
     internal val _liveTranslationDetectedLanguage = MutableStateFlow<String?>(null)
     val liveTranslationDetectedLanguage: StateFlow<String?> = _liveTranslationDetectedLanguage.asStateFlow()
     internal var liveTranslationSession: LiveTranslationSession? = null
+    internal var castPlaybackReportMode: CastPlaybackReportMode = CastPlaybackReportMode.NONE
     private var downloadPlaybackSlotActive = false
     private var currentPlaybackUsesDownloadSlot = false
     private var externalProviderPlaybackHold = false
@@ -475,6 +479,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     init {
+        observeCastPlaybackEvents()
         viewModelScope.launch {
             activePlayerEngineFlow.flatMapLatest { it.error }.collect { error ->
                 if (error != null) {
