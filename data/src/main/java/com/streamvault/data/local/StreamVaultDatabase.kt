@@ -50,7 +50,7 @@ import com.streamvault.data.local.entity.*
         XtreamLiveOnboardingStateEntity::class,
         DownloadEntity::class
     ],
-    version = 61,
+    version = 62,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2679,6 +2679,24 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     tableName = "providers",
                     columnName = "stalker_advanced_options_json",
                     columnDefinition = "TEXT NOT NULL DEFAULT ''"
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_61_62 = object : Migration(61, 62) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    tableName = "providers",
+                    columnName = "guide_source_policy",
+                    columnDefinition = "TEXT NOT NULL DEFAULT 'AUTO'"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "providers",
+                    columnName = "channel_logo_source_policy",
+                    columnDefinition = "TEXT NOT NULL DEFAULT 'SUPPLIER_PREFERRED'"
                 )
                 validateForeignKeys(database, "providers")
             }

@@ -123,6 +123,7 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
                     versionCode = result.data.versionCode,
                     releaseUrl = result.data.releaseUrl,
                     downloadUrl = result.data.downloadUrl,
+                    downloadSha256 = result.data.downloadSha256,
                     releaseNotes = result.data.releaseNotes,
                     publishedAt = result.data.publishedAt
                 )

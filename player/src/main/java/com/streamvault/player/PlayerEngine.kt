@@ -72,7 +72,7 @@ interface PlayerEngine {
     fun seekTo(positionMs: Long)
     fun seekForward(ms: Long = 10_000)
     fun seekBackward(ms: Long = 10_000)
-    fun setDecoderMode(mode: DecoderMode)
+    fun setDecoderModes(audioMode: DecoderMode, videoMode: DecoderMode)
     fun setPlaybackBufferMode(mode: PlaybackBufferMode)
     fun setSurfaceMode(mode: PlayerSurfaceMode)
     fun setVodHttpProtocolMode(mode: VodHttpProtocolMode)

@@ -29,12 +29,14 @@ internal class SettingsScreenDialogState(
     private val showPlaybackSpeedDialogState: MutableState<Boolean>,
     private val showExternalPlaybackModeDialogState: MutableState<Boolean>,
     private val showAudioVideoOffsetDialogState: MutableState<Boolean>,
-    private val showDecoderModeDialogState: MutableState<Boolean>,
+    private val showAudioDecoderModeDialogState: MutableState<Boolean>,
+    private val showVideoDecoderModeDialogState: MutableState<Boolean>,
     private val showPlaybackBufferModeDialogState: MutableState<Boolean>,
     private val showAudioOutputPreferenceDialogState: MutableState<Boolean>,
     private val showSurfaceModeDialogState: MutableState<Boolean>,
     private val showVodHttpProtocolDialogState: MutableState<Boolean>,
     private val showTimeshiftDepthDialogState: MutableState<Boolean>,
+    private val showTimeshiftBackendDialogState: MutableState<Boolean>,
     private val showDefaultStopTimerDialogState: MutableState<Boolean>,
     private val showDefaultIdleTimerDialogState: MutableState<Boolean>,
     private val showControlsTimeoutDialogState: MutableState<Boolean>,
@@ -92,12 +94,14 @@ internal class SettingsScreenDialogState(
     var showPlaybackSpeedDialog by showPlaybackSpeedDialogState
     var showExternalPlaybackModeDialog by showExternalPlaybackModeDialogState
     var showAudioVideoOffsetDialog by showAudioVideoOffsetDialogState
-    var showDecoderModeDialog by showDecoderModeDialogState
+    var showAudioDecoderModeDialog by showAudioDecoderModeDialogState
+    var showVideoDecoderModeDialog by showVideoDecoderModeDialogState
     var showPlaybackBufferModeDialog by showPlaybackBufferModeDialogState
     var showAudioOutputPreferenceDialog by showAudioOutputPreferenceDialogState
     var showSurfaceModeDialog by showSurfaceModeDialogState
     var showVodHttpProtocolDialog by showVodHttpProtocolDialogState
     var showTimeshiftDepthDialog by showTimeshiftDepthDialogState
+    var showTimeshiftBackendDialog by showTimeshiftBackendDialogState
     var showDefaultStopTimerDialog by showDefaultStopTimerDialogState
     var showDefaultIdleTimerDialog by showDefaultIdleTimerDialogState
     var showControlsTimeoutDialog by showControlsTimeoutDialogState
@@ -223,12 +227,14 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
     val showPlaybackSpeedDialogState = rememberSaveable { mutableStateOf(false) }
     val showExternalPlaybackModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioVideoOffsetDialogState = rememberSaveable { mutableStateOf(false) }
-    val showDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showAudioDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
+    val showVideoDecoderModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showPlaybackBufferModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showAudioOutputPreferenceDialogState = rememberSaveable { mutableStateOf(false) }
     val showSurfaceModeDialogState = rememberSaveable { mutableStateOf(false) }
     val showVodHttpProtocolDialogState = rememberSaveable { mutableStateOf(false) }
     val showTimeshiftDepthDialogState = rememberSaveable { mutableStateOf(false) }
+    val showTimeshiftBackendDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultStopTimerDialogState = rememberSaveable { mutableStateOf(false) }
     val showDefaultIdleTimerDialogState = rememberSaveable { mutableStateOf(false) }
     val showControlsTimeoutDialogState = rememberSaveable { mutableStateOf(false) }
@@ -295,12 +301,14 @@ internal fun rememberSettingsScreenDialogState(): SettingsScreenDialogState {
         showPlaybackSpeedDialogState = showPlaybackSpeedDialogState,
         showExternalPlaybackModeDialogState = showExternalPlaybackModeDialogState,
         showAudioVideoOffsetDialogState = showAudioVideoOffsetDialogState,
-        showDecoderModeDialogState = showDecoderModeDialogState,
+        showAudioDecoderModeDialogState = showAudioDecoderModeDialogState,
+        showVideoDecoderModeDialogState = showVideoDecoderModeDialogState,
         showPlaybackBufferModeDialogState = showPlaybackBufferModeDialogState,
         showAudioOutputPreferenceDialogState = showAudioOutputPreferenceDialogState,
         showSurfaceModeDialogState = showSurfaceModeDialogState,
         showVodHttpProtocolDialogState = showVodHttpProtocolDialogState,
         showTimeshiftDepthDialogState = showTimeshiftDepthDialogState,
+        showTimeshiftBackendDialogState = showTimeshiftBackendDialogState,
         showDefaultStopTimerDialogState = showDefaultStopTimerDialogState,
         showDefaultIdleTimerDialogState = showDefaultIdleTimerDialogState,
         showControlsTimeoutDialogState = showControlsTimeoutDialogState,

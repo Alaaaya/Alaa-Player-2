@@ -16,6 +16,7 @@ import com.streamvault.domain.model.CombinedCategory
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.EpgOverrideCandidate
 import com.streamvault.domain.model.Favorite
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.repository.ChannelRepository
@@ -412,7 +413,10 @@ class EpgViewModel @Inject constructor(
                     }
                     if (!isActivePreviewSession(version, channel.id)) return@launch
                     engine.stop()
-                    engine.setDecoderMode(preferencesRepository.playerDecoderMode.first())
+                    engine.setDecoderModes(
+                        audioMode = preferencesRepository.playerAudioDecoderMode.first(),
+                        videoMode = preferencesRepository.playerVideoDecoderMode.first()
+                    )
                     engine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
                     engine.setPlaybackBufferMode(preferencesRepository.playerPlaybackBufferMode.first())
                     engine.prepare(preparedStreamInfo)
@@ -1770,6 +1774,11 @@ class EpgViewModel @Inject constructor(
         windowStart: Long,
         windowEnd: Long
     ): Map<String, List<Program>> {
+        if (provider.guideSourcePolicy == GuideSourcePolicy.EXTERNAL_ONLY ||
+            provider.guideSourcePolicy == GuideSourcePolicy.DISABLED
+        ) {
+            return emptyMap()
+        }
         if (
             provider.type != com.streamvault.domain.model.ProviderType.XTREAM_CODES &&
             provider.type != com.streamvault.domain.model.ProviderType.STALKER_PORTAL

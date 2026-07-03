@@ -18,6 +18,8 @@ import com.streamvault.domain.model.Result as DomainResult
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.ProviderType
@@ -228,6 +230,8 @@ class ProviderSetupViewModel @Inject constructor(
                         stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
                         epgSyncMode = provider.epgSyncMode,
                         xtreamLiveSyncMode = provider.xtreamLiveSyncMode,
+                        guideSourcePolicy = provider.guideSourcePolicy,
+                        channelLogoSourcePolicy = provider.channelLogoSourcePolicy,
                         hasCustomizedEpgSyncMode = true,
                         m3uVodClassificationEnabled = provider.m3uVodClassificationEnabled,
                         selectedTab = when (provider.type) {
@@ -257,6 +261,14 @@ class ProviderSetupViewModel @Inject constructor(
 
     fun updateXtreamLiveSyncMode(mode: ProviderXtreamLiveSyncMode) {
         _uiState.update { it.copy(xtreamLiveSyncMode = mode) }
+    }
+
+    fun updateGuideSourcePolicy(policy: GuideSourcePolicy) {
+        _uiState.update { it.copy(guideSourcePolicy = policy) }
+    }
+
+    fun updateChannelLogoSourcePolicy(policy: ChannelLogoSourcePolicy) {
+        _uiState.update { it.copy(channelLogoSourcePolicy = policy) }
     }
 
     fun applySourceDefaults(sourceType: SetupSourceType) {
@@ -322,6 +334,8 @@ class ProviderSetupViewModel @Inject constructor(
                     signature = signature,
                     stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
                     epgSyncMode = _uiState.value.epgSyncMode,
+                    guideSourcePolicy = _uiState.value.guideSourcePolicy,
+                    channelLogoSourcePolicy = _uiState.value.channelLogoSourcePolicy,
                     existingProviderId = existingId
                 ),
                 onProgress = { msg -> _uiState.update { it.copy(syncProgress = msg) } }
@@ -405,6 +419,8 @@ class ProviderSetupViewModel @Inject constructor(
                     xtreamFastSyncEnabled = false,
                     epgSyncMode = _uiState.value.epgSyncMode,
                     xtreamLiveSyncMode = _uiState.value.xtreamLiveSyncMode,
+                    guideSourcePolicy = _uiState.value.guideSourcePolicy,
+                    channelLogoSourcePolicy = _uiState.value.channelLogoSourcePolicy,
                     existingProviderId = existingId
                 ),
                 onProgress = { msg -> _uiState.update { it.copy(syncProgress = msg) } }
@@ -485,6 +501,8 @@ class ProviderSetupViewModel @Inject constructor(
                     httpHeaders = httpHeaders,
                     epgSyncMode = _uiState.value.epgSyncMode,
                     m3uVodClassificationEnabled = _uiState.value.m3uVodClassificationEnabled,
+                    guideSourcePolicy = _uiState.value.guideSourcePolicy,
+                    channelLogoSourcePolicy = _uiState.value.channelLogoSourcePolicy,
                     existingProviderId = existingId
                 ),
                 onProgress = { msg -> _uiState.update { it.copy(syncProgress = msg) } }
@@ -1079,6 +1097,8 @@ data class ProviderSetupState(
     val driveSignedIn: Boolean = false,
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+    val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val hasCustomizedEpgSyncMode: Boolean = false,
     val m3uVodClassificationEnabled: Boolean = false
 )

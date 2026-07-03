@@ -89,6 +89,7 @@ class HomeViewModelTest {
         whenever(preferencesRepository.liveTvQuickFilterVisibility).thenReturn(flowOf(null))
         whenever(preferencesRepository.showRecentChannelsCategory).thenReturn(flowOf(true))
         whenever(preferencesRepository.showAllChannelsCategory).thenReturn(flowOf(true))
+        whenever(preferencesRepository.showFavoritesCategory).thenReturn(flowOf(true))
         whenever(preferencesRepository.showLiveSourceSwitcher).thenReturn(flowOf(false))
         whenever(preferencesRepository.multiViewCenterTwoSlotLayout).thenReturn(flowOf(false))
         whenever(preferencesRepository.liveChannelNumberingMode).thenReturn(flowOf(ChannelNumberingMode.PROVIDER))
@@ -256,6 +257,63 @@ class HomeViewModelTest {
 
         assertThat(viewModel.uiState.value.categories.map { it.id }).contains(VirtualCategoryIds.RECENT)
         assertThat(viewModel.uiState.value.recentChannels.map { it.id }).containsExactly(21L)
+    }
+
+    @Test
+    fun `default live category requests initial channel focus on entry`() = runTest {
+        val provider = Provider(
+            id = 5L,
+            name = "Provider",
+            type = ProviderType.M3U,
+            serverUrl = "http://test"
+        )
+        val sportsCategory = Category(id = 12L, name = "Sports", type = ContentType.LIVE)
+
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(listOf(sportsCategory)))
+        whenever(preferencesRepository.defaultCategoryId).thenReturn(flowOf(sportsCategory.id))
+        whenever(channelRepository.getChannelsByCategoryPage(eq(provider.id), eq(sportsCategory.id), any())).thenReturn(flowOf(emptyList()))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertThat(state.selectedCategory?.id).isEqualTo(sportsCategory.id)
+        assertThat(state.shouldAutoFocusFirstChannelOnEntry).isTrue()
+
+        viewModel.consumeInitialChannelFocusRequest()
+
+        assertThat(viewModel.uiState.value.shouldAutoFocusFirstChannelOnEntry).isFalse()
+    }
+
+    @Test
+    fun `hidden favorites category is removed from live tv categories`() = runTest {
+        val provider = Provider(
+            id = 8L,
+            name = "Provider",
+            type = ProviderType.M3U,
+            serverUrl = "http://test"
+        )
+        whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+        whenever(getCustomCategories.invoke(eq(provider.id), eq(ContentType.LIVE))).thenReturn(
+            flowOf(
+                listOf(
+                    Category(
+                        id = VirtualCategoryIds.FAVORITES,
+                        name = "Favorites",
+                        type = ContentType.LIVE,
+                        isVirtual = true
+                    )
+                )
+            )
+        )
+        whenever(preferencesRepository.showFavoritesCategory).thenReturn(flowOf(false))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.categories.map { it.id }).doesNotContain(VirtualCategoryIds.FAVORITES)
     }
 
     @Test

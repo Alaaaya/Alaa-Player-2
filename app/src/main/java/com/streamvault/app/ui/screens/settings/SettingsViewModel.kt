@@ -14,11 +14,9 @@ import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
-import com.streamvault.app.update.AppUpdateDownloadState
-import com.streamvault.app.update.AppUpdateDownloadStatus
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.GitHubReleaseChecker
-import com.streamvault.app.update.GitHubReleaseInfo
+import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
@@ -38,6 +36,7 @@ import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AppTopLevelDestination
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
@@ -61,7 +60,9 @@ import com.streamvault.domain.model.RemoteColorButton
 import com.streamvault.domain.model.RemoteShortcutProfile
 import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.EpgResolutionSummary
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.usecase.ExportBackup
@@ -430,6 +431,14 @@ class SettingsViewModel @Inject constructor(
         providerActions.setM3uVodClassificationEnabled(viewModelScope, providerId, enabled)
     }
 
+    fun setGuideSourcePolicy(providerId: Long, policy: GuideSourcePolicy) {
+        providerActions.setGuideSourcePolicy(viewModelScope, providerId, policy)
+    }
+
+    fun setChannelLogoSourcePolicy(providerId: Long, policy: ChannelLogoSourcePolicy) {
+        providerActions.setChannelLogoSourcePolicy(viewModelScope, providerId, policy)
+    }
+
     fun refreshProviderClassification(providerId: Long) {
         refreshProvider(providerId)
     }
@@ -509,6 +518,12 @@ class SettingsViewModel @Inject constructor(
     fun setShowAllChannelsCategory(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setShowAllChannelsCategory(enabled)
+        }
+    }
+
+    fun setShowFavoritesCategory(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setShowFavoritesCategory(enabled)
         }
     }
 
@@ -773,6 +788,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setPlayerTimeshiftBackend(preference: TimeshiftBackendPreference) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerTimeshiftBackend(preference)
+        }
+    }
+
     fun setDefaultStopPlaybackTimerMinutes(minutes: Int) {
         viewModelScope.launch {
             preferencesRepository.setDefaultStopPlaybackTimerMinutes(minutes)
@@ -809,9 +830,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setPlayerDecoderMode(mode: DecoderMode) {
+    fun setPlayerAudioDecoderMode(mode: DecoderMode) {
         viewModelScope.launch {
-            preferencesRepository.setPlayerDecoderMode(mode)
+            preferencesRepository.setPlayerAudioDecoderMode(mode)
+        }
+    }
+
+    fun setPlayerVideoDecoderMode(mode: DecoderMode) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerVideoDecoderMode(mode)
         }
     }
 
@@ -1058,6 +1085,8 @@ class SettingsViewModel @Inject constructor(
     private fun AppLandingDestination.labelResId(): Int = when (this) {
         AppLandingDestination.HOME -> R.string.nav_home
         AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+        AppLandingDestination.FIRST_FAVORITE_LIVE -> R.string.settings_startup_first_favorite_live
+        AppLandingDestination.LAST_WATCHED_LIVE -> R.string.settings_startup_last_watched_live
         AppLandingDestination.MOVIES -> R.string.nav_movies
         AppLandingDestination.SERIES -> R.string.nav_series
         AppLandingDestination.GUIDE -> R.string.nav_epg

@@ -26,6 +26,7 @@ import com.streamvault.domain.manager.ScheduledRecordingBackup
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.Provider
@@ -437,6 +438,94 @@ class BackupManagerImplTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         verify(preferencesRepository).setPlayerAudioVideoSyncEnabled(true)
         verify(preferencesRepository).setPlayerAudioVideoOffsetMs(150)
+    }
+
+    @Test
+    fun `importConfig restores separate audio and video decoder preferences`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        val gson = Gson()
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(contentResolver.openInputStream(Uri.parse("content://backup-decoder-preferences"))).thenReturn(
+            ByteArrayInputStream(
+                gson.toJson(
+                    BackupData(
+                        preferences = mapOf(
+                            "playerAudioDecoderMode" to "SOFTWARE",
+                            "playerVideoDecoderMode" to "HARDWARE",
+                            "playerDecoderMode" to "COMPATIBILITY"
+                        )
+                    )
+                ).toByteArray()
+            )
+        )
+        val manager = backupManagerForValidation(
+            context = context,
+            preferencesRepository = preferencesRepository,
+            providerDao = providerDao
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://backup-decoder-preferences",
+            plan = BackupImportPlan(
+                importPreferences = true,
+                importProviders = false,
+                importSavedLibrary = false,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.KEEP_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(preferencesRepository).setPlayerAudioDecoderMode(DecoderMode.SOFTWARE)
+        verify(preferencesRepository).setPlayerVideoDecoderMode(DecoderMode.HARDWARE)
+    }
+
+    @Test
+    fun `importConfig restores legacy decoder preference to both axes`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        val gson = Gson()
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(contentResolver.openInputStream(Uri.parse("content://backup-legacy-decoder-preference"))).thenReturn(
+            ByteArrayInputStream(
+                gson.toJson(
+                    BackupData(
+                        preferences = mapOf("playerDecoderMode" to "COMPATIBILITY")
+                    )
+                ).toByteArray()
+            )
+        )
+        val manager = backupManagerForValidation(
+            context = context,
+            preferencesRepository = preferencesRepository,
+            providerDao = providerDao
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://backup-legacy-decoder-preference",
+            plan = BackupImportPlan(
+                importPreferences = true,
+                importProviders = false,
+                importSavedLibrary = false,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.KEEP_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(preferencesRepository).setPlayerAudioDecoderMode(DecoderMode.COMPATIBILITY)
+        verify(preferencesRepository).setPlayerVideoDecoderMode(DecoderMode.COMPATIBILITY)
     }
 
     @Test
@@ -866,11 +955,12 @@ class BackupManagerImplTest {
     private fun backupManagerForValidation(
         context: Context,
         preferencesRepository: PreferencesRepository = mock(),
+        providerDao: ProviderDao = mock(),
     ): BackupManagerImpl = BackupManagerImpl(
         context = context,
         preferencesRepository = preferencesRepository,
         credentialCrypto = mock<CredentialCrypto>(),
-        providerDao = mock<ProviderDao>(),
+        providerDao = providerDao,
         favoriteDao = mock<FavoriteDao>(),
         virtualGroupDao = mock<VirtualGroupDao>(),
         playbackHistoryDao = mock<PlaybackHistoryDao>(),

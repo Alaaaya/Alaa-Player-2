@@ -4,6 +4,8 @@ import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
@@ -239,6 +241,26 @@ internal class SettingsProviderActions(
                         }
                     )
                 }
+            }
+        }
+    }
+
+    fun setGuideSourcePolicy(scope: CoroutineScope, providerId: Long, policy: GuideSourcePolicy) {
+        scope.launch {
+            val provider = providerRepository.getProvider(providerId) ?: return@launch
+            when (val result = providerRepository.updateProvider(provider.copy(guideSourcePolicy = policy))) {
+                is Result.Error -> uiState.update { it.copy(userMessage = "Could not save guide source: ${result.message}") }
+                else -> uiState.update { it.copy(userMessage = "Guide source updated for ${provider.name}") }
+            }
+        }
+    }
+
+    fun setChannelLogoSourcePolicy(scope: CoroutineScope, providerId: Long, policy: ChannelLogoSourcePolicy) {
+        scope.launch {
+            val provider = providerRepository.getProvider(providerId) ?: return@launch
+            when (val result = providerRepository.updateProvider(provider.copy(channelLogoSourcePolicy = policy))) {
+                is Result.Error -> uiState.update { it.copy(userMessage = "Could not save logo source: ${result.message}") }
+                else -> uiState.update { it.copy(userMessage = "Channel logo source updated for ${provider.name}") }
             }
         }
     }

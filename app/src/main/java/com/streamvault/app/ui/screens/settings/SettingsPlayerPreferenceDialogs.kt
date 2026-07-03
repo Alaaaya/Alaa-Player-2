@@ -9,8 +9,9 @@ import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.PlaybackBufferMode
-import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlayerSurfaceMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
+import com.streamvault.domain.model.VodHttpProtocolMode
 
 @Composable
 internal fun SettingsPlayerPreferenceDialogs(
@@ -23,8 +24,10 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowTimeFormatDialogChange: (Boolean) -> Unit,
     showAudioVideoOffsetDialog: Boolean,
     onShowAudioVideoOffsetDialogChange: (Boolean) -> Unit,
-    showDecoderModeDialog: Boolean,
-    onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showAudioDecoderModeDialog: Boolean,
+    onShowAudioDecoderModeDialogChange: (Boolean) -> Unit,
+    showVideoDecoderModeDialog: Boolean,
+    onShowVideoDecoderModeDialogChange: (Boolean) -> Unit,
     showPlaybackBufferModeDialog: Boolean,
     onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     showAudioOutputPreferenceDialog: Boolean,
@@ -35,6 +38,8 @@ internal fun SettingsPlayerPreferenceDialogs(
     onShowVodHttpProtocolDialogChange: (Boolean) -> Unit,
     showTimeshiftDepthDialog: Boolean,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
+    showTimeshiftBackendDialog: Boolean,
+    onShowTimeshiftBackendDialogChange: (Boolean) -> Unit,
     showDefaultStopTimerDialog: Boolean,
     onShowDefaultStopTimerDialogChange: (Boolean) -> Unit,
     showDefaultIdleTimerDialog: Boolean,
@@ -102,7 +107,7 @@ internal fun SettingsPlayerPreferenceDialogs(
         )
     }
 
-    if (showDecoderModeDialog) {
+    if (showAudioDecoderModeDialog) {
         val decoderOptions = remember(context) {
             listOf(
                 DecoderMode.AUTO to context.getString(R.string.settings_decoder_auto),
@@ -112,17 +117,44 @@ internal fun SettingsPlayerPreferenceDialogs(
             )
         }
         PremiumSelectionDialog(
-            title = stringResource(R.string.settings_select_decoder_mode),
-            onDismiss = { onShowDecoderModeDialogChange(false) }
+            title = stringResource(R.string.settings_select_audio_decoder_mode),
+            onDismiss = { onShowAudioDecoderModeDialogChange(false) }
         ) {
             decoderOptions.forEachIndexed { index, option ->
                 LevelOption(
                     level = index,
                     text = option.second,
-                    currentLevel = if (uiState.playerDecoderMode == option.first) index else -1,
+                    currentLevel = if (uiState.playerAudioDecoderMode == option.first) index else -1,
                     onSelect = {
-                        viewModel.setPlayerDecoderMode(option.first)
-                        onShowDecoderModeDialogChange(false)
+                        viewModel.setPlayerAudioDecoderMode(option.first)
+                        onShowAudioDecoderModeDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showVideoDecoderModeDialog) {
+        val decoderOptions = remember(context) {
+            listOf(
+                DecoderMode.AUTO to context.getString(R.string.settings_decoder_auto),
+                DecoderMode.HARDWARE to context.getString(R.string.settings_decoder_hardware),
+                DecoderMode.SOFTWARE to context.getString(R.string.settings_decoder_software),
+                DecoderMode.COMPATIBILITY to context.getString(R.string.settings_decoder_compatibility)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_video_decoder_mode),
+            onDismiss = { onShowVideoDecoderModeDialogChange(false) }
+        ) {
+            decoderOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerVideoDecoderMode == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerVideoDecoderMode(option.first)
+                        onShowVideoDecoderModeDialogChange(false)
                     }
                 )
             }
@@ -301,6 +333,32 @@ internal fun SettingsPlayerPreferenceDialogs(
                     onSelect = {
                         viewModel.setPlayerTimeshiftDepthMinutes(option.first)
                         onShowTimeshiftDepthDialogChange(false)
+                    }
+                )
+            }
+        }
+    }
+
+    if (showTimeshiftBackendDialog) {
+        val backendOptions = remember(context) {
+            listOf(
+                TimeshiftBackendPreference.AUTOMATIC to context.getString(R.string.settings_live_timeshift_backend_auto),
+                TimeshiftBackendPreference.STORAGE to context.getString(R.string.settings_live_timeshift_backend_storage),
+                TimeshiftBackendPreference.MEMORY to context.getString(R.string.settings_live_timeshift_backend_memory)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_live_timeshift_backend),
+            onDismiss = { onShowTimeshiftBackendDialogChange(false) }
+        ) {
+            backendOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerTimeshiftBackend == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerTimeshiftBackend(option.first)
+                        onShowTimeshiftBackendDialogChange(false)
                     }
                 )
             }

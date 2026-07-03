@@ -541,6 +541,29 @@ fun HomeScreen(
                 }
 
                 LaunchedEffect(
+                    uiState.shouldAutoFocusFirstChannelOnEntry,
+                    uiState.selectedCategory?.id,
+                    uiState.isLoading,
+                    uiState.filteredChannels,
+                    hasOverlay,
+                    isReorderMode
+                ) {
+                    if (!uiState.shouldAutoFocusFirstChannelOnEntry || hasOverlay || isReorderMode) {
+                        return@LaunchedEffect
+                    }
+                    if (uiState.isLoading) return@LaunchedEffect
+
+                    val firstChannelId = uiState.filteredChannels.firstOrNull()?.id
+                    if (firstChannelId != null) {
+                        lastFocusedChannelId = firstChannelId
+                        preferredRestoreTarget = FocusRestoreTarget.CHANNEL.name
+                        pendingRestoreTarget = FocusRestoreTarget.CHANNEL
+                        focusRestoreNonce++
+                    }
+                    viewModel.consumeInitialChannelFocusRequest()
+                }
+
+                LaunchedEffect(
                     uiState.showDialog,
                     showPinDialog,
                     showAddQuickFilterDialog,

@@ -6,8 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.cast.CastConnectionState
 import com.streamvault.app.cast.CastManager
-import com.streamvault.app.cast.CastMediaRequest
-import com.streamvault.app.cast.CastStartResult
+import com.streamvault.app.cast.CastMediaRequestFactory
+import com.streamvault.app.cast.CastPlaybackCoordinator
+import com.streamvault.app.cast.CastPlaybackReportMode
 import com.streamvault.app.di.MainPlayerEngine
 import com.streamvault.app.player.LivePreviewHandoffManager
 import com.streamvault.app.player.LiveTranslationSession
@@ -86,13 +87,13 @@ import okhttp3.Request
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerViewModel @Inject constructor(
     @ApplicationContext
-    private val appContext: Context,
+    internal val appContext: Context,
     @param:MainPlayerEngine
     private val mainPlayerEngine: PlayerEngine,
     internal val epgRepository: EpgRepository,
     internal val channelRepository: ChannelRepository,
     internal val movieRepository: MovieRepository,
-    private val seriesRepository: SeriesRepository,
+    internal val seriesRepository: SeriesRepository,
     internal val favoriteRepository: com.streamvault.domain.repository.FavoriteRepository,
     internal val playbackHistoryRepository: PlaybackHistoryRepository,
     internal val providerRepository: com.streamvault.domain.repository.ProviderRepository,
@@ -105,6 +106,8 @@ class PlayerViewModel @Inject constructor(
     internal val watchNextManager: WatchNextManager,
     internal val launcherRecommendationsManager: LauncherRecommendationsManager,
     internal val castManager: CastManager,
+    internal val castMediaRequestFactory: CastMediaRequestFactory,
+    internal val castPlaybackCoordinator: CastPlaybackCoordinator,
     internal val pluginManager: StreamVaultPluginManager,
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
@@ -287,7 +290,8 @@ class PlayerViewModel @Inject constructor(
     internal var liveOverlayTimeoutMs: Long = 4_000L
     internal var playerNoticeTimeoutMs: Long = 6_000L
     internal var diagnosticsTimeoutMs: Long = 15_000L
-    private var preferredDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var preferredAudioDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var preferredVideoDecoderMode: DecoderMode = DecoderMode.AUTO
     private var preferredSurfaceMode: com.streamvault.domain.model.PlayerSurfaceMode =
         com.streamvault.domain.model.PlayerSurfaceMode.AUTO
     internal var timeshiftConfig: TimeshiftConfig = TimeshiftConfig()
@@ -373,6 +377,7 @@ class PlayerViewModel @Inject constructor(
     internal val _liveTranslationDetectedLanguage = MutableStateFlow<String?>(null)
     val liveTranslationDetectedLanguage: StateFlow<String?> = _liveTranslationDetectedLanguage.asStateFlow()
     internal var liveTranslationSession: LiveTranslationSession? = null
+    internal var castPlaybackReportMode: CastPlaybackReportMode = CastPlaybackReportMode.NONE
     private var downloadPlaybackSlotActive = false
     private var currentPlaybackUsesDownloadSlot = false
     private var externalProviderPlaybackHold = false
@@ -474,6 +479,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     init {
+        observeCastPlaybackEvents()
         viewModelScope.launch {
             activePlayerEngineFlow.flatMapLatest { it.error }.collect { error ->
                 if (error != null) {
@@ -649,9 +655,14 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 preferencesRepository.playerTimeshiftEnabled,
-                preferencesRepository.playerTimeshiftDepthMinutes
-            ) { enabled, depthMinutes ->
-                TimeshiftConfig(enabled = enabled, depthMinutes = depthMinutes)
+                preferencesRepository.playerTimeshiftDepthMinutes,
+                preferencesRepository.playerTimeshiftBackend
+            ) { enabled, depthMinutes, backendPreference ->
+                TimeshiftConfig(
+                    enabled = enabled,
+                    depthMinutes = depthMinutes,
+                    backendPreference = backendPreference
+                )
             }.collect { config ->
                 timeshiftConfig = config
                 _timeshiftUiState.update { current ->
@@ -674,14 +685,19 @@ class PlayerViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            preferencesRepository.playerDecoderMode
-                .combine(activePlayerEngineFlow) { mode, engine -> engine to mode }
-                .collect { (engine, mode) ->
-                    preferredDecoderMode = mode
+            preferencesRepository.playerAudioDecoderMode
+                .combine(preferencesRepository.playerVideoDecoderMode) { audioMode, videoMode ->
+                    audioMode to videoMode
+                }
+                .combine(activePlayerEngineFlow) { modes, engine -> engine to modes }
+                .collect { (engine, modes) ->
+                    val (audioMode, videoMode) = modes
+                    preferredAudioDecoderMode = audioMode
+                    preferredVideoDecoderMode = videoMode
                     if (!hasRetriedWithSoftwareDecoder) {
-                        engine.setDecoderMode(mode)
+                        engine.setDecoderModes(audioMode = audioMode, videoMode = videoMode)
                         if (engine === playerEngine) {
-                            updateDecoderMode(mode)
+                            updateDecoderModes(audioMode = audioMode, videoMode = videoMode)
                         }
                     }
                 }
@@ -800,8 +816,14 @@ class PlayerViewModel @Inject constructor(
             }
             hasRetriedWithSoftwareDecoder = true
             android.util.Log.w("PlayerVM", "Decoder error detected. Retrying with software decoder mode.")
-            playerEngine.setDecoderMode(DecoderMode.SOFTWARE)
-            updateDecoderMode(DecoderMode.SOFTWARE)
+            playerEngine.setDecoderModes(
+                audioMode = DecoderMode.SOFTWARE,
+                videoMode = DecoderMode.SOFTWARE
+            )
+            updateDecoderModes(
+                audioMode = DecoderMode.SOFTWARE,
+                videoMode = DecoderMode.SOFTWARE
+            )
             setLastFailureReason(error.message)
             appendRecoveryAction("Switched to software decoder")
             playerEngine.play()
@@ -1260,7 +1282,8 @@ class PlayerViewModel @Inject constructor(
     internal suspend fun preparePlayer(
         streamInfo: com.streamvault.domain.model.StreamInfo,
         requestVersion: Long,
-        probeBeforePlayback: Boolean = true
+        probeBeforePlayback: Boolean = true,
+        showFailureNotice: Boolean = true
     ): Boolean {
         if (!isActivePlaybackSession(requestVersion)) return false
 
@@ -1272,11 +1295,13 @@ class PlayerViewModel @Inject constructor(
             val expiryMessage = "This stream's subscription has expired. " +
                 "Please renew your subscription with the provider."
             setLastFailureReason(expiryMessage)
-            showPlayerNotice(
-                message = expiryMessage,
-                recoveryType = PlayerRecoveryType.SOURCE,
-                actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
-            )
+            if (showFailureNotice) {
+                showPlayerNotice(
+                    message = expiryMessage,
+                    recoveryType = PlayerRecoveryType.SOURCE,
+                    actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
+                )
+            }
             return false
         }
 
@@ -1285,11 +1310,13 @@ class PlayerViewModel @Inject constructor(
             is Result.Error -> {
                 if (!isActivePlaybackSession(requestVersion)) return false
                 setLastFailureReason(pluginPrepareResult.message)
-                showPlayerNotice(
-                    message = pluginPrepareResult.message,
-                    recoveryType = PlayerRecoveryType.NETWORK,
-                    actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
-                )
+                if (showFailureNotice) {
+                    showPlayerNotice(
+                        message = pluginPrepareResult.message,
+                        recoveryType = PlayerRecoveryType.NETWORK,
+                        actions = buildRecoveryActions(PlayerRecoveryType.NETWORK)
+                    )
+                }
                 return false
             }
             Result.Loading -> Unit
@@ -1300,11 +1327,13 @@ class PlayerViewModel @Inject constructor(
             probePlaybackUrl(preparedStreamInfo)?.let { failure ->
                 if (!isActivePlaybackSession(requestVersion)) return false
                 setLastFailureReason(failure.message)
-                showPlayerNotice(
-                    message = failure.message,
-                    recoveryType = failure.recoveryType,
-                    actions = buildRecoveryActions(failure.recoveryType)
-                )
+                if (showFailureNotice) {
+                    showPlayerNotice(
+                        message = failure.message,
+                        recoveryType = failure.recoveryType,
+                        actions = buildRecoveryActions(failure.recoveryType)
+                    )
+                }
                 return false
             }
             probePassedPlaybackKeys.add(
@@ -1428,7 +1457,8 @@ class PlayerViewModel @Inject constructor(
             episodeNumber = episodeNumber,
             episodeId = episodeId,
             hasArchiveRequest = hasArchiveRequest,
-            preferredDecoderMode = preferredDecoderMode,
+            preferredAudioDecoderMode = preferredAudioDecoderMode,
+            preferredVideoDecoderMode = preferredVideoDecoderMode,
             preferredSurfaceMode = preferredSurfaceMode
         )
 
@@ -1621,7 +1651,7 @@ class PlayerViewModel @Inject constructor(
         val timeline = buildProgramTimeline(
             programs = programs,
             now = now,
-            catchUpSupported = currentChannelFlow.value?.catchUpSupported == true,
+            channel = currentChannelFlow.value,
             maxHistoryItems = MAX_PROGRAM_HISTORY_ITEMS,
             maxUpcomingItems = MAX_UPCOMING_PROGRAM_ITEMS
         )
@@ -1665,8 +1695,13 @@ class PlayerViewModel @Inject constructor(
         failedStreamsThisSession[streamUrl] = (failedStreamsThisSession[streamUrl] ?: 0) + 1
     }
 
-    internal fun updateDecoderMode(mode: DecoderMode) {
-        _playerDiagnostics.update { it.copy(decoderMode = mode) }
+    internal fun updateDecoderModes(audioMode: DecoderMode, videoMode: DecoderMode) {
+        _playerDiagnostics.update {
+            it.copy(
+                audioDecoderMode = audioMode,
+                videoDecoderMode = videoMode
+            )
+        }
     }
 
     internal fun updateStreamClass(label: String) {

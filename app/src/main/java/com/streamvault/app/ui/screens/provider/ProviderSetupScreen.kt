@@ -92,6 +92,8 @@ import com.google.zxing.BarcodeFormat
 import android.graphics.Bitmap
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.domain.model.ProviderEpgSyncMode
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.usecase.JellyfinProviderSetupCommand
@@ -493,6 +495,8 @@ fun ProviderSetupScreen(
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = viewModel::updateGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = viewModel::updateChannelLogoSourcePolicy,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 }
@@ -552,6 +556,8 @@ fun ProviderSetupScreen(
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = viewModel::updateGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = viewModel::updateChannelLogoSourcePolicy,
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     )
                 }
@@ -894,6 +900,8 @@ private fun ProviderFormContent(
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
+    onSelectGuideSourcePolicy: (GuideSourcePolicy) -> Unit,
+    onSelectChannelLogoSourcePolicy: (ChannelLogoSourcePolicy) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -973,6 +981,8 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
                         username = username,
                         onUsernameChange = onUsernameChange,
                         password = password,
@@ -1062,6 +1072,8 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
                         username = username,
                         onUsernameChange = onUsernameChange,
                         password = password,
@@ -1132,6 +1144,8 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
                         username = username,
                         onUsernameChange = onUsernameChange,
                         password = password,
@@ -1187,6 +1201,8 @@ private fun ProviderFormContent(
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
+                        onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
+                        onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
                         username = username,
                         onUsernameChange = onUsernameChange,
                         password = password,
@@ -1263,6 +1279,8 @@ private fun AdvancedProviderOptionsSection(
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
+    onSelectGuideSourcePolicy: (GuideSourcePolicy) -> Unit,
+    onSelectChannelLogoSourcePolicy: (ChannelLogoSourcePolicy) -> Unit,
     username: String,
     onUsernameChange: (String) -> Unit,
     password: String,
@@ -1314,9 +1332,11 @@ private fun AdvancedProviderOptionsSection(
         SourceType.JELLYFIN -> ProviderEpgSyncMode.UPFRONT
     }
 
-    LaunchedEffect(uiState.isEditing, uiState.epgSyncMode, uiState.xtreamLiveSyncMode, sourceType) {
+    LaunchedEffect(uiState.isEditing, uiState.epgSyncMode, uiState.xtreamLiveSyncMode, uiState.guideSourcePolicy, uiState.channelLogoSourcePolicy, sourceType) {
         val hasNonDefaultSelection = ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER) && uiState.epgSyncMode != defaultEpgSyncMode) ||
             (sourceType == SourceType.XTREAM && uiState.xtreamLiveSyncMode != ProviderXtreamLiveSyncMode.AUTO) ||
+            (supportsGuideAndLogoPolicy(sourceType) && uiState.guideSourcePolicy != GuideSourcePolicy.AUTO) ||
+            (supportsGuideAndLogoPolicy(sourceType) && uiState.channelLogoSourcePolicy != ChannelLogoSourcePolicy.SUPPLIER_PREFERRED) ||
             ((sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) && !uiState.m3uVodClassificationEnabled) ||
             ((sourceType == SourceType.XTREAM || sourceType == SourceType.M3U_URL || sourceType == SourceType.M3U_FILE) &&
                 httpUserAgent.isNotBlank()) ||
@@ -1484,7 +1504,7 @@ private fun AdvancedProviderOptionsSection(
                     )
                 }
 
-                if (sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER) {
+                if (supportsGuideAndLogoPolicy(sourceType)) {
                     if (sourceType == SourceType.XTREAM) {
                         Column(
                             modifier = Modifier
@@ -1511,6 +1531,60 @@ private fun AdvancedProviderOptionsSection(
                                     onSelect = { onSelectXtreamLiveSyncMode(mode) }
                                 )
                             }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Surface, RoundedCornerShape(12.dp))
+                            .border(1.dp, SurfaceHighlight, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Guide source",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Choose whether this provider uses its supplier guide, your assigned external XMLTV sources, or no guide at all.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceDim
+                        )
+                        GuideSourcePolicy.entries.forEach { policy ->
+                            GuideSourcePolicyOptionRow(
+                                policy = policy,
+                                selected = uiState.guideSourcePolicy == policy,
+                                onSelect = { onSelectGuideSourcePolicy(policy) }
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Surface, RoundedCornerShape(12.dp))
+                            .border(1.dp, SurfaceHighlight, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Channel logos",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Pick whether channel logos come from the supplier, the matched EPG channel icon, or a strict single source.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceDim
+                        )
+                        ChannelLogoSourcePolicy.entries.forEach { policy ->
+                            ChannelLogoSourcePolicyOptionRow(
+                                policy = policy,
+                                selected = uiState.channelLogoSourcePolicy == policy,
+                                onSelect = { onSelectChannelLogoSourcePolicy(policy) }
+                            )
                         }
                     }
 
@@ -2132,6 +2206,98 @@ private fun EpgSyncModeOptionRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurfaceDim
                 )
+            }
+        }
+    }
+}
+
+private fun supportsGuideAndLogoPolicy(sourceType: SourceType): Boolean = when (sourceType) {
+    SourceType.XTREAM,
+    SourceType.STALKER,
+    SourceType.M3U_URL,
+    SourceType.M3U_FILE -> true
+    SourceType.JELLYFIN -> false
+}
+
+@Composable
+private fun GuideSourcePolicyOptionRow(
+    policy: GuideSourcePolicy,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val title = when (policy) {
+        GuideSourcePolicy.AUTO -> "Auto"
+        GuideSourcePolicy.EXTERNAL_ONLY -> "Use external EPG only"
+        GuideSourcePolicy.PROVIDER_ONLY -> "Use supplier EPG only"
+        GuideSourcePolicy.DISABLED -> "Disable guide data"
+    }
+    val description = when (policy) {
+        GuideSourcePolicy.AUTO -> "Keep the current mixed behavior: external XMLTV can override supplier guide data, and unmatched channels may still use supplier fallback."
+        GuideSourcePolicy.EXTERNAL_ONLY -> "Use only assigned external XMLTV sources. Unmatched channels stay without guide data."
+        GuideSourcePolicy.PROVIDER_ONLY -> "Ignore assigned external XMLTV sources for this provider and use only the supplier guide paths."
+        GuideSourcePolicy.DISABLED -> "Do not import or resolve guide data for this provider."
+    }
+    PolicyOptionRow(title = title, description = description, selected = selected, onSelect = onSelect)
+}
+
+@Composable
+private fun ChannelLogoSourcePolicyOptionRow(
+    policy: ChannelLogoSourcePolicy,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val title = when (policy) {
+        ChannelLogoSourcePolicy.SUPPLIER_PREFERRED -> "Supplier logos first"
+        ChannelLogoSourcePolicy.EPG_PREFERRED -> "Prefer EPG logos"
+        ChannelLogoSourcePolicy.SUPPLIER_ONLY -> "Supplier logos only"
+        ChannelLogoSourcePolicy.EPG_ONLY -> "EPG logos only"
+    }
+    val description = when (policy) {
+        ChannelLogoSourcePolicy.SUPPLIER_PREFERRED -> "Use the supplier logo when it exists, then fall back to the matched EPG icon."
+        ChannelLogoSourcePolicy.EPG_PREFERRED -> "Use the matched EPG icon first, then fall back to the supplier logo."
+        ChannelLogoSourcePolicy.SUPPLIER_ONLY -> "Always use supplier logos for this provider."
+        ChannelLogoSourcePolicy.EPG_ONLY -> "Always use matched EPG icons for this provider."
+    }
+    PolicyOptionRow(title = title, description = description, selected = selected, onSelect = onSelect)
+}
+
+@Composable
+private fun PolicyOptionRow(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    Surface(
+        onClick = onSelect,
+        modifier = Modifier
+            .fillMaxWidth()
+            .mouseClickable(onClick = onSelect),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Primary.copy(alpha = 0.12f) else Color.Transparent,
+            focusedContainerColor = if (selected) Primary.copy(alpha = 0.26f) else SurfaceHighlight.copy(alpha = 0.9f)
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                BorderStroke(
+                    1.dp,
+                    if (selected) Primary.copy(alpha = 0.45f) else Color.Transparent
+                )
+            ),
+            focusedBorder = Border(BorderStroke(3.dp, PrimaryLight))
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = selected, onClick = onSelect)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                Text(text = description, style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim)
             }
         }
     }

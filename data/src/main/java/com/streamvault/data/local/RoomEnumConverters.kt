@@ -2,6 +2,8 @@ package com.streamvault.data.local
 
 import androidx.room.TypeConverter
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
@@ -40,6 +42,20 @@ class RoomEnumConverters {
     @TypeConverter
     fun toProviderEpgSyncMode(value: String?): ProviderEpgSyncMode? =
         enumValueOrDefault(value, ProviderEpgSyncMode.SKIP, providerEpgSyncModeAliases())
+
+    @TypeConverter
+    fun fromGuideSourcePolicy(value: GuideSourcePolicy?): String? = value?.name
+
+    @TypeConverter
+    fun toGuideSourcePolicy(value: String?): GuideSourcePolicy? =
+        enumValueOrDefault(value, GuideSourcePolicy.AUTO, guideSourcePolicyAliases())
+
+    @TypeConverter
+    fun fromChannelLogoSourcePolicy(value: ChannelLogoSourcePolicy?): String? = value?.name
+
+    @TypeConverter
+    fun toChannelLogoSourcePolicy(value: String?): ChannelLogoSourcePolicy? =
+        enumValueOrDefault(value, ChannelLogoSourcePolicy.SUPPLIER_PREFERRED, channelLogoSourcePolicyAliases())
 
     @TypeConverter
     fun fromProviderXtreamLiveSyncMode(value: ProviderXtreamLiveSyncMode?): String? = value?.name
@@ -149,6 +165,19 @@ class RoomEnumConverters {
         "FULL" to ProviderXtreamLiveSyncMode.STREAM_ALL,
         "FULL_CATALOG" to ProviderXtreamLiveSyncMode.STREAM_ALL,
         "STREAM" to ProviderXtreamLiveSyncMode.STREAM_ALL
+    )
+
+    private fun guideSourcePolicyAliases(): Map<String, GuideSourcePolicy> = mapOf(
+        "EXTERNAL" to GuideSourcePolicy.EXTERNAL_ONLY,
+        "PROVIDER" to GuideSourcePolicy.PROVIDER_ONLY,
+        "OFF" to GuideSourcePolicy.DISABLED,
+        "NONE" to GuideSourcePolicy.DISABLED
+    )
+
+    private fun channelLogoSourcePolicyAliases(): Map<String, ChannelLogoSourcePolicy> = mapOf(
+        "SUPPLIER" to ChannelLogoSourcePolicy.SUPPLIER_ONLY,
+        "EPG" to ChannelLogoSourcePolicy.EPG_ONLY,
+        "EXTERNAL" to ChannelLogoSourcePolicy.EPG_ONLY
     )
 
     private fun contentTypeAliases(): Map<String, ContentType> = mapOf(

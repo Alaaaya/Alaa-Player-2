@@ -11,6 +11,7 @@ import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.domain.manager.ParentalControlManager
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.GroupedChannelLabelMode
@@ -324,6 +325,29 @@ class ChannelRepositoryImplTest {
         )
 
         assertThat(result.map { it.number }).containsExactly(61, 62).inOrder()
+    }
+
+    @Test
+    fun `getChannel applies epg only logo policy for raw channel lookup`() = runTest {
+        whenever(channelDao.getBrowseById(99L)).thenReturn(
+            ChannelBrowseEntity(
+                id = 99L,
+                streamId = 199L,
+                name = "News One",
+                logoUrl = "https://supplier.example/logo.png",
+                streamUrl = "https://stream/news",
+                number = 9,
+                providerId = 7L,
+                channelLogoSourcePolicy = ChannelLogoSourcePolicy.EPG_ONLY,
+                epgIconUrl = "https://epg.example/icon.png"
+            )
+        )
+
+        val repository = createRepository()
+
+        val result = repository.getChannel(99L)
+
+        assertThat(result?.logoUrl).isEqualTo("https://epg.example/icon.png")
     }
 
     @Test

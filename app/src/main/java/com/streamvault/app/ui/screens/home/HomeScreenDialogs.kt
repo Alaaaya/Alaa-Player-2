@@ -143,9 +143,10 @@ internal fun HomeDialogsHost(
             onHide = if (!isCategoryLocked && !category.isVirtual && category.id != ChannelRepository.ALL_CHANNELS_ID) {
                 { viewModel.hideCategory(category) }
             } else null,
-            onHideFromLiveTV = if (!isCategoryLocked && category.id in setOf(VirtualCategoryIds.RECENT, ChannelRepository.ALL_CHANNELS_ID)) {
+            onHideFromLiveTV = if (!isCategoryLocked && category.id in setOf(VirtualCategoryIds.FAVORITES, VirtualCategoryIds.RECENT, ChannelRepository.ALL_CHANNELS_ID)) {
                 {
                     when (category.id) {
+                        VirtualCategoryIds.FAVORITES -> viewModel.setShowFavoritesCategory(false)
                         VirtualCategoryIds.RECENT -> viewModel.setShowRecentChannelsCategory(false)
                         ChannelRepository.ALL_CHANNELS_ID -> viewModel.setShowAllChannelsCategory(false)
                     }

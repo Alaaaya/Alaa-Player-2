@@ -12,6 +12,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.streamvault.app.BuildConfig
+import com.streamvault.app.cast.CastMediaRequest
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.DrmInfo
@@ -292,7 +293,8 @@ class StreamVaultPluginManager @Inject constructor(
         Result.success(streamInfo)
     }
 
-    suspend fun rewriteCastUrl(url: String): String? = withContext(Dispatchers.IO) {
+    suspend fun rewriteCastUrl(request: CastMediaRequest): String? = withContext(Dispatchers.IO) {
+        val url = request.url
         if (url.isBlank()) return@withContext url
         val plugins = discoverPlugins()
             .filter { it.enabled && it.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_CAST_REWRITE_URL) }
@@ -302,7 +304,7 @@ class StreamVaultPluginManager @Inject constructor(
                     packageName = plugin.packageName,
                     serviceClassName = plugin.serviceClassName,
                     what = StreamVaultPluginContract.MSG_REWRITE_CAST_URL,
-                    data = Bundle().apply { putString(StreamVaultPluginContract.KEY_INPUT_URL, url) },
+                    data = request.toCastRewriteBundle(),
                     timeoutMillis = 10_000L
                 )
             }.getOrNull() ?: continue
@@ -314,6 +316,9 @@ class StreamVaultPluginManager @Inject constructor(
         }
         url
     }
+
+    suspend fun rewriteCastUrl(url: String): String? =
+        rewriteCastUrl(CastMediaRequest(url = url, title = "StreamVault"))
 
     private fun applyPlaybackPreparationResponse(
         streamInfo: StreamInfo,
@@ -336,6 +341,28 @@ class StreamVaultPluginManager @Inject constructor(
             containerExtension = streamInfo.containerExtension ?: streamType.defaultContainerExtension(),
             drmInfo = drmInfo
         )
+    }
+
+    private fun CastMediaRequest.toCastRewriteBundle(): Bundle = Bundle().apply {
+        putString(StreamVaultPluginContract.KEY_INPUT_URL, url)
+        putString(StreamVaultPluginContract.KEY_STREAM_TYPE, mimeType.orEmpty())
+        putString(StreamVaultPluginContract.KEY_HEADERS_JSON, headers.toHeadersJson())
+        putString(StreamVaultPluginContract.KEY_USER_AGENT, userAgent.orEmpty())
+        putBoolean(StreamVaultPluginContract.KEY_ALLOW_INVALID_SSL, allowInvalidSsl)
+        putString(StreamVaultPluginContract.KEY_PROXY_HOST, proxyHost)
+        proxyPort?.let { putInt(StreamVaultPluginContract.KEY_PROXY_PORT, it) }
+        putString(StreamVaultPluginContract.KEY_CAST_REWRITE_REASON, rewriteRequiredReason?.name.orEmpty())
+    }
+
+    private fun Map<String, String>.toHeadersJson(): String {
+        if (isEmpty()) return ""
+        val jsonObject = JSONObject()
+        forEach { (name, value) ->
+            if (name.isNotBlank() && value.isNotBlank() && name.isSafeHttpHeaderName()) {
+                jsonObject.put(name, value)
+            }
+        }
+        return jsonObject.toString()
     }
 
     private fun parseHeadersJson(raw: String): Map<String, String> =

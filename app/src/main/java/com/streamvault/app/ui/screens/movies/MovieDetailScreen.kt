@@ -3,6 +3,8 @@ package com.streamvault.app.ui.screens.movies
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -52,7 +54,9 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.streamvault.app.MainActivity
 import com.streamvault.app.R
+import com.streamvault.app.cast.CastUiEvent
 import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.util.formatPositionMs
@@ -79,6 +83,18 @@ fun MovieDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val movie = uiState.movie
+    val context = LocalContext.current
+    val mainActivity = remember(context) { context.findMainActivity() }
+
+    LaunchedEffect(viewModel, context, mainActivity) {
+        viewModel.castEvents.collect { event ->
+            when (event) {
+                CastUiEvent.OpenRouteChooser -> mainActivity?.openCastRouteChooser()
+                is CastUiEvent.ShowMessage ->
+                    Toast.makeText(context, context.getString(event.messageResId), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     when {
         uiState.isLoading -> {
@@ -111,6 +127,7 @@ fun MovieDetailScreen(
                 movie = movie,
                 hasResume = uiState.hasResume,
                 resumePositionMs = uiState.resumePositionMs,
+                isCasting = uiState.isCasting,
                 externalRatings = uiState.externalRatings,
                 isLoadingExternalRatings = uiState.isLoadingExternalRatings,
                 relatedContent = uiState.relatedContent,
@@ -123,6 +140,7 @@ fun MovieDetailScreen(
                     }
                 },
                 onDownload = {},
+                onCast = viewModel::castMovie,
                 onToggleFavorite = viewModel::toggleFavorite,
                 onSelectVariant = viewModel::selectMovieVariant,
                 onRelatedClick = onPlay,
@@ -138,12 +156,14 @@ private fun MovieDetailContent(
     movie: Movie,
     hasResume: Boolean,
     resumePositionMs: Long,
+    isCasting: Boolean,
     externalRatings: ExternalRatings,
     isLoadingExternalRatings: Boolean,
     relatedContent: List<Movie>,
     onPlay: () -> Unit,
     onCopyUrl: suspend () -> String?,
     onDownload: () -> Unit,
+    onCast: () -> Unit,
     onToggleFavorite: () -> Unit,
     onSelectVariant: (Long) -> Unit,
     onRelatedClick: (Movie) -> Unit,
@@ -230,6 +250,7 @@ private fun MovieDetailContent(
                             movie = movie,
                             hasResume = hasResume,
                             resumePositionMs = resumePositionMs,
+                            isCasting = isCasting,
                             externalRatings = externalRatings,
                             isLoadingExternalRatings = isLoadingExternalRatings,
                             onPlay = onPlay,
@@ -239,6 +260,7 @@ private fun MovieDetailContent(
                                 }
                             },
                             onDownload = onDownload,
+                            onCast = onCast,
                             onToggleFavorite = onToggleFavorite,
                             onSelectVariant = onSelectVariant,
                             playButtonFocusRequester = playButtonFocusRequester,
@@ -261,6 +283,7 @@ private fun MovieDetailContent(
                             movie = movie,
                             hasResume = hasResume,
                             resumePositionMs = resumePositionMs,
+                            isCasting = isCasting,
                             externalRatings = externalRatings,
                             isLoadingExternalRatings = isLoadingExternalRatings,
                             onPlay = onPlay,
@@ -270,6 +293,7 @@ private fun MovieDetailContent(
                                 }
                             },
                             onDownload = onDownload,
+                            onCast = onCast,
                             onToggleFavorite = onToggleFavorite,
                             onSelectVariant = onSelectVariant,
                             playButtonFocusRequester = playButtonFocusRequester,
@@ -361,11 +385,13 @@ private fun MovieDetailHeroText(
     movie: Movie,
     hasResume: Boolean,
     resumePositionMs: Long,
+    isCasting: Boolean,
     externalRatings: ExternalRatings,
     isLoadingExternalRatings: Boolean,
     onPlay: () -> Unit,
     onCopyUrl: () -> Unit,
     onDownload: () -> Unit,
+    onCast: () -> Unit,
     onToggleFavorite: () -> Unit,
     onSelectVariant: (Long) -> Unit,
     playButtonFocusRequester: FocusRequester,
@@ -454,6 +480,20 @@ private fun MovieDetailHeroText(
                 )
             ) {
                 Text(stringResource(R.string.download_button_label))
+            }
+            TvButton(
+                onClick = onCast,
+                enabled = !isCasting,
+                colors = ButtonDefaults.colors(
+                    containerColor = AppColors.SurfaceEmphasis,
+                    contentColor = AppColors.TextPrimary
+                )
+            ) {
+                Text(
+                    stringResource(
+                        if (isCasting) R.string.cast_launching else R.string.cast_button_label
+                    )
+                )
             }
             if (hasTrailer) {
                 TvButton(
@@ -546,6 +586,12 @@ private fun resolveTrailerUrl(rawTrailer: String?): String? {
         trailer.startsWith("www.youtube.com/", ignoreCase = true) || trailer.startsWith("youtube.com/", ignoreCase = true) -> "https://$trailer"
         else -> "https://www.youtube.com/watch?v=$trailer"
     }
+}
+
+private tailrec fun Context.findMainActivity(): MainActivity? = when (this) {
+    is MainActivity -> this
+    is ContextWrapper -> baseContext.findMainActivity()
+    else -> null
 }
 
 @Composable

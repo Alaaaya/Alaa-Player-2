@@ -18,6 +18,7 @@ import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.PlaybackBufferMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
@@ -51,7 +52,8 @@ internal fun observeSettingsPreferenceSnapshot(
             preferredAudioLanguage = "auto",
             playerMediaSessionEnabled = true,
             playerFastRetryOnTransientFailures = false,
-            playerDecoderMode = DecoderMode.AUTO,
+            playerAudioDecoderMode = DecoderMode.AUTO,
+            playerVideoDecoderMode = DecoderMode.AUTO,
             playerPlaybackBufferMode = PlaybackBufferMode.AUTO,
             playerAudioOutputPreference = AudioOutputPreference.AUTO,
             playerCompatibilityMemoryEnabled = true,
@@ -76,6 +78,7 @@ internal fun observeSettingsPreferenceSnapshot(
             ethernetMaxVideoHeight = null,
             playerTimeshiftEnabled = false,
             playerTimeshiftDepthMinutes = 30,
+            playerTimeshiftBackend = TimeshiftBackendPreference.AUTOMATIC,
             defaultStopPlaybackTimerMinutes = 0,
             defaultIdleStandbyTimerMinutes = 0,
             lastSpeedTestMegabits = null,
@@ -88,6 +91,7 @@ internal fun observeSettingsPreferenceSnapshot(
             xtreamBase64TextCompatibility = false,
             liveTvChannelMode = LiveTvChannelMode.PRO,
             showLiveSourceSwitcher = false,
+            showFavoritesCategory = true,
             showAllChannelsCategory = true,
             showRecentChannelsCategory = true,
             remoteShortcutPreferences = com.streamvault.domain.model.RemoteShortcutPreferences(),
@@ -114,6 +118,7 @@ internal fun observeSettingsPreferenceSnapshot(
             cachedAppUpdateVersionCode = null,
             cachedAppUpdateReleaseUrl = null,
             cachedAppUpdateDownloadUrl = null,
+            cachedAppUpdateDownloadSha256 = null,
             cachedAppUpdateReleaseNotes = "",
             cachedAppUpdatePublishedAt = null
         )
@@ -133,8 +138,10 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerMediaSessionEnabled = mediaSessionEnabled)
     }.combine(preferencesRepository.playerFastRetryOnTransientFailures) { snapshot, enabled ->
         snapshot.copy(playerFastRetryOnTransientFailures = enabled)
-    }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
-        snapshot.copy(playerDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerAudioDecoderMode) { snapshot, decoderMode ->
+        snapshot.copy(playerAudioDecoderMode = decoderMode)
+    }.combine(preferencesRepository.playerVideoDecoderMode) { snapshot, decoderMode ->
+        snapshot.copy(playerVideoDecoderMode = decoderMode)
     }.combine(preferencesRepository.playerPlaybackBufferMode) { snapshot, bufferMode ->
         snapshot.copy(playerPlaybackBufferMode = bufferMode)
     }.combine(preferencesRepository.playerAudioOutputPreference) { snapshot, audioOutputPreference ->
@@ -183,6 +190,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(playerTimeshiftEnabled = enabled)
     }.combine(preferencesRepository.playerTimeshiftDepthMinutes) { snapshot, depthMinutes ->
         snapshot.copy(playerTimeshiftDepthMinutes = depthMinutes)
+    }.combine(preferencesRepository.playerTimeshiftBackend) { snapshot, backend ->
+        snapshot.copy(playerTimeshiftBackend = backend)
     }.combine(preferencesRepository.defaultStopPlaybackTimerMinutes) { snapshot, minutes ->
         snapshot.copy(defaultStopPlaybackTimerMinutes = minutes)
     }.combine(preferencesRepository.defaultIdleStandbyTimerMinutes) { snapshot, minutes ->
@@ -207,6 +216,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(liveTvChannelMode = LiveTvChannelMode.fromStorage(liveTvChannelMode))
     }.combine(preferencesRepository.showLiveSourceSwitcher) { snapshot, showLiveSourceSwitcher ->
         snapshot.copy(showLiveSourceSwitcher = showLiveSourceSwitcher)
+    }.combine(preferencesRepository.showFavoritesCategory) { snapshot, showFavoritesCategory ->
+        snapshot.copy(showFavoritesCategory = showFavoritesCategory)
     }.combine(preferencesRepository.showAllChannelsCategory) { snapshot, showAllChannelsCategory ->
         snapshot.copy(showAllChannelsCategory = showAllChannelsCategory)
     }.combine(preferencesRepository.showRecentChannelsCategory) { snapshot, showRecentChannelsCategory ->
@@ -259,6 +270,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(cachedAppUpdateReleaseUrl = releaseUrl)
     }.combine(preferencesRepository.cachedAppUpdateDownloadUrl) { snapshot, downloadUrl ->
         snapshot.copy(cachedAppUpdateDownloadUrl = downloadUrl)
+    }.combine(preferencesRepository.cachedAppUpdateDownloadSha256) { snapshot, downloadSha256 ->
+        snapshot.copy(cachedAppUpdateDownloadSha256 = downloadSha256)
     }.combine(preferencesRepository.cachedAppUpdateReleaseNotes) { snapshot, releaseNotes ->
         snapshot.copy(cachedAppUpdateReleaseNotes = releaseNotes)
     }.combine(preferencesRepository.cachedAppUpdatePublishedAt) { snapshot, publishedAt ->

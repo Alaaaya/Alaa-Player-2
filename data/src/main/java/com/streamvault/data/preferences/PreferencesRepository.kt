@@ -42,6 +42,7 @@ import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.RemoteShortcutProfile
 import com.streamvault.domain.model.RemoteShortcutSelection
 import com.streamvault.domain.model.SearchHistoryScope
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.manager.ParentalPinVerifier
 import com.streamvault.domain.manager.ParentalControlSessionState
 import com.streamvault.domain.manager.ParentalControlSessionStore
@@ -75,6 +76,15 @@ private fun sanitizePlaybackTimerMinutes(minutes: Int): Int = when (minutes) {
 internal fun parsePlaybackBufferModePreference(saved: String?): PlaybackBufferMode =
     saved?.let { value -> PlaybackBufferMode.entries.firstOrNull { it.name == value } }
         ?: PlaybackBufferMode.AUTO
+
+internal fun parseDecoderModePreference(saved: String?, legacySaved: String? = null): DecoderMode =
+    saved?.let { value -> DecoderMode.entries.firstOrNull { it.name == value } }
+        ?: legacySaved?.let { value -> DecoderMode.entries.firstOrNull { it.name == value } }
+        ?: DecoderMode.AUTO
+
+internal fun parseTimeshiftBackendPreference(saved: String?): TimeshiftBackendPreference =
+    saved?.let { value -> TimeshiftBackendPreference.entries.firstOrNull { it.name == value } }
+        ?: TimeshiftBackendPreference.AUTOMATIC
 
 @Singleton
 class PreferencesRepository @Inject constructor(
@@ -111,6 +121,7 @@ class PreferencesRepository @Inject constructor(
         val APP_TIME_FORMAT = stringPreferencesKey("app_time_format")
         val LIVE_TV_CHANNEL_MODE = stringPreferencesKey("live_tv_channel_mode")
         val SHOW_LIVE_SOURCE_SWITCHER = booleanPreferencesKey("show_live_source_switcher")
+        val SHOW_FAVORITES_CATEGORY = booleanPreferencesKey("show_favorites_category")
         val SHOW_ALL_CHANNELS_CATEGORY = booleanPreferencesKey("show_all_channels_category")
         val SHOW_RECENT_CHANNELS_CATEGORY = booleanPreferencesKey("show_recent_channels_category")
         val LIVE_TV_CATEGORY_FILTERS = stringPreferencesKey("live_tv_category_filters")
@@ -148,6 +159,8 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_FAST_RETRY_ON_TRANSIENT_FAILURES =
             booleanPreferencesKey("player_fast_retry_on_transient_failures")
         val PLAYER_DECODER_MODE = stringPreferencesKey("player_decoder_mode")
+        val PLAYER_AUDIO_DECODER_MODE = stringPreferencesKey("player_audio_decoder_mode")
+        val PLAYER_VIDEO_DECODER_MODE = stringPreferencesKey("player_video_decoder_mode")
         val PLAYER_PLAYBACK_BUFFER_MODE = stringPreferencesKey("player_playback_buffer_mode")
         val PLAYER_LIVE_STREAM_FORMAT_MODE = stringPreferencesKey("player_live_stream_format_mode")
         val PLAYER_VOD_HTTP_PROTOCOL_MODE = stringPreferencesKey("player_vod_http_protocol_mode")
@@ -173,6 +186,7 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_ETHERNET_MAX_VIDEO_HEIGHT = intPreferencesKey("player_ethernet_max_video_height")
         val PLAYER_TIMESHIFT_ENABLED = booleanPreferencesKey("player_timeshift_enabled")
         val PLAYER_TIMESHIFT_DEPTH_MINUTES = intPreferencesKey("player_timeshift_depth_minutes")
+        val PLAYER_TIMESHIFT_BACKEND = stringPreferencesKey("player_timeshift_backend")
         val DEFAULT_STOP_PLAYBACK_TIMER_MINUTES = intPreferencesKey("default_stop_playback_timer_minutes")
         val DEFAULT_IDLE_STANDBY_TIMER_MINUTES = intPreferencesKey("default_idle_standby_timer_minutes")
         val LAST_SPEED_TEST_MEGABITS = stringPreferencesKey("last_speed_test_megabits")
@@ -203,6 +217,7 @@ class PreferencesRepository @Inject constructor(
         val APP_UPDATE_LATEST_VERSION_CODE = intPreferencesKey("app_update_latest_version_code")
         val APP_UPDATE_RELEASE_URL = stringPreferencesKey("app_update_release_url")
         val APP_UPDATE_DOWNLOAD_URL = stringPreferencesKey("app_update_download_url")
+        val APP_UPDATE_DOWNLOAD_SHA256 = stringPreferencesKey("app_update_download_sha256")
         val APP_UPDATE_RELEASE_NOTES = stringPreferencesKey("app_update_release_notes")
         val APP_UPDATE_PUBLISHED_AT = stringPreferencesKey("app_update_published_at")
         val LAST_MAINTENANCE_AT = longPreferencesKey("last_maintenance_at")
@@ -308,10 +323,18 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.PLAYER_FAST_RETRY_ON_TRANSIENT_FAILURES] ?: false
     }
 
-    val playerDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
-        preferences[PreferencesKeys.PLAYER_DECODER_MODE]
-            ?.let { saved -> DecoderMode.entries.firstOrNull { it.name == saved } }
-            ?: DecoderMode.AUTO
+    val playerAudioDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
+        parseDecoderModePreference(
+            saved = preferences[PreferencesKeys.PLAYER_AUDIO_DECODER_MODE],
+            legacySaved = preferences[PreferencesKeys.PLAYER_DECODER_MODE]
+        )
+    }
+
+    val playerVideoDecoderMode: Flow<DecoderMode> = context.dataStore.data.map { preferences ->
+        parseDecoderModePreference(
+            saved = preferences[PreferencesKeys.PLAYER_VIDEO_DECODER_MODE],
+            legacySaved = preferences[PreferencesKeys.PLAYER_DECODER_MODE]
+        )
     }
 
     val playerPlaybackBufferMode: Flow<PlaybackBufferMode> = context.dataStore.data.map { preferences ->
@@ -439,6 +462,10 @@ class PreferencesRepository @Inject constructor(
             in 23..45 -> 30
             else -> 60
         }
+    }
+
+    val playerTimeshiftBackend: Flow<TimeshiftBackendPreference> = context.dataStore.data.map { preferences ->
+        parseTimeshiftBackendPreference(preferences[PreferencesKeys.PLAYER_TIMESHIFT_BACKEND])
     }
 
     val defaultStopPlaybackTimerMinutes: Flow<Int> = context.dataStore.data.map { preferences ->
@@ -617,6 +644,10 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_URL]?.takeIf { it.isNotBlank() }
     }
 
+    val cachedAppUpdateDownloadSha256: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256]?.takeIf { it.isNotBlank() }
+    }
+
     val cachedAppUpdateReleaseNotes: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.APP_UPDATE_RELEASE_NOTES].orEmpty()
     }
@@ -784,6 +815,7 @@ class PreferencesRepository @Inject constructor(
         versionCode: Int?,
         releaseUrl: String?,
         downloadUrl: String?,
+        downloadSha256: String?,
         releaseNotes: String?,
         publishedAt: String?
     ) {
@@ -793,6 +825,7 @@ class PreferencesRepository @Inject constructor(
                 preferences.remove(PreferencesKeys.APP_UPDATE_LATEST_VERSION_CODE)
                 preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_URL)
                 preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_URL)
+                preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256)
                 preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_NOTES)
                 preferences.remove(PreferencesKeys.APP_UPDATE_PUBLISHED_AT)
             } else {
@@ -807,6 +840,11 @@ class PreferencesRepository @Inject constructor(
                     preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_URL)
                 } else {
                     preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_URL] = downloadUrl
+                }
+                if (downloadSha256.isNullOrBlank()) {
+                    preferences.remove(PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256)
+                } else {
+                    preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_SHA256] = downloadSha256
                 }
                 if (releaseNotes.isNullOrBlank()) {
                     preferences.remove(PreferencesKeys.APP_UPDATE_RELEASE_NOTES)
@@ -882,9 +920,15 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
-    suspend fun setPlayerDecoderMode(mode: DecoderMode) {
+    suspend fun setPlayerAudioDecoderMode(mode: DecoderMode) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.PLAYER_DECODER_MODE] = mode.name
+            preferences[PreferencesKeys.PLAYER_AUDIO_DECODER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setPlayerVideoDecoderMode(mode: DecoderMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_VIDEO_DECODER_MODE] = mode.name
         }
     }
 
@@ -1058,6 +1102,12 @@ class PreferencesRepository @Inject constructor(
                 in 23..45 -> 30
                 else -> 60
             }
+        }
+    }
+
+    suspend fun setPlayerTimeshiftBackend(preference: TimeshiftBackendPreference) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_TIMESHIFT_BACKEND] = preference.name
         }
     }
 
@@ -1360,6 +1410,16 @@ class PreferencesRepository @Inject constructor(
     suspend fun setShowLiveSourceSwitcher(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SHOW_LIVE_SOURCE_SWITCHER] = enabled
+        }
+    }
+
+    val showFavoritesCategory: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.SHOW_FAVORITES_CATEGORY] ?: true
+    }
+
+    suspend fun setShowFavoritesCategory(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SHOW_FAVORITES_CATEGORY] = enabled
         }
     }
 

@@ -129,6 +129,8 @@ class RoutesTest {
     fun `app landing destinations map to routes`() {
         assertThat(AppLandingDestination.HOME.toAppRoute()).isEqualTo(Routes.HOME)
         assertThat(AppLandingDestination.LIVE_TV.toAppRoute()).isEqualTo(Routes.LIVE_TV)
+        assertThat(AppLandingDestination.FIRST_FAVORITE_LIVE.toAppRoute()).isEqualTo(Routes.LIVE_TV)
+        assertThat(AppLandingDestination.LAST_WATCHED_LIVE.toAppRoute()).isEqualTo(Routes.LIVE_TV)
         assertThat(AppLandingDestination.MOVIES.toAppRoute()).isEqualTo(Routes.MOVIES)
         assertThat(AppLandingDestination.SERIES.toAppRoute()).isEqualTo(Routes.SERIES)
         assertThat(AppLandingDestination.GUIDE.toAppRoute()).isEqualTo(Routes.EPG)
@@ -154,6 +156,29 @@ class RoutesTest {
     fun `top level destinations resolve landing to a visible fallback`() {
         val resolved = AppTopLevelDestination.resolveLandingDestination(
             preferred = AppLandingDestination.MOVIES,
+            destinations = listOf(AppTopLevelDestination.HOME, AppTopLevelDestination.SETTINGS)
+        )
+
+        assertThat(resolved).isEqualTo(AppLandingDestination.HOME)
+    }
+
+    @Test
+    fun `live tv landing options include startup player modes when live tv is visible`() {
+        val available = AppTopLevelDestination.availableLandingDestinations(
+            listOf(AppTopLevelDestination.HOME, AppTopLevelDestination.LIVE_TV, AppTopLevelDestination.SETTINGS)
+        )
+
+        assertThat(available).containsAtLeast(
+            AppLandingDestination.LIVE_TV,
+            AppLandingDestination.FIRST_FAVORITE_LIVE,
+            AppLandingDestination.LAST_WATCHED_LIVE
+        )
+    }
+
+    @Test
+    fun `startup player modes fall back when live tv is not visible`() {
+        val resolved = AppTopLevelDestination.resolveLandingDestination(
+            preferred = AppLandingDestination.FIRST_FAVORITE_LIVE,
             destinations = listOf(AppTopLevelDestination.HOME, AppTopLevelDestination.SETTINGS)
         )
 
