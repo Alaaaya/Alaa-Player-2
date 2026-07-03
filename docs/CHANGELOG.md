@@ -13,6 +13,7 @@ All notable product changes are recorded in this document.
 - Added two Live TV-aware startup landing options: `Play first favorite channel`, which launches the current number-one live favorite based on the saved favorites order, and `Play last watched live channel`, with both modes falling back to Live TV when no valid startup channel is available.
 - Added capability-aware catch-up playback handling for Xtream and Stalker providers, including archive mechanism detection, replay-window diagnostics, and provider-specific troubleshooting messages.
 - Added Google Cast entry points to movie details and series details, including casting the current movie, the resume episode, or an explicitly selected episode with title, artwork, and saved watch progress metadata.
+- Added a richer manual provider-sync overlay in Settings with current-section labeling, elapsed-time tracking, and a cancel action for cancelable sync operations.
 
 ### Fixed
 
@@ -22,6 +23,8 @@ All notable product changes are recorded in this document.
 - Fixed Live TV default-category entry so opening Live TV with a saved default category now moves focus into the first channel in that category instead of leaving focus stranded on the sidebar.
 - Fixed catch-up UI wiring so archive badges, EPG history, restart/archive actions, and player diagnostics only advertise replay when the channel has enough metadata to build a replay candidate; catch-up startup now tries all generated replay candidates before surfacing a failure.
 - Fixed Google Cast request handling across player and VOD flows so HLS, DASH, SmoothStreaming, MPEG-TS, and progressive streams resolve with the correct Cast metadata, live streams always start from the live edge, VOD streams preserve resume position, and unsupported RTSP/RTMP, DRM, or non-rewritten local/header/proxy-only URLs fail with clearer user feedback instead of inconsistent behavior.
+- Fixed Settings busy overlays so backup export, backup inspection, and history clearing no longer show a cancel action they cannot actually honor.
+- Fixed Settings `Rebuild Index` sync progress so it now uses the same tracked elapsed-time and cancellation path as the other manual provider-sync actions.
 
 ## [1.0.15] - 2026-06-13
 
