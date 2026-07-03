@@ -289,7 +289,9 @@ class ProviderRepositoryImpl @Inject constructor(
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> = try {
-        val normalizedUrl = ProviderInputSanitizer.normalizeUrl(url)
+        val normalizedUrl = ProviderInputSanitizer.resolveUrlProtocol(
+            ProviderInputSanitizer.normalizeUrl(url)
+        )
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
 
         ProviderInputSanitizer.validateUrl(normalizedUrl)?.let { message ->
@@ -369,7 +371,9 @@ class ProviderRepositoryImpl @Inject constructor(
         id: Long?
     ): Result<Provider> {
         return try {
-            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(
+                ProviderInputSanitizer.normalizeUrl(serverUrl)
+            )
             val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
             val normalizedPassword = ProviderInputSanitizer.normalizePassword(password)
             val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
@@ -427,7 +431,9 @@ class ProviderRepositoryImpl @Inject constructor(
         serverUrl: String, name: String, onCode: ((String) -> Unit)?, onProgress: ((String) -> Unit)?, id: Long?
     ): Result<Provider> {
         return try {
-            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(
+                ProviderInputSanitizer.normalizeUrl(serverUrl)
+            )
             val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
             ProviderInputSanitizer.validateUrl(normalizedServerUrl)?.let { return Result.error(it) }
             val providerName = normalizedName.ifBlank {
