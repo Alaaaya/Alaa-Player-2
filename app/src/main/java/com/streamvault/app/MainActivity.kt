@@ -28,6 +28,7 @@ import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
+import com.streamvault.domain.repository.ProviderRepository
 import dagger.hilt.android.AndroidEntryPoint
 
 import javax.inject.Inject
@@ -88,6 +89,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var channelRepository: ChannelRepository
+
+    @Inject
+    lateinit var providerRepository: ProviderRepository
 
     @Inject
     lateinit var watchNextManager: WatchNextManager

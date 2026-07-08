@@ -481,16 +481,43 @@ internal class SettingsProviderActions(
 
     fun deleteProvider(scope: CoroutineScope, providerId: Long, onSuccess: () -> Unit = {}) {
         scope.launch {
-            uiState.update { it.copy(isDeletingProvider = true) }
-            when (val result = providerRepository.deleteProvider(providerId)) {
+            uiState.update {
+                it.copy(
+                    isDeletingProvider = true,
+                    deleteProviderProgressMessage = "Preparing provider deletion...",
+                    deleteProviderProgressFraction = 0f
+                )
+            }
+            when (val result = providerRepository.deleteProvider(providerId) { progress ->
+                uiState.update {
+                    it.copy(
+                        deleteProviderProgressMessage = progress.message,
+                        deleteProviderProgressFraction = progress.fraction
+                    )
+                }
+            }) {
                 is Result.Success -> {
-                    uiState.update { it.copy(isDeletingProvider = false, userMessage = "Provider deleted") }
+                    uiState.update {
+                        it.copy(
+                            isDeletingProvider = false,
+                            deleteProviderProgressMessage = null,
+                            deleteProviderProgressFraction = null,
+                            userMessage = "Provider deleted"
+                        )
+                    }
                     onSuccess()
                     runCatching { watchNextManager.refreshWatchNext() }
                     runCatching { launcherRecommendationsManager.refreshRecommendations(force = true) }
                     runCatching { tvInputChannelSyncManager.refreshTvInputCatalog() }
                 }
-                is Result.Error -> uiState.update { it.copy(isDeletingProvider = false, userMessage = "Could not delete provider: ${result.message}") }
+                is Result.Error -> uiState.update {
+                    it.copy(
+                        isDeletingProvider = false,
+                        deleteProviderProgressMessage = null,
+                        deleteProviderProgressFraction = null,
+                        userMessage = "Could not delete provider: ${result.message}"
+                    )
+                }
                 Result.Loading -> Unit
             }
         }

@@ -437,6 +437,9 @@ abstract class ChannelDao {
     @Query("SELECT id, stream_id AS remote_id FROM channels WHERE provider_id = :providerId")
     abstract suspend fun getIdMappings(providerId: Long): List<RemoteIdMapping>
 
+    @Query("SELECT COUNT(*) FROM channels WHERE provider_id = :providerId")
+    abstract suspend fun countByProvider(providerId: Long): Int
+
     @Query("DELETE FROM channels WHERE provider_id = :providerId")
     abstract suspend fun deleteByProvider(providerId: Long)
 
@@ -1679,6 +1682,9 @@ interface MovieDao {
     @Query("UPDATE movies SET watch_progress = 0, watch_count = 0, last_watched_at = 0")
     suspend fun resetAllWatchProgress()
 
+    @Query("SELECT COUNT(*) FROM movies WHERE provider_id = :providerId")
+    suspend fun countByProvider(providerId: Long): Int
+
     @Query("DELETE FROM movies WHERE provider_id = :providerId")
     suspend fun deleteByProvider(providerId: Long)
 
@@ -2611,6 +2617,9 @@ interface SeriesDao {
         """
     )
     suspend fun getIdMappingsByCategory(providerId: Long, categoryId: Long): List<SeriesRemoteIdMapping>
+
+    @Query("SELECT COUNT(*) FROM series WHERE provider_id = :providerId")
+    suspend fun countByProvider(providerId: Long): Int
 
     @Query("DELETE FROM series WHERE provider_id = :providerId")
     suspend fun deleteByProvider(providerId: Long)

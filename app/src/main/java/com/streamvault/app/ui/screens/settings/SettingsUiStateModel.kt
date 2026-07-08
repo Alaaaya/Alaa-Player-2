@@ -108,6 +108,8 @@ data class SettingsUiState(
     val lastSpeedTest: InternetSpeedTestUiModel? = null,
     val isRunningInternetSpeedTest: Boolean = false,
     val isDeletingProvider: Boolean = false,
+    val deleteProviderProgressMessage: String? = null,
+    val deleteProviderProgressFraction: Float? = null,
     val isImportingBackup: Boolean = false,
     val backupPreview: BackupPreview? = null,
     val pendingBackupUri: String? = null,

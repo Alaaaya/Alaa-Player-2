@@ -24,6 +24,7 @@ import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.*
 import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.repository.LiveStreamProgramRequest
+import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
 import kotlinx.coroutines.async
@@ -46,6 +47,8 @@ class ProviderRepositoryImpl @Inject constructor(
     private val providerDao: ProviderDao,
     private val categoryDao: CategoryDao,
     private val channelDao: ChannelDao,
+    private val movieDao: MovieDao,
+    private val seriesDao: SeriesDao,
     private val programDao: ProgramDao,
     private val recordingRunDao: RecordingRunDao,
     private val programReminderDao: ProgramReminderDao,
@@ -63,6 +66,11 @@ class ProviderRepositoryImpl @Inject constructor(
     private companion object {
         const val XTREAM_GUIDE_BATCH_CONCURRENCY = 4
         const val BACKGROUND_EPG_START_DELAY_MS = 15_000L
+        // Row-equivalent weights for non-row delete steps so the progress bar still moves
+        // meaningfully on providers with tiny (or empty) catalogs.
+        const val ALARM_STEP_WEIGHT = 5
+        const val PROVIDER_ROW_STEP_WEIGHT = 200
+        const val FINALIZE_STEP_WEIGHT = 200
         val logger: Logger = Logger.getLogger(ProviderRepositoryImpl::class.java.name)
     }
 
@@ -120,27 +128,80 @@ class ProviderRepositoryImpl @Inject constructor(
         return true
     }
 
-    override suspend fun deleteProvider(id: Long): Result<Unit> = try {
+    override suspend fun deleteProvider(
+        id: Long,
+        onProgress: ((ProviderDeleteProgress) -> Unit)?
+    ): Result<Unit> = try {
         val recordingRunIds = recordingRunDao.getIdsByProvider(id)
         val reminderIds = programReminderDao.getIdsByProvider(id)
+
+        // Weight progress by the real row counts of the large child tables so the bar
+        // advances proportionally to the work being done instead of in two big jumps.
+        val programCount = programDao.countByProvider(id)
+        val channelCount = channelDao.countByProvider(id)
+        val movieCount = movieDao.countByProvider(id)
+        val seriesCount = seriesDao.countByProvider(id)
+
+        val totalWeight = (
+            programCount + channelCount + movieCount + seriesCount +
+                (recordingRunIds.size + reminderIds.size) * ALARM_STEP_WEIGHT +
+                PROVIDER_ROW_STEP_WEIGHT + FINALIZE_STEP_WEIGHT
+            ).coerceAtLeast(1)
+        var completedWeight = 0
+
+        fun reportProgress(message: String) {
+            onProgress?.invoke(
+                ProviderDeleteProgress(
+                    message = message,
+                    fraction = (completedWeight.toFloat() / totalWeight.toFloat()).coerceIn(0f, 1f)
+                )
+            )
+        }
+
+        reportProgress("Preparing to remove provider...")
         transactionRunner.inTransaction {
             // ProgramEntity still has no provider FK, so it requires explicit cleanup.
+            if (programCount > 0) reportProgress("Removing $programCount guide entries...")
             programDao.deleteByProvider(id)
+            completedWeight += programCount
+
+            if (channelCount > 0) reportProgress("Removing $channelCount channels...")
+            channelDao.deleteByProvider(id)
+            completedWeight += channelCount
+
+            if (movieCount > 0) reportProgress("Removing $movieCount movies...")
+            movieDao.deleteByProvider(id)
+            completedWeight += movieCount
+
+            if (seriesCount > 0) reportProgress("Removing $seriesCount series...")
+            seriesDao.deleteByProvider(id)
+            completedWeight += seriesCount
+
+            reportProgress("Removing provider record...")
             providerDao.delete(id)
+            completedWeight += PROVIDER_ROW_STEP_WEIGHT
         }
+        reportProgress("Provider library removed.")
         recordingRunIds.forEach { runId ->
+            reportProgress("Cleaning recording alarms...")
             runPostDeleteCleanup("recording alarm $runId") {
                 recordingAlarmScheduler.cancel(runId)
             }
+            completedWeight += ALARM_STEP_WEIGHT
         }
         reminderIds.forEach { reminderId ->
+            reportProgress("Cleaning reminders...")
             runPostDeleteCleanup("reminder alarm $reminderId") {
                 programReminderAlarmScheduler.cancel(reminderId)
             }
+            completedWeight += ALARM_STEP_WEIGHT
         }
+        reportProgress("Finalizing provider cleanup...")
         runPostDeleteCleanup("provider sync cleanup $id") {
             syncManager.onProviderDeleted(id)
         }
+        completedWeight += FINALIZE_STEP_WEIGHT
+        reportProgress("Provider deleted.")
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to delete provider: ${e.message}", e)

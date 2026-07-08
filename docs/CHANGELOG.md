@@ -14,6 +14,7 @@ All notable product changes are recorded in this document.
 - Added capability-aware catch-up playback handling for Xtream and Stalker providers, including archive mechanism detection, replay-window diagnostics, and provider-specific troubleshooting messages.
 - Added Google Cast entry points to movie details and series details, including casting the current movie, the resume episode, or an explicitly selected episode with title, artwork, and saved watch progress metadata.
 - Added a richer manual provider-sync overlay in Settings with current-section labeling, elapsed-time tracking, and a cancel action for cancelable sync operations.
+- Added provider deletion progress bar.
 
 ### Fixed
 

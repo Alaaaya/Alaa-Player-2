@@ -16,13 +16,18 @@ data class LiveStreamProgramRequest(
     val epgChannelId: String? = null
 )
 
+data class ProviderDeleteProgress(
+    val message: String,
+    val fraction: Float? = null
+)
+
 interface ProviderRepository {
     fun getProviders(): Flow<List<Provider>>
     fun getActiveProvider(): Flow<Provider?>
     suspend fun getProvider(id: Long): Provider?
     suspend fun addProvider(provider: Provider): Result<Long>
     suspend fun updateProvider(provider: Provider): Result<Unit>
-    suspend fun deleteProvider(id: Long): Result<Unit>
+    suspend fun deleteProvider(id: Long, onProgress: ((ProviderDeleteProgress) -> Unit)? = null): Result<Unit>
 
     /**
      * Returns cleartext credentials for all providers that have both a
