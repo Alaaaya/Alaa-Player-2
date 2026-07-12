@@ -80,12 +80,12 @@ class SettingsProviderActionsTest {
 
     @Test
     fun deleteProvider_refreshesProviderScopedTvSurfaces() = runTest(StandardTestDispatcher()) {
-        whenever(providerRepository.deleteProvider(7L)).thenReturn(Result.success(Unit))
+        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(Result.success(Unit))
 
         actions.deleteProvider(this, 7L)
         advanceUntilIdle()
 
-        verify(providerRepository).deleteProvider(7L)
+        verify(providerRepository).deleteProvider(eq(7L), any())
         verify(watchNextManager).refreshWatchNext()
         verify(launcherRecommendationsManager).refreshRecommendations(force = true)
         verify(tvInputChannelSyncManager).refreshTvInputCatalog()
@@ -94,7 +94,7 @@ class SettingsProviderActionsTest {
 
     @Test
     fun deleteProvider_stillCompletesSuccessWhenFollowUpRefreshFails() = runTest(StandardTestDispatcher()) {
-        whenever(providerRepository.deleteProvider(7L)).thenReturn(Result.success(Unit))
+        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(Result.success(Unit))
         doThrow(IllegalStateException("refresh boom")).whenever(launcherRecommendationsManager)
             .refreshRecommendations(force = true)
         var onSuccessCalled = false
@@ -102,7 +102,7 @@ class SettingsProviderActionsTest {
         actions.deleteProvider(this, 7L, onSuccess = { onSuccessCalled = true })
         advanceUntilIdle()
 
-        verify(providerRepository).deleteProvider(7L)
+        verify(providerRepository).deleteProvider(eq(7L), any())
         verify(watchNextManager).refreshWatchNext()
         verify(launcherRecommendationsManager).refreshRecommendations(force = true)
         verify(tvInputChannelSyncManager).refreshTvInputCatalog()
