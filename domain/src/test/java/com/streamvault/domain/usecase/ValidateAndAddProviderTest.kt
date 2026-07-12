@@ -9,6 +9,8 @@ import com.streamvault.domain.model.Program
 import com.streamvault.domain.manager.ValidatedM3uProviderInput
 import com.streamvault.domain.manager.ValidatedStalkerProviderInput
 import com.streamvault.domain.manager.ValidatedXtreamProviderInput
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
@@ -17,6 +19,7 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -645,7 +648,7 @@ private class FakeProviderRepository : ProviderRepository {
 
     override suspend fun updateProvider(provider: Provider): Result<Unit> = error("Not used in test")
 
-    override suspend fun deleteProvider(id: Long): Result<Unit> = error("Not used in test")
+    override suspend fun deleteProvider(id: Long, onProgress: ((ProviderDeleteProgress) -> Unit)?): Result<Unit> = error("Not used in test")
 
     override suspend fun getAllProviderCredentials(): List<ProviderCredentials> = emptyList()
 
@@ -667,6 +670,8 @@ private class FakeProviderRepository : ProviderRepository {
         xtreamFastSyncEnabled: Boolean,
         epgSyncMode: ProviderEpgSyncMode,
         xtreamLiveSyncMode: ProviderXtreamLiveSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -681,6 +686,8 @@ private class FakeProviderRepository : ProviderRepository {
         httpHeaders: String,
         epgSyncMode: ProviderEpgSyncMode,
         m3uVodClassificationEnabled: Boolean,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -706,6 +713,8 @@ private class FakeProviderRepository : ProviderRepository {
         signature: String,
         stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
