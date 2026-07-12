@@ -7,12 +7,12 @@ import org.junit.Test
 class PlayerMediaSourceFactoryTest {
 
     @Test
-    fun `live mpeg ts extractor uses hls mode to avoid finite progressive duration`() {
+    fun `live mpeg ts extractor uses single pmt mode for raw transport streams`() {
         val factory = liveMpegTsExtractorsFactory()
         val modeField = factory::class.java.getDeclaredField("tsMode").apply {
             isAccessible = true
         }
 
-        assertThat(modeField.getInt(factory)).isEqualTo(TsExtractor.MODE_HLS)
+        assertThat(modeField.getInt(factory)).isEqualTo(TsExtractor.MODE_SINGLE_PMT)
     }
 }
