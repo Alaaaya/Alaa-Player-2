@@ -4,6 +4,8 @@ import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
@@ -16,7 +18,9 @@ import com.streamvault.domain.usecase.SyncProviderCommand
 import com.streamvault.domain.usecase.SyncProviderResult
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.preferences.PreferencesRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -241,19 +245,45 @@ internal class SettingsProviderActions(
         }
     }
 
+    fun setGuideSourcePolicy(scope: CoroutineScope, providerId: Long, policy: GuideSourcePolicy) {
+        scope.launch {
+            val provider = providerRepository.getProvider(providerId) ?: return@launch
+            when (val result = providerRepository.updateProvider(provider.copy(guideSourcePolicy = policy))) {
+                is Result.Error -> uiState.update { it.copy(userMessage = "Could not save guide source: ${result.message}") }
+                else -> uiState.update { it.copy(userMessage = "Guide source updated for ${provider.name}") }
+            }
+        }
+    }
+
+    fun setChannelLogoSourcePolicy(scope: CoroutineScope, providerId: Long, policy: ChannelLogoSourcePolicy) {
+        scope.launch {
+            val provider = providerRepository.getProvider(providerId) ?: return@launch
+            when (val result = providerRepository.updateProvider(provider.copy(channelLogoSourcePolicy = policy))) {
+                is Result.Error -> uiState.update { it.copy(userMessage = "Could not save logo source: ${result.message}") }
+                else -> uiState.update { it.copy(userMessage = "Channel logo source updated for ${provider.name}") }
+            }
+        }
+    }
+
     fun refreshProvider(
         scope: CoroutineScope,
         providerId: Long,
         syncMode: SettingsProviderSyncMode = SettingsProviderSyncMode.SYNC_NOW,
-        progressPrefix: String? = null
-    ) {
-        scope.launch {
+        progressPrefix: String? = null,
+        startedAt: Long = 0L,
+        sectionLabel: String? = null,
+        isCancelable: Boolean = false
+    ): Job {
+        return scope.launch {
             val providerName = providerRepository.getProvider(providerId)?.name
             uiState.update {
                 it.copy(
                     isSyncing = true,
                     syncingProviderName = providerName,
-                    syncProgress = progressPrefix ?: "Preparing sync..."
+                    syncProgress = progressPrefix ?: "Preparing sync...",
+                    syncStartedAt = startedAt,
+                    syncSectionLabel = sectionLabel,
+                    syncCanCancel = isCancelable
                 )
             }
             try {
@@ -261,12 +291,27 @@ internal class SettingsProviderActions(
                     SettingsProviderSyncMode.SYNC_NOW -> runSyncNow(providerId, providerName)
                     SettingsProviderSyncMode.REBUILD_INDEX -> runRebuildIndex(providerId, providerName)
                 }
+            } catch (e: CancellationException) {
+                uiState.update {
+                    it.copy(
+                        isSyncing = false,
+                        syncProgress = null,
+                        syncingProviderName = null,
+                        syncStartedAt = 0L,
+                        syncSectionLabel = null,
+                        syncCanCancel = false
+                    )
+                }
+                throw e
             } catch (e: Exception) {
                 uiState.update {
                     it.copy(
                         isSyncing = false,
                         syncProgress = null,
                         syncingProviderName = null,
+                        syncStartedAt = 0L,
+                        syncSectionLabel = null,
+                        syncCanCancel = false,
                         userMessage = "Sync failed: ${e.message}"
                     )
                 }
@@ -350,6 +395,9 @@ internal class SettingsProviderActions(
                 isSyncing = false,
                 syncProgress = null,
                 syncingProviderName = null,
+                syncStartedAt = 0L,
+                syncSectionLabel = null,
+                syncCanCancel = false,
                 userMessage = when {
                     result is SyncProviderResult.Error -> "Sync failed: ${result.message}"
                     (result as? SyncProviderResult.Success)?.isPartial == true -> "Sync completed with warnings: $warningsMessage"
@@ -410,6 +458,9 @@ internal class SettingsProviderActions(
                 isSyncing = false,
                 syncProgress = null,
                 syncingProviderName = null,
+                syncStartedAt = 0L,
+                syncSectionLabel = null,
+                syncCanCancel = false,
                 userMessage = when {
                     result is Result.Error -> "Rebuild index failed: ${result.message}"
                     else -> "Index rebuild queued"
@@ -430,16 +481,43 @@ internal class SettingsProviderActions(
 
     fun deleteProvider(scope: CoroutineScope, providerId: Long, onSuccess: () -> Unit = {}) {
         scope.launch {
-            uiState.update { it.copy(isDeletingProvider = true) }
-            when (val result = providerRepository.deleteProvider(providerId)) {
+            uiState.update {
+                it.copy(
+                    isDeletingProvider = true,
+                    deleteProviderProgressMessage = "Preparing provider deletion...",
+                    deleteProviderProgressFraction = 0f
+                )
+            }
+            when (val result = providerRepository.deleteProvider(providerId) { progress ->
+                uiState.update {
+                    it.copy(
+                        deleteProviderProgressMessage = progress.message,
+                        deleteProviderProgressFraction = progress.fraction
+                    )
+                }
+            }) {
                 is Result.Success -> {
-                    uiState.update { it.copy(isDeletingProvider = false, userMessage = "Provider deleted") }
+                    uiState.update {
+                        it.copy(
+                            isDeletingProvider = false,
+                            deleteProviderProgressMessage = null,
+                            deleteProviderProgressFraction = null,
+                            userMessage = "Provider deleted"
+                        )
+                    }
                     onSuccess()
                     runCatching { watchNextManager.refreshWatchNext() }
                     runCatching { launcherRecommendationsManager.refreshRecommendations(force = true) }
                     runCatching { tvInputChannelSyncManager.refreshTvInputCatalog() }
                 }
-                is Result.Error -> uiState.update { it.copy(isDeletingProvider = false, userMessage = "Could not delete provider: ${result.message}") }
+                is Result.Error -> uiState.update {
+                    it.copy(
+                        isDeletingProvider = false,
+                        deleteProviderProgressMessage = null,
+                        deleteProviderProgressFraction = null,
+                        userMessage = "Could not delete provider: ${result.message}"
+                    )
+                }
                 Result.Loading -> Unit
             }
         }

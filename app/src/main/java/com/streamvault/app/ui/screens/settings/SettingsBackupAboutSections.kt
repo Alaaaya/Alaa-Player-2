@@ -21,6 +21,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.R
+import com.streamvault.app.update.AppUpdateActionState
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
@@ -326,10 +327,12 @@ internal fun LazyListScope.settingsAboutSection(
                 label = stringResource(R.string.settings_update_download),
                 value = formatUpdateDownloadLabel(uiState.appUpdate, context),
                 onClick = {
-                    if (uiState.appUpdate.downloadStatus == com.streamvault.app.update.AppUpdateDownloadStatus.Downloaded) {
-                        onInstallDownloadedUpdate()
-                    } else if (uiState.appUpdate.downloadStatus != com.streamvault.app.update.AppUpdateDownloadStatus.Downloading) {
-                        onDownloadLatestUpdate()
+                    when (uiState.appUpdate.latestActionState()) {
+                        AppUpdateActionState.InstallLatest,
+                        AppUpdateActionState.InstallPermissionRequired -> onInstallDownloadedUpdate()
+                        AppUpdateActionState.DownloadLatest -> onDownloadLatestUpdate()
+                        AppUpdateActionState.Downloading,
+                        AppUpdateActionState.None -> Unit
                     }
                 }
             )

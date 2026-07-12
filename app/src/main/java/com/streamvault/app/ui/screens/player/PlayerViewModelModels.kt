@@ -47,7 +47,8 @@ data class PlayerPreferencesUiState(
 data class PlayerDiagnosticsUiState(
     val providerName: String = "",
     val providerSourceLabel: String = "",
-    val decoderMode: DecoderMode = DecoderMode.AUTO,
+    val audioDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val videoDecoderMode: DecoderMode = DecoderMode.AUTO,
     val activeDecoderName: String = "Unknown",
     val activeAudioDecoderName: String = "Unknown",
     val ffmpegAvailable: Boolean = false,

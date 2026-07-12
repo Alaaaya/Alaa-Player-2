@@ -34,8 +34,10 @@ internal fun SettingsPreferenceDialogs(
     onShowTimeFormatDialogChange: (Boolean) -> Unit,
     showAudioVideoOffsetDialog: Boolean,
     onShowAudioVideoOffsetDialogChange: (Boolean) -> Unit,
-    showDecoderModeDialog: Boolean,
-    onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showAudioDecoderModeDialog: Boolean,
+    onShowAudioDecoderModeDialogChange: (Boolean) -> Unit,
+    showVideoDecoderModeDialog: Boolean,
+    onShowVideoDecoderModeDialogChange: (Boolean) -> Unit,
     showPlaybackBufferModeDialog: Boolean,
     onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     showAudioOutputPreferenceDialog: Boolean,
@@ -46,6 +48,8 @@ internal fun SettingsPreferenceDialogs(
     onShowVodHttpProtocolDialogChange: (Boolean) -> Unit,
     showTimeshiftDepthDialog: Boolean,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
+    showTimeshiftBackendDialog: Boolean,
+    onShowTimeshiftBackendDialogChange: (Boolean) -> Unit,
     showDefaultStopTimerDialog: Boolean,
     onShowDefaultStopTimerDialogChange: (Boolean) -> Unit,
     showDefaultIdleTimerDialog: Boolean,
@@ -91,8 +95,10 @@ internal fun SettingsPreferenceDialogs(
         onShowTimeFormatDialogChange = onShowTimeFormatDialogChange,
         showAudioVideoOffsetDialog = showAudioVideoOffsetDialog,
         onShowAudioVideoOffsetDialogChange = onShowAudioVideoOffsetDialogChange,
-        showDecoderModeDialog = showDecoderModeDialog,
-        onShowDecoderModeDialogChange = onShowDecoderModeDialogChange,
+        showAudioDecoderModeDialog = showAudioDecoderModeDialog,
+        onShowAudioDecoderModeDialogChange = onShowAudioDecoderModeDialogChange,
+        showVideoDecoderModeDialog = showVideoDecoderModeDialog,
+        onShowVideoDecoderModeDialogChange = onShowVideoDecoderModeDialogChange,
         showPlaybackBufferModeDialog = showPlaybackBufferModeDialog,
         onShowPlaybackBufferModeDialogChange = onShowPlaybackBufferModeDialogChange,
         showAudioOutputPreferenceDialog = showAudioOutputPreferenceDialog,
@@ -103,6 +109,8 @@ internal fun SettingsPreferenceDialogs(
         onShowVodHttpProtocolDialogChange = onShowVodHttpProtocolDialogChange,
         showTimeshiftDepthDialog = showTimeshiftDepthDialog,
         onShowTimeshiftDepthDialogChange = onShowTimeshiftDepthDialogChange,
+        showTimeshiftBackendDialog = showTimeshiftBackendDialog,
+        onShowTimeshiftBackendDialogChange = onShowTimeshiftBackendDialogChange,
         showDefaultStopTimerDialog = showDefaultStopTimerDialog,
         onShowDefaultStopTimerDialogChange = onShowDefaultStopTimerDialogChange,
         showDefaultIdleTimerDialog = showDefaultIdleTimerDialog,
@@ -358,6 +366,8 @@ internal fun SettingsPreferenceDialogs(
 private fun AppLandingDestination.labelResId(): Int = when (this) {
     AppLandingDestination.HOME -> R.string.nav_home
     AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+    AppLandingDestination.FIRST_FAVORITE_LIVE -> R.string.settings_startup_first_favorite_live
+    AppLandingDestination.LAST_WATCHED_LIVE -> R.string.settings_startup_last_watched_live
     AppLandingDestination.MOVIES -> R.string.nav_movies
     AppLandingDestination.SERIES -> R.string.nav_series
     AppLandingDestination.GUIDE -> R.string.nav_epg

@@ -34,6 +34,7 @@ import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageState
 import com.streamvault.domain.model.RemoteShortcutPreferences
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodVariantPreferenceMode
 
 data class CrashReportUiModel(
@@ -55,6 +56,9 @@ data class SettingsUiState(
     val isSyncing: Boolean = false,
     val syncProgress: String? = null,
     val syncingProviderName: String? = null,
+    val syncStartedAt: Long = 0L,
+    val syncSectionLabel: String? = null,
+    val syncCanCancel: Boolean = false,
     val userMessage: String? = null,
     val syncWarningsByProvider: Map<Long, List<String>> = emptyMap(),
     val xtreamLiveOnboardingPhaseByProvider: Map<Long, String> = emptyMap(),
@@ -72,7 +76,8 @@ data class SettingsUiState(
     val preferredAudioLanguage: String = "auto",
     val playerMediaSessionEnabled: Boolean = true,
     val playerFastRetryOnTransientFailures: Boolean = false,
-    val playerDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val playerAudioDecoderMode: DecoderMode = DecoderMode.AUTO,
+    val playerVideoDecoderMode: DecoderMode = DecoderMode.AUTO,
     val playerPlaybackBufferMode: PlaybackBufferMode = PlaybackBufferMode.AUTO,
     val playerAudioOutputPreference: AudioOutputPreference = AudioOutputPreference.AUTO,
     val playerCompatibilityMemoryEnabled: Boolean = true,
@@ -97,11 +102,14 @@ data class SettingsUiState(
     val ethernetMaxVideoHeight: Int? = null,
     val playerTimeshiftEnabled: Boolean = false,
     val playerTimeshiftDepthMinutes: Int = 30,
+    val playerTimeshiftBackend: TimeshiftBackendPreference = TimeshiftBackendPreference.AUTOMATIC,
     val defaultStopPlaybackTimerMinutes: Int = 0,
     val defaultIdleStandbyTimerMinutes: Int = 0,
     val lastSpeedTest: InternetSpeedTestUiModel? = null,
     val isRunningInternetSpeedTest: Boolean = false,
     val isDeletingProvider: Boolean = false,
+    val deleteProviderProgressMessage: String? = null,
+    val deleteProviderProgressFraction: Float? = null,
     val isImportingBackup: Boolean = false,
     val backupPreview: BackupPreview? = null,
     val pendingBackupUri: String? = null,
@@ -126,6 +134,7 @@ data class SettingsUiState(
     val xtreamBase64TextCompatibility: Boolean = false,
     val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.PRO,
     val showLiveSourceSwitcher: Boolean = false,
+    val showFavoritesCategory: Boolean = true,
     val showAllChannelsCategory: Boolean = true,
     val showRecentChannelsCategory: Boolean = true,
     val remoteShortcutPreferences: RemoteShortcutPreferences = RemoteShortcutPreferences(),

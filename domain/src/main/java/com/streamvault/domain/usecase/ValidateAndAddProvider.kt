@@ -1,6 +1,8 @@
 package com.streamvault.domain.usecase
 
 import com.streamvault.domain.manager.ProviderSetupInputValidator
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
@@ -23,6 +25,8 @@ data class XtreamProviderSetupCommand(
     val xtreamFastSyncEnabled: Boolean = false,
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+    val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val existingProviderId: Long? = null
 )
 
@@ -33,6 +37,8 @@ data class M3uProviderSetupCommand(
     val httpHeaders: String = "",
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val m3uVodClassificationEnabled: Boolean = false,
+    val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val existingProviderId: Long? = null
 )
 
@@ -54,6 +60,8 @@ data class StalkerProviderSetupCommand(
     val signature: String = "",
     val stalkerAdvancedOptionsJson: String = "",
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+    val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val existingProviderId: Long? = null
 )
 
@@ -185,6 +193,8 @@ class ValidateAndAddProvider @Inject constructor(
                 xtreamFastSyncEnabled = command.xtreamFastSyncEnabled,
                 epgSyncMode = command.epgSyncMode,
                 xtreamLiveSyncMode = command.xtreamLiveSyncMode,
+                guideSourcePolicy = command.guideSourcePolicy,
+                channelLogoSourcePolicy = command.channelLogoSourcePolicy,
                 onProgress = onProgress,
                 id = command.existingProviderId
             ).toUseCaseResult()
@@ -223,6 +233,8 @@ class ValidateAndAddProvider @Inject constructor(
                             xtreamFastSyncEnabled = false,
                             epgSyncMode = command.epgSyncMode,
                             xtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
+                            guideSourcePolicy = command.guideSourcePolicy,
+                            channelLogoSourcePolicy = command.channelLogoSourcePolicy,
                             onProgress = onProgress,
                             id = command.existingProviderId
                         ).toUseCaseResult()
@@ -236,6 +248,8 @@ class ValidateAndAddProvider @Inject constructor(
                             httpHeaders = validatedInput.httpHeaders,
                             epgSyncMode = command.epgSyncMode,
                             m3uVodClassificationEnabled = command.m3uVodClassificationEnabled,
+                            guideSourcePolicy = command.guideSourcePolicy,
+                            channelLogoSourcePolicy = command.channelLogoSourcePolicy,
                             onProgress = onProgress,
                             id = command.existingProviderId
                         ).toUseCaseResult()
@@ -291,6 +305,8 @@ class ValidateAndAddProvider @Inject constructor(
                 signature = validated.data.signature,
                 stalkerAdvancedOptionsJson = validated.data.stalkerAdvancedOptionsJson,
                 epgSyncMode = command.epgSyncMode,
+                guideSourcePolicy = command.guideSourcePolicy,
+                channelLogoSourcePolicy = command.channelLogoSourcePolicy,
                 onProgress = onProgress,
                 id = command.existingProviderId
             ).toUseCaseResult()

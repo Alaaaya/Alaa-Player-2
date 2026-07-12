@@ -1,6 +1,8 @@
 package com.streamvault.domain.repository
 
 import com.streamvault.domain.manager.ProviderCredentials
+import com.streamvault.domain.model.ChannelLogoSourcePolicy
+import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -14,13 +16,18 @@ data class LiveStreamProgramRequest(
     val epgChannelId: String? = null
 )
 
+data class ProviderDeleteProgress(
+    val message: String,
+    val fraction: Float? = null
+)
+
 interface ProviderRepository {
     fun getProviders(): Flow<List<Provider>>
     fun getActiveProvider(): Flow<Provider?>
     suspend fun getProvider(id: Long): Provider?
     suspend fun addProvider(provider: Provider): Result<Long>
     suspend fun updateProvider(provider: Provider): Result<Unit>
-    suspend fun deleteProvider(id: Long): Result<Unit>
+    suspend fun deleteProvider(id: Long, onProgress: ((ProviderDeleteProgress) -> Unit)? = null): Result<Unit>
 
     /**
      * Returns cleartext credentials for all providers that have both a
@@ -42,8 +49,8 @@ interface ProviderRepository {
     ): Boolean
 
     suspend fun setActiveProvider(id: Long): Result<Unit>
-    suspend fun loginXtream(serverUrl: String, username: String, password: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", xtreamFastSyncEnabled: Boolean, epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
-    suspend fun validateM3u(url: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, m3uVodClassificationEnabled: Boolean = false, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
+    suspend fun loginXtream(serverUrl: String, username: String, password: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", xtreamFastSyncEnabled: Boolean, epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO, guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO, channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
+    suspend fun validateM3u(url: String, name: String, httpUserAgent: String = "", httpHeaders: String = "", epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND, m3uVodClassificationEnabled: Boolean = false, guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO, channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
     suspend fun loginStalker(
         portalUrl: String,
         macAddress: String,
@@ -62,6 +69,8 @@ interface ProviderRepository {
         signature: String = "",
         stalkerAdvancedOptionsJson: String = "",
         epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+        guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
         onProgress: ((String) -> Unit)? = null,
         id: Long? = null
     ): Result<Provider>

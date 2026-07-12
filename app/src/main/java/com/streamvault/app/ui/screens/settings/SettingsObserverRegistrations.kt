@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.settings
 
 import android.app.Application
+import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.preferences.PreferencesRepository

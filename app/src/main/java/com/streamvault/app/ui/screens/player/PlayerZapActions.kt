@@ -68,18 +68,6 @@ internal fun buildLivePlaybackRecordCandidate(
     )
 }
 
-internal suspend fun <T> withScopedScrubbingMode(
-    setScrubbingMode: (Boolean) -> Unit,
-    block: suspend () -> T
-): T {
-    setScrubbingMode(true)
-    return try {
-        block()
-    } finally {
-        setScrubbingMode(false)
-    }
-}
-
 internal fun releaseOutgoingLiveZapPlayback(
     stopPlayback: () -> Unit,
     stopLiveTimeshift: () -> Unit,
@@ -236,21 +224,27 @@ internal fun PlayerViewModel.changeChannel(index: Int, isAutoFallback: Boolean =
     displayChannelNumberFlow.value = resolveChannelNumber(channel, index)
     recentChannelsFlow.update { channels -> channels.filterNot { it.id == channel.id } }
 
-    viewModelScope.launch {
-        withScopedScrubbingMode(playerEngine::setScrubbingMode) {
-            val streamInfo = resolvePlaybackStreamInfo(channel.streamUrl, channel.id, channel.providerId, ContentType.LIVE)
-                ?: return@withScopedScrubbingMode
-            if (!isActivePlaybackSession(requestVersion, channel.streamUrl)) return@withScopedScrubbingMode
-            if (!preparePlayer(streamInfo, requestVersion)) return@withScopedScrubbingMode
-            playerEngine.play()
+    // Start a fresh live channel with scrubbing mode OFF. Scrubbing mode disables the
+    // audio track and changes codec behaviour; previously the whole zap prepare was
+    // wrapped so scrubbing was toggled ON before prepare and OFF at first frame. That
+    // exit toggle re-enabled the audio renderer mid-stream and reset the codec, which
+    // stalled playback for ~1-2s right as sound came in. Channel changes should behave
+    // like normal playback (matching the smooth pro-mode preview).
+    playerEngine.setScrubbingMode(false)
 
-            playerEngine.playbackState
-                .filter {
-                    it == com.streamvault.player.PlaybackState.READY ||
-                        !isActivePlaybackSession(requestVersion, channel.streamUrl)
-                }
-                .first()
-        }
+    viewModelScope.launch {
+        val streamInfo = resolvePlaybackStreamInfo(channel.streamUrl, channel.id, channel.providerId, ContentType.LIVE)
+            ?: return@launch
+        if (!isActivePlaybackSession(requestVersion, channel.streamUrl)) return@launch
+        if (!preparePlayer(streamInfo, requestVersion)) return@launch
+        playerEngine.play()
+
+        playerEngine.playbackState
+            .filter {
+                it == com.streamvault.player.PlaybackState.READY ||
+                    !isActivePlaybackSession(requestVersion, channel.streamUrl)
+            }
+            .first()
     }
 
     preloadAdjacentChannel(index)

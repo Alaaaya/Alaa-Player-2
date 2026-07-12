@@ -6,6 +6,7 @@ import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.EpgChannelDao
 import com.streamvault.data.local.dao.EpgProgrammeDao
 import com.streamvault.data.local.dao.ProgramDao
+import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderEpgSourceDao
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
@@ -13,9 +14,12 @@ import com.streamvault.data.local.entity.ChannelGuideLookupEntity
 import com.streamvault.data.local.entity.EpgChannelEntity
 import com.streamvault.data.local.entity.EpgProgrammeEntity
 import com.streamvault.data.local.entity.ProgramBrowseEntity
+import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.ProviderEpgSourceEntity
 import com.streamvault.domain.model.EpgMatchType
 import com.streamvault.domain.model.EpgSourceType
+import com.streamvault.domain.model.GuideSourcePolicy
+import com.streamvault.domain.model.ProviderType
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -33,6 +37,7 @@ class EpgResolutionEngineTest {
     private val epgChannelDao: EpgChannelDao = mock()
     private val epgProgrammeDao: EpgProgrammeDao = mock()
     private val programDao: ProgramDao = mock()
+    private val providerDao: ProviderDao = mock()
 
     private lateinit var engine: EpgResolutionEngine
 
@@ -46,6 +51,7 @@ class EpgResolutionEngineTest {
     fun setup() {
         runTest {
             whenever(programDao.getChannelIdsWithPrograms(any(), any())).thenReturn(emptyList())
+            whenever(providerDao.getById(any())).thenReturn(makeProvider())
         }
         engine = EpgResolutionEngine(
             channelDao = channelDao,
@@ -53,7 +59,8 @@ class EpgResolutionEngineTest {
             providerEpgSourceDao = providerEpgSourceDao,
             epgChannelDao = epgChannelDao,
             epgProgrammeDao = epgProgrammeDao,
-            programDao = programDao
+            programDao = programDao,
+            providerDao = providerDao
         )
     }
 
@@ -308,6 +315,41 @@ class EpgResolutionEngineTest {
         assertThat(mappings.getValue(2L).sourceType).isEqualTo(EpgSourceType.NONE.name)
     }
 
+    @Test
+    fun `resolveForProvider_providerOnly_replaces_stale_external_mapping_with_provider_mapping`() = runTest {
+        whenever(providerDao.getById(PROVIDER_ID)).thenReturn(
+            makeProvider(guideSourcePolicy = GuideSourcePolicy.PROVIDER_ONLY)
+        )
+        val channel = makeChannel(id = 1, name = "Local One", epgChannelId = "local.one")
+        whenever(channelDao.getByProviderSync(PROVIDER_ID)).thenReturn(listOf(channel))
+        whenever(providerEpgSourceDao.getEnabledForProviderSync(PROVIDER_ID)).thenReturn(emptyList())
+        whenever(channelEpgMappingDao.getForProvider(PROVIDER_ID)).thenReturn(
+            listOf(
+                ChannelEpgMappingEntity(
+                    id = 1,
+                    providerChannelId = 1,
+                    providerId = PROVIDER_ID,
+                    sourceType = EpgSourceType.EXTERNAL.name,
+                    epgSourceId = SOURCE_1,
+                    xmltvChannelId = "external.one",
+                    matchType = EpgMatchType.MANUAL.name,
+                    confidence = 1.0f,
+                    isManualOverride = true,
+                    updatedAt = 1000L
+                )
+            )
+        )
+        whenever(programDao.getChannelIdsWithPrograms(PROVIDER_ID, listOf("local.one"))).thenReturn(listOf("local.one"))
+
+        engine.resolveForProvider(PROVIDER_ID)
+
+        val captor = argumentCaptor<List<ChannelEpgMappingEntity>>()
+        verify(channelEpgMappingDao).replaceForProvider(any(), captor.capture())
+        val mapping = captor.firstValue.single()
+        assertThat(mapping.sourceType).isEqualTo(EpgSourceType.PROVIDER.name)
+        assertThat(mapping.xmltvChannelId).isEqualTo("local.one")
+    }
+
     // ── getResolvedProgrammes ──────────────────────────────────────
 
     @Test
@@ -383,6 +425,45 @@ class EpgResolutionEngineTest {
         assertThat(result).isEmpty()
     }
 
+    @Test
+    fun `getResolvedProgrammes_providerOnly_ignores_stale_external_mapping`() = runTest {
+        val now = System.currentTimeMillis()
+        whenever(providerDao.getById(PROVIDER_ID)).thenReturn(
+            makeProvider(guideSourcePolicy = GuideSourcePolicy.PROVIDER_ONLY)
+        )
+        whenever(channelEpgMappingDao.getForChannels(PROVIDER_ID, listOf(1L))).thenReturn(
+            listOf(
+                ChannelEpgMappingEntity(
+                    id = 1,
+                    providerChannelId = 1,
+                    providerId = PROVIDER_ID,
+                    sourceType = EpgSourceType.EXTERNAL.name,
+                    epgSourceId = SOURCE_1,
+                    xmltvChannelId = "external.one",
+                    matchType = EpgMatchType.EXACT_ID.name,
+                    confidence = 1.0f,
+                    updatedAt = now
+                )
+            )
+        )
+
+        val result = engine.getResolvedProgrammes(PROVIDER_ID, listOf(1L), now - 3600_000, now + 3600_000)
+
+        assertThat(result).isEmpty()
+    }
+
+    @Test
+    fun `getResolvedProgrammes_disabled_ignores_all_mappings`() = runTest {
+        val now = System.currentTimeMillis()
+        whenever(providerDao.getById(PROVIDER_ID)).thenReturn(
+            makeProvider(guideSourcePolicy = GuideSourcePolicy.DISABLED)
+        )
+
+        val result = engine.getResolvedProgrammes(PROVIDER_ID, listOf(1L), now - 3600_000, now + 3600_000)
+
+        assertThat(result).isEmpty()
+    }
+
     // ── Helpers ────────────────────────────────────────────────────
 
     private fun makeChannel(
@@ -406,5 +487,15 @@ class EpgResolutionEngineTest {
         id = id,
         streamId = streamId,
         epgChannelId = epgChannelId
+    )
+
+    private fun makeProvider(
+        guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO
+    ) = ProviderEntity(
+        id = PROVIDER_ID,
+        name = "Provider",
+        type = ProviderType.XTREAM_CODES,
+        serverUrl = "http://example.com",
+        guideSourcePolicy = guideSourcePolicy
     )
 }

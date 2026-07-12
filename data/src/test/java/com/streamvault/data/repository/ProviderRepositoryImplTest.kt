@@ -4,10 +4,12 @@ import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.RecordingRunDao
+import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
@@ -50,6 +52,8 @@ class ProviderRepositoryImplTest {
     private val providerDao: ProviderDao = mock()
     private val categoryDao: CategoryDao = mock()
     private val channelDao: ChannelDao = mock()
+    private val movieDao: MovieDao = mock()
+    private val seriesDao: SeriesDao = mock()
     private val programDao: ProgramDao = mock()
     private val recordingRunDao: RecordingRunDao = mock()
     private val programReminderDao: ProgramReminderDao = mock()
@@ -72,6 +76,8 @@ class ProviderRepositoryImplTest {
         providerDao = providerDao,
         categoryDao = categoryDao,
         channelDao = channelDao,
+        movieDao = movieDao,
+        seriesDao = seriesDao,
         programDao = programDao,
         recordingRunDao = recordingRunDao,
         programReminderDao = programReminderDao,
@@ -93,6 +99,10 @@ class ProviderRepositoryImplTest {
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         runBlocking {
             whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
+            whenever(programDao.countByProvider(any())).thenReturn(0)
+            whenever(channelDao.countByProvider(any())).thenReturn(0)
+            whenever(movieDao.countByProvider(any())).thenReturn(0)
+            whenever(seriesDao.countByProvider(any())).thenReturn(0)
         }
     }
 

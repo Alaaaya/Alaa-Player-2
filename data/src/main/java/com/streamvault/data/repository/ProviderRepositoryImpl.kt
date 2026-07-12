@@ -24,6 +24,7 @@ import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.*
 import com.streamvault.domain.provider.IptvProvider
 import com.streamvault.domain.repository.LiveStreamProgramRequest
+import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
 import kotlinx.coroutines.async
@@ -46,6 +47,8 @@ class ProviderRepositoryImpl @Inject constructor(
     private val providerDao: ProviderDao,
     private val categoryDao: CategoryDao,
     private val channelDao: ChannelDao,
+    private val movieDao: MovieDao,
+    private val seriesDao: SeriesDao,
     private val programDao: ProgramDao,
     private val recordingRunDao: RecordingRunDao,
     private val programReminderDao: ProgramReminderDao,
@@ -63,6 +66,11 @@ class ProviderRepositoryImpl @Inject constructor(
     private companion object {
         const val XTREAM_GUIDE_BATCH_CONCURRENCY = 4
         const val BACKGROUND_EPG_START_DELAY_MS = 15_000L
+        // Row-equivalent weights for non-row delete steps so the progress bar still moves
+        // meaningfully on providers with tiny (or empty) catalogs.
+        const val ALARM_STEP_WEIGHT = 5
+        const val PROVIDER_ROW_STEP_WEIGHT = 200
+        const val FINALIZE_STEP_WEIGHT = 200
         val logger: Logger = Logger.getLogger(ProviderRepositoryImpl::class.java.name)
     }
 
@@ -120,27 +128,80 @@ class ProviderRepositoryImpl @Inject constructor(
         return true
     }
 
-    override suspend fun deleteProvider(id: Long): Result<Unit> = try {
+    override suspend fun deleteProvider(
+        id: Long,
+        onProgress: ((ProviderDeleteProgress) -> Unit)?
+    ): Result<Unit> = try {
         val recordingRunIds = recordingRunDao.getIdsByProvider(id)
         val reminderIds = programReminderDao.getIdsByProvider(id)
+
+        // Weight progress by the real row counts of the large child tables so the bar
+        // advances proportionally to the work being done instead of in two big jumps.
+        val programCount = programDao.countByProvider(id)
+        val channelCount = channelDao.countByProvider(id)
+        val movieCount = movieDao.countByProvider(id)
+        val seriesCount = seriesDao.countByProvider(id)
+
+        val totalWeight = (
+            programCount + channelCount + movieCount + seriesCount +
+                (recordingRunIds.size + reminderIds.size) * ALARM_STEP_WEIGHT +
+                PROVIDER_ROW_STEP_WEIGHT + FINALIZE_STEP_WEIGHT
+            ).coerceAtLeast(1)
+        var completedWeight = 0
+
+        fun reportProgress(message: String) {
+            onProgress?.invoke(
+                ProviderDeleteProgress(
+                    message = message,
+                    fraction = (completedWeight.toFloat() / totalWeight.toFloat()).coerceIn(0f, 1f)
+                )
+            )
+        }
+
+        reportProgress("Preparing to remove provider...")
         transactionRunner.inTransaction {
             // ProgramEntity still has no provider FK, so it requires explicit cleanup.
+            if (programCount > 0) reportProgress("Removing $programCount guide entries...")
             programDao.deleteByProvider(id)
+            completedWeight += programCount
+
+            if (channelCount > 0) reportProgress("Removing $channelCount channels...")
+            channelDao.deleteByProvider(id)
+            completedWeight += channelCount
+
+            if (movieCount > 0) reportProgress("Removing $movieCount movies...")
+            movieDao.deleteByProvider(id)
+            completedWeight += movieCount
+
+            if (seriesCount > 0) reportProgress("Removing $seriesCount series...")
+            seriesDao.deleteByProvider(id)
+            completedWeight += seriesCount
+
+            reportProgress("Removing provider record...")
             providerDao.delete(id)
+            completedWeight += PROVIDER_ROW_STEP_WEIGHT
         }
+        reportProgress("Provider library removed.")
         recordingRunIds.forEach { runId ->
+            reportProgress("Cleaning recording alarms...")
             runPostDeleteCleanup("recording alarm $runId") {
                 recordingAlarmScheduler.cancel(runId)
             }
+            completedWeight += ALARM_STEP_WEIGHT
         }
         reminderIds.forEach { reminderId ->
+            reportProgress("Cleaning reminders...")
             runPostDeleteCleanup("reminder alarm $reminderId") {
                 programReminderAlarmScheduler.cancel(reminderId)
             }
+            completedWeight += ALARM_STEP_WEIGHT
         }
+        reportProgress("Finalizing provider cleanup...")
         runPostDeleteCleanup("provider sync cleanup $id") {
             syncManager.onProviderDeleted(id)
         }
+        completedWeight += FINALIZE_STEP_WEIGHT
+        reportProgress("Provider deleted.")
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to delete provider: ${e.message}", e)
@@ -177,6 +238,8 @@ class ProviderRepositoryImpl @Inject constructor(
         xtreamFastSyncEnabled: Boolean,
         epgSyncMode: ProviderEpgSyncMode,
         xtreamLiveSyncMode: com.streamvault.domain.model.ProviderXtreamLiveSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -232,6 +295,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         httpHeaders = httpHeaders,
                         epgSyncMode = epgSyncMode,
                         xtreamLiveSyncMode = xtreamLiveSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         isActive = false,
                         status = ProviderStatus.PARTIAL,
@@ -247,6 +312,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         httpHeaders = httpHeaders,
                         epgSyncMode = epgSyncMode,
                         xtreamLiveSyncMode = xtreamLiveSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         isActive = false,
                         status = ProviderStatus.PARTIAL
@@ -278,10 +345,14 @@ class ProviderRepositoryImpl @Inject constructor(
         httpHeaders: String,
         epgSyncMode: ProviderEpgSyncMode,
         m3uVodClassificationEnabled: Boolean,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> = try {
-        val normalizedUrl = ProviderInputSanitizer.normalizeUrl(url)
+        val normalizedUrl = ProviderInputSanitizer.resolveUrlProtocol(
+            ProviderInputSanitizer.normalizeUrl(url)
+        )
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
 
         ProviderInputSanitizer.validateUrl(normalizedUrl)?.let { message ->
@@ -316,6 +387,8 @@ class ProviderRepositoryImpl @Inject constructor(
                 httpHeaders = httpHeaders,
                 epgSyncMode = epgSyncMode,
                 m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+                guideSourcePolicy = guideSourcePolicy,
+                channelLogoSourcePolicy = channelLogoSourcePolicy,
                 isActive = false,
                 status = ProviderStatus.PARTIAL,
                 lastSyncedAt = 0
@@ -332,6 +405,8 @@ class ProviderRepositoryImpl @Inject constructor(
                 httpHeaders = httpHeaders,
                 epgSyncMode = epgSyncMode,
                 m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+                guideSourcePolicy = guideSourcePolicy,
+                channelLogoSourcePolicy = channelLogoSourcePolicy,
                 isActive = false,
                 status = ProviderStatus.PARTIAL
             )
@@ -357,7 +432,9 @@ class ProviderRepositoryImpl @Inject constructor(
         id: Long?
     ): Result<Provider> {
         return try {
-            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(
+                ProviderInputSanitizer.normalizeUrl(serverUrl)
+            )
             val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
             val normalizedPassword = ProviderInputSanitizer.normalizePassword(password)
             val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
@@ -415,7 +492,9 @@ class ProviderRepositoryImpl @Inject constructor(
         serverUrl: String, name: String, onCode: ((String) -> Unit)?, onProgress: ((String) -> Unit)?, id: Long?
     ): Result<Provider> {
         return try {
-            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(
+                ProviderInputSanitizer.normalizeUrl(serverUrl)
+            )
             val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
             ProviderInputSanitizer.validateUrl(normalizedServerUrl)?.let { return Result.error(it) }
             val providerName = normalizedName.ifBlank {
@@ -481,6 +560,8 @@ class ProviderRepositoryImpl @Inject constructor(
         signature: String,
         stalkerAdvancedOptionsJson: String,
         epgSyncMode: ProviderEpgSyncMode,
+        guideSourcePolicy: GuideSourcePolicy,
+        channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -572,6 +653,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
                         isActive = false,
@@ -599,6 +682,8 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerSignature = normalizedSignature,
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
                         epgSyncMode = epgSyncMode,
+                        guideSourcePolicy = guideSourcePolicy,
+                        channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
                         m3uVodClassificationEnabled = false,
                         isActive = false,
@@ -741,6 +826,9 @@ class ProviderRepositoryImpl @Inject constructor(
     ): Result<List<Program>> {
         val providerEntity = providerDao.getById(providerId)
             ?: return Result.error("Provider $providerId not found")
+        if (!allowsOnDemandGuide(providerEntity.toPublicDomain())) {
+            return Result.error("On-demand guide lookup is disabled for this provider.")
+        }
         return when (providerEntity.type) {
             ProviderType.XTREAM_CODES -> when (val providerContextResult = createXtreamLiveProgramProviderContext(providerId)) {
                 is Result.Success -> {
@@ -794,6 +882,11 @@ class ProviderRepositoryImpl @Inject constructor(
 
         val providerEntity = providerDao.getById(providerId)
             ?: return normalizedRequests.associateWith { Result.error("Provider $providerId not found") }
+        if (!allowsOnDemandGuide(providerEntity.toPublicDomain())) {
+            return normalizedRequests.associateWith {
+                Result.error("On-demand guide lookup is disabled for this provider.")
+            }
+        }
 
         return when (providerEntity.type) {
             ProviderType.XTREAM_CODES -> when (val providerContextResult = createXtreamLiveProgramProviderContext(providerId)) {
@@ -1164,6 +1257,13 @@ class ProviderRepositoryImpl @Inject constructor(
             epgCount = programDao.countByProvider(providerId)
         )
         syncMetadataRepository.updateMetadata(metadata)
+    }
+
+    private fun allowsOnDemandGuide(provider: Provider): Boolean = when (provider.guideSourcePolicy) {
+        GuideSourcePolicy.AUTO,
+        GuideSourcePolicy.PROVIDER_ONLY -> true
+        GuideSourcePolicy.EXTERNAL_ONLY,
+        GuideSourcePolicy.DISABLED -> provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL
     }
 }
 

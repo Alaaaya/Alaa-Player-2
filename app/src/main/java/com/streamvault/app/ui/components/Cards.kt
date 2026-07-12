@@ -63,6 +63,7 @@ import com.streamvault.app.ui.components.shell.MoviePosterCard
 import com.streamvault.app.ui.components.shell.SeriesPosterCard
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.model.formatVodRatingLabel
+import com.streamvault.app.ui.model.archivePlaybackCapability
 import com.streamvault.app.ui.theme.AccentAmber
 import com.streamvault.app.ui.theme.AccentCyan
 import com.streamvault.app.ui.theme.AccentRed
@@ -199,6 +200,7 @@ fun ChannelCard(
 ) {
     val nowMs by ChannelProgressTicker.nowMs.collectAsStateWithLifecycle()
     val channelCardShape = LocalAppShapes.current.small
+    val hasUsableArchive = channel.archivePlaybackCapability().canBuildReplayCandidate
     val channelDescription = buildString {
         append(
             channel.number.takeIf { it > 0 }?.let {
@@ -214,7 +216,7 @@ fun ChannelCard(
                 append(". ")
                 append(stringResource(R.string.a11y_favorite))
             }
-            if (channel.catchUpSupported) {
+            if (hasUsableArchive) {
                 append(". ")
                 append(stringResource(R.string.a11y_catch_up_available))
             }
@@ -315,7 +317,7 @@ fun ChannelCard(
                 if (channel.errorCount > 0) {
                     StatusPill(label = stringResource(R.string.badge_error), containerColor = AccentRed, cornerRadius = 4.dp, horizontalPadding = 6.dp, verticalPadding = 2.dp)
                 }
-                if (channel.catchUpSupported) {
+                if (hasUsableArchive) {
                     StatusPill(label = stringResource(R.string.badge_catch_up), containerColor = Primary, cornerRadius = 4.dp, horizontalPadding = 6.dp, verticalPadding = 2.dp)
                 }
                 if (isRecording) {

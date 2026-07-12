@@ -48,14 +48,18 @@ internal fun SettingsScreenDialogs(
     viewModel: SettingsViewModel,
     context: Context,
     scope: CoroutineScope,
-    dialogState: SettingsScreenDialogState
+    dialogState: SettingsScreenDialogState,
+    onCancelSync: () -> Unit
 ) {
     val providerState = rememberSettingsProviderSectionState(dialogState)
 
     SyncingOverlay(
         isSyncing = uiState.isSyncing,
         providerName = uiState.syncingProviderName,
-        progress = uiState.syncProgress
+        progress = uiState.syncProgress,
+        sectionLabel = uiState.syncSectionLabel,
+        startedAt = uiState.syncStartedAt,
+        onCancel = onCancelSync.takeIf { uiState.syncCanCancel }
     )
 
     if (dialogState.showLiveTvModeDialog) {
@@ -186,8 +190,10 @@ internal fun SettingsScreenDialogs(
         onShowTimeFormatDialogChange = { dialogState.showTimeFormatDialog = it },
         showAudioVideoOffsetDialog = dialogState.showAudioVideoOffsetDialog,
         onShowAudioVideoOffsetDialogChange = { dialogState.showAudioVideoOffsetDialog = it },
-        showDecoderModeDialog = dialogState.showDecoderModeDialog,
-        onShowDecoderModeDialogChange = { dialogState.showDecoderModeDialog = it },
+        showAudioDecoderModeDialog = dialogState.showAudioDecoderModeDialog,
+        onShowAudioDecoderModeDialogChange = { dialogState.showAudioDecoderModeDialog = it },
+        showVideoDecoderModeDialog = dialogState.showVideoDecoderModeDialog,
+        onShowVideoDecoderModeDialogChange = { dialogState.showVideoDecoderModeDialog = it },
         showPlaybackBufferModeDialog = dialogState.showPlaybackBufferModeDialog,
         onShowPlaybackBufferModeDialogChange = { dialogState.showPlaybackBufferModeDialog = it },
         showAudioOutputPreferenceDialog = dialogState.showAudioOutputPreferenceDialog,
@@ -198,6 +204,8 @@ internal fun SettingsScreenDialogs(
         onShowVodHttpProtocolDialogChange = { dialogState.showVodHttpProtocolDialog = it },
         showTimeshiftDepthDialog = dialogState.showTimeshiftDepthDialog,
         onShowTimeshiftDepthDialogChange = { dialogState.showTimeshiftDepthDialog = it },
+        showTimeshiftBackendDialog = dialogState.showTimeshiftBackendDialog,
+        onShowTimeshiftBackendDialogChange = { dialogState.showTimeshiftBackendDialog = it },
         showDefaultStopTimerDialog = dialogState.showDefaultStopTimerDialog,
         onShowDefaultStopTimerDialogChange = { dialogState.showDefaultStopTimerDialog = it },
         showDefaultIdleTimerDialog = dialogState.showDefaultIdleTimerDialog,

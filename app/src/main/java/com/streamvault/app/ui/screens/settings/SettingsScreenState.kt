@@ -15,6 +15,7 @@ import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.LiveStreamFormatMode
 import com.streamvault.domain.model.PlaybackBufferMode
+import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.VodHttpProtocolMode
 
 internal data class SettingsScreenLabels(
@@ -27,7 +28,8 @@ internal data class SettingsScreenLabels(
     val preferredAudioLanguageLabel: String,
     val playbackSpeedLabel: String,
     val audioVideoOffsetLabel: String,
-    val decoderModeLabel: String,
+    val audioDecoderModeLabel: String,
+    val videoDecoderModeLabel: String,
     val playbackBufferModeLabel: String,
     val audioOutputPreferenceLabel: String,
     val surfaceModeLabel: String,
@@ -43,6 +45,7 @@ internal data class SettingsScreenLabels(
     val wifiQualityLabel: String,
     val ethernetQualityLabel: String,
     val timeshiftDepthLabel: String,
+    val timeshiftBackendLabel: String,
     val defaultStopTimerLabel: String,
     val defaultIdleTimerLabel: String,
     val lastSpeedTestLabel: String,
@@ -87,8 +90,11 @@ internal fun rememberSettingsScreenLabels(
     val audioVideoOffsetLabel = remember(uiState.playerAudioVideoOffsetMs) {
         formatAudioVideoOffsetLabel(uiState.playerAudioVideoOffsetMs)
     }
-    val decoderModeLabel = remember(uiState.playerDecoderMode, context) {
-        formatDecoderModeLabel(uiState.playerDecoderMode, context)
+    val audioDecoderModeLabel = remember(uiState.playerAudioDecoderMode, context) {
+        formatDecoderModeLabel(uiState.playerAudioDecoderMode, context)
+    }
+    val videoDecoderModeLabel = remember(uiState.playerVideoDecoderMode, context) {
+        formatDecoderModeLabel(uiState.playerVideoDecoderMode, context)
     }
     val playbackBufferModeLabel = remember(uiState.playerPlaybackBufferMode, context) {
         formatPlaybackBufferModeLabel(uiState.playerPlaybackBufferMode, context)
@@ -134,6 +140,9 @@ internal fun rememberSettingsScreenLabels(
     }
     val timeshiftDepthLabel = remember(uiState.playerTimeshiftDepthMinutes, context) {
         formatTimeshiftDepthLabel(uiState.playerTimeshiftDepthMinutes, context)
+    }
+    val timeshiftBackendLabel = remember(uiState.playerTimeshiftBackend, context) {
+        formatTimeshiftBackendPreferenceLabel(uiState.playerTimeshiftBackend, context)
     }
     val defaultStopTimerLabel = remember(uiState.defaultStopPlaybackTimerMinutes, context) {
         formatPlaybackTimerMinutesLabel(uiState.defaultStopPlaybackTimerMinutes, context)
@@ -188,7 +197,8 @@ internal fun rememberSettingsScreenLabels(
         preferredAudioLanguageLabel = preferredAudioLanguageLabel,
         playbackSpeedLabel = playbackSpeedLabel,
         audioVideoOffsetLabel = audioVideoOffsetLabel,
-        decoderModeLabel = decoderModeLabel,
+        audioDecoderModeLabel = audioDecoderModeLabel,
+        videoDecoderModeLabel = videoDecoderModeLabel,
         playbackBufferModeLabel = playbackBufferModeLabel,
         audioOutputPreferenceLabel = audioOutputPreferenceLabel,
         surfaceModeLabel = surfaceModeLabel,
@@ -204,6 +214,7 @@ internal fun rememberSettingsScreenLabels(
         wifiQualityLabel = wifiQualityLabel,
         ethernetQualityLabel = ethernetQualityLabel,
         timeshiftDepthLabel = timeshiftDepthLabel,
+        timeshiftBackendLabel = timeshiftBackendLabel,
         defaultStopTimerLabel = defaultStopTimerLabel,
         defaultIdleTimerLabel = defaultIdleTimerLabel,
         lastSpeedTestLabel = lastSpeedTestLabel,
@@ -231,6 +242,8 @@ private fun formatAppLandingDestinationLabel(
     when (destination) {
         AppLandingDestination.HOME -> R.string.nav_home
         AppLandingDestination.LIVE_TV -> R.string.nav_live_tv
+        AppLandingDestination.FIRST_FAVORITE_LIVE -> R.string.settings_startup_first_favorite_live
+        AppLandingDestination.LAST_WATCHED_LIVE -> R.string.settings_startup_last_watched_live
         AppLandingDestination.MOVIES -> R.string.nav_movies
         AppLandingDestination.SERIES -> R.string.nav_series
         AppLandingDestination.GUIDE -> R.string.nav_epg
@@ -303,6 +316,15 @@ internal fun formatPlaybackBufferModeLabel(
     PlaybackBufferMode.SMALL -> context.getString(R.string.settings_live_buffer_small)
     PlaybackBufferMode.MEDIUM -> context.getString(R.string.settings_live_buffer_medium)
     PlaybackBufferMode.LARGE -> context.getString(R.string.settings_live_buffer_large)
+}
+
+internal fun formatTimeshiftBackendPreferenceLabel(
+    preference: TimeshiftBackendPreference,
+    context: Context
+): String = when (preference) {
+    TimeshiftBackendPreference.AUTOMATIC -> context.getString(R.string.settings_live_timeshift_backend_auto)
+    TimeshiftBackendPreference.STORAGE -> context.getString(R.string.settings_live_timeshift_backend_storage)
+    TimeshiftBackendPreference.MEMORY -> context.getString(R.string.settings_live_timeshift_backend_memory)
 }
 
 internal fun formatLiveStreamFormatModeLabel(mode: LiveStreamFormatMode): String = when (mode) {

@@ -24,6 +24,7 @@ import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.RemoteShortcutPreferences
+import com.streamvault.domain.model.TimeshiftBackendPreference
 
 enum class ProviderWarningAction {
     EPG,
@@ -53,7 +54,8 @@ internal data class SettingsPreferenceSnapshot(
     val preferredAudioLanguage: String,
     val playerMediaSessionEnabled: Boolean,
     val playerFastRetryOnTransientFailures: Boolean,
-    val playerDecoderMode: DecoderMode,
+    val playerAudioDecoderMode: DecoderMode,
+    val playerVideoDecoderMode: DecoderMode,
     val playerPlaybackBufferMode: PlaybackBufferMode,
     val playerAudioOutputPreference: AudioOutputPreference,
     val playerCompatibilityMemoryEnabled: Boolean,
@@ -78,6 +80,7 @@ internal data class SettingsPreferenceSnapshot(
     val ethernetMaxVideoHeight: Int?,
     val playerTimeshiftEnabled: Boolean,
     val playerTimeshiftDepthMinutes: Int,
+    val playerTimeshiftBackend: TimeshiftBackendPreference,
     val defaultStopPlaybackTimerMinutes: Int,
     val defaultIdleStandbyTimerMinutes: Int,
     val lastSpeedTestMegabits: Double?,
@@ -90,6 +93,7 @@ internal data class SettingsPreferenceSnapshot(
     val xtreamBase64TextCompatibility: Boolean,
     val liveTvChannelMode: LiveTvChannelMode,
     val showLiveSourceSwitcher: Boolean,
+    val showFavoritesCategory: Boolean,
     val showAllChannelsCategory: Boolean,
     val showRecentChannelsCategory: Boolean,
     val remoteShortcutPreferences: RemoteShortcutPreferences,
@@ -116,6 +120,7 @@ internal data class SettingsPreferenceSnapshot(
     val cachedAppUpdateVersionCode: Int?,
     val cachedAppUpdateReleaseUrl: String?,
     val cachedAppUpdateDownloadUrl: String?,
+    val cachedAppUpdateDownloadSha256: String?,
     val cachedAppUpdateReleaseNotes: String,
     val cachedAppUpdatePublishedAt: String?
 )

@@ -35,7 +35,9 @@ internal fun LazyListScope.settingsPlaybackSection(
     uiState: SettingsUiState,
     viewModel: SettingsViewModel,
     timeshiftDepthLabel: String,
-    decoderModeLabel: String,
+    timeshiftBackendLabel: String,
+    audioDecoderModeLabel: String,
+    videoDecoderModeLabel: String,
     playbackBufferModeLabel: String,
     audioOutputPreferenceLabel: String,
     externalPlaybackModeLabel: String,
@@ -60,7 +62,9 @@ internal fun LazyListScope.settingsPlaybackSection(
     lastSpeedTestSummary: String,
     speedTestRecommendationLabel: String,
     onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
-    onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    onShowTimeshiftBackendDialogChange: (Boolean) -> Unit,
+    onShowAudioDecoderModeDialogChange: (Boolean) -> Unit,
+    onShowVideoDecoderModeDialogChange: (Boolean) -> Unit,
     onShowPlaybackBufferModeDialogChange: (Boolean) -> Unit,
     onShowAudioOutputPreferenceDialogChange: (Boolean) -> Unit,
     onShowExternalPlaybackModeDialogChange: (Boolean) -> Unit,
@@ -264,8 +268,8 @@ internal fun LazyListScope.settingsPlaybackSection(
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_live_timeshift_backend),
-            value = stringResource(R.string.settings_live_timeshift_backend_value),
-            onClick = {}
+            value = timeshiftBackendLabel,
+            onClick = { onShowTimeshiftBackendDialogChange(true) }
         )
         Text(
             text = stringResource(R.string.settings_live_timeshift_backend_subtitle),
@@ -302,9 +306,14 @@ internal fun LazyListScope.settingsPlaybackSection(
             }
         }
         ClickableSettingsRow(
-            label = stringResource(R.string.settings_decoder_mode),
-            value = decoderModeLabel,
-            onClick = { onShowDecoderModeDialogChange(true) }
+            label = stringResource(R.string.settings_audio_decoder_mode),
+            value = audioDecoderModeLabel,
+            onClick = { onShowAudioDecoderModeDialogChange(true) }
+        )
+        ClickableSettingsRow(
+            label = stringResource(R.string.settings_video_decoder_mode),
+            value = videoDecoderModeLabel,
+            onClick = { onShowVideoDecoderModeDialogChange(true) }
         )
         ClickableSettingsRow(
             label = stringResource(R.string.settings_live_buffer_size),

@@ -118,6 +118,28 @@ internal fun LazyListScope.settingsBrowsingSection(
             }
         }
         TvClickableSurface(
+            onClick = { viewModel.setShowFavoritesCategory(!uiState.showFavoritesCategory) },
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Primary.copy(alpha = 0.15f)
+            ),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = stringResource(R.string.settings_show_favorites_category), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                    Text(text = stringResource(R.string.settings_show_favorites_category_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                }
+                Switch(checked = uiState.showFavoritesCategory, onCheckedChange = { viewModel.setShowFavoritesCategory(it) })
+            }
+        }
+        TvClickableSurface(
             onClick = { viewModel.setShowAllChannelsCategory(!uiState.showAllChannelsCategory) },
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             colors = ClickableSurfaceDefaults.colors(

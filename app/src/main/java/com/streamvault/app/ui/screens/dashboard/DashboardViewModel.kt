@@ -2,11 +2,13 @@ package com.streamvault.app.ui.screens.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streamvault.app.BuildConfig
 import com.streamvault.app.ui.model.orderedByRequestedRawIds
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.sync.SyncManager
+import com.streamvault.app.update.AppUpdateActionState
 import com.streamvault.app.update.AppUpdateInstaller
+import com.streamvault.app.update.isRemoteVersionNewer
+import com.streamvault.app.update.latestAppUpdateAction
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.Category
@@ -588,29 +590,49 @@ class DashboardViewModel @Inject constructor(
     private fun Movie.rawMovieIdsForDashboard(): List<Long> =
         variants.map { it.rawMovieId }.ifEmpty { listOf(id) }
 
-    private fun observeUpdateNotice(): Flow<DashboardUpdateNotice?> = combine(
-        preferencesRepository.cachedAppUpdateVersionName,
-        preferencesRepository.cachedAppUpdateVersionCode,
-        preferencesRepository.downloadedAppUpdateVersionName
-    ) { latestVersionName, latestVersionCode, downloadedVersionName ->
-        if (latestVersionName.isNullOrBlank()) {
-            return@combine null
+    private fun observeUpdateNotice(): Flow<DashboardUpdateNotice?> {
+        val cachedRelease = combine(
+            preferencesRepository.cachedAppUpdateVersionName,
+            preferencesRepository.cachedAppUpdateVersionCode,
+            preferencesRepository.cachedAppUpdatePublishedAt,
+            preferencesRepository.cachedAppUpdateDownloadUrl,
+            preferencesRepository.cachedAppUpdateDownloadSha256
+        ) { latestVersionName, latestVersionCode, publishedAt, downloadUrl, downloadSha256 ->
+            DashboardCachedUpdateRelease(
+                latestVersionName = latestVersionName,
+                latestVersionCode = latestVersionCode,
+                publishedAt = publishedAt,
+                downloadUrl = downloadUrl,
+                downloadSha256 = downloadSha256
+            )
         }
 
-        val updateAvailable = if (latestVersionCode != null && latestVersionCode > BuildConfig.VERSION_CODE) {
-            true
-        } else {
-            compareVersionNames(latestVersionName, BuildConfig.VERSION_NAME) > 0
-        }
+        return cachedRelease.combine(appUpdateInstaller.downloadState) { release, downloadState ->
+            val latestVersionName = release.latestVersionName
+            if (latestVersionName.isNullOrBlank()) {
+                return@combine null
+            }
 
-        if (!updateAvailable) {
-            return@combine null
-        }
+            val updateAvailable = isRemoteVersionNewer(
+                release.latestVersionCode,
+                latestVersionName,
+                release.publishedAt
+            )
+            if (!updateAvailable) {
+                return@combine null
+            }
 
-        DashboardUpdateNotice(
-            latestVersionName = latestVersionName,
-            installReady = downloadedVersionName == latestVersionName
-        )
+            DashboardUpdateNotice(
+                latestVersionName = latestVersionName,
+                downloadSha256 = release.downloadSha256,
+                actionState = latestAppUpdateAction(
+                    latestVersionName = latestVersionName,
+                    downloadUrl = release.downloadUrl,
+                    isUpdateAvailable = updateAvailable,
+                    downloadState = downloadState
+                )
+            )
+        }
     }
 
     private fun buildFeature(
@@ -736,20 +758,6 @@ class DashboardViewModel @Inject constructor(
             }.getOrNull()
     }
 
-    private fun compareVersionNames(left: String, right: String): Int {
-        val leftParts = left.removePrefix("v").split('.')
-        val rightParts = right.removePrefix("v").split('.')
-        val length = maxOf(leftParts.size, rightParts.size)
-        for (index in 0 until length) {
-            val leftValue = leftParts.getOrNull(index)?.toIntOrNull() ?: 0
-            val rightValue = rightParts.getOrNull(index)?.toIntOrNull() ?: 0
-            if (leftValue != rightValue) {
-                return leftValue.compareTo(rightValue)
-            }
-        }
-        return 0
-    }
-
     fun setHomeDashboardShelves(shelves: List<AppHomeDashboardShelf>) {
         viewModelScope.launch {
             preferencesRepository.setAppHomeDashboardShelves(
@@ -766,7 +774,8 @@ class DashboardViewModel @Inject constructor(
 
     fun installDownloadedUpdate() {
         viewModelScope.launch {
-            when (val result = appUpdateInstaller.installDownloadedUpdate()) {
+            val expectedSha256 = _uiState.value.updateNotice?.downloadSha256
+            when (val result = appUpdateInstaller.installDownloadedUpdate(expectedSha256)) {
                 is com.streamvault.domain.model.Result.Error -> {
                     _uiState.value = _uiState.value.copy(userMessage = result.message)
                 }
@@ -822,6 +831,14 @@ private data class DashboardSnapshot(
     val updateNotice: DashboardUpdateNotice?
 )
 
+private data class DashboardCachedUpdateRelease(
+    val latestVersionName: String?,
+    val latestVersionCode: Int?,
+    val publishedAt: String?,
+    val downloadUrl: String?,
+    val downloadSha256: String?
+)
+
 data class DashboardUiState(
     val provider: Provider? = null,
     val homeDashboardShelves: List<AppHomeDashboardShelf> = AppHomeDashboardShelf.defaultOrder,
@@ -852,8 +869,15 @@ data class DashboardUiState(
 
 data class DashboardUpdateNotice(
     val latestVersionName: String,
+    val downloadSha256: String?,
+    val actionState: AppUpdateActionState
+) {
     val installReady: Boolean
-)
+        get() = actionState == AppUpdateActionState.InstallLatest
+
+    val installPermissionRequired: Boolean
+        get() = actionState == AppUpdateActionState.InstallPermissionRequired
+}
 
 data class DashboardProviderHealth(
     val status: ProviderStatus = ProviderStatus.UNKNOWN,

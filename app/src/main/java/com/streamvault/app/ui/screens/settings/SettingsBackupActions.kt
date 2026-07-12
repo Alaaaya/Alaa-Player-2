@@ -22,7 +22,14 @@ internal class SettingsBackupActions(
 ) {
     fun exportConfig(scope: CoroutineScope, uriString: String, onSuccess: (() -> Unit)? = null) {
         scope.launch {
-            uiState.update { it.copy(isSyncing = true) }
+            uiState.update {
+                it.copy(
+                    isSyncing = true,
+                    syncStartedAt = 0L,
+                    syncSectionLabel = null,
+                    syncCanCancel = false
+                )
+            }
             val result = exportBackup(ExportBackupCommand(uriString))
             if (result is ExportBackupResult.Success) {
                 onSuccess?.invoke()
@@ -30,6 +37,9 @@ internal class SettingsBackupActions(
             uiState.update { state ->
                 state.copy(
                     isSyncing = false,
+                    syncStartedAt = 0L,
+                    syncSectionLabel = null,
+                    syncCanCancel = false,
                     userMessage = if (result is ExportBackupResult.Error) {
                         "Export failed: ${result.message}"
                     } else {
@@ -42,16 +52,29 @@ internal class SettingsBackupActions(
 
     fun inspectBackup(scope: CoroutineScope, uriString: String) {
         scope.launch {
-            uiState.update { it.copy(isSyncing = true) }
+            uiState.update {
+                it.copy(
+                    isSyncing = true,
+                    syncStartedAt = 0L,
+                    syncSectionLabel = null,
+                    syncCanCancel = false
+                )
+            }
             val result = importBackup.inspect(InspectBackupCommand(uriString))
             uiState.update { state ->
                 when (result) {
                     is InspectBackupResult.Error -> state.copy(
                         isSyncing = false,
+                        syncStartedAt = 0L,
+                        syncSectionLabel = null,
+                        syncCanCancel = false,
                         userMessage = "Import failed: ${result.message}"
                     )
                     is InspectBackupResult.Success -> state.copy(
                         isSyncing = false,
+                        syncStartedAt = 0L,
+                        syncSectionLabel = null,
+                        syncCanCancel = false,
                         pendingBackupUri = result.uriString,
                         backupPreview = result.preview,
                         backupImportPlan = result.defaultPlan

@@ -133,9 +133,11 @@
     <string name="dashboard_warning_review">Open Provider Details</string>
     <string name="dashboard_update_title">StreamVault %1$s is available</string>
     <string name="dashboard_update_available">A newer app release is cached and ready to review from Settings.</string>
-    <string name="dashboard_update_install_ready">The latest update has already been downloaded. Open Settings to install it.</string>
+    <string name="dashboard_update_install_ready">The latest update has already been downloaded. Open the installer to finish.</string>
+    <string name="dashboard_update_install_permission_required">The update is downloaded. Allow installs from StreamVault, then retry installation.</string>
     <string name="dashboard_update_open_settings">Open Updates</string>
-    <string name="dashboard_update_open_installer">Install From Settings</string>
+    <string name="dashboard_update_open_installer">Install Update</string>
+    <string name="dashboard_update_allow_installs">Allow Installs</string>
     <string name="dashboard_updated_series_badge">Updated series</string>
     <string name="dashboard_stat_live">%1$d live</string>
     <string name="dashboard_stat_favorites">%1$d favorites</string>
@@ -208,6 +210,8 @@
     <string name="settings_show_live_source_switcher_subtitle">Display the M3U source switcher inside Live TV browsing.</string>
     <string name="settings_show_all_channels_category">Show All Channels category</string>
     <string name="settings_show_all_channels_category_subtitle">Display the virtual All Channels group in Live TV and the EPG guide.</string>
+    <string name="settings_show_favorites_category">Show Favorites category</string>
+    <string name="settings_show_favorites_category_subtitle">Display the virtual Favorites group in Live TV browsing.</string>
     <string name="settings_show_recent_channels_category">Show Recent Channels category</string>
     <string name="settings_show_recent_channels_category_subtitle">Display recently watched channels in Live TV browsing and on the Home screen.</string>
     <string name="settings_live_channel_grouping_mode">Channel grouping</string>
@@ -391,6 +395,8 @@
     <string name="settings_home_dashboard_remove">Remove</string>
     <string name="settings_default_landing_screen">Default landing screen</string>
     <string name="settings_select_default_landing_screen">Select default landing screen</string>
+    <string name="settings_startup_first_favorite_live">Play first favorite channel</string>
+    <string name="settings_startup_last_watched_live">Play last watched live channel</string>
     <plurals name="settings_top_navigation_count">
         <item quantity="one">%d tab</item>
         <item quantity="other">%d tabs</item>
@@ -457,8 +463,12 @@
     <string name="settings_live_timeshift_depth">Local Live Rewind Depth</string>
     <string name="settings_live_timeshift_backend">Live Rewind Backend</string>
     <string name="settings_live_timeshift_backend_value">Automatic</string>
-    <string name="settings_live_timeshift_backend_subtitle">Prefers app storage for the local ring buffer and falls back to bounded memory when storage is unavailable.</string>
+    <string name="settings_live_timeshift_backend_subtitle">Choose whether local live rewind buffers to app storage or bounded memory. Automatic prefers storage and falls back to memory when the storage backend is constrained.</string>
+    <string name="settings_live_timeshift_backend_auto">Automatic</string>
+    <string name="settings_live_timeshift_backend_storage">Storage</string>
+    <string name="settings_live_timeshift_backend_memory">Memory</string>
     <string name="settings_select_live_timeshift_depth">Select Local Live Rewind Depth</string>
+    <string name="settings_select_live_timeshift_backend">Select Live Rewind Backend</string>
     <string name="settings_live_timeshift_depth_15">15 minutes</string>
     <string name="settings_live_timeshift_depth_30">30 minutes</string>
     <string name="settings_live_timeshift_depth_60">60 minutes</string>
@@ -578,6 +588,8 @@
     <string name="vod_classic_results_count">%1$d items</string>
     <string name="vod_classic_empty_category">No titles found in this section.</string>
     <string name="settings_decoder_mode">Decoder Mode</string>
+    <string name="settings_audio_decoder_mode">Audio Decoder Mode</string>
+    <string name="settings_video_decoder_mode">Video Decoder Mode</string>
     <string name="settings_decoder_auto">Auto (HW preferred)</string>
     <string name="settings_decoder_hardware">Hardware Only</string>
     <string name="settings_decoder_software">Prefer Software Decoder</string>
@@ -605,6 +617,8 @@
     <string name="settings_vod_http_protocol_auto">Auto (HTTP/2 when supported)</string>
     <string name="settings_close_app">Close app</string>
     <string name="settings_select_decoder_mode">Select Decoder Mode</string>
+    <string name="settings_select_audio_decoder_mode">Select Audio Decoder Mode</string>
+    <string name="settings_select_video_decoder_mode">Select Video Decoder Mode</string>
     <string name="settings_buffer_duration">Buffer Duration</string>
     <string name="settings_buffer_5s">5 seconds</string>
     <string name="settings_about">About</string>
@@ -640,6 +654,7 @@
     <string name="settings_update_download_started">Update download started. Install will be available when it finishes.</string>
     <string name="settings_update_download_unavailable">No downloadable update package is available for this release.</string>
     <string name="settings_update_install_action">Install update</string>
+    <string name="settings_update_install_permission_action">Allow installs, then retry</string>
     <string name="settings_update_install_started">Opening the package installer.</string>
     <string name="settings_update_view_release">Open latest release</string>
     <string name="settings_update_release_notes">Release page</string>
@@ -650,6 +665,7 @@
     <string name="settings_update_status_check_failed">Last check failed</string>
     <string name="settings_update_status_downloading">Downloading update</string>
     <string name="settings_update_status_ready_to_install">Ready to install</string>
+    <string name="settings_update_status_permission_required">Install permission required</string>
     <string name="settings_update_available_message">StreamVault %1$s is available.</string>
     <string name="settings_update_current_message">You already have the latest StreamVault release.</string>
     <string name="settings_syncing">Syncing data, please wait...</string>
@@ -703,6 +719,8 @@
     <string name="settings_sync_sections_success">Synced: %1$s.</string>
     <string name="settings_sync_sections_failed">Sync failed: %1$s.</string>
     <string name="settings_sync_sections_partial">Synced: %1$s. Failed: %2$s.</string>
+    <string name="settings_sync_cancelled">Sync cancelled.</string>
+    <string name="settings_sync_elapsed">Elapsed: %1$s</string>
     <string name="settings_edit">Edit</string>
     <string name="settings_delete">Delete</string>
     <string name="settings_pc_btn">Parental Control</string>
@@ -1163,6 +1181,24 @@
     <string name="player_muted_badge">Muted</string>
     <string name="player_cast">Cast</string>
     <string name="player_stop_casting">Stop Casting</string>
+    <string name="cast_button_label">Cast</string>
+    <string name="cast_launching">Casting...</string>
+    <string name="cast_started">Casting to the connected device.</string>
+    <string name="cast_disconnected">Cast session disconnected.</string>
+    <string name="cast_unavailable">Google Cast is unavailable on this device.</string>
+    <string name="cast_stream_unsupported">This stream format is not supported by Google Cast.</string>
+    <string name="cast_protocol_unsupported">RTSP and RTMP streams are not supported for casting.</string>
+    <string name="cast_drm_unsupported">DRM-protected streams are not supported by Google Cast in this app.</string>
+    <string name="cast_item_unavailable">This item cannot be sent to a Cast receiver.</string>
+    <string name="cast_local_url_unsupported">This stream uses a local or device-only URL that Chromecast cannot reach directly.</string>
+    <string name="cast_headers_unsupported">This stream needs HTTP headers or cookies that Chromecast cannot use directly.</string>
+    <string name="cast_user_agent_unsupported">This stream needs a custom User-Agent that Chromecast cannot use directly.</string>
+    <string name="cast_proxy_unsupported">This stream needs the app proxy settings, so Chromecast cannot use it directly.</string>
+    <string name="cast_invalid_ssl_unsupported">This stream uses SSL handling that Chromecast cannot use directly.</string>
+    <string name="cast_session_failed">The Cast session could not be started.</string>
+    <string name="cast_load_failed">The Cast receiver could not load this stream.</string>
+    <string name="cast_receiver_unavailable">The connected Cast receiver is not ready for playback.</string>
+    <string name="cast_selection_cancelled">Cast device selection was cancelled.</string>
     <string name="player_unmute">Unmute</string>
     <string name="player_picture_in_picture">Picture in picture</string>
     <string name="player_pip_short">PiP</string>
@@ -1221,6 +1257,8 @@
     <string name="player_diagnostics_provider">Provider</string>
     <string name="player_diagnostics_source">Source</string>
     <string name="player_diagnostics_decoder">Decoder</string>
+    <string name="player_diagnostics_audio_decoder_mode">Audio Decoder Mode</string>
+    <string name="player_diagnostics_video_decoder_mode">Video Decoder Mode</string>
     <string name="player_diagnostics_active_decoder">Active Decoder</string>
     <string name="player_diagnostics_surface">Surface</string>
     <string name="player_diagnostics_policy_guard">Policy Guard</string>
@@ -1373,6 +1411,7 @@
     <string name="epg_filter_hint">Choose another category or refresh the guide.</string>
     <string name="epg_title">TV Guide</string>
     <string name="epg_catchup_available">Catch-up available (%1$d days)</string>
+    <string name="epg_catchup_available_unknown">Catch-up available</string>
     <string name="epg_archive_ready_hint">Archive or catch-up playback should be available for this program.</string>
     <string name="epg_archive_provider_hint">This provider supports catch-up for the channel, but this program is not marked archive-ready in the current guide window.</string>
     <string name="epg_archive_unavailable_hint">Archive playback is not available for this channel.</string>
@@ -1398,6 +1437,10 @@
     <string name="epg_provider_troubleshooting_no_archive">This channel is not flagged as archive-ready by the provider.</string>
     <string name="epg_provider_troubleshooting_missing_template">Replay may fail because the provider exposed catch-up support without a usable replay template.</string>
     <string name="epg_provider_troubleshooting_missing_stream_id">Replay may fail because the provider did not expose a replay stream identifier.</string>
+    <string name="epg_provider_troubleshooting_incomplete_metadata">Replay may fail because the provider advertises catch-up without enough playback metadata.</string>
+    <string name="epg_provider_troubleshooting_xtream_ready">Xtream replay metadata is present; playback will use the channel stream id and selected archive window.</string>
+    <string name="epg_provider_troubleshooting_stalker_ready">Portal archive metadata is present; playback will request an archive link for the selected window.</string>
+    <string name="epg_provider_troubleshooting_m3u_best_effort">M3U replay is best effort and depends on the playlist catch-up template.</string>
     <string name="epg_provider_troubleshooting_ready">Replay metadata is present, but the provider may still reject this specific program window.</string>
     <string name="epg_provider_troubleshooting_stale">Guide freshness is low, so replay mapping may still be incomplete until the guide refreshes.</string>
 

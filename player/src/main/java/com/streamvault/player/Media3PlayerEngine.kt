@@ -24,6 +24,7 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.ScrubbingModeParameters
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
@@ -56,7 +57,6 @@ import com.streamvault.player.playback.LiveHlsBufferPromotionDecider
 import com.streamvault.player.playback.PlaybackLogSanitizer
 import com.streamvault.player.playback.PlaybackPreparationPlan
 import com.streamvault.player.playback.PlaybackExtensionRendererMode
-import com.streamvault.player.playback.PlaybackRendererPlan
 import com.streamvault.player.playback.PlaybackRetryContext
 import com.streamvault.player.playback.PlayerDataSourceFactoryProvider
 import com.streamvault.player.playback.PlayerErrorClassifier
@@ -73,6 +73,7 @@ import com.streamvault.player.playback.StreamTypeResolver
 import com.streamvault.player.playback.VideoStallDetector
 import com.streamvault.player.playback.AutomaticRecoveryAction
 import com.streamvault.player.playback.buildLiveTsFallbackStreamInfo
+import com.streamvault.player.playback.buildPlaybackRendererPlan
 import com.streamvault.player.playback.shouldAttemptAutomaticRecovery
 import com.streamvault.player.playback.hasEffectivePlaybackStarted
 import com.streamvault.player.playback.shouldArmPlaybackStartedRecovery
@@ -83,6 +84,7 @@ import com.streamvault.player.playback.shouldRecoverFrameSilentReadyStalls
 import com.streamvault.player.playback.shouldRecoverPositionAdvancingReadyStalls
 import com.streamvault.player.playback.shouldRecoverReadyStalls
 import com.streamvault.player.playback.shouldReconnectLiveStall
+import com.streamvault.player.playback.shouldForceSoftwareForAmbiguousDecoderFallback
 import com.streamvault.player.stats.PlayerStatsCollector
 import com.streamvault.player.timeshift.DefaultLiveTimeshiftManager
 import com.streamvault.player.timeshift.LiveTimeshiftBackend
@@ -170,14 +172,20 @@ class Media3PlayerEngine @Inject constructor(
     private var isDisposed = false
     private var exoPlayer: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
-    private var requestedDecoderMode: DecoderMode = DecoderMode.AUTO
-    private var activeDecoderMode: DecoderMode = DecoderMode.HARDWARE
+    private var requestedAudioDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var requestedVideoDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var activeAudioDecoderMode: DecoderMode = DecoderMode.HARDWARE
+    private var activeVideoDecoderMode: DecoderMode = DecoderMode.HARDWARE
     private var requestedPlaybackBufferMode: PlaybackBufferMode = PlaybackBufferMode.AUTO
     private var requestedSurfaceMode: PlayerSurfaceMode = PlayerSurfaceMode.AUTO
     private var requestedVodHttpProtocolMode: VodHttpProtocolMode = VodHttpProtocolMode.COMPATIBILITY_HTTP1
     private var sessionSurfaceModeOverride: PlayerSurfaceMode? = null
-    private var activeDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
-    private var recoveryDecoderPolicyOverride: ActiveDecoderPolicy? = null
+    private var activeAudioDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
+    private var activeVideoDecoderPolicy: ActiveDecoderPolicy = ActiveDecoderPolicy.AUTO
+    private var recoveryAudioDecoderModeOverride: DecoderMode? = null
+    private var recoveryVideoDecoderModeOverride: DecoderMode? = null
+    private var recoveryAudioDecoderPolicyOverride: ActiveDecoderPolicy? = null
+    private var recoveryVideoDecoderPolicyOverride: ActiveDecoderPolicy? = null
     private var knownBadDecoderNames: Set<String> = emptySet()
     private var knownBadSurfaceTypes: Set<String> = emptySet()
     private var selectedVideoDecoderName: String = "Unknown"
@@ -307,7 +315,8 @@ class Media3PlayerEngine @Inject constructor(
     private val mediaSourceFactory = PlayerMediaSourceFactory(dataSourceFactoryProvider)
     private val preloadCoordinator = PreloadCoordinator()
     private val compatibilityProfile: PlaybackCompatibilityProfile = DefaultPlaybackCompatibilityProfile
-    private val decoderPreferencePolicy = DefaultDecoderPreferencePolicy()
+    private val audioDecoderPreferencePolicy = DefaultDecoderPreferencePolicy()
+    private val videoDecoderPreferencePolicy = DefaultDecoderPreferencePolicy()
     private val videoStallDetector = VideoStallDetector()
     // All reads/writes on Dispatchers.Main.immediate (engine scope).
     @get:MainThread private var activeLiveTimeshiftStreamInfo: StreamInfo? = null
@@ -366,7 +375,7 @@ class Media3PlayerEngine @Inject constructor(
                     ffmpegVersion = ffmpegAvailability.version,
                     audioOutputPath = audioOutputPath,
                     compatibilityDecisionSource = compatibilityDecisionSource,
-                    activeDecoderPolicy = activeDecoderPolicy.name,
+                    activeDecoderPolicy = activeDecoderPolicySummary(),
                     renderSurfaceType = _renderSurfaceType.value.name,
                     audioVideoSyncEnabled = _audioVideoSyncEnabled.value,
                     audioVideoSyncSinkActive = audioVideoSyncSinkActive
@@ -516,9 +525,10 @@ class Media3PlayerEngine @Inject constructor(
         }
     }
 
-    override fun setDecoderMode(mode: DecoderMode) {
-        if (requestedDecoderMode == mode) return
-        requestedDecoderMode = mode
+    override fun setDecoderModes(audioMode: DecoderMode, videoMode: DecoderMode) {
+        if (requestedAudioDecoderMode == audioMode && requestedVideoDecoderMode == videoMode) return
+        requestedAudioDecoderMode = audioMode
+        requestedVideoDecoderMode = videoMode
         lastStreamInfo?.let { streamInfo ->
             val wasPlaying = exoPlayer?.playWhenReady == true
             val position = exoPlayer?.currentPosition
@@ -884,7 +894,7 @@ class Media3PlayerEngine @Inject constructor(
         selectedAudioDecoderName = "Unknown"
         videoStallCount = 0
         videoStallRecoveryAttempt = 0
-        recoveryDecoderPolicyOverride = null
+        clearDecoderRecoveryOverrides()
         knownBadDecoderNames = emptySet()
         knownBadSurfaceTypes = emptySet()
         sessionSurfaceModeOverride = null
@@ -934,7 +944,9 @@ class Media3PlayerEngine @Inject constructor(
             _retryStatus.value = null
         }
         if (mediaChanged) {
-            decoderPreferencePolicy.resetForMedia(mediaId)
+            audioDecoderPreferencePolicy.resetForMedia(mediaId)
+            videoDecoderPreferencePolicy.resetForMedia(mediaId)
+            clearDecoderRecoveryOverrides()
             sessionSurfaceModeOverride = null
             textureViewSessionFallbackAttempted = false
             knownBadDecoderNames = emptySet()
@@ -975,49 +987,63 @@ class Media3PlayerEngine @Inject constructor(
         currentRetryContext = playbackPlan.retryContext
         currentRetryPolicy = playbackPlan.retryPolicy
         if (!preserveRetryState) {
-            recoveryDecoderPolicyOverride = null
+            clearDecoderRecoveryOverrides()
         }
-        val learnedAudioCompatibility = if (requestedDecoderMode == DecoderMode.AUTO && compatibilityMemoryEnabled) {
+        val learnedAudioCompatibility = if (requestedAudioDecoderMode == DecoderMode.AUTO && compatibilityMemoryEnabled) {
             audioCompatibilityMemoryStore.lookup(mediaId, currentResolvedStreamType.name)
         } else {
             null
         }
-        val preferredDecoderMode = when {
-            requestedDecoderMode != DecoderMode.AUTO -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
+        val preferredAudioDecoderMode = recoveryAudioDecoderModeOverride ?: when {
+            requestedAudioDecoderMode != DecoderMode.AUTO ->
+                audioDecoderPreferencePolicy.preferredMode(requestedAudioDecoderMode, mediaId)
             learnedAudioCompatibility?.decision == AudioCompatibilityMemoryStore.DECISION_SOFTWARE_FFMPEG -> DecoderMode.SOFTWARE
-            else -> decoderPreferencePolicy.preferredMode(requestedDecoderMode, mediaId)
+            else -> audioDecoderPreferencePolicy.preferredMode(requestedAudioDecoderMode, mediaId)
         }
+        val preferredVideoDecoderMode = recoveryVideoDecoderModeOverride ?: videoDecoderPreferencePolicy.preferredMode(
+            requestedVideoDecoderMode,
+            mediaId
+        )
+        val nextAudioDecoderPolicy = recoveryAudioDecoderPolicyOverride ?: resolveActiveDecoderPolicy(
+            policyModeFor(requestedAudioDecoderMode, preferredAudioDecoderMode)
+        )
+        val nextVideoDecoderPolicy = recoveryVideoDecoderPolicyOverride ?: resolveActiveDecoderPolicy(
+            policyModeFor(requestedVideoDecoderMode, preferredVideoDecoderMode)
+        )
         compatibilityDecisionSource = when {
-            requestedDecoderMode != DecoderMode.AUTO -> "USER_SELECTED"
+            requestedAudioDecoderMode != DecoderMode.AUTO || requestedVideoDecoderMode != DecoderMode.AUTO -> "USER_SELECTED"
             learnedAudioCompatibility != null -> "LEARNED_AUDIO_FALLBACK"
             else -> "DEFAULT"
         }
-        val nextDecoderPolicy = recoveryDecoderPolicyOverride ?: resolveActiveDecoderPolicy(
-            policyModeFor(requestedDecoderMode, preferredDecoderMode)
-        )
         val isLiveBuffer = currentResolvedStreamType in setOf(
             ResolvedStreamType.HLS,
             ResolvedStreamType.SMOOTH_STREAMING,
             ResolvedStreamType.MPEG_TS_LIVE,
             ResolvedStreamType.RTSP
         )
-        val previousDecoderPolicy = activeDecoderPolicy
+        val previousAudioDecoderPolicy = activeAudioDecoderPolicy
+        val previousVideoDecoderPolicy = activeVideoDecoderPolicy
         val nextBufferPolicy = PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = currentResolvedStreamType,
-            compatibilityMode = nextDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
+            compatibilityMode = nextVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
             lowMemoryDevice = isLowMemoryPlaybackDevice,
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = streamInfo,
             observedVideoFormat = _videoFormat.value,
             qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId[mediaId]
         )
-        val needsRecreate = activeDecoderMode != preferredDecoderMode ||
-            previousDecoderPolicy != nextDecoderPolicy ||
+        val needsRecreate = activeAudioDecoderMode != preferredAudioDecoderMode ||
+            activeVideoDecoderMode != preferredVideoDecoderMode ||
+            previousAudioDecoderPolicy != nextAudioDecoderPolicy ||
+            previousVideoDecoderPolicy != nextVideoDecoderPolicy ||
             isLiveBuffer != currentBufferIsLive ||
             nextBufferPolicy.label != currentBufferPolicyLabel ||
-            requestedDecoderMode == DecoderMode.COMPATIBILITY
-        activeDecoderMode = preferredDecoderMode
-        activeDecoderPolicy = nextDecoderPolicy
+            requestedAudioDecoderMode == DecoderMode.COMPATIBILITY ||
+            requestedVideoDecoderMode == DecoderMode.COMPATIBILITY
+        activeAudioDecoderMode = preferredAudioDecoderMode
+        activeVideoDecoderMode = preferredVideoDecoderMode
+        activeAudioDecoderPolicy = nextAudioDecoderPolicy
+        activeVideoDecoderPolicy = nextVideoDecoderPolicy
         currentBufferIsLive = isLiveBuffer
         currentBufferPolicyLabel = nextBufferPolicy.label
         currentBufferPolicy = nextBufferPolicy
@@ -1028,14 +1054,14 @@ class Media3PlayerEngine @Inject constructor(
 
         Log.i(
             TAG,
-            "prepare resolvedStreamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile decoderPreference=$activeDecoderMode activePolicy=$activeDecoderPolicy audioOutputPreference=$audioOutputPreference compatibilitySource=$compatibilityDecisionSource surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            "prepare resolvedStreamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioDecoderPreference=$activeAudioDecoderMode videoDecoderPreference=$activeVideoDecoderMode audioPolicy=$activeAudioDecoderPolicy videoPolicy=$activeVideoDecoderPolicy audioOutputPreference=$audioOutputPreference compatibilitySource=$compatibilityDecisionSource surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
         Log.i(TAG, nextBufferPolicy.describeForLog(currentResolvedStreamType, requestedPlaybackBufferMode))
 
         try {
             val player = getOrCreatePlayer()
             trackController.applyInitialParameters(player, constrainResolutionForMultiView)
-            if (activeDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY) {
+            if (activeVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
                     .setMaxVideoSize(Int.MAX_VALUE, 720)
@@ -1114,7 +1140,7 @@ class Media3PlayerEngine @Inject constructor(
         val renderersFactory = buildRenderersFactory()
         val bufferPolicy = currentBufferPolicy ?: PlaybackBufferPolicies.forPlayback(
             resolvedStreamType = currentResolvedStreamType,
-            compatibilityMode = activeDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
+            compatibilityMode = activeVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
             lowMemoryDevice = isLowMemoryPlaybackDevice,
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = lastStreamInfo,
@@ -1173,16 +1199,36 @@ class Media3PlayerEngine @Inject constructor(
 
     private fun buildRenderersFactory(): DefaultRenderersFactory {
         logFfmpegAvailability()
-        val decoderPolicy = activeDecoderPolicy
+        val audioDecoderPolicy = activeAudioDecoderPolicy
+        val videoDecoderPolicy = activeVideoDecoderPolicy
         val badDecoderNames = knownBadDecoderNames
-        val requestedMode = requestedDecoderMode
         val rendererPlan = buildPlaybackRendererPlan(
-            requestedMode = requestedMode,
-            decoderPolicy = decoderPolicy,
+            requestedAudioMode = requestedAudioDecoderMode,
+            activeAudioDecoderMode = activeAudioDecoderMode,
+            audioDecoderPolicy = audioDecoderPolicy,
+            requestedVideoMode = requestedVideoDecoderMode,
+            activeVideoDecoderMode = activeVideoDecoderMode,
+            videoDecoderPolicy = videoDecoderPolicy,
             useAudioVideoSyncSink = _audioVideoSyncEnabled.value,
             useVideoRendererWorkaround = compatibilityProfile.shouldDisableDecoderReuseWorkaround()
         )
         audioVideoSyncSinkActive = false
+        val audioCodecSelector = if (rendererPlan.useAudioManagedCodecSelector) {
+            PlaybackCodecSelector(
+                policyProvider = { audioDecoderPolicy },
+                knownBadProvider = { emptySet() }
+            )
+        } else {
+            MediaCodecSelector.DEFAULT
+        }
+        val videoCodecSelector = if (rendererPlan.useVideoManagedCodecSelector) {
+            PlaybackCodecSelector(
+                policyProvider = { videoDecoderPolicy },
+                knownBadProvider = { badDecoderNames }
+            )
+        } else {
+            MediaCodecSelector.DEFAULT
+        }
 
         val factory = object : DefaultRenderersFactory(context) {
             override fun buildAudioSink(
@@ -1211,6 +1257,28 @@ class Media3PlayerEngine @Inject constructor(
                 )
             }
 
+            override fun buildAudioRenderers(
+                context: Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                audioSink: AudioSink,
+                eventHandler: Handler,
+                eventListener: AudioRendererEventListener,
+                out: ArrayList<Renderer>
+            ) {
+                super.buildAudioRenderers(
+                    context,
+                    rendererPlan.audioExtensionRendererMode.toMedia3ExtensionRendererMode(),
+                    audioCodecSelector,
+                    enableDecoderFallback,
+                    audioSink,
+                    eventHandler,
+                    eventListener,
+                    out
+                )
+            }
+
             override fun buildVideoRenderers(
                     context: Context,
                     extensionRendererMode: Int,
@@ -1224,8 +1292,8 @@ class Media3PlayerEngine @Inject constructor(
                 if (!rendererPlan.useVideoRendererWorkaround) {
                     super.buildVideoRenderers(
                         context,
-                        extensionRendererMode,
-                        mediaCodecSelector,
+                        rendererPlan.videoExtensionRendererMode.toMedia3ExtensionRendererMode(),
+                        videoCodecSelector,
                         enableDecoderFallback,
                         eventHandler,
                         eventListener,
@@ -1237,7 +1305,7 @@ class Media3PlayerEngine @Inject constructor(
 
                 out.add(object : MediaCodecVideoRenderer(
                     context,
-                    mediaCodecSelector,
+                    videoCodecSelector,
                     allowedVideoJoiningTimeMs,
                     enableDecoderFallback,
                     eventHandler,
@@ -1263,21 +1331,13 @@ class Media3PlayerEngine @Inject constructor(
 
         return factory.apply {
             setEnableDecoderFallback(true)
-            if (rendererPlan.useManagedCodecSelector) {
-                setMediaCodecSelector(
-                    PlaybackCodecSelector(
-                        policyProvider = { decoderPolicy },
-                        knownBadProvider = { badDecoderNames }
-                    )
-                )
-            }
-            setExtensionRendererMode(
-                when (activeDecoderMode) {
-                    DecoderMode.AUTO, DecoderMode.HARDWARE -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                    DecoderMode.SOFTWARE, DecoderMode.COMPATIBILITY -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-                }
-            )
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         }
+    }
+
+    private fun PlaybackExtensionRendererMode.toMedia3ExtensionRendererMode(): Int = when (this) {
+        PlaybackExtensionRendererMode.PLATFORM_FIRST -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+        PlaybackExtensionRendererMode.EXTENSIONS_FIRST -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
     }
 
     private fun createAnalyticsListener(): AnalyticsListener {
@@ -1299,7 +1359,7 @@ class Media3PlayerEngine @Inject constructor(
             ) {
                 selectedVideoDecoderName = decoderName
                 _playerStats.value = _playerStats.value.copy(videoDecoderName = decoderName)
-                Log.i(TAG, "video-decoder name=$decoderName policy=$activeDecoderPolicy surface=${_renderSurfaceType.value}")
+                Log.i(TAG, "video-decoder name=$decoderName policy=$activeVideoDecoderPolicy surface=${_renderSurfaceType.value}")
                 refreshKnownBadCompatibilityRecords()
             }
 
@@ -1315,7 +1375,7 @@ class Media3PlayerEngine @Inject constructor(
                     audioDecoderName = decoderName,
                     audioOutputPath = audioOutputPath
                 )
-                Log.i(TAG, "audio-decoder name=$decoderName policy=$activeDecoderPolicy outputPath=$audioOutputPath")
+                Log.i(TAG, "audio-decoder name=$decoderName policy=$activeAudioDecoderPolicy outputPath=$audioOutputPath")
             }
 
             override fun onAudioInputFormatChanged(
@@ -1566,7 +1626,7 @@ class Media3PlayerEngine @Inject constructor(
             "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile audioPath=$audioOutputPath compatibilitySource=$compatibilityDecisionSource target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
         )
         pendingLearnedAudioFallback?.let { learned ->
-            if (compatibilityMemoryEnabled && activeDecoderMode == DecoderMode.SOFTWARE) {
+            if (compatibilityMemoryEnabled && activeAudioDecoderMode == DecoderMode.SOFTWARE) {
                 audioCompatibilityMemoryStore.rememberSoftwareAudioFallback(
                     mediaId = learned.mediaId,
                     streamType = learned.streamType,
@@ -1586,6 +1646,9 @@ class Media3PlayerEngine @Inject constructor(
         DecoderMode.SOFTWARE -> ActiveDecoderPolicy.SOFTWARE_PREFERRED
         DecoderMode.COMPATIBILITY -> ActiveDecoderPolicy.COMPATIBILITY
     }
+
+    private fun activeDecoderPolicySummary(): String =
+        "audio=${activeAudioDecoderPolicy.name},video=${activeVideoDecoderPolicy.name}"
 
     private fun policyModeFor(requestedMode: DecoderMode, preferredMode: DecoderMode): DecoderMode = when {
         requestedMode == DecoderMode.COMPATIBILITY -> DecoderMode.COMPATIBILITY
@@ -1671,7 +1734,8 @@ class Media3PlayerEngine @Inject constructor(
         return isEffectivelyPlaybackStarted() ||
             retryAttempt > 0 ||
             videoStallRecoveryAttempt > 0 ||
-            recoveryDecoderPolicyOverride != null ||
+            recoveryAudioDecoderPolicyOverride != null ||
+            recoveryVideoDecoderPolicyOverride != null ||
             textureViewSessionFallbackAttempted
     }
 
@@ -1693,7 +1757,7 @@ class Media3PlayerEngine @Inject constructor(
             currentPolicyLabel = currentBufferPolicyLabel,
             streamInfo = streamInfo,
             observedVideoFormat = observedFormat,
-            compatibilityMode = activeDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
+            compatibilityMode = activeVideoDecoderPolicy == ActiveDecoderPolicy.COMPATIBILITY,
             lowMemoryDevice = isLowMemoryPlaybackDevice
         ) ?: return false
 
@@ -1731,7 +1795,7 @@ class Media3PlayerEngine @Inject constructor(
         )
         Log.w(
             TAG,
-            "video-stall count=$videoStallCount recovered=$videoStallSafeRecoveryPerformed decoder=$selectedVideoDecoderName policy=$activeDecoderPolicy surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            "video-stall count=$videoStallCount recovered=$videoStallSafeRecoveryPerformed decoder=$selectedVideoDecoderName policy=$activeVideoDecoderPolicy surface=${_renderSurfaceType.value} target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
 
         if (!isEffectivelyPlaybackStarted()) {
@@ -1833,9 +1897,9 @@ class Media3PlayerEngine @Inject constructor(
         autoPlay: Boolean
     ): Boolean {
         val mediaId = lastMediaId ?: return false
-        val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId) ?: return false
-        val fallbackPolicy = resolveActiveDecoderPolicy(policyModeFor(requestedDecoderMode, fallbackMode))
-        recoveryDecoderPolicyOverride = fallbackPolicy
+        val fallbackMode = videoDecoderPreferencePolicy.onDecoderInitFailure(requestedVideoDecoderMode, mediaId) ?: return false
+        val fallbackPolicy = resolveActiveDecoderPolicy(policyModeFor(requestedVideoDecoderMode, fallbackMode))
+        recoveryVideoDecoderPolicyOverride = fallbackPolicy
         Log.w(
             TAG,
             "video-stall decoder fallback=$fallbackMode policy=$fallbackPolicy attempt=$videoStallRecoveryAttempt mediaId=$mediaId target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
@@ -1952,7 +2016,7 @@ class Media3PlayerEngine @Inject constructor(
         }
         Log.w(
             TAG,
-            "texture-view fallback reason=$reason decoder=$selectedVideoDecoderName policy=$activeDecoderPolicy target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+            "texture-view fallback reason=$reason decoder=$selectedVideoDecoderName policy=$activeVideoDecoderPolicy target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
         )
 
         viewBinder.attachPlayer(null)
@@ -2053,11 +2117,11 @@ class Media3PlayerEngine @Inject constructor(
             )
             return false
         }
-        val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
+        val fallbackMode = audioDecoderPreferencePolicy.onDecoderInitFailure(requestedAudioDecoderMode, mediaId)
         if (
             !shouldAttemptFfmpegAudioFallback(
                 FfmpegAudioFallbackRequest(
-                    requestedMode = requestedDecoderMode,
+                    requestedMode = requestedAudioDecoderMode,
                     extensionAvailable = availability.available,
                     supportedMimeTypes = effectiveSupportedMimeTypes,
                     fallbackMode = fallbackMode
@@ -2124,9 +2188,12 @@ class Media3PlayerEngine @Inject constructor(
 
     private fun buildPlaybackSupportSnapshot(): String = buildString {
         appendLine("StreamVault Playback Support Snapshot")
-        appendLine("requestedDecoderMode=$requestedDecoderMode")
-        appendLine("activeDecoderMode=$activeDecoderMode")
-        appendLine("activeDecoderPolicy=$activeDecoderPolicy")
+        appendLine("requestedAudioDecoderMode=$requestedAudioDecoderMode")
+        appendLine("requestedVideoDecoderMode=$requestedVideoDecoderMode")
+        appendLine("activeAudioDecoderMode=$activeAudioDecoderMode")
+        appendLine("activeVideoDecoderMode=$activeVideoDecoderMode")
+        appendLine("activeAudioDecoderPolicy=$activeAudioDecoderPolicy")
+        appendLine("activeVideoDecoderPolicy=$activeVideoDecoderPolicy")
         appendLine("audioOutputPreference=$audioOutputPreference")
         appendLine("compatibilityDecisionSource=$compatibilityDecisionSource")
         appendLine("ffmpegAvailable=${ffmpegAvailability.available}")
@@ -2149,7 +2216,7 @@ class Media3PlayerEngine @Inject constructor(
     private fun resolveStartupAudioOutputPath(): String = when {
         audioOutputPreference == AudioOutputPreference.PREFER_PASSTHROUGH -> "PASSTHROUGH_PREFERRED"
         audioOutputPreference == AudioOutputPreference.DISABLE_PASSTHROUGH -> "PASSTHROUGH_DISABLED"
-        activeDecoderMode == DecoderMode.SOFTWARE -> "SOFTWARE_PREFERRED"
+        activeAudioDecoderMode == DecoderMode.SOFTWARE -> "SOFTWARE_PREFERRED"
         else -> "AUTO"
     }
 
@@ -2157,7 +2224,7 @@ class Media3PlayerEngine @Inject constructor(
         val normalized = decoderName.lowercase()
         return when {
             "ffmpeg" in normalized -> "FFMPEG_SOFTWARE"
-            activeDecoderMode == DecoderMode.SOFTWARE -> "PLATFORM_SOFTWARE"
+            activeAudioDecoderMode == DecoderMode.SOFTWARE -> "PLATFORM_SOFTWARE"
             else -> "PLATFORM_DECODER"
         }
     }
@@ -2182,36 +2249,32 @@ class Media3PlayerEngine @Inject constructor(
         )
     }
 
-    private fun buildPlaybackRendererPlan(
-        requestedMode: DecoderMode,
-        decoderPolicy: ActiveDecoderPolicy,
-        useAudioVideoSyncSink: Boolean,
-        useVideoRendererWorkaround: Boolean
-    ): PlaybackRendererPlan {
-        val useManagedCodecSelector = requestedMode != DecoderMode.AUTO && decoderPolicy != ActiveDecoderPolicy.AUTO
-        val useEffectiveVideoRendererWorkaround = useVideoRendererWorkaround && requestedMode != DecoderMode.AUTO
-        val renderPath = buildList {
-            if (useAudioVideoSyncSink) add("av-sync-sink")
-            if (useEffectiveVideoRendererWorkaround) add("decoder-reuse-workaround")
-            if (useManagedCodecSelector) add("managed-codec-selector")
-        }.ifEmpty { listOf("stock-media3") }.joinToString("+")
-        return PlaybackRendererPlan(
-            useAudioVideoSyncSink = useAudioVideoSyncSink,
-            useVideoRendererWorkaround = useEffectiveVideoRendererWorkaround,
-            useManagedCodecSelector = useManagedCodecSelector,
-            extensionRendererMode = when (requestedMode) {
-                DecoderMode.AUTO, DecoderMode.HARDWARE -> PlaybackExtensionRendererMode.PLATFORM_FIRST
-                DecoderMode.SOFTWARE, DecoderMode.COMPATIBILITY -> PlaybackExtensionRendererMode.EXTENSIONS_FIRST
-            },
-            renderPath = renderPath
-        )
-    }
-
     private fun shouldAttemptFfmpegAudioFallback(request: FfmpegAudioFallbackRequest): Boolean {
         if (request.requestedMode != DecoderMode.AUTO) return false
         if (!request.extensionAvailable) return false
         if (request.fallbackMode != DecoderMode.SOFTWARE) return false
         return request.supportedMimeTypes.isNotEmpty()
+    }
+
+    private fun forceAmbiguousDecoderSoftwareFallback(
+        audioFallbackMode: DecoderMode?,
+        videoFallbackMode: DecoderMode?
+    ): Boolean {
+        if (!shouldForceSoftwareForAmbiguousDecoderFallback(audioFallbackMode, videoFallbackMode)) {
+            return false
+        }
+        recoveryAudioDecoderModeOverride = DecoderMode.SOFTWARE
+        recoveryVideoDecoderModeOverride = DecoderMode.SOFTWARE
+        recoveryAudioDecoderPolicyOverride = ActiveDecoderPolicy.SOFTWARE_PREFERRED
+        recoveryVideoDecoderPolicyOverride = ActiveDecoderPolicy.SOFTWARE_PREFERRED
+        return true
+    }
+
+    private fun clearDecoderRecoveryOverrides() {
+        recoveryAudioDecoderModeOverride = null
+        recoveryVideoDecoderModeOverride = null
+        recoveryAudioDecoderPolicyOverride = null
+        recoveryVideoDecoderPolicyOverride = null
     }
 
     private fun handlePlaybackSetupFailure(
@@ -2224,20 +2287,27 @@ class Media3PlayerEngine @Inject constructor(
         val category = PlayerErrorClassifier.classify(error)
         Log.e(
             TAG,
-            "prepare-failed category=$category decoderPreference=$activeDecoderMode activePolicy=$activeDecoderPolicy target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}",
+            "prepare-failed category=$category audioDecoderPreference=$activeAudioDecoderMode videoDecoderPreference=$activeVideoDecoderMode audioPolicy=$activeAudioDecoderPolicy videoPolicy=$activeVideoDecoderPolicy target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}",
             error
         )
 
         if (category == PlaybackErrorCategory.DECODER || category == PlaybackErrorCategory.FORMAT_UNSUPPORTED) {
             recordCompatibilityFailure("DECODER_INIT")
-            val fallbackMode = decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
-            if (fallbackMode != null) {
+            val audioFallbackMode = audioDecoderPreferencePolicy.onDecoderInitFailure(
+                requestedAudioDecoderMode,
+                mediaId
+            )
+            val videoFallbackMode = videoDecoderPreferencePolicy.onDecoderInitFailure(
+                requestedVideoDecoderMode,
+                mediaId
+            )
+            if (forceAmbiguousDecoderSoftwareFallback(audioFallbackMode, videoFallbackMode)) {
                 Log.w(
                     TAG,
-                    "decoder-setup fallback=$fallbackMode mediaId=$mediaId target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
+                    "decoder-setup audioFallback=$audioFallbackMode videoFallback=$videoFallbackMode mediaId=$mediaId target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
                 )
                 recreatePlayer()
-                prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = seekPositionMs, autoPlay = autoPlay)
+                prepareInternal(streamInfo, preserveRetryState = true, seekPositionMs = seekPositionMs, autoPlay = autoPlay)
                 return
             }
         }
@@ -2272,15 +2342,26 @@ class Media3PlayerEngine @Inject constructor(
             val fallbackMode = if (keepHardwareForLiveHls) {
                 null
             } else {
-                decoderPreferencePolicy.onDecoderInitFailure(requestedDecoderMode, mediaId)
+                val audioFallbackMode = audioDecoderPreferencePolicy.onDecoderInitFailure(
+                    requestedAudioDecoderMode,
+                    mediaId
+                )
+                val videoFallbackMode = videoDecoderPreferencePolicy.onDecoderInitFailure(
+                    requestedVideoDecoderMode,
+                    mediaId
+                )
+                if (forceAmbiguousDecoderSoftwareFallback(audioFallbackMode, videoFallbackMode)) {
+                    DecoderMode.SOFTWARE
+                } else {
+                    null
+                }
             }
             if (fallbackMode != null) {
                 Log.w(
                     TAG,
                     "decoder-preference fallback=$fallbackMode mediaId=$mediaId target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)}"
                 )
-                activeDecoderMode = fallbackMode
-                prepareInternal(streamInfo, preserveRetryState = false, seekPositionMs = exoPlayer?.currentPosition, autoPlay = true)
+                prepareInternal(streamInfo, preserveRetryState = true, seekPositionMs = exoPlayer?.currentPosition, autoPlay = true)
                 return
             } else if (keepHardwareForLiveHls) {
                 Log.w(

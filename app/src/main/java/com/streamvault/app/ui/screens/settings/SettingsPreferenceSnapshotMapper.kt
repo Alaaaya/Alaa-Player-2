@@ -15,7 +15,8 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         preferredAudioLanguage = snapshot.preferredAudioLanguage,
         playerMediaSessionEnabled = snapshot.playerMediaSessionEnabled,
         playerFastRetryOnTransientFailures = snapshot.playerFastRetryOnTransientFailures,
-        playerDecoderMode = snapshot.playerDecoderMode,
+        playerAudioDecoderMode = snapshot.playerAudioDecoderMode,
+        playerVideoDecoderMode = snapshot.playerVideoDecoderMode,
         playerPlaybackBufferMode = snapshot.playerPlaybackBufferMode,
         playerAudioOutputPreference = snapshot.playerAudioOutputPreference,
         playerCompatibilityMemoryEnabled = snapshot.playerCompatibilityMemoryEnabled,
@@ -40,6 +41,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         ethernetMaxVideoHeight = snapshot.ethernetMaxVideoHeight,
         playerTimeshiftEnabled = snapshot.playerTimeshiftEnabled,
         playerTimeshiftDepthMinutes = snapshot.playerTimeshiftDepthMinutes,
+        playerTimeshiftBackend = snapshot.playerTimeshiftBackend,
         defaultStopPlaybackTimerMinutes = snapshot.defaultStopPlaybackTimerMinutes,
         defaultIdleStandbyTimerMinutes = snapshot.defaultIdleStandbyTimerMinutes,
         lastSpeedTest = snapshot.lastSpeedTestMegabits?.let {
@@ -56,6 +58,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         xtreamBase64TextCompatibility = snapshot.xtreamBase64TextCompatibility,
         liveTvChannelMode = snapshot.liveTvChannelMode,
         showLiveSourceSwitcher = snapshot.showLiveSourceSwitcher,
+        showFavoritesCategory = snapshot.showFavoritesCategory,
         showAllChannelsCategory = snapshot.showAllChannelsCategory,
         showRecentChannelsCategory = snapshot.showRecentChannelsCategory,
         remoteShortcutPreferences = snapshot.remoteShortcutPreferences,
@@ -80,6 +83,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         appUpdate = cachedAppUpdate.copy(
             downloadStatus = appUpdate.downloadStatus,
             downloadedVersionName = appUpdate.downloadedVersionName,
+            installPermissionRequired = appUpdate.installPermissionRequired,
             errorMessage = appUpdate.errorMessage
         )
     )

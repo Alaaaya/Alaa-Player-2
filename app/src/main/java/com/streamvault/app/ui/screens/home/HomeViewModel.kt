@@ -511,6 +511,8 @@ class HomeViewModel @Inject constructor(
                         pinnedCategoryIds = pinnedCategoryIds,
                         hiddenLiveCategories = hiddenLiveCategoriesList
                     )
+                }.combine(preferencesRepository.showFavoritesCategory) { ctx, showFavorites ->
+                    if (!showFavorites) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.FAVORITES }) else ctx
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
                 }.combine(preferencesRepository.showAllChannelsCategory) { ctx, showAll ->
@@ -547,7 +549,10 @@ class HomeViewModel @Inject constructor(
                         val defaultCat = defaultId?.let { id -> categories.find { it.id == id } }
                         val favoritesCat = categories.find { it.id == VirtualCategoryIds.FAVORITES }
 
-                        if (defaultCat != null) selectCategory(defaultCat)
+                        if (defaultCat != null) {
+                            _uiState.update { it.copy(shouldAutoFocusFirstChannelOnEntry = true) }
+                            selectCategory(defaultCat)
+                        }
                         else if (favoritesCat != null) selectCategory(favoritesCat)
                         else selectCategory(categories.first())
                     } else if (currentSelected != null) {
@@ -561,7 +566,10 @@ class HomeViewModel @Inject constructor(
                             val defaultCat = defaultId?.let { id -> categories.find { it.id == id } }
                             val favoritesCat = categories.find { it.id == VirtualCategoryIds.FAVORITES }
 
-                            if (defaultCat != null) selectCategory(defaultCat)
+                            if (defaultCat != null) {
+                                _uiState.update { it.copy(shouldAutoFocusFirstChannelOnEntry = true) }
+                                selectCategory(defaultCat)
+                            }
                             else if (favoritesCat != null) selectCategory(favoritesCat)
                             else if (categories.isNotEmpty()) selectCategory(categories.first())
                         }
@@ -618,6 +626,8 @@ class HomeViewModel @Inject constructor(
                         pinnedCategoryIds = emptySet(),
                         hiddenLiveCategories = emptyList()
                     )
+                }.combine(preferencesRepository.showFavoritesCategory) { ctx, showFavorites ->
+                    if (!showFavorites) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.FAVORITES }) else ctx
                 }.combine(preferencesRepository.showRecentChannelsCategory) { ctx, showRecent ->
                     if (!showRecent) ctx.copy(categories = ctx.categories.filter { it.id != VirtualCategoryIds.RECENT }) else ctx
                 }.combine(preferencesRepository.showAllChannelsCategory) { ctx, showAll ->
@@ -1059,7 +1069,10 @@ class HomeViewModel @Inject constructor(
                     }
                     if (!isActivePreviewSession(previewVersion, channel.id)) return@launch
                     engine.stop()
-                    engine.setDecoderMode(preferencesRepository.playerDecoderMode.first())
+                    engine.setDecoderModes(
+                        audioMode = preferencesRepository.playerAudioDecoderMode.first(),
+                        videoMode = preferencesRepository.playerVideoDecoderMode.first()
+                    )
                     engine.setSurfaceMode(preferencesRepository.playerSurfaceMode.first())
                     engine.setPlaybackBufferMode(preferencesRepository.playerPlaybackBufferMode.first())
                     engine.setFastRetryOnTransientFailures(
@@ -1627,6 +1640,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun consumeInitialChannelFocusRequest() {
+        if (!_uiState.value.shouldAutoFocusFirstChannelOnEntry) return
+        _uiState.update { it.copy(shouldAutoFocusFirstChannelOnEntry = false) }
+    }
+
     fun toggleCategoryLock(category: Category) {
         if (_uiState.value.isCombinedLiveSource) return
         val providerId = _uiState.value.provider?.id ?: return
@@ -1747,6 +1765,10 @@ class HomeViewModel @Inject constructor(
 
     fun setShowAllChannelsCategory(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setShowAllChannelsCategory(enabled) }
+    }
+
+    fun setShowFavoritesCategory(enabled: Boolean) {
+        viewModelScope.launch { preferencesRepository.setShowFavoritesCategory(enabled) }
     }
 
     fun setShowRecentChannelsCategory(enabled: Boolean) {
@@ -2009,6 +2031,7 @@ data class HomeUiState(
     val unlockedCategoryIds: Set<Long> = emptySet(),
     val pinnedCategoryIds: Set<Long> = emptySet(),
     val hiddenLiveCategories: List<Category> = emptyList(),
+    val shouldAutoFocusFirstChannelOnEntry: Boolean = false,
     val selectedCategoryForOptions: Category? = null,
     val isChannelReorderMode: Boolean = false,
     val reorderCategory: Category? = null,

@@ -774,7 +774,9 @@ private fun DashboardUpdateCard(
             )
             Text(
                 text = stringResource(
-                    if (notice.installReady) {
+                    if (notice.installPermissionRequired) {
+                        R.string.dashboard_update_install_permission_required
+                    } else if (notice.installReady) {
                         R.string.dashboard_update_install_ready
                     } else {
                         R.string.dashboard_update_available
@@ -786,14 +788,16 @@ private fun DashboardUpdateCard(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 DashboardActionButton(
                     label = stringResource(
-                        if (notice.installReady) {
+                        if (notice.installPermissionRequired) {
+                            R.string.dashboard_update_allow_installs
+                        } else if (notice.installReady) {
                             R.string.dashboard_update_open_installer
                         } else {
                             R.string.dashboard_update_open_settings
                         }
                     ),
                     onClick = {
-                        if (notice.installReady) {
+                        if (notice.installReady || notice.installPermissionRequired) {
                             onInstallUpdate()
                         } else {
                             onOpenSettings()
