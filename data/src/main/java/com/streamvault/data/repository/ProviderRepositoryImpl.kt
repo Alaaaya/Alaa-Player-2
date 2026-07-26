@@ -3,6 +3,8 @@ package com.streamvault.data.repository
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.StalkerDiscoveryStageEntity
+import com.streamvault.data.local.entity.StalkerIndexJobEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
 import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.mapper.*
@@ -12,6 +14,10 @@ import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
+import com.streamvault.data.remote.stalker.StalkerPortalStateStore
+import com.streamvault.data.remote.stalker.StalkerCompatibilityRegistry
+import com.streamvault.data.remote.stalker.StalkerApiError
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.security.CredentialCrypto
@@ -38,6 +44,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.net.URI
+import java.util.UUID
 import java.util.logging.Logger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -61,7 +70,13 @@ class ProviderRepositoryImpl @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val recordingAlarmScheduler: RecordingAlarmScheduler,
     private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler,
-    private val jellyfinProvider: JellyfinProvider
+    private val jellyfinProvider: JellyfinProvider,
+    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver,
+    private val stalkerIndexJobDao: StalkerIndexJobDao,
+    private val stalkerPortalStateStore: StalkerPortalStateStore,
+    private val movieCategoryHydrationDao: MovieCategoryHydrationDao,
+    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
+    private val stalkerDiscoveryStageDao: StalkerDiscoveryStageDao? = null
 ) : ProviderRepository {
     private companion object {
         const val XTREAM_GUIDE_BATCH_CONCURRENCY = 4
@@ -71,7 +86,9 @@ class ProviderRepositoryImpl @Inject constructor(
         const val ALARM_STEP_WEIGHT = 5
         const val PROVIDER_ROW_STEP_WEIGHT = 200
         const val FINALIZE_STEP_WEIGHT = 200
+        const val STALKER_DISCOVERY_STAGE_TTL_MILLIS = 60L * 60L * 1000L
         val logger: Logger = Logger.getLogger(ProviderRepositoryImpl::class.java.name)
+        val STALKER_URL_SCHEME_REGEX = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")
     }
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -94,9 +111,50 @@ class ProviderRepositoryImpl @Inject constructor(
 
     override suspend fun updateProvider(provider: Provider): Result<Unit> = try {
         providerDao.update(provider.toSecureEntity())
+        if (provider.type == ProviderType.STALKER_PORTAL) {
+            stalkerPortalStateStore.invalidate(provider.id)
+        }
+        if (provider.type == ProviderType.STALKER_PORTAL &&
+            provider.stalkerCatalogMode == StalkerCatalogMode.ON_DEMAND
+        ) {
+            stalkerIndexJobDao.disableForProvider(provider.id, System.currentTimeMillis())
+            syncManager.cancelStalkerIndexSync(provider.id)
+        }
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to update provider: ${e.message}", e)
+    }
+
+    override suspend fun buildStalkerSearchIndexOnce(providerId: Long): Result<Unit> {
+        return try {
+            val provider = providerDao.getById(providerId)
+                ?: return Result.error("Provider not found")
+            if (provider.type != ProviderType.STALKER_PORTAL) {
+                return Result.error("Complete search indexing is only available for Stalker providers")
+            }
+            val now = System.currentTimeMillis()
+            transactionRunner.inTransaction {
+                // A manual rebuild is an explicit retry of every category, including rows
+                // previously marked COMPLETE, TRUNCATED, or terminally failed. Keep the
+                // current searchable content visible while resetting only crawl progress.
+                movieCategoryHydrationDao.deleteByProvider(providerId)
+                seriesCategoryHydrationDao.deleteByProvider(providerId)
+                listOf(ContentType.MOVIE, ContentType.SERIES).forEach { section ->
+                    stalkerIndexJobDao.upsert(
+                        StalkerIndexJobEntity(
+                            providerId = providerId,
+                            section = section,
+                            state = StalkerIndexState.QUEUED,
+                            updatedAt = now
+                        )
+                    )
+                }
+            }
+            syncManager.scheduleStalkerIndexSync(providerId, force = false)
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Result.error("Failed to queue the complete Stalker search index", error)
+        }
     }
 
     override suspend fun getAllProviderCredentials(): List<ProviderCredentials> {
@@ -125,6 +183,9 @@ class ProviderRepositoryImpl @Inject constructor(
         } ?: return false
         val encrypted = credentialCrypto.encryptIfNeeded(cleartextPassword)
         providerDao.update(entity.copy(password = encrypted))
+        if (entity.type == ProviderType.STALKER_PORTAL) {
+            stalkerPortalStateStore.invalidate(entity.id)
+        }
         return true
     }
 
@@ -283,6 +344,7 @@ class ProviderRepositoryImpl @Inject constructor(
         )
         return when (val authResult = provider.authenticate()) {
             is Result.Success -> {
+                onProgress?.invoke("Profile accepted; catalog validated")
                 val providerData = if (existingProvider != null) {
                     onProgress?.invoke("Updating existing provider...")
                     val updated = authResult.data.copy(
@@ -304,6 +366,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         createdAt = existingProvider.createdAt
                     )
                     providerDao.update(updated.toSecureEntity())
+                    stalkerPortalStateStore.invalidate(existingProvider.id)
                     updated.copy(password = "")
                 } else {
                     val newData = authResult.data.copy(
@@ -320,6 +383,11 @@ class ProviderRepositoryImpl @Inject constructor(
                     )
                     val newId = providerDao.insert(newData.toSecureEntity())
                     newData.copy(id = newId).copy(password = "")
+                }
+
+                if (providerData.stalkerCatalogMode == StalkerCatalogMode.ON_DEMAND) {
+                    stalkerIndexJobDao.disableForProvider(providerData.id, System.currentTimeMillis())
+                    syncManager.cancelStalkerIndexSync(providerData.id)
                 }
 
                 handleInitialOnboardingSync(
@@ -559,7 +627,13 @@ class ProviderRepositoryImpl @Inject constructor(
         deviceId2: String,
         signature: String,
         stalkerAdvancedOptionsJson: String,
+        protocolPreference: StalkerProtocolPreference,
+        transportGrant: StalkerTransportGrant?,
+        saveWithoutVerification: Boolean,
+        repairConnection: Boolean,
+        requestedProfileId: String,
         epgSyncMode: ProviderEpgSyncMode,
+        catalogMode: StalkerCatalogMode,
         guideSourcePolicy: GuideSourcePolicy,
         channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
@@ -569,7 +643,13 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedMacAddress = ProviderInputSanitizer.normalizeMacAddress(macAddress)
         val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
         val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
-        val resolvedPortalUrl = ProviderInputSanitizer.resolveUrlProtocol(normalizedPortalUrl)
+        val inputHasScheme = STALKER_URL_SCHEME_REGEX.containsMatchIn(normalizedPortalUrl)
+        val resolvedPortalUrl = when {
+            inputHasScheme -> normalizedPortalUrl
+            transportGrant?.mode == StalkerTransportMode.USER_ACCEPTED_HTTP ->
+                "http://$normalizedPortalUrl"
+            else -> "https://$normalizedPortalUrl"
+        }
         val normalizedDeviceProfile = ProviderInputSanitizer.normalizeDeviceProfile(deviceProfile)
         val normalizedTimezone = ProviderInputSanitizer.normalizeTimezone(timezone)
         val normalizedLocale = ProviderInputSanitizer.normalizeLocale(locale)
@@ -578,6 +658,21 @@ class ProviderRepositoryImpl @Inject constructor(
         val normalizedDeviceId2 = ProviderInputSanitizer.normalizeStalkerDeviceId(deviceId2)
         val normalizedSignature = ProviderInputSanitizer.normalizeStalkerSignature(signature)
         val normalizedAdvancedOptionsJson = stalkerAdvancedOptionsJson.trim()
+
+        if (protocolPreference == StalkerProtocolPreference.MINISTRA_API_V3) {
+            return Result.error(
+                "This portal requires the licensed Ministra API-v3 flow. API-v3 activation is isolated from classic MAG and needs provider-issued OAuth/license configuration."
+            )
+        }
+        val requestedCompatibility = StalkerCompatibilityRegistry.find(requestedProfileId)
+        if (requestedCompatibility?.identityStrategy ==
+            com.streamvault.data.remote.stalker.StalkerIdentityStrategy.MANUAL_FIELDS_REQUIRED &&
+            normalizedSerialNumber.isBlank() && normalizedDeviceId.isBlank() && normalizedSignature.isBlank()
+        ) {
+            return Result.error(
+                "${requestedCompatibility.displayName} is experimental and has no verified hardware UID algorithm. Enter captured serial/device identity fields or use Automatic."
+            )
+        }
 
         ProviderInputSanitizer.validateUrl(resolvedPortalUrl)?.let { message ->
             return Result.error(message)
@@ -591,7 +686,9 @@ class ProviderRepositoryImpl @Inject constructor(
             }
         }
 
-        onProgress?.invoke("Authenticating...")
+        val requestedProfileLabel = StalkerCompatibilityRegistry.find(requestedProfileId)?.displayName
+            ?: "Automatic MAG compatibility"
+        onProgress?.invoke("Trying $requestedProfileLabel")
         val existingProvider = if (id != null) {
             // Edit path: check that the new normalized identity does not collide with a
             // different provider before we commit the update.
@@ -610,9 +707,25 @@ class ProviderRepositoryImpl @Inject constructor(
         } catch (e: CredentialDecryptionException) {
             return Result.error(e.message ?: CredentialDecryptionException.MESSAGE, e)
         }
+        val effectiveTransportGrant = transportGrant
+            ?: existingProvider?.toStalkerTransportGrant()
+            ?: resolvedPortalUrl.toStalkerOrigin()
+                ?.takeIf { it.scheme == "https" }
+                ?.let { origin ->
+                    StalkerTransportGrant(
+                        mode = StalkerTransportMode.VERIFIED_HTTPS,
+                        origin = origin,
+                        consentedAt = 0L
+                    )
+                }
+        val previousPortalState = existingProvider?.let {
+            stalkerPortalStateStore.get(it.id)
+        }
 
-        val provider = createStalkerProvider(
-            providerId = 0L,
+        fun discoveryProvider(requireLiveReadiness: Boolean) = createStalkerProvider(
+            // Ordinary edits validate with the learned identity. Only a new provider or
+            // the explicit Repair connection action may rotate compatibility profiles.
+            providerId = if (existingProvider == null || repairConnection) 0L else existingProvider.id,
             portalUrl = resolvedPortalUrl,
             macAddress = normalizedMacAddress,
             authMode = authMode,
@@ -627,14 +740,55 @@ class ProviderRepositoryImpl @Inject constructor(
             deviceId = normalizedDeviceId,
             deviceId2 = normalizedDeviceId2,
             signature = normalizedSignature,
-            stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson
+            stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
+            protocolPreference = protocolPreference,
+            transportGrant = effectiveTransportGrant,
+            requestedProfileId = requestedProfileId,
+            requireCatalogValidation = requireLiveReadiness,
+            onProgress = onProgress
         )
 
-        return when (val authResult = provider.authenticate()) {
+        var authenticatedProvider = discoveryProvider(requireLiveReadiness = true)
+        var authResult = authenticatedProvider.authenticate()
+        var acceptedWithoutVerification = false
+        val readinessWasInconclusive = (authResult as? Result.Error)?.exception
+            ?.let { failure ->
+                generateSequence(failure) { it.cause }
+                    .filterIsInstance<StalkerApiError.ReadinessInconclusive>()
+                    .firstOrNull()
+            }
+        if (saveWithoutVerification && readinessWasInconclusive != null) {
+            onProgress?.invoke("Authentication confirmed; saving with Live TV verification pending")
+            authenticatedProvider = discoveryProvider(requireLiveReadiness = false)
+            authResult = authenticatedProvider.authenticate()
+            acceptedWithoutVerification = authResult is Result.Success
+        }
+
+        return when (val finalAuthResult = authResult) {
             is Result.Success -> {
+                val validatedSnapshot = authenticatedProvider.validatedAuthenticationSnapshot()
+                val discoverySummary = validatedSnapshot?.toSanitizedDiscoverySummary().orEmpty()
+                val capabilitySummary = validatedSnapshot?.second
+                    ?.toSanitizedCapabilitySummary()
+                    .orEmpty()
+                val discoveryId = UUID.randomUUID().toString()
+                val stagedAt = System.currentTimeMillis()
+                stalkerDiscoveryStageDao?.deleteOlderThan(
+                    stagedAt - STALKER_DISCOVERY_STAGE_TTL_MILLIS
+                )
+                stalkerDiscoveryStageDao?.upsert(
+                    StalkerDiscoveryStageEntity(
+                        discoveryId = discoveryId,
+                        providerId = existingProvider?.id,
+                        configurationGeneration =
+                            (existingProvider?.stalkerConfigurationGeneration ?: 0L) + 1L,
+                        sanitizedSummary = discoverySummary,
+                        createdAt = stagedAt
+                    )
+                )
                 val providerData = if (existingProvider != null) {
                     onProgress?.invoke("Updating existing provider...")
-                    val updated = authResult.data.copy(
+                    val updated = finalAuthResult.data.copy(
                         id = existingProvider.id,
                         name = normalizedName.ifBlank { existingProvider.name },
                         serverUrl = resolvedPortalUrl,
@@ -643,7 +797,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         httpUserAgent = httpUserAgent,
                         httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
-                        stalkerDeviceProfile = normalizedDeviceProfile,
+                        stalkerDeviceProfile = finalAuthResult.data.stalkerDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
                         stalkerDeviceLocale = normalizedLocale,
                         stalkerSerialNumber = normalizedSerialNumber,
@@ -651,8 +805,22 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
+                        stalkerProtocolPreference = protocolPreference,
+                        stalkerTransportMode = effectiveTransportGrant?.mode
+                            ?: StalkerTransportMode.VERIFIED_HTTPS,
+                        stalkerTransportOrigin = effectiveTransportGrant?.origin
+                            ?.toPersistenceValue()
+                            ?: resolvedPortalUrl.toStalkerOrigin()?.toPersistenceValue().orEmpty(),
+                        stalkerTlsSpkiSha256 = effectiveTransportGrant?.spkiSha256.orEmpty(),
+                        stalkerTransportConsentAt = effectiveTransportGrant?.consentedAt ?: 0L,
+                        stalkerConfigurationGeneration =
+                            existingProvider.stalkerConfigurationGeneration + 1L,
+                        stalkerDiscoverySummary = discoverySummary,
+                        stalkerCapabilitiesJson = capabilitySummary,
+                        stalkerRequestedProfileId = requestedProfileId,
                         epgUrl = existingProvider.epgUrl,
                         epgSyncMode = epgSyncMode,
+                        stalkerCatalogMode = catalogMode,
                         guideSourcePolicy = guideSourcePolicy,
                         channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
@@ -662,18 +830,28 @@ class ProviderRepositoryImpl @Inject constructor(
                         lastSyncedAt = 0L,
                         createdAt = existingProvider.createdAt
                     )
-                    providerDao.update(updated.toSecureEntity())
+                    transactionRunner.inTransaction {
+                        providerDao.update(updated.toSecureEntity())
+                        validatedSnapshot?.let { (session, validatedProfile) ->
+                            stalkerPortalStateStore.recordAuthentication(
+                                providerId = updated.id,
+                                session = session,
+                                profile = validatedProfile
+                            )
+                        }
+                        stalkerDiscoveryStageDao?.delete(discoveryId)
+                    }
                     updated.copy(password = "")
                 } else {
-                    val newData = authResult.data.copy(
-                        name = normalizedName.ifBlank { authResult.data.name },
+                    val newData = finalAuthResult.data.copy(
+                        name = normalizedName.ifBlank { finalAuthResult.data.name },
                         serverUrl = resolvedPortalUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
                         httpUserAgent = httpUserAgent,
                         httpHeaders = httpHeaders,
                         stalkerMacAddress = normalizedMacAddress,
-                        stalkerDeviceProfile = normalizedDeviceProfile,
+                        stalkerDeviceProfile = finalAuthResult.data.stalkerDeviceProfile,
                         stalkerDeviceTimezone = normalizedTimezone,
                         stalkerDeviceLocale = normalizedLocale,
                         stalkerSerialNumber = normalizedSerialNumber,
@@ -681,7 +859,20 @@ class ProviderRepositoryImpl @Inject constructor(
                         stalkerDeviceId2 = normalizedDeviceId2,
                         stalkerSignature = normalizedSignature,
                         stalkerAdvancedOptionsJson = normalizedAdvancedOptionsJson,
+                        stalkerProtocolPreference = protocolPreference,
+                        stalkerTransportMode = effectiveTransportGrant?.mode
+                            ?: StalkerTransportMode.VERIFIED_HTTPS,
+                        stalkerTransportOrigin = effectiveTransportGrant?.origin
+                            ?.toPersistenceValue()
+                            ?: resolvedPortalUrl.toStalkerOrigin()?.toPersistenceValue().orEmpty(),
+                        stalkerTlsSpkiSha256 = effectiveTransportGrant?.spkiSha256.orEmpty(),
+                        stalkerTransportConsentAt = effectiveTransportGrant?.consentedAt ?: 0L,
+                        stalkerConfigurationGeneration = 1L,
+                        stalkerDiscoverySummary = discoverySummary,
+                        stalkerCapabilitiesJson = capabilitySummary,
+                        stalkerRequestedProfileId = requestedProfileId,
                         epgSyncMode = epgSyncMode,
+                        stalkerCatalogMode = catalogMode,
                         guideSourcePolicy = guideSourcePolicy,
                         channelLogoSourcePolicy = channelLogoSourcePolicy,
                         xtreamFastSyncEnabled = false,
@@ -689,17 +880,93 @@ class ProviderRepositoryImpl @Inject constructor(
                         isActive = false,
                         status = ProviderStatus.PARTIAL
                     )
-                    val newId = providerDao.insert(newData.toSecureEntity())
+                    val newId = transactionRunner.inTransaction {
+                        val insertedId = providerDao.insert(newData.toSecureEntity())
+                        validatedSnapshot?.let { (session, validatedProfile) ->
+                            stalkerPortalStateStore.recordAuthentication(
+                                providerId = insertedId,
+                                session = session,
+                                profile = validatedProfile
+                            )
+                        }
+                        stalkerDiscoveryStageDao?.delete(discoveryId)
+                        insertedId
+                    }
                     newData.copy(id = newId).copy(password = "")
                 }
 
-                handleInitialOnboardingSync(
-                    providerData = providerData,
-                    syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress),
-                    syncFailurePrefix = "Provider login succeeded, but initial sync failed. The provider was saved and can be retried from Settings"
-                )
+                val onboardingResult = if (acceptedWithoutVerification) {
+                    syncManager.scheduleProviderSyncResume(
+                        providerData.id,
+                        providerData.stalkerConfigurationGeneration
+                    )
+                    val message =
+                        "Provider saved with Live TV verification pending. It needs a successful sync before activation."
+                    Result.error(
+                        message,
+                        ProviderSavedWithSyncErrorException(
+                            provider = providerData.copy(
+                                status = ProviderStatus.PARTIAL,
+                                isActive = false
+                            ),
+                            message = message
+                        )
+                    )
+                } else {
+                    handleInitialOnboardingSync(
+                        providerData = providerData,
+                        syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress),
+                        syncFailurePrefix = "Provider login succeeded, but initial sync failed. The provider was saved and can be retried from Settings"
+                    )
+                }
+                if (existingProvider != null && onboardingResult is Result.Error && !acceptedWithoutVerification) {
+                    transactionRunner.inTransaction {
+                        providerDao.update(existingProvider)
+                        stalkerPortalStateStore.restore(existingProvider.id, previousPortalState)
+                    }
+                    Result.error(
+                        "The new Stalker settings were not saved because initial readiness failed. The previous provider configuration is still active.",
+                        onboardingResult.exception?.cause ?: onboardingResult.exception
+                    )
+                } else {
+                    onboardingResult
+                }
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
+            is Result.Error -> {
+                val consent = (finalAuthResult.exception as? StalkerApiError.TransportConsentRequired)
+                    ?.let { StalkerTransportConsentRequiredException(it.challenge) }
+                if (consent != null) {
+                    Result.error(consent.message.orEmpty(), consent)
+                } else if (finalAuthResult.exception is StalkerApiError.ReadinessInconclusive) {
+                    val inconclusive = finalAuthResult.exception as StalkerApiError.ReadinessInconclusive
+                    val required = StalkerReadinessInconclusiveException(
+                        evidenceCode = inconclusive.evidenceCode,
+                        message = "Authentication succeeded, but Live TV could not be verified. You can go back or save this provider with verification pending.",
+                        cause = inconclusive
+                    )
+                    Result.error(required.message.orEmpty(), required)
+                } else if (!inputHasScheme && finalAuthResult.exception.isNonTlsTransportFailure()) {
+                    val httpOrigin = "http://$normalizedPortalUrl".toStalkerOrigin()
+                    if (httpOrigin != null) {
+                        val challenge = StalkerTransportChallenge(
+                            reason = StalkerTransportChallengeReason.CLEARTEXT_HTTP,
+                            origin = httpOrigin,
+                            displayHost = if (httpOrigin.port == 80) {
+                                httpOrigin.host
+                            } else {
+                                "${httpOrigin.host}:${httpOrigin.port}"
+                            },
+                            detailCode = "HTTPS_UNAVAILABLE_HTTP_FALLBACK"
+                        )
+                        val required = StalkerTransportConsentRequiredException(challenge)
+                        Result.error(required.message.orEmpty(), required)
+                    } else {
+                        Result.error(finalAuthResult.message, finalAuthResult.exception)
+                    }
+                } else {
+                    Result.error(finalAuthResult.message, finalAuthResult.exception)
+                }
+            }
             is Result.Loading -> Result.error("Unexpected loading state")
         }
     }
@@ -728,7 +995,12 @@ class ProviderRepositoryImpl @Inject constructor(
                     lastSyncedAt = System.currentTimeMillis(),
                     isActive = false
                 )
-                syncManager.scheduleProviderSyncResume(providerData.id)
+                syncManager.scheduleProviderSyncResume(
+                    providerData.id,
+                    providerData.stalkerConfigurationGeneration.takeIf {
+                        providerData.type == ProviderType.STALKER_PORTAL
+                    }
+                )
                 val message = "$syncFailurePrefix: Sync did not finish with any committed content."
                 Result.error(
                     message,
@@ -750,7 +1022,12 @@ class ProviderRepositoryImpl @Inject constructor(
         }
         is Result.Error -> {
             updateProviderSyncStatus(providerData.id, ProviderStatus.PARTIAL, isActive = false)
-            syncManager.scheduleProviderSyncResume(providerData.id)
+            syncManager.scheduleProviderSyncResume(
+                providerData.id,
+                providerData.stalkerConfigurationGeneration.takeIf {
+                    providerData.type == ProviderType.STALKER_PORTAL
+                }
+            )
             val message = "$syncFailurePrefix: ${syncResult.message}"
             Result.error(
                 message,
@@ -774,6 +1051,9 @@ class ProviderRepositoryImpl @Inject constructor(
         epgSyncModeOverride: ProviderEpgSyncMode?,
         onProgress: ((String) -> Unit)?
     ): Result<Unit> {
+        if (force && providerDao.getById(providerId)?.type == ProviderType.STALKER_PORTAL) {
+            stalkerPortalStateStore.invalidateCapabilities(providerId)
+        }
         return when (
             val syncResult = syncManager.sync(
                 providerId,
@@ -1032,7 +1312,13 @@ class ProviderRepositoryImpl @Inject constructor(
         deviceId: String = "",
         deviceId2: String = "",
         signature: String = "",
-        stalkerAdvancedOptionsJson: String = ""
+        stalkerAdvancedOptionsJson: String = "",
+        protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+        transportGrant: StalkerTransportGrant? = null,
+        requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
+        learnedProfileId: String = "",
+        requireCatalogValidation: Boolean = true,
+        onProgress: ((String) -> Unit)? = null
     ): StalkerProvider {
         return StalkerProvider(
             providerId = providerId,
@@ -1059,7 +1345,15 @@ class ProviderRepositoryImpl @Inject constructor(
             deviceId = deviceId,
             deviceId2 = deviceId2,
             signature = signature,
-            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson
+            stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
+            protocolPreference = protocolPreference,
+            transportGrant = transportGrant,
+            requestedProfileId = requestedProfileId,
+            learnedProfileId = learnedProfileId,
+            requireCatalogValidation = requireCatalogValidation,
+            identityResolver = stalkerRemoteIdentityResolver,
+            portalStateStore = stalkerPortalStateStore,
+            onProgress = onProgress
         )
     }
 
@@ -1093,7 +1387,11 @@ class ProviderRepositoryImpl @Inject constructor(
             deviceId = entity.stalkerDeviceId,
             deviceId2 = entity.stalkerDeviceId2,
             signature = entity.stalkerSignature,
-            stalkerAdvancedOptionsJson = entity.stalkerAdvancedOptionsJson
+            stalkerAdvancedOptionsJson = entity.stalkerAdvancedOptionsJson,
+            protocolPreference = entity.stalkerProtocolPreference,
+            transportGrant = entity.toStalkerTransportGrant(),
+            requestedProfileId = entity.stalkerRequestedProfileId,
+            learnedProfileId = entity.stalkerLearnedProfileId
         )
     }
 
@@ -1264,6 +1562,92 @@ class ProviderRepositoryImpl @Inject constructor(
         GuideSourcePolicy.PROVIDER_ONLY -> true
         GuideSourcePolicy.EXTERNAL_ONLY,
         GuideSourcePolicy.DISABLED -> provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL
+    }
+}
+
+private fun ProviderEntity.toStalkerTransportGrant(): StalkerTransportGrant? {
+    if (stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_HTTP &&
+        stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS &&
+        stalkerTransportMode != StalkerTransportMode.VERIFIED_HTTPS
+    ) {
+        return null
+    }
+    val origin = stalkerTransportOrigin.toStalkerOrigin()
+        ?: serverUrl.toStalkerOrigin()
+        ?: return null
+    val pin = stalkerTlsSpkiSha256.takeIf(String::isNotBlank)
+    if (stalkerTransportMode == StalkerTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS && pin == null) {
+        return null
+    }
+    return StalkerTransportGrant(
+        mode = stalkerTransportMode,
+        origin = origin,
+        spkiSha256 = pin,
+        consentedAt = stalkerTransportConsentAt
+    )
+}
+
+private fun String.toStalkerOrigin(): StalkerTransportOrigin? {
+    val uri = runCatching { URI(trim()) }.getOrNull() ?: return null
+    val scheme = uri.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: return null
+    val host = uri.host?.lowercase()?.takeIf(String::isNotBlank) ?: return null
+    val port = when {
+        uri.port != -1 -> uri.port
+        scheme == "https" -> 443
+        else -> 80
+    }
+    return StalkerTransportOrigin(scheme, host, port)
+}
+
+private fun StalkerTransportOrigin.toPersistenceValue(): String =
+    authority
+
+private fun Throwable?.isNonTlsTransportFailure(): Boolean {
+    val chain = generateSequence(this) { it.cause }.toList()
+    if (chain.any {
+            it is StalkerApiError &&
+                it !is StalkerApiError.Transport &&
+                it !is StalkerApiError.TransportConsentRequired
+        }
+    ) {
+        return false
+    }
+    if (chain.any { it is StalkerApiError.TransportConsentRequired }) return false
+    return chain.any { it is StalkerApiError.Transport || it is IOException }
+}
+
+private fun Pair<
+    com.streamvault.data.remote.stalker.StalkerSession,
+    com.streamvault.data.remote.stalker.StalkerProviderProfile
+>.toSanitizedDiscoverySummary(): String {
+    val session = first
+    val endpoint = when {
+        session.loadUrl.endsWith("/portal.php", ignoreCase = true) -> "PORTAL_PHP"
+        session.loadUrl.endsWith("/server/load.php", ignoreCase = true) -> "SERVER_LOAD"
+        else -> "CUSTOM_RPC"
+    }
+    val profile = session.compatibilityProfileId
+        .uppercase()
+        .filter { it.isLetterOrDigit() || it == '.' || it == '_' || it == '-' }
+        .take(64)
+        .ifBlank { "UNKNOWN" }
+    return "AUTHENTICATED;LIVE=SUPPORTED;ENDPOINT=$endpoint;PROFILE=$profile"
+}
+
+private fun com.streamvault.data.remote.stalker.StalkerProviderProfile
+    .toSanitizedCapabilitySummary(): String {
+    val capabilities = portalCapabilities
+    val archive = if (capabilities.archiveAvailable) "SUPPORTED" else "NOT_PROBED"
+    val modules = if (capabilities.moduleRestricted) "RESTRICTED" else "SUPPORTED"
+    return buildString {
+        append('{')
+        append("\"LIVE\":\"SUPPORTED\",")
+        append("\"VOD\":\"NOT_PROBED\",")
+        append("\"SERIES\":\"NOT_PROBED\",")
+        append("\"ARCHIVE\":\"").append(archive).append("\",")
+        append("\"EPG\":\"NOT_PROBED\",")
+        append("\"ACCOUNT_MODULES\":\"").append(modules).append("\"")
+        append('}')
     }
 }
 

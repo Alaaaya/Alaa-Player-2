@@ -19,6 +19,16 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerReadinessInconclusiveException
+import com.streamvault.domain.model.StalkerTransportChallenge
+import com.streamvault.domain.model.StalkerTransportChallengeReason
+import com.streamvault.domain.model.StalkerTransportConsentRequiredException
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.StalkerTransportOrigin
 import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
 import kotlinx.coroutines.flow.Flow
@@ -484,6 +494,95 @@ class ValidateAndAddProviderTest {
             )
         )
     }
+
+    @Test
+    fun `maps Stalker transport challenge without retaining credentials in a token`() = runTest {
+        val challenge = StalkerTransportChallenge(
+            reason = StalkerTransportChallengeReason.CLEARTEXT_HTTP,
+            origin = StalkerTransportOrigin("http", "portal.example.com", 80),
+            displayHost = "portal.example.com",
+            detailCode = "CLEARTEXT_REQUIRES_CONSENT"
+        )
+        val repository = FakeProviderRepository().apply {
+            stalkerResult = Result.error(
+                "Transport consent required",
+                StalkerTransportConsentRequiredException(challenge)
+            )
+        }
+        val useCase = ValidateAndAddProvider(
+            providerSetupInputValidator = FakeProviderSetupInputValidator(),
+            providerRepository = repository
+        )
+
+        val result = useCase.loginStalker(
+            StalkerProviderSetupCommand(
+                portalUrl = "http://portal.example.com",
+                macAddress = "00:1A:79:12:34:56",
+                name = "MAG",
+                password = "must-not-be-in-challenge"
+            )
+        )
+
+        assertThat(result).isEqualTo(
+            ValidateAndAddProviderResult.TransportConsentRequired(challenge)
+        )
+        val consentResult = result as ValidateAndAddProviderResult.TransportConsentRequired
+        assertThat(consentResult.challenge.toString()).doesNotContain("must-not-be-in-challenge")
+    }
+
+    @Test
+    fun `maps authenticated but inconclusive Live readiness to explicit save choice`() = runTest {
+        val repository = FakeProviderRepository().apply {
+            stalkerResult = Result.error(
+                "Live readiness inconclusive",
+                StalkerReadinessInconclusiveException(
+                    evidenceCode = "LIVE_BUDGET_EXHAUSTED",
+                    message = "Authentication succeeded, but Live TV could not be verified."
+                )
+            )
+        }
+        val useCase = ValidateAndAddProvider(
+            providerSetupInputValidator = FakeProviderSetupInputValidator(),
+            providerRepository = repository
+        )
+
+        val result = useCase.loginStalker(
+            StalkerProviderSetupCommand(
+                portalUrl = "https://portal.example.com",
+                macAddress = "00:1A:79:12:34:56",
+                name = "MAG",
+                saveWithoutVerification = true
+            )
+        )
+
+        assertThat(result).isEqualTo(
+            ValidateAndAddProviderResult.VerificationInconclusive(
+                "Authentication succeeded, but Live TV could not be verified."
+            )
+        )
+        assertThat(repository.lastStalkerCall?.saveWithoutVerification).isTrue()
+    }
+
+    @Test
+    fun `passes explicit repair connection permission to repository`() = runTest {
+        val repository = FakeProviderRepository()
+        val useCase = ValidateAndAddProvider(
+            providerSetupInputValidator = FakeProviderSetupInputValidator(),
+            providerRepository = repository
+        )
+
+        useCase.loginStalker(
+            StalkerProviderSetupCommand(
+                portalUrl = "https://portal.example.com",
+                macAddress = "00:1A:79:12:34:56",
+                name = "MAG",
+                existingProviderId = 42L,
+                repairConnection = true
+            )
+        )
+
+        assertThat(repository.lastStalkerCall?.repairConnection).isTrue()
+    }
 }
 
 private class FakeProviderSetupInputValidator(
@@ -626,6 +725,11 @@ private data class StalkerCall(
     val deviceId2: String = "",
     val signature: String = "",
     val stalkerAdvancedOptionsJson: String = "",
+    val protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+    val transportGrant: StalkerTransportGrant? = null,
+    val saveWithoutVerification: Boolean = false,
+    val repairConnection: Boolean = false,
+    val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
     val epgSyncMode: ProviderEpgSyncMode,
     val id: Long?
 )
@@ -712,7 +816,13 @@ private class FakeProviderRepository : ProviderRepository {
         deviceId2: String,
         signature: String,
         stalkerAdvancedOptionsJson: String,
+        protocolPreference: StalkerProtocolPreference,
+        transportGrant: StalkerTransportGrant?,
+        saveWithoutVerification: Boolean,
+        repairConnection: Boolean,
+        requestedProfileId: String,
         epgSyncMode: ProviderEpgSyncMode,
+        catalogMode: StalkerCatalogMode,
         guideSourcePolicy: GuideSourcePolicy,
         channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,
@@ -735,6 +845,11 @@ private class FakeProviderRepository : ProviderRepository {
             deviceId2 = deviceId2,
             signature = signature,
             stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
+            protocolPreference = protocolPreference,
+            transportGrant = transportGrant,
+            saveWithoutVerification = saveWithoutVerification,
+            repairConnection = repairConnection,
+            requestedProfileId = requestedProfileId,
             epgSyncMode = epgSyncMode,
             id = id
         )

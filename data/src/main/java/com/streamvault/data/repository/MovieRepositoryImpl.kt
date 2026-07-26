@@ -22,6 +22,11 @@ import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
+import com.streamvault.data.remote.stalker.StalkerRequestCoordinator
+import com.streamvault.data.remote.stalker.StalkerRequestDescriptor
+import com.streamvault.data.remote.stalker.StalkerResponseMetrics
+import com.streamvault.data.remote.stalker.StalkerPortalStateStore
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
@@ -47,6 +52,7 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Result.Success
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
+import com.streamvault.domain.model.StalkerRequestPriority
 import com.streamvault.domain.model.VodDuplicateConfidence
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodMovieVariant
@@ -94,7 +100,10 @@ class MovieRepositoryImpl @Inject constructor(
     private val xtreamContentIndexDao: XtreamContentIndexDao,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
-    private val transactionRunner: DatabaseTransactionRunner
+    private val transactionRunner: DatabaseTransactionRunner,
+    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver,
+    private val stalkerRequestCoordinator: StalkerRequestCoordinator,
+    private val stalkerPortalStateStore: StalkerPortalStateStore
 ) : MovieRepository {
     private companion object {
         const val TAG = "MovieRepository"
@@ -107,6 +116,8 @@ class MovieRepositoryImpl @Inject constructor(
         const val CURSOR_BATCH_SIZE = 40
         const val STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD = 24
         const val STALKER_PREVIEW_MAX_REMOTE_PAGES = 2
+        const val STALKER_INITIAL_CATEGORY_FILL_COUNT = 40
+        const val STALKER_INITIAL_CATEGORY_MAX_REMOTE_PAGES = 4
         const val DETAIL_REFRESH_TTL_MILLIS = 14L * 24L * 60L * 60L * 1000L
         const val CACHE_STATE_SUMMARY_ONLY = "SUMMARY_ONLY"
         const val CACHE_STATE_DETAIL_HYDRATED = "DETAIL_HYDRATED"
@@ -183,7 +194,13 @@ class MovieRepositoryImpl @Inject constructor(
         limit: Int,
         offset: Int
     ): Flow<List<Movie>> = flow {
-        ensureXtreamCategoryLoaded(providerId, categoryId, fetchIfMissing = true, refreshStaleInBackground = true)
+        ensureXtreamCategoryLoaded(
+            providerId,
+            categoryId,
+            fetchIfMissing = true,
+            refreshStaleInBackground = true,
+            requiredCount = offset + limit
+        )
         emitAll(
             combine(
                 movieDao.getByCategoryPage(providerId, categoryId, limit, offset),
@@ -203,7 +220,13 @@ class MovieRepositoryImpl @Inject constructor(
 
     override fun getMoviesByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<Movie>> =
         flow {
-            ensureXtreamCategoryLoaded(providerId, categoryId, fetchIfMissing = true, refreshStaleInBackground = true)
+            ensureXtreamCategoryLoaded(
+                providerId,
+                categoryId,
+                fetchIfMissing = true,
+                refreshStaleInBackground = true,
+                requiredCount = limit
+            )
             emitAll(
                 combine(
                     movieDao.getByCategoryPreview(providerId, categoryId, limit),
@@ -247,16 +270,14 @@ class MovieRepositoryImpl @Inject constructor(
                     return@channelFlow
                 }
                 previewCategories.forEach { category ->
-                    launch(Dispatchers.IO) {
-                        ensureXtreamCategoryLoaded(
-                            providerId = providerId,
-                            categoryId = category.categoryId,
-                            fetchIfMissing = true,
-                            refreshStaleInBackground = false,
-                            requiredCount = limitPerCategory,
-                            allowStalkerWildcard = false
-                        )
-                    }
+                    triggerXtreamCategoryHydration(
+                        providerId = providerId,
+                        categoryId = category.categoryId,
+                        fetchIfMissing = true,
+                        refreshStaleInBackground = false,
+                        requiredCount = limitPerCategory,
+                        allowStalkerWildcard = false
+                    )
                 }
                 // SQL LIMIT applied per-category — avoids loading the full catalog into memory
                 val categoryGroupFlows: List<Flow<Pair<Long?, List<Movie>>>> = previewCategories.map { cat ->
@@ -384,7 +405,8 @@ class MovieRepositoryImpl @Inject constructor(
                     it,
                     fetchIfMissing = true,
                     refreshStaleInBackground = true,
-                    requiredCount = browseFetchLimit(query)
+                    requiredCount = browseFetchLimit(query),
+                    loadStalkerCategoryCompletely = true
                 )
             }
             emit(fetchMovieBrowseResult(query))
@@ -528,6 +550,7 @@ class MovieRepositoryImpl @Inject constructor(
                     title = movie.name,
                     headers = resolvedStream.headers,
                     userAgent = resolvedStream.userAgent,
+                    playbackTransportPolicy = resolvedStream.playbackTransportPolicy,
                     allowInvalidSsl = resolvedStream.allowInvalidSsl,
                     proxyHost = resolvedStream.proxyHost,
                     proxyPort = resolvedStream.proxyPort,
@@ -1441,7 +1464,8 @@ class MovieRepositoryImpl @Inject constructor(
         refreshStaleInBackground: Boolean = false,
         forceRefresh: Boolean = false,
         requiredCount: Int = SEARCH_RESULT_LIMIT,
-        allowStalkerWildcard: Boolean = true
+        allowStalkerWildcard: Boolean = true,
+        loadStalkerCategoryCompletely: Boolean = false
     ) {
         val key = "$providerId:$categoryId"
         val provider = providerDao.getById(providerId) ?: return
@@ -1458,10 +1482,13 @@ class MovieRepositoryImpl @Inject constructor(
             return
         }
         if (provider.type == ProviderType.STALKER_PORTAL) {
-            if (localCount <= 0) {
-                syncManager.prioritizeStalkerIndexCategory(providerId, ContentType.MOVIE, categoryId)
-            }
-            if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+            if (!shouldUseStalkerLazyFallback(
+                    hydration = hydration,
+                    localCount = localCount,
+                    requiredCount = requiredCount,
+                    loadCompletely = loadStalkerCategoryCompletely
+                )
+            ) {
                 return
             }
             hydrateStalkerMovieCategoryToCount(
@@ -1471,7 +1498,8 @@ class MovieRepositoryImpl @Inject constructor(
                 requiredCount = requiredCount,
                 localCount = localCount,
                 hydration = hydration,
-                allowWildcard = allowStalkerWildcard
+                allowWildcard = allowStalkerWildcard,
+                loadCompletely = loadStalkerCategoryCompletely
             )
             return
         }
@@ -1499,10 +1527,7 @@ class MovieRepositoryImpl @Inject constructor(
                 val localCount = movieDao.getCountByCategory(providerId, categoryId).first()
                 val hydration = movieCategoryHydrationDao.get(providerId, categoryId)
                 if (provider.type == ProviderType.STALKER_PORTAL) {
-                    if (localCount <= 0) {
-                        syncManager.prioritizeStalkerIndexCategory(providerId, ContentType.MOVIE, categoryId)
-                    }
-                    if (!shouldUseStalkerLazyFallback(providerId, hydration, localCount)) {
+                    if (!shouldUseStalkerLazyFallback(hydration, localCount, requiredCount)) {
                         return@launch
                     }
                     hydrateStalkerMovieCategoryToCount(
@@ -1522,20 +1547,23 @@ class MovieRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun shouldUseStalkerLazyFallback(
-        providerId: Long,
+    private fun shouldUseStalkerLazyFallback(
         hydration: MovieCategoryHydrationEntity?,
-        localCount: Int
+        localCount: Int,
+        requiredCount: Int,
+        loadCompletely: Boolean = false
     ): Boolean {
         val now = System.currentTimeMillis()
-        if (localCount > 0) return false
+        val hasEmptySuccessfulCheckpoint = localCount == 0 &&
+            (hydration?.lastSuccessfulPage ?: hydration?.lastLoadedPage ?: 0) > 0
+        if (hasEmptySuccessfulCheckpoint) return true
         if (hydration?.isComplete == true) return false
+        if (hydration?.lastStatus == "TRUNCATED" && !loadCompletely) return false
+        if (loadCompletely) return true
+        if (localCount >= requiredCount) return false
         if (hydration?.lastStatus in setOf("FAILED_PERMANENT", "FAILED_BUDGET_EXHAUSTED")) return true
         if (hydration?.retryBudgetRemaining == 0 && hydration.retryAfterMs <= now) return true
-        return when (xtreamIndexJobDao.get(providerId, ContentType.MOVIE.name)?.state) {
-            null, "FAILED_PERMANENT" -> true
-            else -> false
-        }
+        return true
     }
 
     private suspend fun hydrateStalkerMovieCategoryToCount(
@@ -1545,7 +1573,8 @@ class MovieRepositoryImpl @Inject constructor(
         requiredCount: Int,
         localCount: Int? = null,
         hydration: MovieCategoryHydrationEntity? = null,
-        allowWildcard: Boolean = true
+        allowWildcard: Boolean = true,
+        loadCompletely: Boolean = false
     ) {
         val key = "$providerId:$categoryId"
         val lock = xtreamCategoryLoadLocks.getOrPut(key) { Mutex() }
@@ -1554,27 +1583,75 @@ class MovieRepositoryImpl @Inject constructor(
             if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.MOVIE, categoryId)) return
             var currentCount = localCount ?: movieDao.getCountByCategory(providerId, categoryId).first()
             var currentHydration = hydration ?: movieCategoryHydrationDao.get(providerId, categoryId)
-            if (currentHydration?.isComplete == true || currentCount >= requiredCount) return
+            if ((currentHydration?.isComplete == true && currentCount > 0) ||
+                (!loadCompletely && currentCount >= requiredCount)
+            ) return
             if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return
 
             val isPreviewLoad = requiredCount <= STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD
-            var nextPage = when (currentHydration?.lastStatus) {
-                "FAILED_RETRYABLE", "COOLDOWN", "ANOMALY" -> currentHydration?.lastAttemptedPage?.coerceAtLeast(1) ?: 1
-                else -> ((currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0) + 1).coerceAtLeast(1)
+            val isInitialCategoryFill = !isPreviewLoad && currentCount < STALKER_INITIAL_CATEGORY_FILL_COUNT
+            val targetCount = when {
+                loadCompletely -> Int.MAX_VALUE
+                isInitialCategoryFill -> minOf(requiredCount, STALKER_INITIAL_CATEGORY_FILL_COUNT)
+                else -> requiredCount
+            }
+            val maxRemotePages = when {
+                loadCompletely -> Int.MAX_VALUE
+                isPreviewLoad -> STALKER_PREVIEW_MAX_REMOTE_PAGES
+                isInitialCategoryFill -> STALKER_INITIAL_CATEGORY_MAX_REMOTE_PAGES
+                else -> 1
+            }
+            var nextPage = when {
+                currentCount == 0 && (currentHydration?.lastSuccessfulPage ?: 0) > 0 -> 1
+                currentHydration?.lastStatus in setOf("FAILED_RETRYABLE", "COOLDOWN", "ANOMALY") ->
+                    currentHydration?.lastAttemptedPage?.coerceAtLeast(1) ?: 1
+                else ->
+                    ((currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0) + 1)
+                        .coerceAtLeast(1)
             }
             // The cached totalPages can under-report when the preview hydrate stored
             // it from a partial response. Skip the pre-fetch guard on the first
             // iteration so we always perform at least one real fetch that refreshes
             // totalPages; subsequent iterations use the in-loop updated value.
             var firstIteration = true
-            while (currentCount < requiredCount) {
-                if (StalkerTrafficCoordinator.shouldDeferCatalogFetch(providerId)) break
+            var remotePagesRequested = 0
+            while (currentCount < targetCount) {
                 val attemptStartedAt = System.currentTimeMillis()
                 if (isPreviewLoad && nextPage > STALKER_PREVIEW_MAX_REMOTE_PAGES) break
+                if (remotePagesRequested >= maxRemotePages) break
                 val totalPages = currentHydration?.totalPages ?: 0
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
                 firstIteration = false
-                when (val result = stalkerProvider.getVodStreamsPage(categoryId, nextPage)) {
+                remotePagesRequested += 1
+                val requestPriority = if (isPreviewLoad) {
+                    StalkerRequestPriority.VISIBLE_PREVIEW
+                } else {
+                    StalkerRequestPriority.OPEN_CATEGORY
+                }
+                val coordinatedResult = stalkerRequestCoordinator.execute(
+                    providerId = providerId,
+                    priority = requestPriority,
+                    descriptor = StalkerRequestDescriptor(
+                        contentType = "MOVIE",
+                        action = "CATEGORY_PAGE",
+                        categoryKey = categoryId.toString(),
+                        page = nextPage
+                    ),
+                    metricsOf = { result ->
+                        val page = (result as? Success)?.data
+                        StalkerResponseMetrics(
+                            items = page?.items?.size,
+                            pages = page?.page,
+                            advertisedTotal = page?.advertisedTotalItems,
+                            truncated = page?.isTruncated,
+                            terminationReason = page?.terminationReason
+                        )
+                    }
+                ) { stalkerProvider.getVodStreamsPage(categoryId, nextPage) }
+                if (coordinatedResult is Result.Error) {
+                    stalkerRequestCoordinator.recordFailure(providerId, coordinatedResult.exception)
+                }
+                when (val result = coordinatedResult) {
                     is Success -> {
                         val entities = result.data.items.map { movie -> movie.toEntity() }
                         val pageComplete = result.data.isComplete || entities.isEmpty()
@@ -1587,7 +1664,7 @@ class MovieRepositoryImpl @Inject constructor(
                                 categoryId = categoryId,
                                 lastHydratedAt = attemptStartedAt,
                                 itemCount = updatedCount,
-                                lastStatus = "SUCCESS",
+                                lastStatus = if (result.data.isTruncated) "TRUNCATED" else "SUCCESS",
                                 lastError = null,
                                 lastLoadedPage = result.data.page,
                                 lastAttemptedPage = result.data.page,
@@ -1739,7 +1816,12 @@ class MovieRepositoryImpl @Inject constructor(
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
             signature = provider.stalkerSignature,
-            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
+            protocolPreference = provider.stalkerProtocolPreference,
+            requestedProfileId = provider.stalkerRequestedProfileId,
+            learnedProfileId = provider.stalkerLearnedProfileId,
+            identityResolver = stalkerRemoteIdentityResolver,
+            portalStateStore = stalkerPortalStateStore
         )
     }
 

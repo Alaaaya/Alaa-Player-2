@@ -31,6 +31,7 @@ import androidx.work.WorkManager
 import com.streamvault.data.manager.recording.RecordingReconcileWorker
 import com.streamvault.data.sync.ProviderSyncWorker
 import com.streamvault.data.sync.XtreamIndexWorker
+import com.streamvault.data.sync.SyncManager
 import com.streamvault.player.timeshift.TimeshiftDiskManager
 import javax.inject.Inject
 import okhttp3.OkHttpClient
@@ -52,6 +53,9 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
     @Inject
     lateinit var jellyfinImageAuthInterceptor: JellyfinImageAuthInterceptor
 
+    @Inject
+    lateinit var syncManager: SyncManager
+
     private val imageOkHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
             .addInterceptor(jellyfinImageAuthInterceptor)
@@ -69,6 +73,9 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
         }
         applicationScope.launch {
             refreshCachedAppUpdateIfNeeded()
+        }
+        applicationScope.launch {
+            syncManager.reconcileStalkerIndexWorkAtStartup()
         }
         
         // Schedule daily data maintenance: EPG pruning, stale-favorite cleanup, and DB compaction checks.

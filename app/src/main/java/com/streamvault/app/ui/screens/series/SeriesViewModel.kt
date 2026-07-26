@@ -303,6 +303,31 @@ class SeriesViewModel @Inject constructor(
                 .filterNotNull()
                 .flatMapLatest { provider ->
                     combine(
+                        seriesRepository.getCategoryItemCounts(provider.id),
+                        seriesRepository.getLibraryCount(provider.id),
+                        seriesRepository.getCategories(provider.id)
+                    ) { counts, libraryCount, categories ->
+                        Triple(counts, libraryCount, categories)
+                    }
+                }
+                .collectLatest { (counts, libraryCount, categories) ->
+                    val countsByName = categories.associate { category ->
+                        category.name to (counts[category.id] ?: 0)
+                    }
+                    _uiState.update { state ->
+                        state.copy(
+                            categoryCounts = state.categoryCounts + countsByName,
+                            libraryCount = libraryCount
+                        )
+                    }
+                }
+        }
+
+        viewModelScope.launch {
+            providerRepository.getActiveProvider()
+                .filterNotNull()
+                .flatMapLatest { provider ->
+                    combine(
                         favoriteRepository.getAllFavorites(provider.id, ContentType.SERIES),
                         getCustomCategories(provider.id, ContentType.SERIES),
                         seriesRepository.getCategories(provider.id),

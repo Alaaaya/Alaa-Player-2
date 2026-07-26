@@ -742,7 +742,7 @@ private fun SeriesVodContent(
     val modernGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     InfiniteScrollEffect(
         gridState = modernGridState,
-        enabled = !uiState.isReorderMode,
+        enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
         canLoadMore = uiState.canLoadMoreSelectedCategory,
         isLoading = uiState.isLoadingSelectedCategory,
         onLoadMore = onLoadMore
@@ -899,6 +899,21 @@ private fun SeriesVodContent(
                     onLongClick = {
                         if (!uiState.isReorderMode) onShowDialog(series)
                     }
+                )
+            }
+        }
+        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+            !uiState.vodInfiniteScroll && !uiState.isReorderMode
+        ) {
+            item(key = "load_next_series_batch", span = { GridItemSpan(maxLineSpan) }) {
+                LoadMoreCard(
+                    label = stringResource(
+                        R.string.library_load_more,
+                        uiState.selectedCategoryLoadedCount,
+                        uiState.selectedCategoryTotalCount
+                    ),
+                    onClick = onLoadMore,
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
             }
         }
@@ -1164,7 +1179,7 @@ private fun SeriesVodClassicContent(
             val classicGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             InfiniteScrollEffect(
                 gridState = classicGridState,
-                enabled = !uiState.isReorderMode,
+                enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
                 canLoadMore = uiState.canLoadMoreSelectedCategory,
                 isLoading = uiState.isLoadingSelectedCategory,
                 onLoadMore = onLoadMore
@@ -1231,6 +1246,21 @@ private fun SeriesVodClassicContent(
                             onLongClick = {
                                 if (!uiState.isReorderMode) onShowDialog(series)
                             }
+                        )
+                    }
+                }
+                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+                    !uiState.vodInfiniteScroll && !uiState.isReorderMode
+                ) {
+                    item(key = "load_next_series_batch_classic", span = { GridItemSpan(maxLineSpan) }) {
+                        LoadMoreCard(
+                            label = stringResource(
+                                R.string.library_load_more,
+                                uiState.selectedCategoryLoadedCount,
+                                uiState.selectedCategoryTotalCount
+                            ),
+                            onClick = onLoadMore,
+                            modifier = Modifier.padding(vertical = 12.dp)
                         )
                     }
                 }

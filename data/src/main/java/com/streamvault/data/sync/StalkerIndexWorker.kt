@@ -14,14 +14,24 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.StalkerIndexJobDao
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.data.remote.stalker.StalkerTelemetry
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+
+internal fun stalkerIndexExistingWorkPolicy(force: Boolean, appendSuccessor: Boolean): ExistingWorkPolicy = when {
+    force -> ExistingWorkPolicy.REPLACE
+    appendSuccessor -> ExistingWorkPolicy.APPEND_OR_REPLACE
+    else -> ExistingWorkPolicy.KEEP
+}
 
 class StalkerIndexWorker(
     appContext: Context,
@@ -32,6 +42,7 @@ class StalkerIndexWorker(
     @InstallIn(SingletonComponent::class)
     interface StalkerIndexWorkerEntryPoint {
         fun providerDao(): ProviderDao
+        fun stalkerIndexJobDao(): StalkerIndexJobDao
         fun syncManager(): SyncManager
     }
 
@@ -54,13 +65,27 @@ class StalkerIndexWorker(
                 entryPoint.providerDao().getById(requestedProviderId)?.let(::listOf).orEmpty()
             } else {
                 entryPoint.providerDao().getAllSync()
-                    .filter { provider -> provider.isActive && provider.type == ProviderType.STALKER_PORTAL }
+                    .filter { provider ->
+                        provider.isActive &&
+                            provider.type == ProviderType.STALKER_PORTAL
+                    }
             }
 
             var sawRetryableFailure = false
             providers
                 .filter { provider -> provider.type == ProviderType.STALKER_PORTAL }
                 .forEach { provider ->
+                    val pendingOneTime = listOf(ContentType.MOVIE, ContentType.SERIES).any { contentType ->
+                        entryPoint.stalkerIndexJobDao().get(provider.id, contentType.name)?.state in setOf(
+                            com.streamvault.domain.model.StalkerIndexState.QUEUED,
+                            com.streamvault.domain.model.StalkerIndexState.RUNNING,
+                            com.streamvault.domain.model.StalkerIndexState.RETRY_WAIT,
+                            com.streamvault.domain.model.StalkerIndexState.PARTIAL
+                        )
+                    }
+                    if (provider.stalkerCatalogMode != StalkerCatalogMode.BACKGROUND_INDEX && !pendingOneTime) {
+                        return@forEach
+                    }
                     when (val result = entryPoint.syncManager().processQueuedStalkerIndexJobs(
                         providerId = provider.id,
                         section = requestedSection,
@@ -75,9 +100,24 @@ class StalkerIndexWorker(
                         }
                         else -> Unit
                     }
+                    listOf(ContentType.MOVIE, ContentType.SERIES).forEach { contentType ->
+                        entryPoint.stalkerIndexJobDao().get(provider.id, contentType.name)?.let { job ->
+                            StalkerTelemetry.indexProgress(
+                                providerId = provider.id,
+                                workId = id.toString(),
+                                section = contentType.name,
+                                state = job.state.name,
+                                completedCategories = job.completedCategories,
+                                totalCategories = job.totalCategories,
+                                indexedRows = job.indexedRows
+                            )
+                        }
+                    }
                 }
 
             if (sawRetryableFailure) Result.retry() else Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             Log.e(TAG, "Stalker index worker failed", error)
             if (shouldRetry(error)) Result.retry() else Result.failure()
@@ -107,7 +147,8 @@ class StalkerIndexWorker(
             providerId: Long,
             section: String? = null,
             force: Boolean = false,
-            initialDelaySeconds: Long = 0L
+            initialDelaySeconds: Long = 0L,
+            appendSuccessor: Boolean = false
         ) {
             if (providerId <= 0L) return
             val request = OneTimeWorkRequestBuilder<StalkerIndexWorker>()
@@ -130,10 +171,20 @@ class StalkerIndexWorker(
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
-                uniqueWorkName(providerId, section),
-                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE,
+                uniqueWorkName(providerId),
+                stalkerIndexExistingWorkPolicy(force, appendSuccessor),
                 request
             )
+        }
+
+        fun cancel(context: Context, providerId: Long) {
+            if (providerId <= 0L) return
+            val workManager = WorkManager.getInstance(context)
+            workManager.cancelUniqueWork(uniqueWorkName(providerId))
+            // Names used by older builds had a section suffix.
+            workManager.cancelUniqueWork("$UNIQUE_WORK_PREFIX$providerId-")
+            workManager.cancelUniqueWork("$UNIQUE_WORK_PREFIX$providerId-MOVIE")
+            workManager.cancelUniqueWork("$UNIQUE_WORK_PREFIX$providerId-SERIES")
         }
 
         private fun defaultConstraints(): Constraints = Constraints.Builder()
@@ -141,8 +192,8 @@ class StalkerIndexWorker(
             .setRequiresBatteryNotLow(true)
             .build()
 
-        private fun uniqueWorkName(providerId: Long, section: String?): String =
-            "$UNIQUE_WORK_PREFIX$providerId-${section.orEmpty()}"
+        private fun uniqueWorkName(providerId: Long): String =
+            "$UNIQUE_WORK_PREFIX$providerId"
 
         private fun String.toContentTypeOrNull(): ContentType? =
             runCatching { ContentType.valueOf(this) }.getOrNull()

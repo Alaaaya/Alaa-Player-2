@@ -735,7 +735,7 @@ private fun MoviesVodContent(
     val modernGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     InfiniteScrollEffect(
         gridState = modernGridState,
-        enabled = !uiState.isReorderMode,
+        enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
         canLoadMore = uiState.canLoadMoreSelectedCategory,
         isLoading = uiState.isLoadingSelectedCategory,
         onLoadMore = onLoadMore
@@ -892,6 +892,21 @@ private fun MoviesVodContent(
                     onLongClick = {
                         if (!uiState.isReorderMode) onShowDialog(movie)
                     }
+                )
+            }
+        }
+        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+            !uiState.vodInfiniteScroll && !uiState.isReorderMode
+        ) {
+            item(key = "load_next_movie_batch", span = { GridItemSpan(maxLineSpan) }) {
+                LoadMoreCard(
+                    label = stringResource(
+                        R.string.library_load_more,
+                        uiState.selectedCategoryLoadedCount,
+                        uiState.selectedCategoryTotalCount
+                    ),
+                    onClick = onLoadMore,
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
             }
         }
@@ -1156,7 +1171,7 @@ private fun MoviesVodClassicContent(
             val classicGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
             InfiniteScrollEffect(
                 gridState = classicGridState,
-                enabled = !uiState.isReorderMode,
+                enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
                 canLoadMore = uiState.canLoadMoreSelectedCategory,
                 isLoading = uiState.isLoadingSelectedCategory,
                 onLoadMore = onLoadMore
@@ -1223,6 +1238,21 @@ private fun MoviesVodClassicContent(
                             onLongClick = {
                                 if (!uiState.isReorderMode) onShowDialog(movie)
                             }
+                        )
+                    }
+                }
+                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+                    !uiState.vodInfiniteScroll && !uiState.isReorderMode
+                ) {
+                    item(key = "load_next_movie_batch_classic", span = { GridItemSpan(maxLineSpan) }) {
+                        LoadMoreCard(
+                            label = stringResource(
+                                R.string.library_load_more,
+                                uiState.selectedCategoryLoadedCount,
+                                uiState.selectedCategoryTotalCount
+                            ),
+                            onClick = onLoadMore,
+                            modifier = Modifier.padding(vertical = 12.dp)
                         )
                     }
                 }

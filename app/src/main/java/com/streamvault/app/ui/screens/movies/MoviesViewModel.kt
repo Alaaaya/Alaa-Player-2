@@ -212,7 +212,11 @@ class MoviesViewModel @Inject constructor(
                                     categoryIds = categoryIds,
                                     limitPerCategory = VodBrowseDefaults.PREVIEW_ROW_LIMIT
                                 ).map { providerPreviews ->
-                                    val isLoading = categoryIds.all { id -> providerPreviews[id].isNullOrEmpty() }
+                                    // The repository includes an entry for every category whose
+                                    // preview query is active. An empty list is a valid result (and
+                                    // can also be populated later by Room); it must not keep the
+                                    // category paginator permanently locked in its loading state.
+                                    val isLoading = categoryIds.none(providerPreviews::containsKey)
                                     val hasMore = params.providerCategories.size > batchSize
                                     PreviewLoadResult(buildPreviewCatalog(params, providerPreviews), isLoading, hasMore)
                                 }
@@ -303,17 +307,44 @@ class MoviesViewModel @Inject constructor(
                 .filterNotNull()
                 .flatMapLatest { provider ->
                     combine(
+                        movieRepository.getCategoryItemCounts(provider.id),
+                        movieRepository.getLibraryCount(provider.id),
+                        movieRepository.getCategories(provider.id)
+                    ) { counts, libraryCount, categories ->
+                        Triple(counts, libraryCount, categories)
+                    }
+                }
+                .collectLatest { (counts, libraryCount, categories) ->
+                    val countsByName = categories.associate { category ->
+                        category.name to (counts[category.id] ?: 0)
+                    }
+                    _uiState.update { state ->
+                        state.copy(
+                            categoryCounts = state.categoryCounts + countsByName,
+                            libraryCount = libraryCount
+                        )
+                    }
+                }
+        }
+
+        viewModelScope.launch {
+            providerRepository.getActiveProvider()
+                .filterNotNull()
+                .flatMapLatest { provider ->
+                    combine(
                         favoriteRepository.getAllFavorites(provider.id, ContentType.MOVIE),
                         getCustomCategories(provider.id, ContentType.MOVIE),
                         movieRepository.getCategories(provider.id),
+                        movieRepository.getCategoryItemCounts(provider.id),
                         preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.MOVIE),
                         preferencesRepository.getCategorySortMode(provider.id, ContentType.MOVIE)
                     ) { values ->
                         val allFavorites = values[0] as List<com.streamvault.domain.model.Favorite>
                         val customCategories = values[1] as List<Category>
                         val providerCategories = values[2] as List<Category>
-                        val hiddenCategoryIds = values[3] as Set<Long>
-                        val sortMode = values[4] as CategorySortMode
+                        val providerCategoryCounts = values[3] as Map<Long, Int>
+                        val hiddenCategoryIds = values[4] as Set<Long>
+                        val sortMode = values[5] as CategorySortMode
                         MovieCategorySelectionDependencies(
                             allFavorites = allFavorites,
                             customCategories = customCategories,
@@ -322,6 +353,7 @@ class MoviesViewModel @Inject constructor(
                                 hiddenCategoryIds = hiddenCategoryIds,
                                 sortMode = sortMode
                             ),
+                            providerCategoryCounts = providerCategoryCounts,
                             hiddenCategoryIds = hiddenCategoryIds
                         )
                     }.combine(
@@ -351,10 +383,16 @@ class MoviesViewModel @Inject constructor(
                             allFavorites = dependencies.allFavorites,
                             customCategories = dependencies.customCategories,
                             providerCategories = dependencies.providerCategories,
+                            selectedProviderCategoryHasItems = dependencies.providerCategories
+                                .firstOrNull { it.name == selection.selectedCategory }
+                                ?.id
+                                ?.let { categoryId -> (dependencies.providerCategoryCounts[categoryId] ?: 0) > 0 }
+                                ?: false,
                             hiddenCategoryIds = dependencies.hiddenCategoryIds
                         )
                     }
                 }
+                .distinctUntilChanged()
                 .flatMapLatest { request ->
                     flow {
                         emit(loadSelectedCategoryItems(request))
@@ -1235,6 +1273,7 @@ private data class MovieCategorySelectionDependencies(
     val allFavorites: List<com.streamvault.domain.model.Favorite>,
     val customCategories: List<Category>,
     val providerCategories: List<Category>,
+    val providerCategoryCounts: Map<Long, Int>,
     val hiddenCategoryIds: Set<Long>
 )
 
@@ -1248,6 +1287,7 @@ private data class SelectedMovieCategoryRequest(
     val allFavorites: List<com.streamvault.domain.model.Favorite>,
     val customCategories: List<Category>,
     val providerCategories: List<Category>,
+    val selectedProviderCategoryHasItems: Boolean,
     val hiddenCategoryIds: Set<Long>
 )
 

@@ -9,6 +9,10 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportGrant
 import kotlinx.coroutines.flow.Flow
 
 data class LiveStreamProgramRequest(
@@ -68,7 +72,13 @@ interface ProviderRepository {
         deviceId2: String = "",
         signature: String = "",
         stalkerAdvancedOptionsJson: String = "",
+        protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+        transportGrant: StalkerTransportGrant? = null,
+        saveWithoutVerification: Boolean = false,
+        repairConnection: Boolean = false,
+        requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
         epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+        catalogMode: StalkerCatalogMode = StalkerCatalogMode.ON_DEMAND,
         guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
         channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
         onProgress: ((String) -> Unit)? = null,
@@ -96,6 +106,8 @@ interface ProviderRepository {
         epgSyncModeOverride: ProviderEpgSyncMode? = null,
         onProgress: ((String) -> Unit)? = null
     ): Result<Unit>
+    suspend fun buildStalkerSearchIndexOnce(providerId: Long): Result<Unit> =
+        Result.error("Complete Stalker indexing is unavailable")
     suspend fun getProgramsForLiveStream(
         providerId: Long,
         streamId: Long,

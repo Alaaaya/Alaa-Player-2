@@ -91,6 +91,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     // kxml2: JVM XmlPullParser implementation needed for XmltvParser unit tests
     // (Android platform provides its own impl; the JVM test runner needs an explicit one)
     testImplementation(libs.kxml2)

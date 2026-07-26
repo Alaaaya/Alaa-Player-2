@@ -21,6 +21,12 @@ import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProfileVerification
+import com.streamvault.domain.model.StalkerProtocolFamily
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportMode
 
 @Entity(
     tableName = "providers",
@@ -51,6 +57,19 @@ data class ProviderEntity(
     @ColumnInfo(name = "stalker_portal_profile") val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
     @ColumnInfo(name = "stalker_portal_fingerprint") val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
     @ColumnInfo(name = "stalker_mag_preset") val stalkerMagPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
+    @ColumnInfo(name = "stalker_protocol_preference") val stalkerProtocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+    @ColumnInfo(name = "stalker_transport_mode") val stalkerTransportMode: StalkerTransportMode = StalkerTransportMode.AUTO_STRICT,
+    @ColumnInfo(name = "stalker_transport_origin") val stalkerTransportOrigin: String = "",
+    @ColumnInfo(name = "stalker_tls_spki_sha256") val stalkerTlsSpkiSha256: String = "",
+    @ColumnInfo(name = "stalker_transport_consent_at") val stalkerTransportConsentAt: Long = 0L,
+    @ColumnInfo(name = "stalker_configuration_generation") val stalkerConfigurationGeneration: Long = 0L,
+    @ColumnInfo(name = "stalker_discovery_summary") val stalkerDiscoverySummary: String = "",
+    @ColumnInfo(name = "stalker_capabilities_json") val stalkerCapabilitiesJson: String = "",
+    @ColumnInfo(name = "stalker_requested_profile_id") val stalkerRequestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
+    @ColumnInfo(name = "stalker_learned_profile_id") val stalkerLearnedProfileId: String = "",
+    @ColumnInfo(name = "stalker_profile_revision") val stalkerProfileRevision: Int = 0,
+    @ColumnInfo(name = "stalker_profile_verification") val stalkerProfileVerification: StalkerProfileVerification = StalkerProfileVerification.UNVERIFIED,
+    @ColumnInfo(name = "stalker_protocol_family") val stalkerProtocolFamily: StalkerProtocolFamily = StalkerProtocolFamily.CLASSIC_MAG,
     @ColumnInfo(name = "stalker_last_bootstrap_recipe") val stalkerLastBootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
     @ColumnInfo(name = "stalker_endpoint_preference") val stalkerEndpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
     @ColumnInfo(name = "stalker_cookie_mode") val stalkerCookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
@@ -69,6 +88,7 @@ data class ProviderEntity(
     @ColumnInfo(name = "api_version") val apiVersion: String? = null,
     @ColumnInfo(name = "allowed_output_formats_json") val allowedOutputFormatsJson: String = "[]",
     @ColumnInfo(name = "epg_sync_mode") val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.UPFRONT,
+    @ColumnInfo(name = "stalker_catalog_mode") val stalkerCatalogMode: StalkerCatalogMode = StalkerCatalogMode.ON_DEMAND,
     @ColumnInfo(name = "guide_source_policy") val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
     @ColumnInfo(name = "channel_logo_source_policy") val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     @ColumnInfo(name = "xtream_fast_sync_enabled") val xtreamFastSyncEnabled: Boolean = false,

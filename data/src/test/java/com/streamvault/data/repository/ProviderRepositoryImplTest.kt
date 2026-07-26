@@ -5,18 +5,26 @@ import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.MovieDao
+import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.dao.SeriesDao
+import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
+import com.streamvault.data.local.dao.StalkerIndexJobDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.CategoryEntity
+import com.streamvault.data.local.entity.StalkerIndexJobEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
 import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.stalker.StalkerApiService
+import com.streamvault.data.remote.stalker.StalkerApiError
+import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerProviderProfile
+import com.streamvault.data.remote.stalker.StalkerSession
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.dto.XtreamAuthResponse
 import com.streamvault.data.remote.dto.XtreamServerInfo
@@ -29,6 +37,12 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.StalkerIndexState
+import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.StalkerTransportOrigin
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.repository.SyncMetadataRepository
@@ -66,6 +80,9 @@ class ProviderRepositoryImplTest {
     private val recordingAlarmScheduler: RecordingAlarmScheduler = mock()
     private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler = mock()
     private val jellyfinProvider: JellyfinProvider = mock()
+    private val stalkerIndexJobDao: StalkerIndexJobDao = mock()
+    private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
+    private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
     }
@@ -90,7 +107,12 @@ class ProviderRepositoryImplTest {
         transactionRunner = transactionRunner,
         recordingAlarmScheduler = recordingAlarmScheduler,
         programReminderAlarmScheduler = programReminderAlarmScheduler,
-        jellyfinProvider = jellyfinProvider
+        jellyfinProvider = jellyfinProvider,
+        stalkerRemoteIdentityResolver = mock(),
+        stalkerIndexJobDao = stalkerIndexJobDao,
+        stalkerPortalStateStore = mock(),
+        movieCategoryHydrationDao = movieCategoryHydrationDao,
+        seriesCategoryHydrationDao = seriesCategoryHydrationDao
     )
 
     private val repository = createRepository()
@@ -104,6 +126,107 @@ class ProviderRepositoryImplTest {
             whenever(movieDao.countByProvider(any())).thenReturn(0)
             whenever(seriesDao.countByProvider(any())).thenReturn(0)
         }
+    }
+
+    @Test
+    fun `buildStalkerSearchIndexOnce resets terminal crawl progress before queueing fresh jobs`() = runTest {
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Stalker",
+                type = ProviderType.STALKER_PORTAL,
+                serverUrl = "https://portal.example.com",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(stalkerIndexJobDao.get(7L, ContentType.MOVIE.name)).thenReturn(
+            StalkerIndexJobEntity(
+                providerId = 7L,
+                section = ContentType.MOVIE,
+                state = StalkerIndexState.TRUNCATED,
+                completedCategories = 9,
+                indexedRows = 900,
+                lastError = "page limit"
+            )
+        )
+
+        val result = repository.buildStalkerSearchIndexOnce(7L)
+
+        assertThat(result.isSuccess).isTrue()
+        verify(movieCategoryHydrationDao).deleteByProvider(7L)
+        verify(seriesCategoryHydrationDao).deleteByProvider(7L)
+        val jobs = argumentCaptor<StalkerIndexJobEntity>()
+        verify(stalkerIndexJobDao, org.mockito.kotlin.times(2)).upsert(jobs.capture())
+        assertThat(jobs.allValues.map { it.section }).containsExactly(ContentType.MOVIE, ContentType.SERIES)
+        jobs.allValues.forEach { job ->
+            assertThat(job.state).isEqualTo(StalkerIndexState.QUEUED)
+            assertThat(job.completedCategories).isEqualTo(0)
+            assertThat(job.indexedRows).isEqualTo(0)
+            assertThat(job.lastError).isNull()
+        }
+        verify(syncManager).scheduleStalkerIndexSync(7L, force = false)
+    }
+
+    @Test
+    fun `save without verification requires an inconclusive readiness result and stays inactive`() = runTest {
+        StalkerProvider.clearSharedAuthCacheForTests()
+        whenever(providerDao.getByUrlAndUser(any(), any(), any())).thenReturn(null)
+        whenever(providerDao.insert(any())).thenReturn(41L)
+        whenever(credentialCrypto.encryptIfNeeded(any())).thenAnswer { invocation ->
+            invocation.arguments.first() as String
+        }
+        whenever(stalkerApiService.authenticate(any())).thenReturn(
+            Result.error(
+                "Authentication succeeded, but Live TV readiness could not be verified.",
+                StalkerApiError.ReadinessInconclusive(
+                    evidenceCode = "LIVE_BUDGET_EXHAUSTED",
+                    cause = java.io.IOException("temporary Live timeout")
+                )
+            ),
+            Result.success(
+                StalkerSession(
+                    loadUrl = "https://portal.example.com/server/load.php",
+                    portalReferer = "https://portal.example.com/c/",
+                    token = "token"
+                ) to StalkerProviderProfile(
+                    accountName = "MAG",
+                    statusLabel = "1",
+                    authAccess = true
+                )
+            )
+        )
+
+        val result = repository.loginStalker(
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            name = "MAG",
+            authMode = StalkerAuthMode.MAC_ONLY,
+            transportGrant = StalkerTransportGrant(
+                mode = StalkerTransportMode.VERIFIED_HTTPS,
+                origin = StalkerTransportOrigin("https", "portal.example.com", 443),
+                consentedAt = 0L
+            ),
+            saveWithoutVerification = true
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(ProviderSavedWithSyncErrorException::class.java)
+        val saved = (error.exception as ProviderSavedWithSyncErrorException).provider
+        assertThat(saved.id).isEqualTo(41L)
+        assertThat(saved.status).isEqualTo(ProviderStatus.PARTIAL)
+        assertThat(saved.isActive).isFalse()
+        assertThat(saved.stalkerTransportOrigin).isEqualTo("https://portal.example.com:443")
+        verify(stalkerApiService, org.mockito.kotlin.times(2)).authenticate(any())
+        verify(syncManager, never()).sync(
+            any(),
+            any(),
+            anyOrNull(),
+            anyOrNull(),
+            anyOrNull(),
+            any()
+        )
+        verify(syncManager).scheduleProviderSyncResume(41L, 1L)
     }
 
     @Test

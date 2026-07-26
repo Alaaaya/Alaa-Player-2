@@ -23,9 +23,11 @@ import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderEpgSyncMode
+import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.data.remote.stalker.StalkerApiError
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -74,8 +76,14 @@ internal suspend fun reconcileTargetedProviderStatus(
             )
         }
         is com.streamvault.domain.model.Result.Error -> {
-            if (provider.status != ProviderStatus.PARTIAL) {
-                providerDao.update(provider.copy(isActive = false, status = ProviderStatus.ERROR))
+            val consentRequired = result.exception.hasTransportConsentChallenge()
+            if (consentRequired || provider.status != ProviderStatus.PARTIAL) {
+                providerDao.update(
+                    provider.copy(
+                        isActive = false,
+                        status = if (consentRequired) ProviderStatus.PARTIAL else ProviderStatus.ERROR
+                    )
+                )
             }
         }
         is com.streamvault.domain.model.Result.Loading -> Unit
@@ -112,6 +120,10 @@ class ProviderSyncWorker(
                 ProviderSyncWorkerEntryPoint::class.java
             )
             val requestedProviderId = inputData.getLong(KEY_PROVIDER_ID, INVALID_PROVIDER_ID)
+            val requestedGeneration = inputData.getLong(
+                KEY_CONFIGURATION_GENERATION,
+                INVALID_CONFIGURATION_GENERATION
+            )
             val providers = if (requestedProviderId != INVALID_PROVIDER_ID) {
                 entryPoint.providerDao().getById(requestedProviderId)?.let(::listOf).orEmpty()
             } else {
@@ -123,6 +135,17 @@ class ProviderSyncWorker(
 
             var sawRetryableFailure = false
             providers.forEach { provider ->
+                if (requestedProviderId == provider.id &&
+                    requestedGeneration != INVALID_CONFIGURATION_GENERATION &&
+                    provider.type == ProviderType.STALKER_PORTAL &&
+                    provider.stalkerConfigurationGeneration != requestedGeneration
+                ) {
+                    Log.i(
+                        TAG,
+                        "Discarding stale Stalker sync request for provider ${provider.id}."
+                    )
+                    return@forEach
+                }
                 val trackInitialLiveOnboarding = shouldTrackInitialLiveOnboarding(
                     provider = provider,
                     onboardingDao = entryPoint.xtreamLiveOnboardingDao()
@@ -162,6 +185,7 @@ class ProviderSyncWorker(
     }
 
     private fun shouldRetry(error: Throwable?): Boolean {
+        if (error.hasTransportConsentChallenge()) return false
         return when (error) {
             is java.io.IOException -> true
             is SQLiteException -> error.message.orEmpty().contains("locked", ignoreCase = true) ||
@@ -178,6 +202,8 @@ class ProviderSyncWorker(
         private const val UNIQUE_PROVIDER_WORK_PREFIX = "provider-sync-provider-"
         private const val KEY_PROVIDER_ID = "provider_id"
         private const val INVALID_PROVIDER_ID = -1L
+        private const val KEY_CONFIGURATION_GENERATION = "configuration_generation"
+        private const val INVALID_CONFIGURATION_GENERATION = -1L
 
         fun enqueuePeriodic(context: Context) {
             val request = PeriodicWorkRequestBuilder<ProviderSyncWorker>(6, TimeUnit.HOURS)
@@ -224,9 +250,19 @@ class ProviderSyncWorker(
             )
         }
 
-        fun enqueueProvider(context: Context, providerId: Long) {
+        fun enqueueProvider(
+            context: Context,
+            providerId: Long,
+            configurationGeneration: Long? = null
+        ) {
             val request = OneTimeWorkRequestBuilder<ProviderSyncWorker>()
-                .setInputData(workDataOf(KEY_PROVIDER_ID to providerId))
+                .setInputData(
+                    workDataOf(
+                        KEY_PROVIDER_ID to providerId,
+                        KEY_CONFIGURATION_GENERATION to
+                            (configurationGeneration ?: INVALID_CONFIGURATION_GENERATION)
+                    )
+                )
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -333,8 +369,9 @@ class ProviderSyncWorker(
                 ContentCachePolicy.EPG_TTL_MILLIS,
                 now
             )
-        val movieIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.MOVIE, now)
-        val seriesIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.SERIES, now)
+        val maintainCompleteIndex = provider.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX
+        val movieIndexDue = maintainCompleteIndex && shouldRunIndexJob(entryPoint, provider.id, ContentType.MOVIE, now)
+        val seriesIndexDue = maintainCompleteIndex && shouldRunIndexJob(entryPoint, provider.id, ContentType.SERIES, now)
 
         if (!provider.isActive) {
             return com.streamvault.domain.model.Result.success(Unit)
@@ -374,3 +411,7 @@ class ProviderSyncWorker(
         )
     }
 }
+
+private fun Throwable?.hasTransportConsentChallenge(): Boolean =
+    generateSequence(this) { it.cause }
+        .any { it is StalkerApiError.TransportConsentRequired }

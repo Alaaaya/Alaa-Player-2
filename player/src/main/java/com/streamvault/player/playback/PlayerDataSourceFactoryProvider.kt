@@ -7,6 +7,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.streamvault.domain.model.VodHttpProtocolMode
+import com.streamvault.domain.model.PlaybackTransportPolicy
 import com.streamvault.domain.model.StreamInfo
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -33,6 +34,7 @@ class PlayerDataSourceFactoryProvider(
         val profile: PlayerTimeoutProfile,
         val forceHttp1: Boolean,
         val port: Int,
+        val transportPolicy: PlaybackTransportPolicy?,
         val allowInvalidSsl: Boolean,
         val proxyHost: String,
         val proxyPort: Int?
@@ -62,15 +64,20 @@ class PlayerDataSourceFactoryProvider(
             profile = profile,
             forceHttp1 = forceHttp1,
             port = port,
+            transportPolicy = streamInfo.playbackTransportPolicy,
             allowInvalidSsl = streamInfo.allowInvalidSsl,
             proxyHost = streamInfo.proxyHost.trim(),
             proxyPort = streamInfo.proxyPort
         )
         val client = clientsByKey.computeIfAbsent(clientKey) {
-            val builder = if (streamInfo.allowInvalidSsl) {
-                baseClient.newBuilder().applyUnsafeTlsBypass()
-            } else {
-                baseClient.newBuilder()
+            val transportPolicy = streamInfo.playbackTransportPolicy
+            val builder = when {
+                transportPolicy != null ->
+                    baseClient.newBuilder()
+                        .applyPlaybackTransportPolicy(transportPolicy)
+                streamInfo.allowInvalidSsl ->
+                    baseClient.newBuilder().applyUnsafeTlsBypass()
+                else -> baseClient.newBuilder()
             }
             builder
                 .addInterceptor(StalkerPlaybackRequestLoggingInterceptor)

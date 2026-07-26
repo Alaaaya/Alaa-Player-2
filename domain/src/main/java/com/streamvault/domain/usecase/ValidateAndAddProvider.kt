@@ -9,6 +9,13 @@ import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerReadinessInconclusiveException
+import com.streamvault.domain.model.StalkerTransportChallenge
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.StalkerTransportConsentRequiredException
 import com.streamvault.domain.repository.ProviderRepository
 import java.net.URI
 import java.net.URLDecoder
@@ -59,7 +66,13 @@ data class StalkerProviderSetupCommand(
     val deviceId2: String = "",
     val signature: String = "",
     val stalkerAdvancedOptionsJson: String = "",
+    val protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+    val transportGrant: StalkerTransportGrant? = null,
+    val saveWithoutVerification: Boolean = false,
+    val repairConnection: Boolean = false,
+    val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+    val catalogMode: StalkerCatalogMode = StalkerCatalogMode.ON_DEMAND,
     val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
     val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
     val existingProviderId: Long? = null
@@ -83,6 +96,12 @@ sealed class ValidateAndAddProviderResult {
     data class Success(val provider: Provider) : ValidateAndAddProviderResult()
     data class SavedWithWarning(val provider: Provider, val warning: String) : ValidateAndAddProviderResult()
     data class ValidationError(val message: String) : ValidateAndAddProviderResult()
+    data class TransportConsentRequired(
+        val challenge: StalkerTransportChallenge
+    ) : ValidateAndAddProviderResult()
+    data class VerificationInconclusive(
+        val message: String
+    ) : ValidateAndAddProviderResult()
     data class Error(val message: String, val exception: Throwable? = null) : ValidateAndAddProviderResult()
 }
 
@@ -304,7 +323,13 @@ class ValidateAndAddProvider @Inject constructor(
                 deviceId2 = validated.data.deviceId2,
                 signature = validated.data.signature,
                 stalkerAdvancedOptionsJson = validated.data.stalkerAdvancedOptionsJson,
+                protocolPreference = command.protocolPreference,
+                transportGrant = command.transportGrant,
+                saveWithoutVerification = command.saveWithoutVerification,
+                repairConnection = command.repairConnection,
+                requestedProfileId = command.requestedProfileId,
                 epgSyncMode = command.epgSyncMode,
+                catalogMode = command.catalogMode,
                 guideSourcePolicy = command.guideSourcePolicy,
                 channelLogoSourcePolicy = command.channelLogoSourcePolicy,
                 onProgress = onProgress,
@@ -370,14 +395,33 @@ class ValidateAndAddProvider @Inject constructor(
     private fun Result<Provider>.toUseCaseResult(): ValidateAndAddProviderResult = when (this) {
         is Result.Success -> ValidateAndAddProviderResult.Success(data)
         is Result.Error -> {
-            val savedWithWarning = exception as? ProviderSavedWithSyncErrorException
-            if (savedWithWarning != null) {
-                ValidateAndAddProviderResult.SavedWithWarning(
-                    provider = savedWithWarning.provider,
-                    warning = savedWithWarning.message ?: message
+            val transportConsent = generateSequence(exception) { it.cause }
+                .filterIsInstance<StalkerTransportConsentRequiredException>()
+                .firstOrNull()
+            if (transportConsent != null) {
+                ValidateAndAddProviderResult.TransportConsentRequired(
+                    transportConsent.challenge
                 )
             } else {
-                ValidateAndAddProviderResult.Error(message, exception)
+                val readinessInconclusive = generateSequence(exception) { it.cause }
+                    .filterIsInstance<StalkerReadinessInconclusiveException>()
+                    .firstOrNull()
+                if (readinessInconclusive != null) {
+                    ValidateAndAddProviderResult.VerificationInconclusive(
+                        readinessInconclusive.message
+                            ?: "Authentication succeeded, but Live TV could not be verified."
+                    )
+                } else {
+                    val savedWithWarning = exception as? ProviderSavedWithSyncErrorException
+                    if (savedWithWarning != null) {
+                        ValidateAndAddProviderResult.SavedWithWarning(
+                            provider = savedWithWarning.provider,
+                            warning = savedWithWarning.message ?: message
+                        )
+                    } else {
+                        ValidateAndAddProviderResult.Error(message, exception)
+                    }
+                }
             }
         }
         is Result.Loading -> ValidateAndAddProviderResult.Error("Unexpected loading state")

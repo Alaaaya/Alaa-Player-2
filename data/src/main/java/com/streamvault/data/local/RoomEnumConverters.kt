@@ -9,6 +9,7 @@ import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCookieMode
 import com.streamvault.domain.model.StalkerEndpointPreference
@@ -16,6 +17,10 @@ import com.streamvault.domain.model.StalkerMagPreset
 import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
+import com.streamvault.domain.model.StalkerProfileVerification
+import com.streamvault.domain.model.StalkerProtocolFamily
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportMode
 import java.util.logging.Logger
 
 class RoomEnumConverters {
@@ -42,6 +47,13 @@ class RoomEnumConverters {
     @TypeConverter
     fun toProviderEpgSyncMode(value: String?): ProviderEpgSyncMode? =
         enumValueOrDefault(value, ProviderEpgSyncMode.SKIP, providerEpgSyncModeAliases())
+
+    @TypeConverter
+    fun fromStalkerCatalogMode(value: StalkerCatalogMode?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerCatalogMode(value: String?): StalkerCatalogMode? =
+        enumValueOrDefault(value, StalkerCatalogMode.ON_DEMAND)
 
     @TypeConverter
     fun fromGuideSourcePolicy(value: GuideSourcePolicy?): String? = value?.name
@@ -91,6 +103,34 @@ class RoomEnumConverters {
     @TypeConverter
     fun toStalkerMagPreset(value: String?): StalkerMagPreset? =
         enumValueOrDefault(value, StalkerMagPreset.GENERIC_SAFE)
+
+    @TypeConverter
+    fun fromStalkerProtocolPreference(value: StalkerProtocolPreference?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerProtocolPreference(value: String?): StalkerProtocolPreference? =
+        enumValueOrDefault(value, StalkerProtocolPreference.AUTO)
+
+    @TypeConverter
+    fun fromStalkerTransportMode(value: StalkerTransportMode?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerTransportMode(value: String?): StalkerTransportMode? =
+        enumValueOrDefault(value, StalkerTransportMode.AUTO_STRICT)
+
+    @TypeConverter
+    fun fromStalkerProfileVerification(value: StalkerProfileVerification?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerProfileVerification(value: String?): StalkerProfileVerification? =
+        enumValueOrDefault(value, StalkerProfileVerification.UNVERIFIED)
+
+    @TypeConverter
+    fun fromStalkerProtocolFamily(value: StalkerProtocolFamily?): String? = value?.name
+
+    @TypeConverter
+    fun toStalkerProtocolFamily(value: String?): StalkerProtocolFamily? =
+        enumValueOrDefault(value, StalkerProtocolFamily.CLASSIC_MAG)
 
     @TypeConverter
     fun fromStalkerBootstrapRecipe(value: StalkerBootstrapRecipe?): String? = value?.name

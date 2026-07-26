@@ -1,12 +1,15 @@
 package com.streamvault.data.manager.reminder
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.streamvault.data.local.entity.ProgramReminderEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -19,6 +22,12 @@ class ProgramReminderNotifier @Inject constructor(
 
     fun showReminder(reminder: ProgramReminderEntity) {
         createChannelIfNeeded()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
         val now = System.currentTimeMillis()
         val minutesUntilStart = ((reminder.programStartTime - now) / 60000L).coerceAtLeast(0L)
         val contentText = if (minutesUntilStart <= 0L) {

@@ -174,6 +174,7 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                     title = currentTitle,
                     headers = resolved.headers,
                     userAgent = resolved.userAgent,
+                    playbackTransportPolicy = resolved.playbackTransportPolicy,
                     allowInvalidSsl = resolved.allowInvalidSsl,
                     proxyHost = resolved.proxyHost,
                     proxyPort = resolved.proxyPort,

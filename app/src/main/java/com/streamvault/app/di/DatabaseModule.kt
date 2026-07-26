@@ -102,7 +102,10 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_58_59,
                 StreamVaultDatabase.MIGRATION_59_60,
                 StreamVaultDatabase.MIGRATION_60_61,
-                StreamVaultDatabase.MIGRATION_61_62
+                StreamVaultDatabase.MIGRATION_61_62,
+                StreamVaultDatabase.MIGRATION_62_63,
+                StreamVaultDatabase.MIGRATION_63_64,
+                StreamVaultDatabase.MIGRATION_64_65
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -144,5 +147,9 @@ object DatabaseModule {
     @Provides fun provideXtreamContentIndexDao(db: StreamVaultDatabase): XtreamContentIndexDao = db.xtreamContentIndexDao()
     @Provides fun provideXtreamIndexJobDao(db: StreamVaultDatabase): XtreamIndexJobDao = db.xtreamIndexJobDao()
     @Provides fun provideXtreamLiveOnboardingDao(db: StreamVaultDatabase): XtreamLiveOnboardingDao = db.xtreamLiveOnboardingDao()
+    @Provides fun provideStalkerIndexJobDao(db: StreamVaultDatabase): StalkerIndexJobDao = db.stalkerIndexJobDao()
+    @Provides fun provideStalkerPortalStateDao(db: StreamVaultDatabase): StalkerPortalStateDao = db.stalkerPortalStateDao()
+    @Provides fun provideStalkerRemoteIdentityDao(db: StreamVaultDatabase): StalkerRemoteIdentityDao = db.stalkerRemoteIdentityDao()
+    @Provides fun provideStalkerDiscoveryStageDao(db: StreamVaultDatabase): StalkerDiscoveryStageDao = db.stalkerDiscoveryStageDao()
     @Provides fun provideDownloadDao(db: StreamVaultDatabase): DownloadDao = db.downloadDao()
 }

@@ -9,6 +9,14 @@ import com.streamvault.domain.model.StalkerMagPreset
 import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProfileVerification
+import com.streamvault.domain.model.StalkerProtocolFamily
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.DiscoveryBudget
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 data class StalkerDeviceProfile(
     val portalUrl: String,
@@ -35,13 +43,68 @@ data class StalkerDeviceProfile(
     val httpUserAgent: String = "",
     val httpHeaders: String = "",
     val headerOverrides: Map<String, String?> = emptyMap(),
-    val advancedOptions: StalkerAdvancedOptions = StalkerAdvancedOptions()
+    val advancedOptions: StalkerAdvancedOptions = StalkerAdvancedOptions(),
+    val providerId: Long = 0L,
+    val protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
+    val transportGrant: StalkerTransportGrant? = null,
+    val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
+    val compatibilityProfileId: String = StalkerCompatibilityProfileIds.CLASSIC_MAG250_GENERIC,
+    val requireCatalogValidation: Boolean = false,
+    /** Broad profile/endpoint discovery is reserved for explicit Add/Edit/Connect operations. */
+    val allowCompatibilityDiscovery: Boolean = true,
+    val discoveryBudget: DiscoveryBudget = DiscoveryBudget(),
+    val discoveryRuntime: StalkerDiscoveryRuntime = StalkerDiscoveryRuntime(discoveryBudget),
+    val onProgress: ((String) -> Unit)? = null
 )
+
+class StalkerDiscoveryRuntime(
+    private val budget: DiscoveryBudget
+) {
+    private val active = AtomicBoolean(false)
+    private val requests = AtomicInteger(0)
+    @Volatile private var startedAtNanos: Long = 0L
+
+    fun begin() {
+        requests.set(0)
+        startedAtNanos = System.nanoTime()
+        active.set(true)
+    }
+
+    fun end() {
+        active.set(false)
+    }
+
+    fun consumeRequest() {
+        if (!active.get()) return
+        val request = requests.incrementAndGet()
+        if (request > budget.maxRequests) {
+            throw StalkerApiError.DiscoveryBudgetExceeded(
+                "Portal discovery stopped after ${budget.maxRequests} network requests."
+            )
+        }
+        val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
+        if (elapsedMillis > budget.maxElapsedMillis) {
+            throw StalkerApiError.DiscoveryBudgetExceeded(
+                "Portal discovery stopped after ${budget.maxElapsedMillis / 1_000L} seconds."
+            )
+        }
+    }
+
+    val requestCount: Int
+        get() = requests.get()
+
+    fun remainingMillis(): Long {
+        if (!active.get()) return Long.MAX_VALUE
+        val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
+        return (budget.maxElapsedMillis - elapsedMillis).coerceAtLeast(1L)
+    }
+}
 
 data class StalkerSession(
     val loadUrl: String,
     val portalReferer: String,
     val token: String,
+    val sessionScopeKey: String = "",
     val serverCookieHeader: String = "",
     val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
@@ -51,7 +114,8 @@ data class StalkerSession(
     val fingerprintEvidence: StalkerFingerprintEvidence = StalkerFingerprintEvidence(),
     val bootstrapEvidence: List<String> = emptyList(),
     val recipeEvidence: List<String> = emptyList(),
-    val rediscoveryAttempted: Boolean = false
+    val rediscoveryAttempted: Boolean = false,
+    val compatibilityProfileId: String = StalkerCompatibilityProfileIds.CLASSIC_MAG250_GENERIC
 )
 
 data class StalkerFingerprintEvidence(
@@ -77,6 +141,8 @@ data class StalkerProviderProfile(
     val expirationDate: Long? = null,
     val statusLabel: String? = null,
     val authAccess: Boolean? = null,
+    /** Model reported by the portal for the bound account, when middleware exposes it. */
+    val reportedStbType: String? = null,
     val moduleNames: List<String> = emptyList(),
     val bootstrapStrategy: StalkerBootstrapStrategy = StalkerBootstrapStrategy.AUTO,
     val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
@@ -93,13 +159,18 @@ data class StalkerProviderProfile(
     val strictFingerprintRequired: Boolean = false,
     val fallbackRecipeUsed: Boolean = false,
     val rediscoveryAttempted: Boolean = false,
-    val ambiguousState: Boolean = false
+    val ambiguousState: Boolean = false,
+    val compatibilityProfileId: String = StalkerCompatibilityProfileIds.CLASSIC_MAG250_GENERIC,
+    val profileRevision: Int = StalkerCompatibilityRegistry.REVISION,
+    val profileVerification: StalkerProfileVerification = StalkerProfileVerification.UNVERIFIED,
+    val protocolFamily: StalkerProtocolFamily = StalkerProtocolFamily.CLASSIC_MAG
 )
 
 data class StalkerCategoryRecord(
     val id: String,
     val name: String,
-    val alias: String? = null
+    val alias: String? = null,
+    val advertisedItemCount: Int? = null
 )
 
 data class StalkerItemRecord(
@@ -144,9 +215,13 @@ data class StalkerPagedItems(
     val items: List<StalkerItemRecord>,
     val page: Int,
     val totalPages: Int,
-    val pageSize: Int
+    val pageSize: Int,
+    val advertisedTotalItems: Int? = null,
+    val advertisedTotalPages: Int? = null,
+    val isTruncated: Boolean = false,
+    val terminationReason: String? = null
 ) {
-    val isComplete: Boolean get() = page >= totalPages
+    val isComplete: Boolean get() = !isTruncated && page >= totalPages
 }
 
 data class StalkerSeriesDetails(

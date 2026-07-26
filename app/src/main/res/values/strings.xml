@@ -801,6 +801,7 @@
     <string name="settings_retry_series">Retry Series</string>
     <string name="settings_status_active">Active</string>
     <string name="settings_status_partial">Partial</string>
+    <string name="settings_status_requires_attention">Requires attention</string>
     <string name="settings_status_error">Error</string>
     <string name="settings_status_expired">Expired</string>
     <string name="settings_status_disabled">Disabled</string>
@@ -988,6 +989,11 @@
     <string name="search_no_provider_title">No active provider</string>
     <string name="search_no_provider_subtitle">Add or activate a provider before searching the library.</string>
     <string name="search_results_title">%1$d results</string>
+    <string name="search_catalog_downloaded_only">Downloaded items only. Build the complete search index to search the full portal catalog.</string>
+    <string name="search_catalog_indexing">The complete search index is being built. Results are still partial.</string>
+    <string name="search_catalog_truncated">The portal catalog was truncated. Results may be incomplete.</string>
+    <string name="search_catalog_complete">Complete catalog index</string>
+    <string name="search_build_complete_index">Build complete search index once</string>
     <string name="search_results_count">%1$s %2$d</string>
     <string name="search_live_tv">Live TV</string>
     <string name="search_all">All</string>
@@ -1781,4 +1787,16 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="stalker_transport_invalid_tls_title" translatable="false">This provider\'s security certificate can\'t be verified</string>
+    <string name="stalker_transport_invalid_tls_body" translatable="false">The connection to %1$s may still be encrypted, but the app can\'t confirm it is really this provider. Someone on the network could read your login or stream details.</string>
+    <string name="stalker_transport_http_title" translatable="false">This provider uses an unencrypted connection</string>
+    <string name="stalker_transport_http_body" translatable="false">Your login and viewing requests to %1$s can be read or changed by someone on the network.</string>
+    <string name="stalker_transport_origin_changed_title" translatable="false">This provider wants to use a different address</string>
+    <string name="stalker_transport_origin_changed_body" translatable="false">The provider redirected the connection to %1$s. Continue only if you recognize this address.</string>
+    <string name="stalker_transport_go_back" translatable="false">Go back</string>
+    <string name="stalker_transport_connect_anyway" translatable="false">Connect anyway</string>
+    <string name="stalker_verification_inconclusive_title" translatable="false">Live TV could not be verified</string>
+    <string name="stalker_verification_inconclusive_body" translatable="false">The provider accepted your login, but the Live TV check did not finish. You can save it with verification pending; it will remain inactive until a sync confirms playable Live TV.</string>
+    <string name="stalker_save_without_verification" translatable="false">Save without verification</string>
+    <string name="stalker_repair_connection" translatable="false">Repair connection</string>
 </resources>
