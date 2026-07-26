@@ -168,10 +168,19 @@ internal fun ProviderCatalogCountUiModel.shouldShowCatalogStatusTag(): Boolean =
     status != ProviderCatalogCountStatus.PENDING && status != ProviderCatalogCountStatus.READY
 
 @Composable
-internal fun ProviderStatusBadge(status: ProviderStatus) {
+internal fun ProviderStatusBadge(
+    status: ProviderStatus,
+    requiresAttention: Boolean = false
+) {
     val (label, color) = when (status) {
         ProviderStatus.ACTIVE -> stringResource(R.string.settings_status_active) to Primary
-        ProviderStatus.PARTIAL -> stringResource(R.string.settings_status_partial) to Secondary
+        ProviderStatus.PARTIAL -> stringResource(
+            if (requiresAttention) {
+                R.string.settings_status_requires_attention
+            } else {
+                R.string.settings_status_partial
+            }
+        ) to Secondary
         ProviderStatus.ERROR -> stringResource(R.string.settings_status_error) to ErrorColor
         ProviderStatus.EXPIRED -> stringResource(R.string.settings_status_expired) to ErrorColor
         ProviderStatus.DISABLED -> stringResource(R.string.settings_status_disabled) to OnSurfaceDim

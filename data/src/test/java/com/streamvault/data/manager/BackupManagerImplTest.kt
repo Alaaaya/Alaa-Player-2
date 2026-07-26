@@ -30,11 +30,13 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.repository.CategoryRepository
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.runBlocking
@@ -86,6 +88,81 @@ class BackupManagerImplTest {
         assertThat(result).isInstanceOf(Result.Error::class.java)
         assertThat((result as Result.Error).message).contains("does not contain any importable data")
         verify(preferencesRepository, never()).setParentalControlLevel(any())
+    }
+
+    @Test
+    fun `import strips Stalker transport consent and requires attention for HTTP`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val credentialCrypto: CredentialCrypto = mock()
+        val gson = Gson()
+        val backup = BackupData(
+            providers = listOf(
+                Provider(
+                    id = 9L,
+                    name = "MAG",
+                    type = ProviderType.STALKER_PORTAL,
+                    serverUrl = "http://portal.example.com/c/",
+                    stalkerMacAddress = "00:1A:79:12:34:56",
+                    stalkerTransportMode = StalkerTransportMode.USER_ACCEPTED_HTTP,
+                    stalkerTransportOrigin = "http://portal.example.com",
+                    stalkerTlsSpkiSha256 = "sha256/must-not-survive",
+                    stalkerTransportConsentAt = 1234L,
+                    isActive = true,
+                    status = ProviderStatus.ACTIVE
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://stalker-backup"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backup).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(credentialCrypto.encryptIfNeeded(any())).thenAnswer { invocation ->
+            invocation.arguments.first() as String
+        }
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = credentialCrypto,
+            providerDao = providerDao,
+            favoriteDao = mock(),
+            virtualGroupDao = mock(),
+            playbackHistoryDao = mock(),
+            movieDao = mock(),
+            episodeDao = mock(),
+            categoryRepository = mock(),
+            recordingScheduleDao = mock(),
+            recordingManager = mock(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://stalker-backup",
+            plan = BackupImportPlan(
+                importPreferences = false,
+                importProviders = true,
+                importSavedLibrary = false,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val inserted = org.mockito.kotlin.argumentCaptor<ProviderEntity>()
+        verify(providerDao).insert(inserted.capture())
+        assertThat(inserted.firstValue.stalkerTransportMode)
+            .isEqualTo(StalkerTransportMode.AUTO_STRICT)
+        assertThat(inserted.firstValue.stalkerTransportOrigin).isEmpty()
+        assertThat(inserted.firstValue.stalkerTlsSpkiSha256).isEmpty()
+        assertThat(inserted.firstValue.stalkerTransportConsentAt).isEqualTo(0L)
+        assertThat(inserted.firstValue.isActive).isFalse()
+        assertThat(inserted.firstValue.status).isEqualTo(ProviderStatus.PARTIAL)
     }
 
     @Test

@@ -14,7 +14,8 @@ fun CastMediaRequest.toCastUnsupportedMessageRes(): Int = when (rewriteRequiredR
     CastRewriteRequiredReason.CUSTOM_HEADERS -> R.string.cast_headers_unsupported
     CastRewriteRequiredReason.CUSTOM_USER_AGENT -> R.string.cast_user_agent_unsupported
     CastRewriteRequiredReason.PROXY -> R.string.cast_proxy_unsupported
-    CastRewriteRequiredReason.INVALID_SSL -> R.string.cast_invalid_ssl_unsupported
+    CastRewriteRequiredReason.INVALID_SSL,
+    CastRewriteRequiredReason.SCOPED_TRANSPORT -> R.string.cast_invalid_ssl_unsupported
     null -> R.string.cast_stream_unsupported
 }
 

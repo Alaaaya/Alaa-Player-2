@@ -17,6 +17,7 @@ import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.LiveStreamFormatMode
+import com.streamvault.domain.model.PlaybackTransportPolicy
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCookieMode
@@ -25,6 +26,9 @@ import com.streamvault.domain.model.StalkerMagPreset
 import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.StalkerTransportOrigin
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -37,6 +41,7 @@ data class ResolvedStreamUrl(
     val containerExtension: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val userAgent: String? = null,
+    val playbackTransportPolicy: PlaybackTransportPolicy? = null,
     val allowInvalidSsl: Boolean = false,
     val proxyHost: String = "",
     val proxyPort: Int? = null
@@ -71,6 +76,10 @@ class XtreamStreamUrlResolver @Inject constructor(
         val deviceId2: String,
         val signature: String,
         val stalkerAdvancedOptionsJson: String,
+        val transportMode: StalkerTransportMode,
+        val transportOrigin: String,
+        val tlsSpkiSha256: String,
+        val transportConsentAt: Long,
         val provider: StalkerProvider
     )
 
@@ -209,6 +218,7 @@ class XtreamStreamUrlResolver @Inject constructor(
                     containerExtension = token.containerExtension ?: fallbackContainerExtension,
                     headers = playbackInfo.headers,
                     userAgent = playbackInfo.userAgent,
+                    playbackTransportPolicy = playbackInfo.transportPolicy,
                     allowInvalidSsl = playbackInfo.allowInvalidSsl,
                     proxyHost = playbackInfo.proxyHost,
                     proxyPort = playbackInfo.proxyPort
@@ -346,6 +356,7 @@ class XtreamStreamUrlResolver @Inject constructor(
             containerExtension = fallbackContainerExtension,
             headers = playbackInfo.headers,
             userAgent = playbackInfo.userAgent,
+            playbackTransportPolicy = playbackInfo.transportPolicy,
             allowInvalidSsl = playbackInfo.allowInvalidSsl,
             proxyHost = playbackInfo.proxyHost,
             proxyPort = playbackInfo.proxyPort
@@ -430,7 +441,11 @@ class XtreamStreamUrlResolver @Inject constructor(
             cached.deviceId == provider.stalkerDeviceId &&
             cached.deviceId2 == provider.stalkerDeviceId2 &&
             cached.signature == provider.stalkerSignature &&
-            cached.stalkerAdvancedOptionsJson == provider.stalkerAdvancedOptionsJson
+            cached.stalkerAdvancedOptionsJson == provider.stalkerAdvancedOptionsJson &&
+            cached.transportMode == provider.stalkerTransportMode &&
+            cached.transportOrigin == provider.stalkerTransportOrigin &&
+            cached.tlsSpkiSha256 == provider.stalkerTlsSpkiSha256 &&
+            cached.transportConsentAt == provider.stalkerTransportConsentAt
         ) {
             return cached.provider
         }
@@ -462,7 +477,11 @@ class XtreamStreamUrlResolver @Inject constructor(
             deviceId = provider.stalkerDeviceId,
             deviceId2 = provider.stalkerDeviceId2,
             signature = provider.stalkerSignature,
-            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson
+            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
+            protocolPreference = provider.stalkerProtocolPreference,
+            transportGrant = provider.toStalkerTransportGrant(),
+            requestedProfileId = provider.stalkerRequestedProfileId,
+            learnedProfileId = provider.stalkerLearnedProfileId
         )
         stalkerProviders[providerId] = CachedStalkerProvider(
             serverUrl = provider.serverUrl,
@@ -486,6 +505,10 @@ class XtreamStreamUrlResolver @Inject constructor(
             deviceId2 = provider.stalkerDeviceId2,
             signature = provider.stalkerSignature,
             stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
+            transportMode = provider.stalkerTransportMode,
+            transportOrigin = provider.stalkerTransportOrigin,
+            tlsSpkiSha256 = provider.stalkerTlsSpkiSha256,
+            transportConsentAt = provider.stalkerTransportConsentAt,
             provider = resolvedProvider
         )
         return resolvedProvider
@@ -506,6 +529,39 @@ class XtreamStreamUrlResolver @Inject constructor(
         }
         providerDao.update(updated)
     }
+}
+
+private fun ProviderEntity.toStalkerTransportGrant(): StalkerTransportGrant? {
+    if (stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_HTTP &&
+        stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS &&
+        stalkerTransportMode != StalkerTransportMode.VERIFIED_HTTPS
+    ) {
+        return null
+    }
+    val origin = stalkerTransportOrigin.toStalkerTransportOrigin()
+        ?: serverUrl.toStalkerTransportOrigin()
+        ?: return null
+    val pin = stalkerTlsSpkiSha256.takeIf(String::isNotBlank)
+    if (stalkerTransportMode == StalkerTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS && pin == null) {
+        return null
+    }
+    return StalkerTransportGrant(
+        mode = stalkerTransportMode,
+        origin = origin,
+        spkiSha256 = pin,
+        consentedAt = stalkerTransportConsentAt
+    )
+}
+
+private fun String.toStalkerTransportOrigin(): StalkerTransportOrigin? {
+    val normalized = trim()
+    val uri = runCatching { URI(normalized) }.getOrNull()
+        ?.takeIf { it.scheme != null }
+        ?: return null
+    val scheme = uri.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: return null
+    val host = uri.host?.lowercase()?.takeIf(String::isNotBlank) ?: return null
+    val port = uri.port.takeIf { it > 0 } ?: if (scheme == "https") 443 else 80
+    return StalkerTransportOrigin(scheme, host, port)
 }
 
 internal fun extractStreamExpirationTime(url: String): Long? {

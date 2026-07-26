@@ -15,6 +15,7 @@ import com.streamvault.data.local.entity.EpisodeBrowseEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.local.entity.SeriesBrowseEntity
+import com.streamvault.data.local.entity.SeriesCategoryHydrationEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
@@ -125,7 +126,7 @@ class SeriesRepositoryImplTest {
     }
 
     @Test
-    fun `getSeriesByCategory prioritizes stalker category when background fetch is already running`() = runTest {
+    fun `getSeriesByCategory directly hydrates stalker category even when background fetch is running`() = runTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0))
@@ -145,13 +146,22 @@ class SeriesRepositoryImplTest {
                 status = ProviderStatus.ACTIVE
             )
         )
+        whenever(stalkerApiService.authenticate(any())).thenReturn(
+            Result.success(StalkerSession("http://example.com/portal.php", "http://example.com/", "token") to StalkerProviderProfile())
+        )
+        whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord("77", "Drama")))
+        )
+        whenever(stalkerApiService.getSeriesPage(any(), any(), anyOrNull(), any())).thenReturn(
+            Result.success(StalkerPagedItems(emptyList(), page = 1, totalPages = 1, pageSize = 20))
+        )
         val repository = createRepository()
 
         val result = repository.getSeriesByCategory(7L, 77L).first()
 
         assertThat(result).isEmpty()
-        verify(syncManager).prioritizeStalkerIndexCategory(7L, ContentType.SERIES, 77L)
-        verify(stalkerApiService, never()).getSeriesPage(any(), any(), anyOrNull(), any())
+        verify(syncManager, never()).prioritizeStalkerIndexCategory(any(), any(), any())
+        verify(stalkerApiService).getSeriesPage(any(), any(), anyOrNull(), eq(1))
         verify(episodeDao, never()).deleteOrphans()
     }
 
@@ -422,6 +432,64 @@ class SeriesRepositoryImplTest {
 
         verify(stalkerApiService).getSeriesPage(any(), any(), anyOrNull(), eq(1))
         verify(stalkerApiService, never()).getSeriesPage(any(), any(), anyOrNull(), eq(2))
+    }
+
+    @Test
+    fun `opening stalker series category fills at least forty items across natural pages`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0), flowOf(14), flowOf(28), flowOf(42))
+        whenever(seriesDao.getByCategoryPage(7L, 77L, 60, 0)).thenReturn(flowOf(emptyList()))
+        whenever(seriesCategoryHydrationDao.get(7L, 77L)).thenReturn(null)
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "77", name = "Drama")))
+        )
+        (1..3).forEach { page ->
+            whenever(stalkerApiService.getSeriesPage(any(), any(), anyOrNull(), eq(page))).thenReturn(
+                Result.success(stalkerSeriesPage(page = page, itemCount = 14))
+            )
+        }
+
+        createRepository().getSeriesByCategoryPage(7L, 77L, limit = 60, offset = 0).first()
+
+        (1..3).forEach { page ->
+            verify(stalkerApiService).getSeriesPage(any(), any(), anyOrNull(), eq(page))
+        }
+        verify(stalkerApiService, never()).getSeriesPage(any(), any(), anyOrNull(), eq(4))
+    }
+
+    @Test
+    fun `scrolling cached stalker series category appends exactly one natural page`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(42), flowOf(56))
+        whenever(seriesDao.getByCategoryPage(7L, 77L, 60, 60)).thenReturn(flowOf(emptyList()))
+        whenever(seriesCategoryHydrationDao.get(7L, 77L)).thenReturn(
+            SeriesCategoryHydrationEntity(
+                providerId = 7L,
+                categoryId = 77L,
+                itemCount = 42,
+                lastStatus = "SUCCESS",
+                lastLoadedPage = 3,
+                lastAttemptedPage = 3,
+                lastSuccessfulPage = 3,
+                totalPages = 10,
+                pageSize = 14
+            )
+        )
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "77", name = "Drama")))
+        )
+        whenever(stalkerApiService.getSeriesPage(any(), any(), anyOrNull(), eq(4))).thenReturn(
+            Result.success(stalkerSeriesPage(page = 4, itemCount = 14))
+        )
+
+        createRepository().getSeriesByCategoryPage(7L, 77L, limit = 60, offset = 60).first()
+
+        verify(stalkerApiService).getSeriesPage(any(), any(), anyOrNull(), eq(4))
+        verify(stalkerApiService, never()).getSeriesPage(any(), any(), anyOrNull(), eq(5))
     }
 
     @Test
@@ -1013,7 +1081,43 @@ class SeriesRepositoryImplTest {
             xtreamIndexJobDao = xtreamIndexJobDao,
             syncManager = syncManager,
             seriesCategoryHydrationDao = seriesCategoryHydrationDao,
-            jellyfinProvider = jellyfinProvider
+            jellyfinProvider = jellyfinProvider,
+            stalkerRemoteIdentityResolver = mock(),
+            stalkerRequestCoordinator = com.streamvault.data.remote.stalker.StalkerRequestCoordinator(),
+            stalkerPortalStateStore = mock()
         )
     }
+
+    private fun stalkerProviderEntity() = ProviderEntity(
+        id = 7L,
+        name = "Stalker",
+        type = ProviderType.STALKER_PORTAL,
+        serverUrl = "http://example.com",
+        stalkerMacAddress = "00:11:22:33:44:55",
+        status = ProviderStatus.ACTIVE
+    )
+
+    private fun stalkerSessionResult(): Result<Pair<StalkerSession, StalkerProviderProfile>> =
+        Result.success(
+            StalkerSession(
+                loadUrl = "http://example.com/stalker_portal/server/load.php",
+                portalReferer = "http://example.com/stalker_portal/c/",
+                token = "token"
+            ) to StalkerProviderProfile(accountName = "Stalker")
+        )
+
+    private fun stalkerSeriesPage(page: Int, itemCount: Int): StalkerPagedItems =
+        StalkerPagedItems(
+            items = (1..itemCount).map { index ->
+                StalkerItemRecord(
+                    id = "${page}00$index",
+                    name = "Series $page-$index",
+                    categoryId = "77",
+                    isSeries = true
+                )
+            },
+            page = page,
+            totalPages = 10,
+            pageSize = itemCount
+        )
 }

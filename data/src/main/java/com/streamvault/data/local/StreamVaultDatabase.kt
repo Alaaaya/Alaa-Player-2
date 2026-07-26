@@ -48,9 +48,13 @@ import com.streamvault.data.local.entity.*
         XtreamContentIndexEntity::class,
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class,
+        StalkerIndexJobEntity::class,
+        StalkerPortalStateEntity::class,
+        StalkerRemoteIdentityEntity::class,
+        StalkerDiscoveryStageEntity::class,
         DownloadEntity::class
     ],
-    version = 62,
+    version = 65,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -88,6 +92,10 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun xtreamContentIndexDao(): XtreamContentIndexDao
     abstract fun xtreamIndexJobDao(): XtreamIndexJobDao
     abstract fun xtreamLiveOnboardingDao(): XtreamLiveOnboardingDao
+    abstract fun stalkerIndexJobDao(): StalkerIndexJobDao
+    abstract fun stalkerPortalStateDao(): StalkerPortalStateDao
+    abstract fun stalkerRemoteIdentityDao(): StalkerRemoteIdentityDao
+    abstract fun stalkerDiscoveryStageDao(): StalkerDiscoveryStageDao
     abstract fun downloadDao(): DownloadDao
 
     companion object {
@@ -2697,6 +2705,222 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     tableName = "providers",
                     columnName = "channel_logo_source_policy",
                     columnDefinition = "TEXT NOT NULL DEFAULT 'SUPPLIER_PREFERRED'"
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_62_63 = object : Migration(62, 63) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    tableName = "providers",
+                    columnName = "stalker_catalog_mode",
+                    columnDefinition = "TEXT NOT NULL DEFAULT 'ON_DEMAND'"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS stalker_index_jobs (
+                        provider_id INTEGER NOT NULL,
+                        section TEXT NOT NULL,
+                        state TEXT NOT NULL DEFAULT 'DISABLED',
+                        total_categories INTEGER NOT NULL DEFAULT 0,
+                        completed_categories INTEGER NOT NULL DEFAULT 0,
+                        next_category_index INTEGER NOT NULL DEFAULT 0,
+                        failed_categories INTEGER NOT NULL DEFAULT 0,
+                        indexed_rows INTEGER NOT NULL DEFAULT 0,
+                        skipped_malformed_rows INTEGER NOT NULL DEFAULT 0,
+                        deleted_pruned_rows INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        last_attempt_at INTEGER NOT NULL DEFAULT 0,
+                        last_success_at INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(provider_id, section),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_stalker_index_jobs_provider_id ON stalker_index_jobs(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_stalker_index_jobs_state ON stalker_index_jobs(state)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_stalker_index_jobs_updated_at ON stalker_index_jobs(updated_at)")
+                database.execSQL(
+                    """
+                    INSERT OR REPLACE INTO stalker_index_jobs (
+                        provider_id, section, state, total_categories, completed_categories,
+                        next_category_index, failed_categories, indexed_rows, skipped_malformed_rows,
+                        deleted_pruned_rows, last_error,
+                        last_attempt_at, last_success_at, updated_at
+                    )
+                    SELECT j.provider_id, j.section, 'DISABLED', j.total_categories, j.completed_categories,
+                           j.next_category_index, j.failed_categories, j.indexed_rows, j.skipped_malformed_rows,
+                           j.deleted_pruned_rows, j.last_error,
+                           j.last_attempt_at, j.last_success_at, j.updated_at
+                    FROM xtream_index_jobs j
+                    INNER JOIN providers p ON p.id = j.provider_id
+                    WHERE p.type = 'STALKER_PORTAL' AND j.section IN ('MOVIE', 'SERIES')
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "DELETE FROM xtream_index_jobs WHERE provider_id IN (SELECT id FROM providers WHERE type = 'STALKER_PORTAL')"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS stalker_portal_state (
+                        provider_id INTEGER NOT NULL,
+                        working_endpoint TEXT,
+                        bootstrap_recipe TEXT,
+                        bulk_live_supported INTEGER,
+                        bulk_live_category_fidelity INTEGER,
+                        movie_wildcard_supported INTEGER,
+                        series_wildcard_supported INTEGER,
+                        epg_supported INTEGER,
+                        safe_metadata_concurrency INTEGER NOT NULL DEFAULT 2,
+                        stress_cooldown_until INTEGER NOT NULL DEFAULT 0,
+                        endpoint_health_json TEXT NOT NULL DEFAULT '{}',
+                        endpoint_failed_until INTEGER NOT NULL DEFAULT 0,
+                        validated_at INTEGER NOT NULL DEFAULT 0,
+                        schema_version INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(provider_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_stalker_portal_state_provider_id ON stalker_portal_state(provider_id)")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS stalker_remote_identities (
+                        provider_id INTEGER NOT NULL,
+                        content_type TEXT NOT NULL,
+                        raw_id TEXT NOT NULL,
+                        surrogate_id INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id, content_type, raw_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_stalker_remote_identities_provider_id ON stalker_remote_identities(provider_id)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_stalker_remote_identities_provider_id_content_type_surrogate_id ON stalker_remote_identities(provider_id, content_type, surrogate_id)")
+                validateForeignKeys(database, "providers", "stalker_index_jobs", "stalker_portal_state", "stalker_remote_identities")
+            }
+        }
+
+        val MIGRATION_63_64 = object : Migration(63, 64) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "providers", "stalker_protocol_preference", "TEXT NOT NULL DEFAULT 'AUTO'")
+                addColumnIfMissing(database, "providers", "stalker_requested_profile_id", "TEXT NOT NULL DEFAULT 'auto'")
+                addColumnIfMissing(database, "providers", "stalker_learned_profile_id", "TEXT NOT NULL DEFAULT ''")
+                addColumnIfMissing(database, "providers", "stalker_profile_revision", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "providers", "stalker_profile_verification", "TEXT NOT NULL DEFAULT 'UNVERIFIED'")
+                addColumnIfMissing(database, "providers", "stalker_protocol_family", "TEXT NOT NULL DEFAULT 'CLASSIC_MAG'")
+                database.execSQL(
+                    """
+                    UPDATE providers SET stalker_requested_profile_id = CASE stalker_mag_preset
+                        WHEN 'MAG250_LEGACY' THEN 'classic.mag250.legacy'
+                        WHEN 'MAG254_STRICT' THEN 'classic.mag254.strict'
+                        WHEN 'MINISTRA_MODERN' THEN 'classic.mag322.modern'
+                        ELSE 'classic.mag250.generic'
+                    END,
+                    stalker_learned_profile_id = CASE stalker_mag_preset
+                        WHEN 'MAG250_LEGACY' THEN 'classic.mag250.legacy'
+                        WHEN 'MAG254_STRICT' THEN 'classic.mag254.strict'
+                        WHEN 'MINISTRA_MODERN' THEN 'classic.mag322.modern'
+                        ELSE 'classic.mag250.generic'
+                    END,
+                    stalker_profile_revision = 1,
+                    stalker_profile_verification = 'VERIFIED'
+                    WHERE type = 'STALKER_PORTAL'
+                    """.trimIndent()
+                )
+                validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_64_65 = object : Migration(64, 65) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_transport_mode",
+                    "TEXT NOT NULL DEFAULT 'AUTO_STRICT'"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_transport_origin",
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_tls_spki_sha256",
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_transport_consent_at",
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_configuration_generation",
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_discovery_summary",
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "stalker_capabilities_json",
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS stalker_discovery_staging (
+                        discovery_id TEXT NOT NULL PRIMARY KEY,
+                        provider_id INTEGER,
+                        configuration_generation INTEGER NOT NULL,
+                        sanitized_summary TEXT NOT NULL,
+                        categories_json TEXT NOT NULL,
+                        channels_json TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_stalker_discovery_staging_provider_id ON stalker_discovery_staging(provider_id)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_stalker_discovery_staging_created_at ON stalker_discovery_staging(created_at)"
+                )
+                // Existing installs used a global trust-all client. They deliberately migrate to
+                // strict verification and must consent in the foreground if their portal needs
+                // HTTP or invalid TLS.
+                database.execSQL(
+                    """
+                    UPDATE providers
+                    SET stalker_transport_mode = 'AUTO_STRICT',
+                        stalker_transport_origin = '',
+                        stalker_tls_spki_sha256 = '',
+                        stalker_transport_consent_at = 0
+                    WHERE type = 'STALKER_PORTAL'
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    UPDATE providers
+                    SET status = 'PARTIAL',
+                        is_active = 0
+                    WHERE type = 'STALKER_PORTAL'
+                      AND lower(server_url) LIKE 'http://%'
+                    """.trimIndent()
                 )
                 validateForeignKeys(database, "providers")
             }

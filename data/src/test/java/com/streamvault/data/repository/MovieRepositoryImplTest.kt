@@ -13,6 +13,7 @@ import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
+import com.streamvault.data.local.entity.MovieCategoryHydrationEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.PlaybackHistoryLiteEntity
 import com.streamvault.data.local.entity.ProviderEntity
@@ -50,6 +51,7 @@ import com.streamvault.domain.model.VodVariantObservation
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -59,6 +61,7 @@ import org.mockito.Mockito.timeout
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
@@ -249,7 +252,7 @@ class MovieRepositoryImplTest {
     }
 
     @Test
-    fun `getMoviesByCategory prioritizes stalker category when background fetch is already running`() = runTest {
+    fun `getMoviesByCategory directly hydrates stalker category even when background fetch is running`() = runTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0))
@@ -269,13 +272,22 @@ class MovieRepositoryImplTest {
                 status = ProviderStatus.ACTIVE
             )
         )
+        whenever(stalkerApiService.authenticate(any())).thenReturn(
+            Result.success(StalkerSession("http://example.com/portal.php", "http://example.com/", "token") to StalkerProviderProfile())
+        )
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord("42", "Action")))
+        )
+        whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), any())).thenReturn(
+            Result.success(StalkerPagedItems(emptyList(), page = 1, totalPages = 1, pageSize = 20))
+        )
         val repository = createRepository()
 
         val result = repository.getMoviesByCategory(7L, 42L).first()
 
         assertThat(result).isEmpty()
-        verify(syncManager).prioritizeStalkerIndexCategory(7L, ContentType.MOVIE, 42L)
-        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), any())
+        verify(syncManager, never()).prioritizeStalkerIndexCategory(any(), any(), any())
+        verify(stalkerApiService).getVodStreamsPage(any(), any(), anyOrNull(), eq(1))
     }
 
     @Test
@@ -553,8 +565,183 @@ class MovieRepositoryImplTest {
     }
 
     @Test
+    fun `stalker preview hydration survives preview flow cancellation`() = runTest {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseRequest = CompletableDeferred<Unit>()
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0), flowOf(18))
+        whenever(movieDao.getByCategoryPreview(7L, 42L, 18)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(null)
+        whenever(categoryDao.getByProviderAndType(7L, ContentType.MOVIE.name)).thenReturn(
+            flowOf(
+                listOf(
+                    com.streamvault.data.local.entity.CategoryEntity(
+                        providerId = 7L,
+                        categoryId = 42L,
+                        name = "Action",
+                        type = ContentType.MOVIE
+                    )
+                )
+            )
+        )
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(1))).doSuspendableAnswer {
+            requestStarted.complete(Unit)
+            releaseRequest.await()
+            Result.success(stalkerMoviePage(page = 1, itemCount = 18, totalPages = 1))
+        }
+
+        createRepository().getCategoryPreviewRows(7L, listOf(42L), 18).first()
+        requestStarted.await()
+        releaseRequest.complete(Unit)
+
+        verify(movieDao, timeout(1_000)).upsertCategoryPage(eq(7L), any())
+    }
+
+    @Test
+    fun `stalker movie hydration restarts at page one when successful pages produced no category rows`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0), flowOf(18))
+        whenever(movieDao.getByCategoryPreview(7L, 42L, 18)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(
+            MovieCategoryHydrationEntity(
+                providerId = 7L,
+                categoryId = 42L,
+                itemCount = 0,
+                lastStatus = "TRUNCATED",
+                lastLoadedPage = 2,
+                lastAttemptedPage = 2,
+                lastSuccessfulPage = 2,
+                totalPages = 10,
+                pageSize = 14
+            )
+        )
+        whenever(categoryDao.getByProviderAndType(7L, ContentType.MOVIE.name)).thenReturn(
+            flowOf(
+                listOf(
+                    com.streamvault.data.local.entity.CategoryEntity(
+                        providerId = 7L,
+                        categoryId = 42L,
+                        name = "Action",
+                        type = ContentType.MOVIE
+                    )
+                )
+            )
+        )
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(1))).thenReturn(
+            Result.success(stalkerMoviePage(page = 1, itemCount = 18))
+        )
+
+        createRepository().getCategoryPreviewRows(7L, listOf(42L), 18).first()
+
+        verify(stalkerApiService, timeout(1_000)).getVodStreamsPage(any(), any(), anyOrNull(), eq(1))
+        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), eq(3))
+    }
+
+    @Test
+    fun `opening stalker movie category fills at least forty items across natural pages`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0), flowOf(14), flowOf(28), flowOf(42))
+        whenever(movieDao.getByCategoryPage(7L, 42L, 60, 0)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(null)
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        (1..3).forEach { page ->
+            whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(page))).thenReturn(
+                Result.success(stalkerMoviePage(page = page, itemCount = 14))
+            )
+        }
+
+        createRepository().getMoviesByCategoryPage(7L, 42L, limit = 60, offset = 0).first()
+
+        (1..3).forEach { page ->
+            verify(stalkerApiService).getVodStreamsPage(any(), any(), anyOrNull(), eq(page))
+        }
+        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), eq(4))
+    }
+
+    @Test
+    fun `browsing stalker movie category hydrates every advertised page before returning`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(
+            flowOf(0),
+            flowOf(14),
+            flowOf(28),
+            flowOf(42)
+        )
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(null)
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        (1..3).forEach { page ->
+            whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(page))).thenReturn(
+                Result.success(stalkerMoviePage(page = page, itemCount = 14, totalPages = 3))
+            )
+        }
+        whenever(movieDao.getFreshByCategoryCursorPage(7L, 42L, 40)).thenReturn(emptyList())
+        whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
+
+        createRepository().browseMovies(
+            LibraryBrowseQuery(providerId = 7L, categoryId = 42L, limit = 60)
+        ).first()
+
+        (1..3).forEach { page ->
+            verify(stalkerApiService).getVodStreamsPage(any(), any(), anyOrNull(), eq(page))
+        }
+        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), eq(4))
+    }
+
+    @Test
+    fun `scrolling cached stalker movie category appends exactly one natural page`() = runTest {
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(42), flowOf(56))
+        whenever(movieDao.getByCategoryPage(7L, 42L, 60, 60)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(
+            MovieCategoryHydrationEntity(
+                providerId = 7L,
+                categoryId = 42L,
+                itemCount = 42,
+                lastStatus = "SUCCESS",
+                lastLoadedPage = 3,
+                lastAttemptedPage = 3,
+                lastSuccessfulPage = 3,
+                totalPages = 10,
+                pageSize = 14
+            )
+        )
+        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
+        whenever(stalkerApiService.getVodCategories(any(), any())).thenReturn(
+            Result.success(listOf(StalkerCategoryRecord(id = "42", name = "Action")))
+        )
+        whenever(stalkerApiService.getVodStreamsPage(any(), any(), anyOrNull(), eq(4))).thenReturn(
+            Result.success(stalkerMoviePage(page = 4, itemCount = 14))
+        )
+
+        createRepository().getMoviesByCategoryPage(7L, 42L, limit = 60, offset = 60).first()
+
+        verify(stalkerApiService).getVodStreamsPage(any(), any(), anyOrNull(), eq(4))
+        verify(stalkerApiService, never()).getVodStreamsPage(any(), any(), anyOrNull(), eq(5))
+    }
+
+    @Test
     fun `stalker movie category hydration preserves requested category when portal omits item category fields`() = runTest {
-        val actionCategoryId = ("7/${ContentType.MOVIE.name}/42".hashCode().toLong() and 0x7fff_ffffL).coerceAtLeast(1L)
+        val actionCategoryId = ("7/${ContentType.MOVIE.name}/42".hashCode().toLong() and 0x7fff_ffffL)
+            .coerceAtLeast(1L)
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(movieDao.getCountByCategory(7L, actionCategoryId)).thenReturn(flowOf(0), flowOf(1))
         whenever(movieDao.getByCategory(7L, actionCategoryId)).thenReturn(flowOf(emptyList()))
@@ -969,9 +1156,46 @@ class MovieRepositoryImplTest {
             xtreamContentIndexDao = xtreamContentIndexDao,
             xtreamIndexJobDao = xtreamIndexJobDao,
             syncManager = syncManager,
-            transactionRunner = transactionRunner
+            transactionRunner = transactionRunner,
+            stalkerRemoteIdentityResolver = mock(),
+            stalkerRequestCoordinator = com.streamvault.data.remote.stalker.StalkerRequestCoordinator(),
+            stalkerPortalStateStore = mock()
         )
     }
+
+    private fun stalkerProviderEntity() = ProviderEntity(
+        id = 7L,
+        name = "Stalker",
+        type = ProviderType.STALKER_PORTAL,
+        serverUrl = "http://example.com",
+        stalkerMacAddress = "00:11:22:33:44:55",
+        status = ProviderStatus.ACTIVE
+    )
+
+    private fun stalkerSessionResult(): Result<Pair<StalkerSession, StalkerProviderProfile>> =
+        Result.success(
+            StalkerSession(
+                loadUrl = "http://example.com/stalker_portal/server/load.php",
+                portalReferer = "http://example.com/stalker_portal/c/",
+                token = "token"
+            ) to StalkerProviderProfile(accountName = "Stalker")
+        )
+
+    private fun stalkerMoviePage(page: Int, itemCount: Int, totalPages: Int = 10): StalkerPagedItems =
+        StalkerPagedItems(
+            items = (1..itemCount).map { index ->
+                StalkerItemRecord(
+                    id = "${page}00$index",
+                    name = "Movie $page-$index",
+                    categoryId = "42",
+                    cmd = "ffmpeg http://example.com/movie-$page-$index.mp4",
+                    containerExtension = "mp4"
+                )
+            },
+            page = page,
+            totalPages = totalPages,
+            pageSize = itemCount
+        )
 
     private fun movieEntity(
         id: Long,

@@ -7,6 +7,7 @@ import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.player.playback.applyUnsafeTlsBypass
+import com.streamvault.player.playback.applyPlaybackTransportPolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -366,17 +367,30 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
         private fun httpClientFor(streamInfo: StreamInfo): OkHttpClient {
             val proxy = streamInfo.httpProxy()
-            if (proxy == null) {
+            if (proxy == null && streamInfo.playbackTransportPolicy == null) {
                 return if (streamInfo.allowInvalidSsl) unsafeOkHttpClient else okHttpClient
             }
-            val key = "${streamInfo.allowInvalidSsl}:${streamInfo.proxyHost.trim()}:${streamInfo.proxyPort}"
+            val key = buildString {
+                append(streamInfo.playbackTransportPolicy)
+                append(':')
+                append(streamInfo.allowInvalidSsl)
+                append(':')
+                append(streamInfo.proxyHost.trim())
+                append(':')
+                append(streamInfo.proxyPort)
+            }
             return proxiedClients.computeIfAbsent(key) {
-                val builder = if (streamInfo.allowInvalidSsl) {
-                    okHttpClient.newBuilder().applyUnsafeTlsBypass()
-                } else {
-                    okHttpClient.newBuilder()
+                val transportPolicy = streamInfo.playbackTransportPolicy
+                val builder = when {
+                    transportPolicy != null ->
+                        okHttpClient.newBuilder()
+                            .applyPlaybackTransportPolicy(transportPolicy)
+                    streamInfo.allowInvalidSsl ->
+                        okHttpClient.newBuilder().applyUnsafeTlsBypass()
+                    else -> okHttpClient.newBuilder()
                 }
-                builder.proxy(proxy).build()
+                proxy?.let(builder::proxy)
+                builder.build()
             }
         }
 

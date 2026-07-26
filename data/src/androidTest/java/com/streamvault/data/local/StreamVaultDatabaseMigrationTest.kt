@@ -1286,6 +1286,157 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
+    @Test
+    fun migrate62To64_addsStalkerStateAndStableCompatibilityProfile() {
+        migrationTestHelper.createDatabase("streamvault-62-64-test", 62).apply {
+            execSQL(
+                """
+                INSERT INTO providers (
+                    id, name, type, server_url, username, password, m3u_url, epg_url,
+                    http_user_agent, http_headers, stalker_mac_address, stalker_device_profile,
+                    stalker_device_timezone, stalker_device_locale, stalker_serial_number,
+                    stalker_device_id, stalker_device_id2, stalker_signature, stalker_advanced_options_json,
+                    stalker_auth_mode, stalker_portal_profile, stalker_portal_fingerprint,
+                    stalker_mag_preset, stalker_last_bootstrap_recipe, stalker_endpoint_preference,
+                    stalker_cookie_mode, stalker_playback_backend_hint, stalker_last_playback_mode,
+                    stalker_credentials_required, stalker_mac_required, stalker_uses_temp_links,
+                    stalker_module_restricted, stalker_strict_fingerprint_required,
+                    stalker_recipe_fallback_used, stalker_recipe_rediscovery_attempts,
+                    is_active, max_connections, expiration_date, api_version,
+                    allowed_output_formats_json, epg_sync_mode, guide_source_policy,
+                    channel_logo_source_policy, xtream_fast_sync_enabled, xtream_live_sync_mode,
+                    m3u_vod_classification_enabled, status, last_synced_at, created_at
+                ) VALUES (
+                    1, 'Migrated Stalker', 'STALKER_PORTAL', 'https://portal.invalid', '', '', '', '',
+                    '', '', '00:1A:79:00:00:01', 'MAG250', 'Asia/Jerusalem', 'en', '', '', '', '', '',
+                    'AUTO', 'MAG_BASIC', 'BASIC_MAC', 'GENERIC_SAFE', 'GENERIC_SAFE', 'AUTO',
+                    'NONE', 'AUTO', NULL, 0, 1, 0, 0, 0, 0, 0,
+                    1, 1, NULL, NULL, '[]', 'BACKGROUND', 'AUTO', 'SUPPLIER_PREFERRED',
+                    0, 'AUTO', 0, 'ACTIVE', 1234, 5678
+                )
+                """.trimIndent()
+            )
+            execSQL("INSERT INTO categories (category_id, name, parent_id, type, provider_id, is_adult, is_user_protected, sync_fingerprint) VALUES (10, 'Movies', NULL, 'MOVIE', 1, 0, 0, 'cat')")
+            execSQL(
+                """
+                INSERT INTO movies (
+                    stream_id, name, stream_url, duration_seconds, rating, provider_id,
+                    watch_progress, watch_count, last_watched_at, is_adult, is_user_protected,
+                    sync_fingerprint, added_at, cache_state, detail_hydrated_at, remote_stale_at
+                ) VALUES (99, 'Cached Movie', 'stalker://cached', 7200, 8.0, 1, 321, 2, 999, 0, 0, 'movie', 1, 'HYDRATED', 2, 0)
+                """.trimIndent()
+            )
+            execSQL("INSERT INTO favorites (provider_id, content_id, content_type, position, group_id, group_key, added_at) VALUES (1, 99, 'MOVIE', 0, NULL, 0, 100)")
+            execSQL(
+                """
+                INSERT INTO movie_category_hydration (
+                    provider_id, category_id, last_hydrated_at, item_count, last_status,
+                    last_error, last_loaded_page, last_attempted_page, last_successful_page,
+                    total_pages, is_complete, page_size, retry_after_ms, failure_count,
+                    retry_budget_remaining, last_page_fingerprint
+                ) VALUES (1, 10, 1000, 1, 'SUCCESS', NULL, 1, 1, 1, 3, 0, 18, 0, 0, 3, 'page-one')
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-62-64-test",
+            64,
+            true,
+            StreamVaultDatabase.MIGRATION_62_63,
+            StreamVaultDatabase.MIGRATION_63_64
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_catalog_mode'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stalker_index_jobs'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stalker_portal_state'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stalker_remote_identities'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('stalker_index_jobs') WHERE name = 'skipped_malformed_rows'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('stalker_portal_state') WHERE name = 'endpoint_health_json'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM providers WHERE id = 1 AND stalker_catalog_mode = 'ON_DEMAND'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM categories WHERE provider_id = 1 AND category_id = 10"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM movies WHERE provider_id = 1 AND stream_id = 99 AND watch_progress = 321 AND watch_count = 2"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM favorites WHERE provider_id = 1 AND content_id = 99"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM movie_category_hydration WHERE provider_id = 1 AND category_id = 10 AND last_loaded_page = 1"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM providers WHERE id = 1 AND stalker_requested_profile_id = 'classic.mag250.generic'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM providers WHERE id = 1 AND stalker_learned_profile_id = 'classic.mag250.generic' AND stalker_profile_revision = 1"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM providers WHERE id = 1 AND stalker_profile_verification = 'VERIFIED' AND stalker_protocol_family = 'CLASSIC_MAG'"))
+
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate64To65_addsScopedTransportAndResetsLegacyStalkerToStrict() {
+        migrationTestHelper.createDatabase("streamvault-64-65-test", 64).apply {
+            execSQL(
+                """
+                INSERT INTO providers (
+                    id, name, type, server_url, username, password, m3u_url, epg_url,
+                    http_user_agent, http_headers, stalker_mac_address, stalker_device_profile,
+                    stalker_device_timezone, stalker_device_locale, stalker_serial_number,
+                    stalker_device_id, stalker_device_id2, stalker_signature,
+                    stalker_advanced_options_json, stalker_auth_mode, stalker_portal_profile,
+                    stalker_portal_fingerprint, stalker_mag_preset, stalker_protocol_preference,
+                    stalker_requested_profile_id, stalker_learned_profile_id,
+                    stalker_profile_revision, stalker_profile_verification,
+                    stalker_protocol_family, stalker_last_bootstrap_recipe,
+                    stalker_endpoint_preference, stalker_cookie_mode,
+                    stalker_playback_backend_hint, stalker_last_playback_mode,
+                    stalker_credentials_required, stalker_mac_required,
+                    stalker_uses_temp_links, stalker_module_restricted,
+                    stalker_strict_fingerprint_required, stalker_recipe_fallback_used,
+                    stalker_recipe_rediscovery_attempts, is_active, max_connections,
+                    expiration_date, api_version, allowed_output_formats_json, epg_sync_mode,
+                    stalker_catalog_mode, guide_source_policy, channel_logo_source_policy,
+                    xtream_fast_sync_enabled, xtream_live_sync_mode,
+                    m3u_vod_classification_enabled, status, last_synced_at, created_at
+                ) VALUES (
+                    1, 'Legacy HTTP Stalker', 'STALKER_PORTAL', 'http://portal.invalid', '', '', '', '',
+                    '', '', '00:1A:79:00:00:01', 'MAG250', 'UTC', 'en', '', '', '', '',
+                    '', 'AUTO', 'MAG_BASIC', 'BASIC_MAC', 'GENERIC_SAFE', 'CLASSIC_MAG',
+                    'classic.mag250.generic', 'classic.mag250.generic', 1, 'VERIFIED',
+                    'CLASSIC_MAG', 'GENERIC_SAFE', 'AUTO', 'NONE', 'AUTO', NULL,
+                    0, 1, 0, 0, 0, 0, 0, 1, 1,
+                    NULL, NULL, '[]', 'BACKGROUND', 'ON_DEMAND', 'AUTO',
+                    'SUPPLIER_PREFERRED', 0, 'AUTO', 0, 'ACTIVE', 1234, 5678
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-64-65-test",
+            65,
+            true,
+            StreamVaultDatabase.MIGRATION_64_65
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_transport_mode'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_tls_spki_sha256'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_configuration_generation'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stalker_discovery_staging'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'index_stalker_discovery_staging_created_at'"))
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                """
+                SELECT COUNT(*) FROM providers
+                WHERE id = 1
+                  AND stalker_transport_mode = 'AUTO_STRICT'
+                  AND stalker_transport_origin = ''
+                  AND stalker_tls_spki_sha256 = ''
+                  AND stalker_transport_consent_at = 0
+                  AND status = 'PARTIAL'
+                  AND is_active = 0
+                """.trimIndent()
+            )
+        )
+        migratedDb.close()
+    }
+
     private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0

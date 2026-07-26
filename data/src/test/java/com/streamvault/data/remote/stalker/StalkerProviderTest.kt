@@ -1,8 +1,16 @@
 package com.streamvault.data.remote.stalker
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.local.dao.StalkerRemoteIdentityDao
+import com.streamvault.data.local.entity.StalkerRemoteIdentityEntity
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderStatus
+import com.streamvault.domain.model.PlaybackTransportMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerTransportGrant
+import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.StalkerTransportOrigin
 import java.time.Instant
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -10,9 +18,25 @@ import org.junit.Test
 
 class StalkerProviderTest {
 
-    @Before
+@Before
     fun clearSharedAuthCache() {
         StalkerProvider.clearSharedAuthCacheForTests()
+        StalkerProvider.clearResolvedStreamUrlCacheForTests()
+    }
+
+    @Test
+    fun truncated_page_is_never_reported_complete() {
+        val page = StalkerPagedResult(
+            items = listOf("cached"),
+            page = 200,
+            totalPages = 200,
+            advertisedTotalPages = 250,
+            isTruncated = true,
+            terminationReason = "page_limit",
+            pageSize = 14
+        )
+
+        assertThat(page.isComplete).isFalse()
     }
 
     @Test
@@ -89,6 +113,42 @@ class StalkerProviderTest {
     }
 
     @Test
+    fun authenticate_persistedProvider_disablesCompatibilityDiscovery() = runTest {
+        val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(provider.authenticate()).isInstanceOf(Result.Success::class.java)
+
+        assertThat(checkNotNull(api.lastAuthenticateProfile).allowCompatibilityDiscovery).isFalse()
+    }
+
+    @Test
+    fun authenticate_unsavedProvider_allowsExplicitCompatibilityDiscovery() = runTest {
+        val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
+        val provider = StalkerProvider(
+            providerId = 0,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        assertThat(provider.authenticate()).isInstanceOf(Result.Success::class.java)
+
+        assertThat(checkNotNull(api.lastAuthenticateProfile).allowCompatibilityDiscovery).isTrue()
+    }
+
+    @Test
     fun authenticate_reusesSessionAcrossEquivalentProviderInstances() = runTest {
         val api = FakeStalkerApiService(profile = StalkerProviderProfile(accountName = "Room"))
         val firstProvider = StalkerProvider(
@@ -146,12 +206,15 @@ class StalkerProviderTest {
     }
 
     @Test
-    fun getLiveCategories_reauthenticates_only_after_authorization_failed() = runTest {
+    fun getLiveCategories_reauthenticates_onceAfterTypedAuthorizationFailure() = runTest {
         val api = FakeStalkerApiService(
             profile = StalkerProviderProfile(accountName = "Room"),
             liveCategoryResults = ArrayDeque(
                 listOf(
-                    Result.error("Authorization failed"),
+                    Result.error(
+                        "Portal token is invalid",
+                        StalkerApiError.Authorization("Portal token is invalid", portalReason = "not_valid_token")
+                    ),
                     Result.success(emptyList())
                 )
             )
@@ -198,6 +261,144 @@ class StalkerProviderTest {
         assertThat(api.authenticateCalls).isEqualTo(1)
     }
 
+    @Test
+    fun getSeriesInfo_resolvesCollidingEpisodeRemoteIdsBeforeMapping() = runTest {
+        val identityDao = FakeIdentityDao()
+        val resolver = StalkerRemoteIdentityResolver(identityDao, DirectTransactionRunner)
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            seriesDetails = StalkerSeriesDetails(
+                series = StalkerItemRecord(id = "series-alpha", name = "Series"),
+                seasons = listOf(
+                    StalkerSeasonRecord(
+                        seasonNumber = 1,
+                        name = "Season 1",
+                        episodes = listOf(
+                            StalkerEpisodeRecord("ba", "Episode A", 1, 1),
+                            StalkerEpisodeRecord("a\u0080", "Episode B", 2, 1)
+                        )
+                    )
+                )
+            )
+        )
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            identityResolver = resolver
+        )
+
+        val result = provider.getSeriesInfo("series-alpha")
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val episodeIds = (result as Result.Success).data.seasons.single().episodes.map { episode -> episode.id }
+        assertThat(episodeIds.toSet()).hasSize(2)
+        assertThat(resolver.reverse(7L, ContentType.SERIES_EPISODE, episodeIds[0])).isEqualTo("ba")
+        assertThat(resolver.reverse(7L, ContentType.SERIES_EPISODE, episodeIds[1])).isEqualTo("a\u0080")
+    }
+
+    @Test
+    fun getVodStreamsPage_preservesRequestedCategoryWhenOnlyReverseIdentityIsCached() = runTest {
+        val resolver = StalkerRemoteIdentityResolver(FakeIdentityDao(), DirectTransactionRunner)
+        resolver.resolveAll(7L, ContentType.MOVIE, listOf("20"))
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                vodPageItems = listOf(
+                    StalkerItemRecord(
+                        id = "movie-1",
+                        name = "Movie",
+                        categoryName = "Action",
+                        cmd = "ffmpeg http://cdn.example.com/movie.ts"
+                    )
+                )
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            identityResolver = resolver
+        )
+
+        val result = provider.getVodStreamsPage(categoryId = 20L, page = 1)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val movie = (result as Result.Success).data.items.single()
+        assertThat(movie.categoryId).isEqualTo(20L)
+        assertThat(movie.categoryName).isEqualTo("Action")
+    }
+
+    @Test
+    fun getSeriesListPage_preservesRequestedCategoryWhenOnlyReverseIdentityIsCached() = runTest {
+        val resolver = StalkerRemoteIdentityResolver(FakeIdentityDao(), DirectTransactionRunner)
+        resolver.resolveAll(7L, ContentType.SERIES, listOf("30"))
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                seriesPageItems = listOf(
+                    StalkerItemRecord(
+                        id = "series-1",
+                        name = "Series",
+                        categoryName = "Drama"
+                    )
+                )
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            identityResolver = resolver
+        )
+
+        val result = provider.getSeriesListPage(categoryId = 30L, page = 1)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val series = (result as Result.Success).data.items.single()
+        assertThat(series.categoryId).isEqualTo(30L)
+        assertThat(series.categoryName).isEqualTo("Drama")
+    }
+
+    @Test
+    fun streamLiveStreams_resolves_large_catalog_identities_in_batches() = runTest {
+        val transactionRunner = CountingTransactionRunner()
+        val resolver = StalkerRemoteIdentityResolver(FakeIdentityDao(), transactionRunner)
+        val liveStreams = (1..1_001).map { id ->
+            StalkerItemRecord(
+                id = id.toString(),
+                name = "Channel $id",
+                categoryId = "10",
+                cmd = "ffmpeg http://cdn.example.com/$id.ts"
+            )
+        }
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                liveStreams = liveStreams
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            identityResolver = resolver
+        )
+        val emitted = mutableListOf<Long>()
+
+        val result = provider.streamLiveStreams { channel -> emitted += channel.streamId }
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(emitted).hasSize(1_001)
+        assertThat(transactionRunner.transactionCount).isEqualTo(3)
+    }
 
     @Test
     fun getLiveStreams_maps_archive_capabilities_to_catch_up_fields() = runTest {
@@ -415,7 +616,8 @@ class StalkerProviderTest {
         assertThat(success.data.headers["Connection"]).isEqualTo("keep-alive")
         assertThat(success.data.headers["Host"]).isEqualTo("fdox.org:8080")
         assertThat(success.data.userAgent).isEqualTo("Lavf53.32.100")
-        assertThat(success.data.allowInvalidSsl).isTrue()
+        assertThat(success.data.allowInvalidSsl).isFalse()
+        assertThat(success.data.transportPolicy).isNull()
     }
 
     @Test
@@ -491,7 +693,8 @@ class StalkerProviderTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         val success = result as Result.Success
         assertThat(success.data.userAgent).isNull()
-        assertThat(success.data.allowInvalidSsl).isTrue()
+        assertThat(success.data.allowInvalidSsl).isFalse()
+        assertThat(success.data.transportPolicy).isNull()
         assertThat(success.data.proxyHost).isEqualTo("127.0.0.1")
         assertThat(success.data.proxyPort).isEqualTo(8080)
         assertThat(success.data.headers).doesNotContainKey("Referer")
@@ -673,7 +876,10 @@ class StalkerProviderTest {
         private val liveStreams: List<StalkerItemRecord> = emptyList(),
         private val createLinkUrl: String = "http://cdn.example.com/stream.ts",
         private val currentCookieHeader: String = "",
-        private val liveCategoryResults: ArrayDeque<Result<List<StalkerCategoryRecord>>> = ArrayDeque()
+        private val liveCategoryResults: ArrayDeque<Result<List<StalkerCategoryRecord>>> = ArrayDeque(),
+        private val seriesDetails: StalkerSeriesDetails? = null,
+        private val vodPageItems: List<StalkerItemRecord> = emptyList(),
+        private val seriesPageItems: List<StalkerItemRecord> = emptyList()
     ) : StalkerApiService {
         var createLinkCalls: Int = 0
             private set
@@ -709,7 +915,10 @@ class StalkerProviderTest {
             session: StalkerSession,
             profile: StalkerDeviceProfile,
             onItem: suspend (StalkerItemRecord) -> Unit
-        ) = Result.success(0)
+        ): Result<Int> {
+            liveStreams.forEach { item -> onItem(item) }
+            return Result.success(liveStreams.size)
+        }
 
         override suspend fun getVodCategories(
             session: StalkerSession,
@@ -727,7 +936,7 @@ class StalkerProviderTest {
             profile: StalkerDeviceProfile,
             categoryId: String?,
             page: Int
-        ) = Result.success(StalkerPagedItems(emptyList(), page, page, 0))
+        ) = Result.success(StalkerPagedItems(vodPageItems, page, page, vodPageItems.size))
 
         override suspend fun getSeriesCategories(
             session: StalkerSession,
@@ -745,14 +954,14 @@ class StalkerProviderTest {
             profile: StalkerDeviceProfile,
             categoryId: String?,
             page: Int
-        ) = Result.success(StalkerPagedItems(emptyList(), page, page, 0))
+        ) = Result.success(StalkerPagedItems(seriesPageItems, page, page, seriesPageItems.size))
 
         override suspend fun getSeriesDetails(
             session: StalkerSession,
             profile: StalkerDeviceProfile,
             seriesId: String
         ) = Result.success(
-            StalkerSeriesDetails(
+            seriesDetails ?: StalkerSeriesDetails(
                 series = StalkerItemRecord(id = seriesId, name = "Series"),
                 seasons = emptyList()
             )
@@ -806,5 +1015,121 @@ class StalkerProviderTest {
         }
 
         override fun currentCookieHeader(session: StalkerSession): String = currentCookieHeader
+    }
+
+    @Test
+    fun resolvePlaybackInfo_applies_accepted_http_only_to_the_granted_origin() = runTest {
+        val grant = StalkerTransportGrant(
+            mode = StalkerTransportMode.USER_ACCEPTED_HTTP,
+            origin = StalkerTransportOrigin("http", "portal.example.com", 8080),
+            consentedAt = 42L
+        )
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://portal.example.com:8080/live/stream.ts"
+            ),
+            portalUrl = "http://portal.example.com:8080/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG322",
+            timezone = "Europe/Amsterdam",
+            locale = "en",
+            transportGrant = grant
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = checkNotNull(
+                buildStalkerPlaybackDescriptor(
+                    primaryCmd = "ffmpeg http://localhost/ch/1200_",
+                    capabilities = StalkerPortalCapabilities(useHttpTemporaryLink = true)
+                )
+            )
+        ) as Result.Success
+
+        assertThat(result.data.allowInvalidSsl).isFalse()
+        assertThat(result.data.transportPolicy?.mode)
+            .isEqualTo(PlaybackTransportMode.USER_ACCEPTED_HTTP)
+        assertThat(result.data.transportPolicy?.origin).isEqualTo(grant.origin)
+    }
+
+@Test
+    fun resolvePlaybackInfo_plays_cleartext_cdn_stream_on_a_different_origin_than_the_portal_consent() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                createLinkUrl = "http://cdn.example.com/live/stream.ts"
+            ),
+            portalUrl = "http://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG322",
+            timezone = "Europe/Amsterdam",
+            locale = "en",
+            transportGrant = StalkerTransportGrant(
+                mode = StalkerTransportMode.USER_ACCEPTED_HTTP,
+                origin = StalkerTransportOrigin("http", "portal.example.com", 80),
+                consentedAt = 42L
+            )
+        )
+
+        val result = provider.resolvePlaybackInfo(
+            kind = StalkerStreamKind.LIVE,
+            descriptor = checkNotNull(
+                buildStalkerPlaybackDescriptor(
+                    primaryCmd = "ffmpeg http://localhost/ch/1200_",
+                    capabilities = StalkerPortalCapabilities(useHttpTemporaryLink = true)
+                )
+            )
+        )
+
+        // Cleartext IPTV streams commonly come from a different origin than the (often HTTPS)
+        // portal, and the portal already authenticated the resolved URL via create_link, so a
+        // matching portal consent is no longer required for playback.
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data.url).isEqualTo("http://cdn.example.com/live/stream.ts")
+    }
+
+    private object DirectTransactionRunner : DatabaseTransactionRunner {
+        override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+    }
+
+    private class CountingTransactionRunner : DatabaseTransactionRunner {
+        var transactionCount = 0
+            private set
+
+        override suspend fun <T> inTransaction(block: suspend () -> T): T {
+            transactionCount += 1
+            return block()
+        }
+    }
+
+    private class FakeIdentityDao : StalkerRemoteIdentityDao {
+        private val rows = mutableListOf<StalkerRemoteIdentityEntity>()
+
+        override suspend fun getByRawId(providerId: Long, contentType: String, rawId: String) =
+            rows.firstOrNull { row ->
+                row.providerId == providerId && row.contentType.name == contentType && row.rawId == rawId
+            }
+
+        override suspend fun getBySurrogateId(providerId: Long, contentType: String, surrogateId: Long) =
+            rows.firstOrNull { row ->
+                row.providerId == providerId && row.contentType.name == contentType && row.surrogateId == surrogateId
+            }
+
+        override suspend fun maxAllocatedSurrogate(providerId: Long, contentType: String, floor: Long): Long? =
+            rows.filter { row ->
+                row.providerId == providerId && row.contentType.name == contentType && row.surrogateId >= floor
+            }.maxOfOrNull(StalkerRemoteIdentityEntity::surrogateId)
+
+        override suspend fun insert(entity: StalkerRemoteIdentityEntity) {
+            check(rows.none { row ->
+                row.providerId == entity.providerId && row.contentType == entity.contentType &&
+                    (row.rawId == entity.rawId || row.surrogateId == entity.surrogateId)
+            })
+            rows += entity
+        }
     }
 }

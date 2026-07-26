@@ -66,6 +66,7 @@ import com.streamvault.player.timeshift.LiveTimeshiftState
 import com.streamvault.player.timeshift.LiveTimeshiftStatus
 import com.streamvault.player.timeshift.TimeshiftConfig
 import com.streamvault.player.playback.applyUnsafeTlsBypass
+import com.streamvault.player.playback.applyPlaybackTransportPolicy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1372,10 +1373,17 @@ class PlayerViewModel @Inject constructor(
                         }
                     }
                     .build()
-                val probeClient = if (streamInfo.allowInvalidSsl || streamInfo.proxyHost.isNotBlank()) {
+                val probeClient = if (
+                    streamInfo.playbackTransportPolicy != null ||
+                    streamInfo.allowInvalidSsl ||
+                    streamInfo.proxyHost.isNotBlank()
+                ) {
                     okHttpClient.newBuilder()
                         .apply {
-                            if (streamInfo.allowInvalidSsl) {
+                            val transportPolicy = streamInfo.playbackTransportPolicy
+                            if (transportPolicy != null) {
+                                applyPlaybackTransportPolicy(transportPolicy)
+                            } else if (streamInfo.allowInvalidSsl) {
                                 applyUnsafeTlsBypass()
                             }
                             streamInfo.httpProxy()?.let { proxy(it) }
@@ -1511,7 +1519,11 @@ class PlayerViewModel @Inject constructor(
                 if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
                 if (streamInfo == null) {
                     if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
-                    showPlayerNotice(message = "No playable stream URL was available.", recoveryType = PlayerRecoveryType.SOURCE)
+                    showPlayerNotice(
+                        message = lastResolutionFailureMessage?.takeIf { it.isNotBlank() }
+                            ?: "No playable stream URL was available.",
+                        recoveryType = PlayerRecoveryType.SOURCE
+                    )
                     return@launch
                 }
                 currentStreamUrl = playbackLogicalUrl
@@ -1730,6 +1742,8 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private var lastResolutionFailureMessage: String? = null
+
     internal suspend fun resolvePlaybackStreamInfo(
         logicalUrl: String,
         internalContentId: Long,
@@ -1749,9 +1763,11 @@ class PlayerViewModel @Inject constructor(
             seriesRepository = seriesRepository,
             xtreamStreamUrlResolver = xtreamStreamUrlResolver
         )
-        resolution.credentialFailureMessage?.let { message ->
-            setLastFailureReason(message)
-            showPlayerNotice(message = message, recoveryType = PlayerRecoveryType.SOURCE)
+        val credentialMessage = resolution.credentialFailureMessage
+        lastResolutionFailureMessage = credentialMessage
+            ?: resolution.resolutionFailureMessage?.takeIf { it.isNotBlank() }
+        if (credentialMessage != null) {
+            setLastFailureReason(credentialMessage)
             return null
         }
         return resolution.streamInfo

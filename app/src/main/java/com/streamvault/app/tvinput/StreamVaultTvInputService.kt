@@ -25,6 +25,7 @@ import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.player.playback.applyUnsafeTlsBypass
+import com.streamvault.player.playback.applyPlaybackTransportPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -184,10 +185,14 @@ class StreamVaultTvInputService : TvInputService() {
 
     private fun OkHttpClient.forPlayback(streamInfo: StreamInfo): OkHttpClient {
         val proxy = streamInfo.httpProxy()
-        if (!streamInfo.allowInvalidSsl && proxy == null) {
+        if (streamInfo.playbackTransportPolicy == null &&
+            !streamInfo.allowInvalidSsl &&
+            proxy == null
+        ) {
             return this
         }
         val key = PlaybackClientKey(
+            transportPolicy = streamInfo.playbackTransportPolicy,
             allowInvalidSsl = streamInfo.allowInvalidSsl,
             proxyHost = streamInfo.proxyHost.trim(),
             proxyPort = streamInfo.proxyPort
@@ -195,7 +200,10 @@ class StreamVaultTvInputService : TvInputService() {
         return playbackClients.computeIfAbsent(key) {
             newBuilder()
                 .apply {
-                    if (streamInfo.allowInvalidSsl) {
+                    val transportPolicy = streamInfo.playbackTransportPolicy
+                    if (transportPolicy != null) {
+                        applyPlaybackTransportPolicy(transportPolicy)
+                    } else if (streamInfo.allowInvalidSsl) {
                         applyUnsafeTlsBypass()
                     }
                     proxy?.let { proxy(it) }
@@ -211,6 +219,7 @@ class StreamVaultTvInputService : TvInputService() {
     }
 
     private data class PlaybackClientKey(
+        val transportPolicy: com.streamvault.domain.model.PlaybackTransportPolicy?,
         val allowInvalidSsl: Boolean,
         val proxyHost: String,
         val proxyPort: Int?

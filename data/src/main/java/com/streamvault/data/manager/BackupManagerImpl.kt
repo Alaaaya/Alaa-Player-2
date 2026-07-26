@@ -20,6 +20,7 @@ import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.preferences.ParentalPinBackupData
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.remote.stalker.StalkerCompatibilityRegistry
 import com.streamvault.domain.manager.BackupData
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.BackupImportPlan
@@ -39,6 +40,14 @@ import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingRequest
 import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.ProviderStatus
+import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.StalkerBootstrapRecipe
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerProfileVerification
+import com.streamvault.domain.model.StalkerProtocolFamily
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.repository.CategoryRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -140,7 +149,14 @@ class BackupManagerImpl @Inject constructor(
             val providers = providerEntities.map { entity ->
                 entity.toDomain().copy(
                     password = "",  // Strip credentials from backup export
-                    username = entity.toDomain().username // Keep username for provider identification
+                    username = entity.toDomain().username, // Keep username for provider identification
+                    stalkerLastBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+                    stalkerLastPlaybackMode = null,
+                    // Transport consent is device-local. A restore must verify or ask again.
+                    stalkerTransportMode = StalkerTransportMode.AUTO_STRICT,
+                    stalkerTransportOrigin = "",
+                    stalkerTlsSpkiSha256 = "",
+                    stalkerTransportConsentAt = 0L
                 )
             }
             val providerIds = providerEntities.map { it.id }
@@ -724,7 +740,52 @@ class BackupManagerImpl @Inject constructor(
                             return@forEach
                         }
                         val entity = provider.copy(
-                            id = existing?.id ?: 0L
+                            id = existing?.id ?: 0L,
+                            stalkerCatalogMode = if (backupData.version < 9) {
+                                StalkerCatalogMode.ON_DEMAND
+                            } else {
+                                provider.stalkerCatalogMode
+                            },
+                            stalkerProtocolPreference = if (backupData.version < 10) {
+                                StalkerProtocolPreference.AUTO
+                            } else provider.stalkerProtocolPreference,
+                            stalkerRequestedProfileId = if (backupData.version < 10) {
+                                StalkerCompatibilityRegistry.idForLegacyPreset(provider.stalkerMagPreset)
+                            } else provider.stalkerRequestedProfileId,
+                            stalkerLearnedProfileId = if (backupData.version < 10) {
+                                StalkerCompatibilityRegistry.idForLegacyPreset(provider.stalkerMagPreset)
+                            } else provider.stalkerLearnedProfileId,
+                            stalkerProfileRevision = if (backupData.version < 10) {
+                                StalkerCompatibilityRegistry.REVISION
+                            } else provider.stalkerProfileRevision,
+                            stalkerProfileVerification = if (backupData.version < 10) {
+                                StalkerProfileVerification.VERIFIED
+                            } else provider.stalkerProfileVerification,
+                            stalkerProtocolFamily = if (backupData.version < 10) {
+                                StalkerProtocolFamily.CLASSIC_MAG
+                            } else provider.stalkerProtocolFamily,
+                            stalkerLastBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+                            stalkerLastPlaybackMode = null,
+                            stalkerTransportMode = StalkerTransportMode.AUTO_STRICT,
+                            stalkerTransportOrigin = "",
+                            stalkerTlsSpkiSha256 = "",
+                            stalkerTransportConsentAt = 0L,
+                            isActive = if (
+                                provider.type == ProviderType.STALKER_PORTAL &&
+                                provider.serverUrl.startsWith("http://", ignoreCase = true)
+                            ) {
+                                false
+                            } else {
+                                provider.isActive
+                            },
+                            status = if (
+                                provider.type == ProviderType.STALKER_PORTAL &&
+                                provider.serverUrl.startsWith("http://", ignoreCase = true)
+                            ) {
+                                ProviderStatus.PARTIAL
+                            } else {
+                                provider.status
+                            }
                         ).toSecureEntityForBackup(credentialCrypto)
                         providerDao.insert(entity)
                     }
@@ -1126,7 +1187,7 @@ private fun Iterable<ProviderEntity>.findMatchingProvider(
 }
 
 private const val SHA256_PREFIX = "sha256:"
-private const val CURRENT_BACKUP_VERSION = 8
+private const val CURRENT_BACKUP_VERSION = 10
 private const val FILE_URI_SCHEME = "file"
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type

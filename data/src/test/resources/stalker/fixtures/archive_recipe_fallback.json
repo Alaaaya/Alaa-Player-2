@@ -3,7 +3,7 @@
   "device": {
     "portalUrl": "https://portal.example.com/c",
     "macAddress": "00:1A:79:AC:10:04",
-    "authMode": "AUTO",
+    "authMode": "MAC_PLUS_CREDENTIALS",
     "username": "archive",
     "password": "secret"
   },

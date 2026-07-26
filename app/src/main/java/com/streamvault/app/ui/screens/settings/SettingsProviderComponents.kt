@@ -118,7 +118,13 @@ internal fun ProviderSettingsCard(
                     color = OnSurface
                 )
             }
-            ProviderStatusBadge(status = provider.status)
+            ProviderStatusBadge(
+                status = provider.status,
+                requiresAttention = provider.type == ProviderType.STALKER_PORTAL &&
+                    provider.status == ProviderStatus.PARTIAL &&
+                    provider.stalkerTransportMode ==
+                    com.streamvault.domain.model.StalkerTransportMode.AUTO_STRICT
+            )
             if (isActive) {
                 Text(
                     text = stringResource(R.string.settings_active),

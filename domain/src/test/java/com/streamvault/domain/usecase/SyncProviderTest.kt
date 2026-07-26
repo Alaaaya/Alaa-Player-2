@@ -13,6 +13,9 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
@@ -163,7 +166,13 @@ private class FakeSyncProviderRepository(
         deviceId2: String,
         signature: String,
         stalkerAdvancedOptionsJson: String,
+        protocolPreference: StalkerProtocolPreference,
+        transportGrant: StalkerTransportGrant?,
+        saveWithoutVerification: Boolean,
+        repairConnection: Boolean,
+        requestedProfileId: String,
         epgSyncMode: ProviderEpgSyncMode,
+        catalogMode: StalkerCatalogMode,
         guideSourcePolicy: GuideSourcePolicy,
         channelLogoSourcePolicy: ChannelLogoSourcePolicy,
         onProgress: ((String) -> Unit)?,

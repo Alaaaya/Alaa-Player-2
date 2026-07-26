@@ -349,6 +349,14 @@ class StreamVaultPluginManager @Inject constructor(
         putString(StreamVaultPluginContract.KEY_HEADERS_JSON, headers.toHeadersJson())
         putString(StreamVaultPluginContract.KEY_USER_AGENT, userAgent.orEmpty())
         putBoolean(StreamVaultPluginContract.KEY_ALLOW_INVALID_SSL, allowInvalidSsl)
+        playbackTransportPolicy?.let { policy ->
+            putString(StreamVaultPluginContract.KEY_TRANSPORT_MODE, policy.mode.name)
+            putString(StreamVaultPluginContract.KEY_TRANSPORT_ORIGIN, policy.origin.authority)
+            putString(
+                StreamVaultPluginContract.KEY_TRANSPORT_SPKI_SHA256,
+                policy.spkiSha256.orEmpty()
+            )
+        }
         putString(StreamVaultPluginContract.KEY_PROXY_HOST, proxyHost)
         proxyPort?.let { putInt(StreamVaultPluginContract.KEY_PROXY_PORT, it) }
         putString(StreamVaultPluginContract.KEY_CAST_REWRITE_REASON, rewriteRequiredReason?.name.orEmpty())
