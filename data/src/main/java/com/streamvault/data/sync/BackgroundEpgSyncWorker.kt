@@ -78,6 +78,8 @@ class BackgroundEpgSyncWorker(
                 }
                 com.streamvault.domain.model.Result.Loading -> Result.retry()
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Background EPG work failed for provider $providerId", e)
             if (shouldRetry(e)) Result.retry() else Result.failure()

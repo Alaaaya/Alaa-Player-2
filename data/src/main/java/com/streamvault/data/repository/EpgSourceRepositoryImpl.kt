@@ -24,8 +24,10 @@ import com.streamvault.domain.model.EpgOverrideCandidate
 import com.streamvault.domain.model.EpgSourceType
 import com.streamvault.data.parser.XmltvParser
 import com.streamvault.data.util.ProviderInputSanitizer
+import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.data.remote.http.HttpRequestProfile
+import com.streamvault.data.remote.http.openCancellableResponse
 import com.streamvault.data.remote.http.safeRequestIdentitySummary
 import com.streamvault.data.remote.http.withRequestProfile
 import com.streamvault.domain.model.ChannelEpgMapping
@@ -37,6 +39,7 @@ import com.streamvault.domain.model.ProviderEpgSourceAssignment
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.EpgSourceRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -47,12 +50,31 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import com.streamvault.data.remote.NetworkTimeoutConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+internal fun limitEpgInput(
+    input: InputStream,
+    maxBytes: Long = NetworkTimeoutConfig.EPG_MAX_SIZE_BYTES,
+): InputStream = object : FilterInputStream(input) {
+    private var bytesRead = 0L
+
+    override fun read(): Int {
+        if (bytesRead >= maxBytes) throw IOException("EPG response too large (>200 MB)")
+        return super.read().also { if (it >= 0) bytesRead++ }
+    }
+
+    override fun read(bytes: ByteArray, off: Int, len: Int): Int {
+        if (bytesRead >= maxBytes) throw IOException("EPG response too large (>200 MB)")
+        val remaining = (maxBytes - bytesRead).coerceAtMost(len.toLong()).toInt()
+        return super.read(bytes, off, remaining).also { if (it > 0) bytesRead += it }
+    }
+}
 
 @Singleton
 class EpgSourceRepositoryImpl @Inject constructor(
@@ -253,10 +275,11 @@ class EpgSourceRepositoryImpl @Inject constructor(
                         }
                         .build()
                         .withRequestProfile(requestProfile)
-                    val response = epgHttpClient.newCall(request).execute()
+                    val ownedResponse = epgHttpClient.newCall(request).openCancellableResponse()
+                    val response = ownedResponse.response
 
                     if (response.code == 304) {
-                        response.close()
+                        ownedResponse.close()
                         val now = System.currentTimeMillis()
                         epgSourceDao.updateRefreshSuccess(sourceId, now)
                         if (resolveAffectedProviders) {
@@ -271,21 +294,21 @@ class EpgSourceRepositoryImpl @Inject constructor(
                             "EPG request failed for source $sourceId (${response.request.safeRequestIdentitySummary(requestProfile)}): HTTP ${response.code}"
                         )
                         val err = "HTTP ${response.code}"
-                        response.close()
+                        ownedResponse.close()
                         epgSourceDao.updateRefreshError(sourceId, err)
                         return@withLock Result.error("Failed to download EPG: $err")
                     }
 
                     val contentLength = response.header("Content-Length")?.toLongOrNull() ?: -1L
                     if (contentLength > MAX_EPG_SIZE_BYTES) {
-                        response.close()
+                        ownedResponse.close()
                         val err = "File too large (${contentLength / 1_048_576}MB)"
                         epgSourceDao.updateRefreshError(sourceId, err)
                         return@withLock Result.error(err)
                     }
 
                     val bodyStream = response.body?.byteStream() ?: run {
-                        response.close()
+                        ownedResponse.close()
                         epgSourceDao.updateRefreshError(sourceId, "Empty response")
                         return@withLock Result.error("Empty EPG response")
                     }
@@ -296,7 +319,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
                             try {
                                 super.close()
                             } finally {
-                                response.close()
+                                ownedResponse.close()
                             }
                         }
                     }
@@ -314,20 +337,10 @@ class EpgSourceRepositoryImpl @Inject constructor(
                 prepareStagingSource(source, stagingId)
 
                 rawInputStream.use { raw ->
-                    val limited = object : FilterInputStream(raw) {
-                        private var bytesRead = 0L
-                        override fun read(): Int {
-                            if (bytesRead >= MAX_EPG_SIZE_BYTES) throw IOException("EPG response too large (>200 MB)")
-                            return super.read().also { if (it >= 0) bytesRead++ }
-                        }
-                        override fun read(b: ByteArray, off: Int, len: Int): Int {
-                            if (bytesRead >= MAX_EPG_SIZE_BYTES) throw IOException("EPG response too large (>200 MB)")
-                            return super.read(b, off, len).also { if (it > 0) bytesRead += it }
-                        }
-                    }
-                    xmltvParser.maybeDecompressGzip(source.url, limited).use { decompressed ->
+                    val rawLimited = limitEpgInput(raw)
+                    xmltvParser.maybeDecompressGzip(source.url, rawLimited).use { decompressed ->
                         xmltvParser.parseStreamingWithChannels(
-                            inputStream = decompressed,
+                            inputStream = limitEpgInput(decompressed),
                             timezoneId = sourceTimezoneId,
                             onChannel = { xmltvChannel ->
                                 channelBatch.add(
@@ -397,10 +410,11 @@ class EpgSourceRepositoryImpl @Inject constructor(
                 Log.d(TAG, "Refreshed source $sourceId: $channelCount channels, $programmeCount programmes")
                 Result.success(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e(TAG, "Failed to refresh source $sourceId", e)
                 // Clean up any staged rows on failure
                 val stagingId = -sourceId
-                runCatching {
+                runSuspendCatching {
                     transactionRunner.inTransaction {
                         epgProgrammeDao.deleteBySource(stagingId)
                         epgChannelDao.deleteBySource(stagingId)

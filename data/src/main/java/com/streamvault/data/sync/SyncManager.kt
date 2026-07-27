@@ -50,6 +50,7 @@ import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.AdultContentClassifier
+import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.GuideSourcePolicy
@@ -214,7 +215,7 @@ class SyncManager @Inject constructor(
         syncCatalogStore = syncCatalogStore,
         retryTransient = { block -> retryTransient(block = block) },
         progress = ::progress,
-        syncProgressBus = syncProgressBus
+        emitProgress = ::emitProviderProgress
     )
     private val xtreamSupport = SyncManagerXtreamSupport(
         adaptiveSyncPolicy = xtreamAdaptiveSyncPolicy,
@@ -276,7 +277,7 @@ class SyncManager @Inject constructor(
             liveCategorySequentialModeWarning = LIVE_CATEGORY_SEQUENTIAL_MODE_WARNING,
             isCurrentlyLowOnMemory = applicationContext::isCurrentlyLowOnMemoryForSync,
             stageChannelItems = catalogStager::stageChannelItems,
-            syncProgressBus = syncProgressBus
+            emitProgress = ::emitProviderProgress
         )
     }
 
@@ -664,6 +665,7 @@ class SyncManager @Inject constructor(
         onProgress: ((String) -> Unit)? = null,
         trackInitialLiveOnboarding: Boolean = false
     ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+        var progressSession: SyncProgressSession? = null
         try {
             val providerEntity = providerDao.getById(providerId)
                 ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
@@ -677,6 +679,7 @@ class SyncManager @Inject constructor(
                         epgSyncMode = epgSyncModeOverride ?: resolvedProvider.epgSyncMode
                     )
                 }
+            progressSession = beginProgressSession(providerId)
             publishSyncState(providerId, SyncState.Syncing("Starting..."))
 
             try {
@@ -727,9 +730,7 @@ class SyncManager @Inject constructor(
                 com.streamvault.domain.model.Result.error(safeMessage, e)
             }
         } finally {
-            // D7 — reset systematique du bus a la fin du cycle (succes, exception, abort low-memory)
-            // pour eviter qu'un ecran ulterieur n'herite d'un etat de progression obsolete.
-            syncProgressBus.reset()
+            progressSession?.let(::finishProgressSession)
         }
     }
 
@@ -755,6 +756,7 @@ class SyncManager @Inject constructor(
         val now = System.currentTimeMillis()
         val warnings = mutableListOf<String>()
 
+        val progressSession = beginProgressSession(providerId)
         try {
             withContext(Dispatchers.IO) {
                 progress(providerId, onProgress, "Marking existing index rows stale...")
@@ -838,6 +840,8 @@ class SyncManager @Inject constructor(
             updateSyncStatusMetadata(providerId = providerId, status = "ERROR")
             publishSyncState(providerId, SyncState.Error(safeMessage, e))
             com.streamvault.domain.model.Result.error(safeMessage, e)
+        } finally {
+            finishProgressSession(progressSession)
         }
     }
 
@@ -860,6 +864,7 @@ class SyncManager @Inject constructor(
                 } ?: resolvedProvider
             }
 
+        val progressSession = beginProgressSession(providerId)
         try {
             val outcome = withContext(Dispatchers.IO) {
                 when (section) {
@@ -895,7 +900,7 @@ class SyncManager @Inject constructor(
             publishSyncState(providerId, SyncState.Error(safeMessage, e))
             com.streamvault.domain.model.Result.error(safeMessage, e)
         } finally {
-            syncProgressBus.reset()
+            finishProgressSession(progressSession)
         }
     }
 
@@ -937,7 +942,7 @@ class SyncManager @Inject constructor(
             now = now,
             lastAttemptAt = now
         )
-        val liveOutcome = runCatching {
+        val liveOutcome = runSuspendCatching {
             val recoveredLiveCommit = if (trackInitialLiveOnboarding) {
                 recoverXtreamLiveOnboardingSession(
                     provider = provider,
@@ -967,7 +972,7 @@ class SyncManager @Inject constructor(
                     liveCount = acceptedCount
                 )
                 syncMetadataRepository.updateMetadata(metadata)
-                return@runCatching acceptedCount
+                return@runSuspendCatching acceptedCount
             }
 
             if (trackInitialLiveOnboarding) {
@@ -1143,7 +1148,7 @@ class SyncManager @Inject constructor(
         // Transition VOD : signale a l'UI qu'on passe a la section Movies. Le total
         // reel des categories VOD n'est connu qu'a l'interieur de `syncXtreamCategoryShell`,
         // donc on emet en indetermine (total = 0). `itemsIndexed` cumule le LIVE deja importe.
-        syncProgressBus.emit(
+        emitProviderProgress(provider.id,
             com.streamvault.domain.sync.SyncProgress(
                 section = com.streamvault.domain.sync.Section.VOD,
                 current = 0,
@@ -1177,7 +1182,7 @@ class SyncManager @Inject constructor(
         // Transition SERIES : meme principe que VOD ci-dessus. `itemsIndexed` reste a
         // `liveCount` car VOD ne stage pas d'items dans la base au moment du shell
         // (le contenu detaille est rempli ulterieurement par XtreamIndexWorker).
-        syncProgressBus.emit(
+        emitProviderProgress(provider.id,
             com.streamvault.domain.sync.SyncProgress(
                 section = com.streamvault.domain.sync.Section.SERIES,
                 current = 0,
@@ -1420,7 +1425,7 @@ class SyncManager @Inject constructor(
         label: String,
         now: Long,
         onProgress: ((String) -> Unit)?
-    ): kotlin.Result<Int> = runCatching {
+    ): kotlin.Result<Int> = runSuspendCatching {
         progress(provider.id, onProgress, "Loading $label categories...")
         upsertXtreamIndexJob(
             providerId = provider.id,
@@ -1491,7 +1496,7 @@ class SyncManager @Inject constructor(
             if (!force && !shouldRunXtreamSummaryIndex(job)) {
                 return@forEach
             }
-            val failure = runCatching {
+            val failure = runSuspendCatching {
                 when (contentType) {
                     ContentType.LIVE -> processXtreamLiveIndexBackfillSection(providerId, onProgress)
                     ContentType.MOVIE,
@@ -1594,7 +1599,7 @@ class SyncManager @Inject constructor(
         val failures = mutableListOf<Throwable>()
         var sawRetryableFailure = false
         val categoryLimit = maxCategoriesPerSection?.coerceAtLeast(1) ?: STALKER_INDEX_CATEGORY_SLICE_SIZE
-        val failure = runCatching {
+        val failure = runSuspendCatching {
             processStalkerSummaryIndexSection(
                 provider = provider,
                 api = api,
@@ -3753,8 +3758,31 @@ class SyncManager @Inject constructor(
                 throw IllegalStateException("Playlist is empty or contains no supported entries")
             }
             warnings += stats.warnings
-            if (provider.epgUrl.isBlank() && !stats.header.tvgUrl.isNullOrBlank()) {
-                providerDao.updateEpgUrl(provider.id, stats.header.tvgUrl)
+            val playlistEpgUrl = stats.header.tvgUrl
+            if (provider.epgUrl.isBlank() && !playlistEpgUrl.isNullOrBlank()) {
+                providerDao.updateEpgUrl(provider.id, playlistEpgUrl)
+                val existingSourcesByUrl = epgSourceRepository.getAllSources().first().associateBy { it.url }
+                val assignedSourceIds = epgSourceRepository.getAssignmentsForProvider(provider.id)
+                    .first()
+                    .mapTo(mutableSetOf()) { it.epgSourceId }
+                stats.header.tvgUrls.forEachIndexed { priority, url ->
+                    val source = existingSourcesByUrl[url] ?: when (
+                        val addResult = epgSourceRepository.addSource("Playlist EPG ${priority + 1}", url)
+                    ) {
+                        is Result.Success -> addResult.data
+                        is Result.Error -> {
+                            warnings += "Could not add playlist EPG source: ${addResult.message}"
+                            null
+                        }
+                        Result.Loading -> null
+                    }
+                    if (source != null && assignedSourceIds.add(source.id)) {
+                        when (val assignment = epgSourceRepository.assignSourceToProvider(provider.id, source.id, priority)) {
+                            is Result.Error -> warnings += "Could not assign playlist EPG source: ${assignment.message}"
+                            else -> Unit
+                        }
+                    }
+                }
             }
             metadata = metadata.copy(
                 lastLiveSync = now,
@@ -3865,7 +3893,7 @@ class SyncManager @Inject constructor(
         UrlSecurityPolicy.validateStalkerPortalUrl(provider.serverUrl)?.let { message ->
             throw IllegalStateException(message)
         }
-        emitCatalogSyncProgress(section = Section.LIVE)
+        emitCatalogSyncProgress(provider.id, section = Section.LIVE)
         progress(provider.id, onProgress, "Connecting to portal...")
         val api = createStalkerSyncProvider(provider)
         requireResult(api.authenticate(), "Failed to authenticate with portal")
@@ -3899,7 +3927,7 @@ class SyncManager @Inject constructor(
             )
             liveCount = liveCatalogResult.acceptedCount
             syncMetadataRepository.updateMetadata(metadata)
-            emitCatalogSyncProgress(
+            emitCatalogSyncProgress(provider.id,
                 section = Section.LIVE,
                 itemsIndexed = liveCatalogResult.acceptedCount
             )
@@ -3945,7 +3973,7 @@ class SyncManager @Inject constructor(
                 }
                 is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
             }
-            emitCatalogSyncProgress(
+            emitCatalogSyncProgress(provider.id,
                 section = Section.VOD,
                 total = categories.size,
                 itemsIndexed = metadata.liveCount
@@ -4012,7 +4040,7 @@ class SyncManager @Inject constructor(
                 }
                 is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
             }
-            emitCatalogSyncProgress(
+            emitCatalogSyncProgress(provider.id,
                 section = Section.SERIES,
                 total = categories.size,
                 itemsIndexed = metadata.liveCount
@@ -4096,66 +4124,62 @@ class SyncManager @Inject constructor(
             val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
             val decryptedProvider = provider.copy(password = decryptedPassword)
             android.util.Log.d("JellyfinSync", "Starting Jellyfin sync for provider=${provider.id}")
-            progress(provider.id, onProgress, "Loading Jellyfin library...")
-            val (resolvedMovies, resolvedSeries) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val movieResult = jellyfinProvider.fetchMovies(decryptedProvider)
-                val seriesResult = jellyfinProvider.fetchSeries(decryptedProvider)
-                movieResult to seriesResult
-            }
-            if (resolvedMovies is com.streamvault.domain.model.Result.Error) android.util.Log.e("JellyfinSync", "Movies error: ${resolvedMovies.message}")
-            if (resolvedSeries is com.streamvault.domain.model.Result.Error) android.util.Log.e("JellyfinSync", "Series error: ${resolvedSeries.message}")
-
-            if (resolvedMovies is com.streamvault.domain.model.Result.Error && resolvedSeries is com.streamvault.domain.model.Result.Error) {
-                warnings.add("Failed to load Jellyfin catalog: ${resolvedMovies.message}; ${resolvedSeries.message}")
-                return SyncOutcome(partial = true, warnings = warnings)
-            }
-
-            val movieEntities = (resolvedMovies as? com.streamvault.domain.model.Result.Success)?.data.orEmpty()
-            val seriesEntities = (resolvedSeries as? com.streamvault.domain.model.Result.Success)?.data.orEmpty()
-
-            if (movieEntities.isNotEmpty()) {
-                progress(provider.id, onProgress, "Importing Jellyfin movies...")
-                movieEntities.chunked(50).forEach { chunk ->
-                    transactionRunner.inTransaction {
-                        movieDao.upsertCategoryPage(provider.id, chunk)
-                    }
-                }
-                transactionRunner.inTransaction {
-                    categoryDao.replaceAll(provider.id, com.streamvault.domain.model.ContentType.MOVIE.name, listOf(
-                        com.streamvault.data.local.entity.CategoryEntity(
-                            providerId = provider.id, categoryId = 1L, name = "Movies",
-                            type = com.streamvault.domain.model.ContentType.MOVIE
-                        )
-                    ))
-                }
-            }
-
-            if (seriesEntities.isNotEmpty()) {
-                progress(provider.id, onProgress, "Importing Jellyfin series...")
-                seriesEntities.forEach { seriesEntity ->
-                    val remoteId = seriesEntity.providerSeriesId
-                    if (!remoteId.isNullOrBlank()) {
-                        transactionRunner.inTransaction {
-                            seriesDao.insertAll(listOf(seriesEntity))
+            progress(provider.id, onProgress, "Loading Jellyfin movies...")
+            val movieSession = syncCatalogStore.newSessionId()
+            val seriesSession = syncCatalogStore.newSessionId()
+            syncCatalogStore.clearProviderStaging(provider.id)
+            try {
+                var movieStart = 0
+                var movieTotal: Int? = null
+                do {
+                    when (val result = jellyfinProvider.fetchMoviesPage(decryptedProvider, movieStart)) {
+                        is com.streamvault.domain.model.Result.Error -> throw result.exception ?: IllegalStateException(result.message)
+                        is com.streamvault.domain.model.Result.Success -> {
+                            val page = result.data
+                            movieTotal = movieTotal ?: page.totalRecordCount
+                            if (page.totalRecordCount != movieTotal || page.totalRecordCount > 200_000) throw IllegalStateException("Jellyfin movie catalog is unstable or exceeds the supported limit")
+                            syncCatalogStore.stageMovieBatch(provider.id, movieSession, page.items)
+                            movieStart = page.nextStartIndex
                         }
+                        is com.streamvault.domain.model.Result.Loading -> Unit
                     }
+                } while (movieStart < (movieTotal ?: 0))
+                if (catalogSyncDao.countMovieStages(provider.id, movieSession) != (movieTotal ?: 0)) {
+                    throw IllegalStateException("Jellyfin movie pagination returned duplicate or invalid items")
                 }
-                transactionRunner.inTransaction {
-                    categoryDao.replaceAll(provider.id, com.streamvault.domain.model.ContentType.SERIES.name, listOf(
-                        com.streamvault.data.local.entity.CategoryEntity(
-                            providerId = provider.id, categoryId = 2L, name = "Series",
-                            type = com.streamvault.domain.model.ContentType.SERIES
-                        )
-                    ))
+
+                progress(provider.id, onProgress, "Loading Jellyfin series...")
+                var seriesStart = 0
+                var seriesTotal: Int? = null
+                do {
+                    when (val result = jellyfinProvider.fetchSeriesPage(decryptedProvider, seriesStart)) {
+                        is com.streamvault.domain.model.Result.Error -> throw result.exception ?: IllegalStateException(result.message)
+                        is com.streamvault.domain.model.Result.Success -> {
+                            val page = result.data
+                            seriesTotal = seriesTotal ?: page.totalRecordCount
+                            if (page.totalRecordCount != seriesTotal || page.totalRecordCount > 100_000) throw IllegalStateException("Jellyfin series catalog is unstable or exceeds the supported limit")
+                            syncCatalogStore.stageSeriesBatch(provider.id, seriesSession, page.items)
+                            seriesStart = page.nextStartIndex
+                        }
+                        is com.streamvault.domain.model.Result.Loading -> Unit
+                    }
+                } while (seriesStart < (seriesTotal ?: 0))
+                if (catalogSyncDao.countSeriesStages(provider.id, seriesSession) != (seriesTotal ?: 0)) {
+                    throw IllegalStateException("Jellyfin series pagination returned duplicate or invalid items")
                 }
-            }
 
-            if (movieEntities.isEmpty() && seriesEntities.isEmpty()) {
-                warnings.add("Jellyfin library is empty or contains no supported movies or series.")
-                return SyncOutcome(partial = true, warnings = warnings)
+                progress(provider.id, onProgress, "Importing Jellyfin library...")
+                syncCatalogStore.applyStagedMovieCatalog(provider.id, movieSession, listOf(
+                    com.streamvault.data.local.entity.CategoryEntity(providerId = provider.id, categoryId = 1L, name = "Movies", type = com.streamvault.domain.model.ContentType.MOVIE)
+                ))
+                syncCatalogStore.applyStagedSeriesCatalog(provider.id, seriesSession, listOf(
+                    com.streamvault.data.local.entity.CategoryEntity(providerId = provider.id, categoryId = 2L, name = "Series", type = com.streamvault.domain.model.ContentType.SERIES)
+                ))
+                return SyncOutcome(warnings = warnings)
+            } catch (error: Exception) {
+                syncCatalogStore.clearProviderStaging(provider.id)
+                throw error
             }
-
-            return SyncOutcome(warnings = warnings)
         } catch (e: Exception) {
             warnings.add("Jellyfin sync failed: ${e.message.orEmpty()}")
             return SyncOutcome(partial = true, warnings = warnings)
@@ -4530,7 +4554,7 @@ class SyncManager @Inject constructor(
             }
         }
 
-        runCatching {
+        runSuspendCatching {
             // Stream the bulk EPG payload program-by-program; the previous buffered API
             // could materialise >30 MB JSON trees on certain Stalker portals which led to
             // OOM crashes when re-entering content screens.
@@ -4565,7 +4589,7 @@ class SyncManager @Inject constructor(
         fallbackGuideRequests.forEachIndexed { index, request ->
             if (ignorePerChannelGuide) return@forEachIndexed
             progress(provider.id, onProgress, "Downloading portal EPG... ${index + 1} of ${fallbackGuideRequests.size}")
-            runCatching {
+            runSuspendCatching {
                 var perChannelRecordCount = 0
                 val foreignChannelIds = HashSet<String>()
                 val streamResult = api.streamEpg(request.channelKey) { program ->
@@ -4821,7 +4845,7 @@ class SyncManager @Inject constructor(
                 syncMetadataRepository.updateMetadata(metadata)
             }
             ProviderType.STALKER_PORTAL -> {
-                emitCatalogSyncProgress(section = Section.LIVE)
+                emitCatalogSyncProgress(provider.id, section = Section.LIVE)
                 progress(provider.id, onProgress, "Retrying Live TV...")
                 upsertXtreamIndexJob(
                     providerId = provider.id,
@@ -4843,7 +4867,7 @@ class SyncManager @Inject constructor(
                         liveCount = liveCatalogResult.acceptedCount
                 )
                 syncMetadataRepository.updateMetadata(metadata)
-                emitCatalogSyncProgress(
+                emitCatalogSyncProgress(provider.id,
                     section = Section.LIVE,
                     itemsIndexed = liveCatalogResult.acceptedCount
                 )
@@ -4937,7 +4961,7 @@ class SyncManager @Inject constructor(
                 progress(provider.id, onProgress, "Queueing Movies index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
-                emitCatalogSyncProgress(
+                emitCatalogSyncProgress(provider.id,
                     section = Section.VOD,
                     total = categories.size,
                     itemsIndexed = movieDao.getCount(provider.id).first()
@@ -5026,7 +5050,7 @@ class SyncManager @Inject constructor(
                 progress(provider.id, onProgress, "Queueing Series index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
-                emitCatalogSyncProgress(
+                emitCatalogSyncProgress(provider.id,
                     section = Section.SERIES,
                     total = categories.size,
                     itemsIndexed = seriesDao.getCount(provider.id).first()
@@ -5082,7 +5106,7 @@ class SyncManager @Inject constructor(
         // Emission d'entree LIVE : signale tot a l'UI que la section LIVE demarre,
         // avant meme la requete `get_live_categories`. `total = 0` = indetermine ;
         // la premiere fin de fenetre (T5) viendra raffiner avec le vrai denominateur.
-        syncProgressBus.emit(
+        emitProviderProgress(provider.id,
             com.streamvault.domain.sync.SyncProgress(
                 section = com.streamvault.domain.sync.Section.LIVE,
                 current = 0,
@@ -5353,13 +5377,14 @@ class SyncManager @Inject constructor(
     }
 
     private fun emitCatalogSyncProgress(
+        providerId: Long,
         section: Section,
         current: Int = 0,
         total: Int = 0,
         currentLabel: String = "",
         itemsIndexed: Int = 0
     ) {
-        syncProgressBus.emit(
+        emitProviderProgress(providerId,
             SyncProgress(
                 section = section,
                 current = current,
@@ -5372,6 +5397,20 @@ class SyncManager @Inject constructor(
 
     private fun publishSyncState(providerId: Long, state: SyncState) {
         syncStateTracker.publish(providerId, state)
+    }
+
+    private val progressSessions = ConcurrentHashMap<Long, SyncProgressSession>()
+
+    private fun beginProgressSession(providerId: Long): SyncProgressSession =
+        syncProgressBus.begin(providerId).also { progressSessions[providerId] = it }
+
+    private fun finishProgressSession(session: SyncProgressSession) {
+        progressSessions.remove(session.providerId, session)
+        syncProgressBus.finish(session)
+    }
+
+    private fun emitProviderProgress(providerId: Long, progress: SyncProgress) {
+        progressSessions[providerId]?.let { session -> syncProgressBus.emit(session, progress) }
     }
 
     private fun redactUrlForLogs(url: String?): String {

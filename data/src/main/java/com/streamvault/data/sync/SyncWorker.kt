@@ -58,6 +58,8 @@ class SyncWorker(
                     "reclaimableBytes=${report.statsAfterVacuum.reclaimableBytes}"
             )
             Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("SyncWorker", "Failed to run data maintenance", e)
             if (shouldRetry(e)) Result.retry() else Result.failure()

@@ -109,17 +109,19 @@ class ProgramReminderManagerImpl private constructor(
             notifiedAt = null,
             createdAt = existing?.createdAt ?: now
         )
-        val reminderId = if (existing == null) {
-            programReminderDao.insert(reminder)
-        } else {
-            programReminderDao.update(reminder)
-            existing.id
-        }
+        val reminderId = existing?.id ?: programReminderDao.insert(reminder)
         return when (val result = alarmScheduler.schedule(reminderId, remindAt)) {
-            is Result.Success -> Result.success(Unit)
+            is Result.Success -> {
+                if (existing != null) {
+                    programReminderDao.update(reminder)
+                }
+                Result.success(Unit)
+            }
             is Result.Error -> {
                 if (existing == null) {
                     programReminderDao.deleteById(reminderId)
+                } else {
+                    alarmScheduler.schedule(existing.id, existing.remindAt)
                 }
                 Result.error(result.message, result.exception)
             }
@@ -142,10 +144,19 @@ class ProgramReminderManagerImpl private constructor(
 
     override suspend fun restoreScheduledReminders() {
         val now = System.currentTimeMillis()
+        if (!alarmScheduler.canScheduleExactAlarms()) {
+            programReminderDao.getPendingActive(now).forEach { reminder ->
+                programReminderDao.setExactAlarmArmed(reminder.id, false)
+            }
+            return
+        }
         programReminderDao.getPendingActive(now).forEach { reminder ->
             when (val result = alarmScheduler.schedule(reminder.id, reminder.remindAt.coerceAtLeast(now + 1_000L))) {
-                is Result.Error -> android.util.Log.w("ProgramReminderManager", "Unable to restore reminder ${reminder.id}: ${result.message}")
-                else -> Unit
+                is Result.Error -> {
+                    programReminderDao.setExactAlarmArmed(reminder.id, false)
+                    android.util.Log.w("ProgramReminderManager", "Unable to restore reminder ${reminder.id}: ${result.message}")
+                }
+                else -> programReminderDao.setExactAlarmArmed(reminder.id, true)
             }
         }
     }
@@ -158,8 +169,9 @@ class ProgramReminderManagerImpl private constructor(
             programReminderDao.update(reminder.copy(isDismissed = true))
             return
         }
-        notifier.showReminder(reminder)
-        programReminderDao.update(reminder.copy(notifiedAt = now))
+        if (notifier.showReminder(reminder) is Result.Success) {
+            programReminderDao.update(reminder.copy(notifiedAt = now))
+        }
     }
 
     private fun ProgramReminderEntity.asDomain(): ProgramReminder = ProgramReminder(
@@ -173,6 +185,7 @@ class ProgramReminderManagerImpl private constructor(
         leadTimeMinutes = leadTimeMinutes,
         isDismissed = isDismissed,
         notifiedAt = notifiedAt,
+        exactAlarmArmed = exactAlarmArmed,
         createdAt = createdAt
     )
 }

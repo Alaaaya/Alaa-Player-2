@@ -329,10 +329,22 @@ internal class SyncCatalogStore(
     }
 
     suspend fun stageChannelBatch(providerId: Long, sessionId: Long, channels: List<ChannelEntity>) {
+        requireStageCapacity(
+            currentCount = catalogSyncDao.countChannelStages(providerId, sessionId),
+            incomingCount = channels.distinctBy { it.streamId }.size,
+            maximum = sizeLimits.maxChannelsPerProvider,
+            label = "channel"
+        )
         insertStageRows(buildChannelStages(providerId, sessionId, channels), catalogSyncDao::insertChannelStages)
     }
 
     suspend fun stageMovieBatch(providerId: Long, sessionId: Long, movies: List<MovieEntity>) {
+        requireStageCapacity(
+            currentCount = catalogSyncDao.countMovieStages(providerId, sessionId),
+            incomingCount = movies.distinctBy { it.streamId }.size,
+            maximum = sizeLimits.maxMoviesPerProvider,
+            label = "movie"
+        )
         insertStageRows(buildMovieStages(providerId, sessionId, movies), catalogSyncDao::insertMovieStages)
     }
 
@@ -387,6 +399,12 @@ internal class SyncCatalogStore(
 
     suspend fun discardStagedImport(providerId: Long, sessionId: Long) {
         clearSession(providerId, sessionId)
+    }
+
+    private fun requireStageCapacity(currentCount: Int, incomingCount: Int, maximum: Int, label: String) {
+        if (incomingCount > maximum - currentCount) {
+            throw CatalogAdmissionExceeded("Staged $label limit exceeded")
+        }
     }
 
     suspend fun stagedLiveImportState(providerId: Long, sessionId: Long): StagedLiveImportState {

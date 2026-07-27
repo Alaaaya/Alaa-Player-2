@@ -5,6 +5,7 @@ import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.parser.M3uParser
 import com.streamvault.data.remote.http.HttpRequestProfile
+import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.data.remote.http.safeRequestIdentitySummary
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.http.withRequestProfile
@@ -32,7 +33,8 @@ internal class SyncManagerM3uImporter(
     private val syncCatalogStore: SyncCatalogStore,
     private val retryTransient: suspend (suspend () -> Unit) -> Unit,
     private val progress: (Long, ((String) -> Unit)?, String) -> Unit,
-    private val syncProgressBus: SyncProgressBus
+    private val emitProgress: (Long, SyncProgress) -> Unit,
+    private val sizeLimits: CatalogSizeLimits = CatalogSizeLimits()
 ) {
     suspend fun importPlaylist(
         provider: Provider,
@@ -48,7 +50,7 @@ internal class SyncManagerM3uImporter(
         // D14 — emission M3U etape Downloading : Section.LIVE par convention (le M3U
         // peut contenir un melange Live/VOD, mais l'UI ne distingue pas). Mode
         // indetermine (total = 0) puisqu'on ne connait pas encore la taille du flux.
-        syncProgressBus.emit(
+        emitProgress(provider.id,
             SyncProgress(
                 section = Section.LIVE,
                 current = 0,
@@ -70,15 +72,19 @@ internal class SyncManagerM3uImporter(
         var liveCount = 0
         var movieCount = 0
         var parsedCount = 0
+        var invalidEntryCount = 0
         var nextMilestone = M3U_PROGRESS_INTERVAL
         val warnings = mutableListOf<String>()
         var insecureStreamCount = 0
 
         try {
             openPlaylistStream(provider) { streamed ->
+                streamed.contentLength
+                    ?.takeIf { it > sizeLimits.maxM3uDecompressedBytes }
+                    ?.let { throw CatalogAdmissionExceeded("M3U response length limit exceeded") }
                 progress(provider.id, onProgress, "Parsing Playlist...")
                 // D14 — emission M3U etape Parsing : meme section / mode indetermine.
-                syncProgressBus.emit(
+                emitProgress(provider.id,
                     SyncProgress(
                         section = Section.LIVE,
                         current = 0,
@@ -87,24 +93,32 @@ internal class SyncManagerM3uImporter(
                         itemsIndexed = 0
                     )
                 )
-                maybeDecompressPlaylist(streamed).use { input ->
+                BoundedInputStream(
+                    input = maybeDecompressPlaylist(streamed),
+                    maximumBytes = sizeLimits.maxM3uDecompressedBytes,
+                    maximumLineBytes = sizeLimits.maxM3uLineBytes
+                ).use { input ->
                     m3uParser.parseStreaming(
                         inputStream = input,
                         onHeader = { parsedHeader ->
-                            val validEpgUrl = parsedHeader.tvgUrl?.takeIf { UrlSecurityPolicy.validateOptionalEpgUrl(it) == null }
-                            if (parsedHeader.tvgUrl != null && validEpgUrl == null) {
+                            val validEpgUrls = parsedHeader.tvgUrls.filter { UrlSecurityPolicy.validateOptionalEpgUrl(it) == null }
+                            if (validEpgUrls.size != parsedHeader.tvgUrls.size) {
                                 warnings += "Ignored unsupported EPG URL from playlist header."
                             }
-                            header = parsedHeader.copy(tvgUrl = validEpgUrl)
-                        }
-                    ) { entry ->
+                            header = parsedHeader.copy(tvgUrls = validEpgUrls)
+                        },
+                        onEntry = { entry ->
                         parsedCount++
+                        if (parsedCount > sizeLimits.maxM3uEntries) {
+                            throw CatalogAdmissionExceeded("M3U entry limit exceeded")
+                        }
+                        requireM3uFieldBounds(entry.name, entry.url, entry.groupTitle)
                         if (parsedCount >= nextMilestone) {
                             progress(provider.id, onProgress, "Imported $parsedCount playlist entries...")
                             // D14 — emission M3U etape Imported : current = nombre d'entrees
                             // parsees jusqu'ici (palier de M3U_PROGRESS_INTERVAL), `itemsIndexed`
                             // refletera la meme valeur (compteur cumulatif local).
-                            syncProgressBus.emit(
+                            emitProgress(provider.id,
                                 SyncProgress(
                                     section = Section.LIVE,
                                     current = parsedCount,
@@ -136,7 +150,9 @@ internal class SyncManagerM3uImporter(
                                 hasher = stableLongHasher
                             )
                             if (seenMovieStreamIds?.add(stableStreamId) != true) return@parseStreaming
+                            if (movieCount >= sizeLimits.maxMoviesPerProvider) throw CatalogAdmissionExceeded("M3U movie limit exceeded")
                             val categoryId = movieCategories.idFor(groupTitle)
+                            if (movieCategories.count > sizeLimits.maxM3uCategoriesPerType) throw CatalogAdmissionExceeded("M3U movie category limit exceeded")
                             val isAdult = AdultContentClassifier.isAdultCategoryName(groupTitle)
                             movieBatch.add(
                                 MovieEntity(
@@ -170,7 +186,9 @@ internal class SyncManagerM3uImporter(
                                 hasher = stableLongHasher
                             )
                             if (seenLiveStreamIds?.add(stableStreamId) != true) return@parseStreaming
+                            if (liveCount >= sizeLimits.maxChannelsPerProvider) throw CatalogAdmissionExceeded("M3U live-channel limit exceeded")
                             val categoryId = liveCategories.idFor(groupTitle)
+                            if (liveCategories.count > sizeLimits.maxM3uCategoriesPerType) throw CatalogAdmissionExceeded("M3U live category limit exceeded")
                             val isAdult = AdultContentClassifier.isAdultCategoryName(groupTitle)
                             channelBatch.add(
                                 ChannelEntity(
@@ -197,7 +215,17 @@ internal class SyncManagerM3uImporter(
                                 flushChannelBatch(provider.id, sessionId, channelBatch)
                             }
                         }
-                    }
+                        },
+                        onInvalidEntry = {
+                        invalidEntryCount++
+                        val candidateCount = parsedCount + invalidEntryCount
+                        if (candidateCount >= 100 &&
+                            invalidEntryCount * 100 > candidateCount * sizeLimits.maxM3uInvalidEntryRatioPercent
+                        ) {
+                            throw CatalogAdmissionExceeded("M3U invalid-entry ratio limit exceeded")
+                        }
+                        }
+                    )
                 }
             }
 
@@ -240,7 +268,7 @@ internal class SyncManagerM3uImporter(
         val urlStr = provider.m3uUrl.ifBlank { provider.serverUrl }
         if (urlStr.startsWith("file:")) {
             java.io.File(java.net.URI(urlStr)).inputStream().use { input ->
-                block(StreamedPlaylist(inputStream = input, sourceName = urlStr))
+                block(StreamedPlaylist(inputStream = input, contentLength = java.io.File(java.net.URI(urlStr)).length(), sourceName = urlStr))
             }
             return
         }
@@ -251,7 +279,7 @@ internal class SyncManagerM3uImporter(
                 .url(urlStr)
                 .build()
                 .withRequestProfile(requestProfile)
-            okHttpClient.newCall(request).execute().use { response ->
+            okHttpClient.newCall(request).useCancellableResponse { response ->
                 ensureSuccessfulPlaylistResponse(response, requestProfile)
                 val body = response.body ?: throw IllegalStateException("Empty M3U response")
                 body.byteStream().use { input ->
@@ -259,6 +287,7 @@ internal class SyncManagerM3uImporter(
                         StreamedPlaylist(
                             inputStream = input,
                             contentEncoding = response.header("Content-Encoding"),
+                            contentLength = body.contentLength().takeIf { it >= 0L },
                             sourceName = urlStr
                         )
                     )
@@ -368,4 +397,40 @@ internal class SyncManagerM3uImporter(
     private fun normalizeTextForIdentity(value: String?): String {
         return value.orEmpty().lowercase().replace(Regex("\\s+"), " ").trim()
     }
+
+    private fun requireM3uFieldBounds(vararg fields: String?) {
+        if (fields.any { it != null && it.length > sizeLimits.maxM3uFieldLength }) {
+            throw CatalogAdmissionExceeded("M3U field length limit exceeded")
+        }
+    }
+
+    private class BoundedInputStream(
+        input: InputStream,
+        private val maximumBytes: Long,
+        private val maximumLineBytes: Int
+    ) : java.io.FilterInputStream(input) {
+        private var readBytes = 0L
+        private var lineBytes = 0
+
+        override fun read(): Int = super.read().also { if (it >= 0) count(byteArrayOf(it.toByte())) }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = super.read(buffer, offset, length).also {
+            if (it > 0) count(buffer, offset, it)
+        }
+
+        private fun count(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size) {
+            readBytes += length
+            if (readBytes > maximumBytes) throw CatalogAdmissionExceeded("M3U decompressed byte limit exceeded")
+            for (index in offset until offset + length) {
+                if (bytes[index].toInt().toChar() == '\n') {
+                    lineBytes = 0
+                } else {
+                    lineBytes++
+                    if (lineBytes > maximumLineBytes) throw CatalogAdmissionExceeded("M3U line length limit exceeded")
+                }
+            }
+        }
+    }
 }
+
+internal class CatalogAdmissionExceeded(message: String) : IllegalStateException(message)

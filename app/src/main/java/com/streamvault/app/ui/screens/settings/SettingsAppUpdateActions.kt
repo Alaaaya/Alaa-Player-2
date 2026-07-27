@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import com.streamvault.app.R
 import com.streamvault.app.update.AppUpdateActionState
 import com.streamvault.app.update.AppUpdateInstaller
+import com.streamvault.app.update.AppUpdateCheckPolicy
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.Result
@@ -21,11 +22,8 @@ internal class SettingsAppUpdateActions(
 ) {
     private var updateCheckInFlight = false
 
-    fun shouldAutoCheckForUpdates(lastCheckedAt: Long?): Boolean {
-        val now = System.currentTimeMillis()
-        val checkIntervalMs = 24L * 60L * 60L * 1000L
-        return lastCheckedAt == null || now - lastCheckedAt >= checkIntervalMs
-    }
+    fun shouldAutoCheckForUpdates(lastSuccessfulCheckAt: Long?, lastFailedCheckAt: Long?): Boolean =
+        AppUpdateCheckPolicy.shouldAutoCheck(System.currentTimeMillis(), lastSuccessfulCheckAt, lastFailedCheckAt)
 
     fun checkForAppUpdates(
         scope: CoroutineScope,
@@ -43,9 +41,9 @@ internal class SettingsAppUpdateActions(
                     appUpdate = it.appUpdate.copy(errorMessage = null)
                 )
             }
-            preferencesRepository.setLastAppUpdateCheckTimestamp(checkedAt)
             when (val result = gitHubReleaseChecker.fetchLatestRelease()) {
                 is Result.Error -> {
+                    preferencesRepository.setLastAppUpdateFailureTimestamp(checkedAt)
                     uiState.update {
                         it.copy(
                             isCheckingForUpdates = false,
@@ -68,6 +66,8 @@ internal class SettingsAppUpdateActions(
                         releaseNotes = release.releaseNotes,
                         publishedAt = release.publishedAt
                     )
+                    preferencesRepository.setLastAppUpdateCheckTimestamp(checkedAt)
+                    preferencesRepository.setLastAppUpdateFailureTimestamp(null)
                     val updateAvailable = isRemoteVersionNewer(
                         release.versionCode,
                         release.versionName,

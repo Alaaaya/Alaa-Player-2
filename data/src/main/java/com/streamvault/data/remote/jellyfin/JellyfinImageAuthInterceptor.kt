@@ -31,8 +31,13 @@ class JellyfinImageAuthInterceptor @Inject constructor(
             return chain.proceed(request)
         }
 
-        val provider = jellyfinProviders().firstOrNull { candidate -> candidate.matches(request.url) }
+        // Image credentials are account-scoped.  A URL without this marker is
+        // deliberately not guessed from its host: two accounts may share it.
+        val providerId = request.url.queryParameter("streamvault_provider_id")?.toLongOrNull()
             ?: return chain.proceed(request)
+        val provider = jellyfinProviders().firstOrNull { it.id == providerId }
+            ?: return chain.proceed(request)
+        if (!provider.matches(request.url)) return chain.proceed(request)
         val accessToken = runCatching { credentialCrypto.decryptIfNeeded(provider.password) }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
@@ -40,6 +45,7 @@ class JellyfinImageAuthInterceptor @Inject constructor(
 
         return chain.proceed(
             request.newBuilder()
+                .url(request.url.newBuilder().removeAllQueryParameters("streamvault_provider_id").build())
                 .header(
                     "Authorization",
                     buildJellyfinAuthorizationHeader(provider.serverUrl, provider.username, accessToken)

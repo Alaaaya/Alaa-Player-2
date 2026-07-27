@@ -5,6 +5,8 @@ import com.google.gson.JsonObject as GsonJsonObject
 import com.google.gson.JsonParser
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
+import com.streamvault.data.remote.http.useCancellableResponse
+import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
@@ -34,10 +36,17 @@ import java.time.format.ResolverStyle
 import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -60,15 +69,61 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
+class StalkerDiscoveryBudget @Inject constructor() {
+    var timeoutMillis: Long = 45_000L
+        private set
+    var maxRequests: Int = 24
+        private set
+
+    internal constructor(timeoutMillis: Long, maxRequests: Int) : this() {
+        require(timeoutMillis > 0)
+        require(maxRequests > 0)
+        this.timeoutMillis = timeoutMillis
+        this.maxRequests = maxRequests
+    }
+}
+
+private class StalkerDiscoveryContext(
+    maxRequests: Int
+) : AbstractCoroutineContextElement(Key) {
+    private val remainingRequests = AtomicInteger(maxRequests)
+
+    fun consumeRequest() {
+        if (remainingRequests.getAndDecrement() <= 0) {
+            throw IOException("Portal discovery exceeded its request budget.")
+        }
+    }
+
+    companion object Key : CoroutineContext.Key<StalkerDiscoveryContext>
+}
+
+private class StalkerCompatibilityException(
+    message: String,
+    cause: Throwable? = null
+) : IOException(message, cause)
+
 @Singleton
 class OkHttpStalkerApiService @Inject constructor(
     private val okHttpClient: OkHttpClient,
-    private val json: Json
+    private val json: Json,
+    private val discoveryBudget: StalkerDiscoveryBudget = StalkerDiscoveryBudget()
 ) : StalkerApiService {
     private val cookieJar = InMemoryStalkerCookieJar()
     private val stalkerHttpClients = ConcurrentHashMap<String, OkHttpClient>()
 
     override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
+        return withContext(Dispatchers.IO) {
+            withTimeoutOrNull(discoveryBudget.timeoutMillis) {
+                withContext(StalkerDiscoveryContext(discoveryBudget.maxRequests)) {
+                    authenticateWithinBudget(profile)
+                }
+            }
+        } ?: Result.error("Portal discovery exceeded ${discoveryBudget.timeoutMillis / 1000} seconds.")
+    }
+
+    private suspend fun authenticateWithinBudget(
+        profile: StalkerDeviceProfile
+    ): Result<Pair<StalkerSession, StalkerProviderProfile>> {
         var lastError: Throwable? = null
         var lockedLoadUrl: String? = null
         val failedHandshakeLoadUrls = mutableSetOf<String>()
@@ -93,7 +148,7 @@ class OkHttpStalkerApiService @Inject constructor(
                     val bootstrapSessionKey = "${effectiveAuthMode.name}|$loadUrl"
                     var bootstrapSession = bootstrapSessions[bootstrapSessionKey]
                     val token = bootstrapSession?.token ?: run {
-                        val handshakePayload = runCatching {
+                        val handshakePayload = runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -106,6 +161,9 @@ class OkHttpStalkerApiService @Inject constructor(
                                 )
                             )
                         }.getOrElse { error ->
+                            if (error !is StalkerCompatibilityException) {
+                                return Result.error(error.message ?: "Portal handshake failed.", error)
+                            }
                             failedHandshakeLoadUrls += loadUrl
                             lastError = error
                             continue
@@ -113,8 +171,8 @@ class OkHttpStalkerApiService @Inject constructor(
                         handshakePayload.findString("token")
                             ?.takeIf { it.isNotBlank() }
                             ?: run {
-                                lastError = IOException("Portal handshake did not return a token.")
-                                continue
+                                val error = IOException("Portal handshake did not return a token.")
+                                return Result.error(error.message ?: "Portal handshake failed.", error)
                             }
                     }
                     evidence += "handshake"
@@ -130,7 +188,7 @@ class OkHttpStalkerApiService @Inject constructor(
                                 lastError = IOException("Portal requires account credentials for this connection.")
                                 continue
                             }
-                            val authPayload = runCatching {
+                            val authPayload = runSuspendCatching {
                                 requestCredentialAuth(
                                     url = loadUrl,
                                     profile = attemptProfile,
@@ -139,6 +197,9 @@ class OkHttpStalkerApiService @Inject constructor(
                                     allowAlternateEndpointRetry = false
                                 )
                             }.getOrElse { error ->
+                                if (error !is StalkerCompatibilityException) {
+                                    return Result.error(error.message ?: "Portal authentication failed.", error)
+                                }
                                 lastError = error
                                 continue
                             }
@@ -154,7 +215,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         token = token
                     )
                     if (recipe.preferLocalizationBeforeProfile) {
-                        runCatching {
+                        runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -170,7 +231,7 @@ class OkHttpStalkerApiService @Inject constructor(
                             evidence += "get_localization"
                         }
                     }
-                    val profilePayload = runCatching {
+                    val profilePayload = runSuspendCatching {
                         requestJson(
                             url = loadUrl,
                             profile = attemptProfile,
@@ -179,6 +240,9 @@ class OkHttpStalkerApiService @Inject constructor(
                             query = buildProfileQuery(attemptProfile)
                         )
                     }.getOrElse { error ->
+                        if (error !is StalkerCompatibilityException) {
+                            return Result.error(error.message ?: "Portal profile request failed.", error)
+                        }
                         lastError = error
                         continue
                     }
@@ -197,7 +261,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         StalkerBootstrapRecipe.MODULE_GATED -> StalkerBootstrapStrategy.MAC_WITH_MODULES
                     }
                     if (recipe.requestAccountInfo || providerProfile.shouldRequestAccountInfo()) {
-                        runCatching {
+                        runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -216,7 +280,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         }
                     }
                     if (recipe.requestLocalization && "get_localization" !in evidence) {
-                        runCatching {
+                        runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -233,7 +297,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         }
                     }
                     if (recipe.requestModules || providerProfile.shouldRequestModules()) {
-                        runCatching {
+                        runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -257,7 +321,7 @@ class OkHttpStalkerApiService @Inject constructor(
                     if ((recipe.strictIdentityRequired || recipe.playbackBackendHint == StalkerPlaybackBackendHint.TEMP_LINK_STRICT) &&
                         "get_events" !in evidence
                     ) {
-                        runCatching {
+                        runSuspendCatching {
                             requestJson(
                                 url = loadUrl,
                                 profile = attemptProfile,
@@ -897,7 +961,7 @@ class OkHttpStalkerApiService @Inject constructor(
         session: StalkerSession,
         profile: StalkerDeviceProfile
     ): List<StalkerItemRecord>? {
-        return runCatching {
+        return runSuspendCatching {
             requestJson(
                 url = session.loadUrl,
                 profile = profile,
@@ -924,6 +988,7 @@ class OkHttpStalkerApiService @Inject constructor(
         method: String = "GET",
         body: String? = null
     ): JsonElement = withContext(Dispatchers.IO) {
+        currentCoroutineContext()[StalkerDiscoveryContext]?.consumeRequest()
         val effectiveQuery = prepareQuery(profile, query)
         val action = effectiveQuery["action"]
         val fullUrl = buildUrl(url, effectiveQuery)
@@ -946,7 +1011,7 @@ class OkHttpStalkerApiService @Inject constructor(
             .method(method, requestBody)
             .build()
 
-        runCatching {
+        runSuspendCatching {
             executeJsonRequest(request, action, profile)
         }.recoverCatching { error ->
             if (!allowAlternateEndpointRetry) throw error
@@ -971,11 +1036,19 @@ class OkHttpStalkerApiService @Inject constructor(
         }.getOrElse { throw it }
     }
 
-    private fun executeJsonRequest(request: Request, action: String?, profile: StalkerDeviceProfile): JsonElement {
-        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
+    private suspend fun executeJsonRequest(request: Request, action: String?, profile: StalkerDeviceProfile): JsonElement {
+        return stalkerHttpClientFor(profile).newCall(request).useCancellableResponse { response ->
+            currentCoroutineContext().ensureActive()
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 response.body?.close()
+                if (action in DISCOVERY_COMPATIBILITY_ACTIONS &&
+                    response.code in DISCOVERY_COMPATIBILITY_HTTP_CODES
+                ) {
+                    throw StalkerCompatibilityException(
+                        "Portal endpoint is incompatible with '$action' (HTTP ${response.code})."
+                    )
+                }
                 throw IOException("Portal request failed with HTTP ${response.code}.")
             }
             val responseBody = response.body
@@ -988,6 +1061,11 @@ class OkHttpStalkerApiService @Inject constructor(
                 action = action
             )
             if (raw.isBlank()) {
+                if (action == "get_profile") {
+                    throw StalkerCompatibilityException(
+                        "Portal profile recipe returned an empty compatibility response."
+                    )
+                }
                 throw IOException("Portal returned an empty response${actionSuffix(action)}.")
             }
             val parsed = parsePortalJson(raw, action)
@@ -1079,7 +1157,8 @@ class OkHttpStalkerApiService @Inject constructor(
         profile: StalkerDeviceProfile,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int {
-        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
+        return stalkerHttpClientFor(profile).newCall(request).useCancellableResponse { response ->
+            currentCoroutineContext().ensureActive()
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 throw IOException("Portal request failed with HTTP ${response.code}.")
@@ -1218,7 +1297,8 @@ class OkHttpStalkerApiService @Inject constructor(
         channelIdOverride: String?,
         onProgram: suspend (StalkerProgramRecord) -> Unit
     ): Int {
-        return stalkerHttpClientFor(profile).newCall(request).execute().use { response ->
+        return stalkerHttpClientFor(profile).newCall(request).useCancellableResponse { response ->
+            currentCoroutineContext().ensureActive()
             captureResponseCookies(response)
             if (!response.isSuccessful) {
                 throw IOException("Portal request failed with HTTP ${response.code}.")
@@ -1410,6 +1490,8 @@ class OkHttpStalkerApiService @Inject constructor(
         crossinline block: suspend () -> T
     ): Result<T> = try {
         Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (error: Exception) {
         Result.error(error.message ?: message, error)
     }
@@ -1533,7 +1615,7 @@ class OkHttpStalkerApiService @Inject constructor(
             "action" to "do_auth",
             "JsHttpRequest" to "1-xml"
         )
-        return runCatching {
+        return runSuspendCatching {
             requestJson(
                 url = url,
                 profile = profile,
@@ -1544,7 +1626,8 @@ class OkHttpStalkerApiService @Inject constructor(
                 method = "POST",
                 body = formBody
             )
-        }.getOrElse {
+        }.getOrElse { error ->
+            if (error !is StalkerCompatibilityException) throw error
             requestJson(
                 url = url,
                 profile = profile,
@@ -2452,6 +2535,16 @@ class OkHttpStalkerApiService @Inject constructor(
 
     companion object {
         private const val TAG = "OkHttpStalkerApi"
+        private val DISCOVERY_COMPATIBILITY_ACTIONS = setOf(
+            "handshake",
+            "do_auth",
+            "get_profile",
+            "get_localization",
+            "get_modules",
+            "get_main_info",
+            "get_events"
+        )
+        private val DISCOVERY_COMPATIBILITY_HTTP_CODES = setOf(400, 404, 405, 415, 501)
         private const val MAX_PAGE_COUNT = 200
         private const val DEFAULT_PROGRAM_DURATION_MILLIS = 30 * 60_000L
         /** Hard ceiling for the streamed `get_epg_info` body; anything larger is treated as a portal fault. */

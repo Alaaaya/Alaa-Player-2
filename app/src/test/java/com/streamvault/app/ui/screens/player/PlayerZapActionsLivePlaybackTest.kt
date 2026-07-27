@@ -8,6 +8,38 @@ import org.junit.Test
 class PlayerZapActionsLivePlaybackTest {
 
     @Test
+    fun `live playback tracker retries a failed write and deduplicates a successful one`() {
+        val tracker = LivePlaybackRecordTracker()
+        val key = 9L to 42L
+
+        val firstAttempt = tracker.begin(key)
+        assertThat(firstAttempt).isNotNull()
+        assertThat(tracker.begin(key)).isNull()
+
+        tracker.complete(key, firstAttempt!!, succeeded = false)
+        val retry = tracker.begin(key)
+        assertThat(retry).isNotNull()
+
+        tracker.complete(key, retry!!, succeeded = true)
+        assertThat(tracker.begin(key)).isNull()
+    }
+
+    @Test
+    fun `live playback tracker ignores stale completion when a newer channel started`() {
+        val tracker = LivePlaybackRecordTracker()
+        val firstKey = 9L to 42L
+        val secondKey = 9L to 43L
+
+        val firstAttempt = tracker.begin(firstKey)!!
+        val secondAttempt = tracker.begin(secondKey)!!
+        tracker.complete(firstKey, firstAttempt, succeeded = true)
+        tracker.complete(secondKey, secondAttempt, succeeded = true)
+
+        assertThat(tracker.begin(firstKey)).isNotNull()
+        assertThat(tracker.begin(secondKey)).isNull()
+    }
+
+    @Test
     fun `buildLivePlaybackRecordCandidate uses channel metadata when available`() {
         val channel = Channel(
             id = 42L,

@@ -11,5 +11,6 @@ data class ProgramReminder(
     val leadTimeMinutes: Int = 5,
     val isDismissed: Boolean = false,
     val notifiedAt: Long? = null,
+    val exactAlarmArmed: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 )

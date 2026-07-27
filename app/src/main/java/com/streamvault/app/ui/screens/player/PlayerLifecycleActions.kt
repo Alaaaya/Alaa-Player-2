@@ -16,7 +16,7 @@ internal fun PlayerViewModel.startProgressTracking() {
 
     progressTrackingJob = viewModelScope.launch {
         while (true) {
-            delay(5000)
+            delay(30_000)
             if (!isAppInForeground || !playerEngine.isPlaying.value) continue
             persistPlaybackProgress()
         }

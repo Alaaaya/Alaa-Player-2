@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -40,6 +41,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Before
 import org.junit.Test
+import org.junit.Assert.assertThrows
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argThat
@@ -56,6 +58,14 @@ import org.mockito.kotlin.whenever
 import java.util.zip.GZIPOutputStream
 
 class EpgSourceRepositoryImplTest {
+
+    @Test
+    fun `limitEpgInput rejects bytes after the configured decompressed limit`() {
+        val input = limitEpgInput(ByteArrayInputStream(byteArrayOf(1, 2, 3, 4)), maxBytes = 3)
+
+        assertThat(input.read(ByteArray(3))).isEqualTo(3)
+        assertThrows(IOException::class.java) { input.read() }
+    }
 
     private val context: Context = mock()
     private val contentResolver: ContentResolver = mock()
@@ -309,7 +319,7 @@ class EpgSourceRepositoryImplTest {
 
         whenever(epgSourceDao.getById(10L)).thenReturn(source)
         whenever(okHttpClient.newCall(any())).thenReturn(call)
-        whenever(call.execute()).thenReturn(response)
+        enqueueResponse(call, response)
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(emptyList())
 
         val result = repositoryWithRealParser.refreshSource(10L)
@@ -367,7 +377,7 @@ class EpgSourceRepositoryImplTest {
 
         whenever(epgSourceDao.getById(10L)).thenReturn(source)
         whenever(okHttpClient.newCall(requestCaptor.capture())).thenReturn(call)
-        whenever(call.execute()).thenReturn(response)
+        enqueueResponse(call, response)
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(emptyList())
         whenever(xmltvParser.maybeDecompressGzip(eq(source.url), any())).thenAnswer { it.arguments[1] }
 
@@ -398,7 +408,7 @@ class EpgSourceRepositoryImplTest {
 
         whenever(epgSourceDao.getById(10L)).thenReturn(source)
         whenever(okHttpClient.newCall(any())).thenReturn(call)
-        whenever(call.execute()).thenReturn(response)
+        enqueueResponse(call, response)
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(listOf(7L, 8L))
 
         val result = repository.refreshSource(10L)
@@ -428,7 +438,7 @@ class EpgSourceRepositoryImplTest {
 
         whenever(epgSourceDao.getById(10L)).thenReturn(source)
         whenever(okHttpClient.newCall(any())).thenReturn(call)
-        whenever(call.execute()).thenReturn(response)
+        enqueueResponse(call, response)
         whenever(xmltvParser.maybeDecompressGzip(eq(source.url), any())).thenAnswer { it.arguments[1] }
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(listOf(7L, 8L))
         whenever(providerDao.getById(7L)).thenReturn(
@@ -475,7 +485,7 @@ class EpgSourceRepositoryImplTest {
 
         whenever(epgSourceDao.getById(10L)).thenReturn(source)
         whenever(okHttpClient.newCall(any())).thenReturn(call)
-        whenever(call.execute()).thenReturn(response)
+        enqueueResponse(call, response)
         whenever(xmltvParser.maybeDecompressGzip(eq(source.url), any())).thenAnswer { it.arguments[1] }
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(listOf(7L, 8L))
         whenever(providerDao.getById(7L)).thenReturn(
@@ -511,6 +521,13 @@ class EpgSourceRepositoryImplTest {
             closed = true
             super.close()
         }
+    }
+
+    private fun enqueueResponse(call: Call, response: Response) {
+        doAnswer { invocation ->
+            (invocation.arguments[0] as Callback).onResponse(call, response)
+            null
+        }.whenever(call).enqueue(any())
     }
 
     private fun gzip(bytes: ByteArray): ByteArray {

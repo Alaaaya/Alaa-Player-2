@@ -48,9 +48,11 @@ import com.streamvault.data.local.entity.*
         XtreamContentIndexEntity::class,
         XtreamIndexJobEntity::class,
         XtreamLiveOnboardingStateEntity::class,
-        DownloadEntity::class
+        DownloadEntity::class,
+        ProviderDeletionCleanupEntity::class,
+        PluginProviderOwnershipEntity::class
     ],
-    version = 62,
+    version = 66,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -89,6 +91,8 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun xtreamIndexJobDao(): XtreamIndexJobDao
     abstract fun xtreamLiveOnboardingDao(): XtreamLiveOnboardingDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun providerDeletionCleanupDao(): ProviderDeletionCleanupDao
+    abstract fun pluginProviderOwnershipDao(): PluginProviderOwnershipDao
 
     companion object {
         /**
@@ -2701,6 +2705,78 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 validateForeignKeys(database, "providers")
             }
         }
+
+        val MIGRATION_62_63 = object : Migration(62, 63) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS provider_deletion_cleanup (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    provider_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    target_id TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT
+                )""")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_provider_deletion_cleanup_provider_id_action_target_id ON provider_deletion_cleanup(provider_id, action, target_id)")
+            }
+        }
+
+        /** Migration 63 -> 64: records immutable ownership for plugin-created M3U providers. */
+        val MIGRATION_63_64 = object : Migration(63, 64) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS plugin_provider_ownership (
+                    package_name TEXT NOT NULL,
+                    service_class_name TEXT NOT NULL,
+                    manifest_id TEXT NOT NULL,
+                    provider_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY(package_name, service_class_name, manifest_id),
+                    FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                )""")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_plugin_provider_ownership_provider_id ON plugin_provider_ownership(provider_id)")
+                validateForeignKeys(database, "plugin_provider_ownership")
+            }
+        }
+
+        /** Migration 64 -> 65: make already-persisted Jellyfin image URLs account scoped. */
+        val MIGRATION_64_65 = object : Migration(64, 65) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                listOf(
+                    imageUrlMigrationSql("movies", "poster_url"),
+                    imageUrlMigrationSql("movies", "backdrop_url"),
+                    imageUrlMigrationSql("series", "poster_url"),
+                    imageUrlMigrationSql("series", "backdrop_url"),
+                    imageUrlMigrationSql("episodes", "cover_url")
+                ).forEach(database::execSQL)
+            }
+        }
+
+        /** Migration 65 -> 66: distinguish schedules that exist from schedules armed in AlarmManager. */
+        val MIGRATION_65_66 = object : Migration(65, 66) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    tableName = "recording_runs",
+                    columnName = "exact_alarm_armed",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 1"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "exact_alarm_armed",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 1"
+                )
+            }
+        }
+
+        private fun imageUrlMigrationSql(table: String, column: String): String = """
+            UPDATE $table SET $column = CASE
+                WHEN instr($column, 'streamvault_provider_id=') > 0 THEN $column
+                ELSE $column || CASE WHEN instr($column, '?') = 0 THEN '?streamvault_provider_id=' ELSE '&streamvault_provider_id=' END || provider_id
+            END
+            WHERE $column IS NOT NULL
+              AND provider_id IN (SELECT id FROM providers WHERE type = 'JELLYFIN')
+        """.trimIndent()
 
         val MIGRATION_52_53 = object : Migration(52, 53) {
             override fun migrate(database: SupportSQLiteDatabase) {

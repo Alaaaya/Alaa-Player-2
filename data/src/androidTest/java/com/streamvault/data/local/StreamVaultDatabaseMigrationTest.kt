@@ -1216,7 +1216,7 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate60To61_release114To115UpgradePreservesProviders() {
+    fun migrate60To66_release114UpgradePreservesProvidersThroughCurrentSchema() {
         migrationTestHelper.createDatabase("streamvault-release-114-115-test", 60).apply {
             execSQL(
                 """
@@ -1254,9 +1254,14 @@ class StreamVaultDatabaseMigrationTest {
 
         val migratedDb = migrationTestHelper.runMigrationsAndValidate(
             "streamvault-release-114-115-test",
-            61,
+            66,
             true,
-            StreamVaultDatabase.MIGRATION_60_61
+            StreamVaultDatabase.MIGRATION_60_61,
+            StreamVaultDatabase.MIGRATION_61_62,
+            StreamVaultDatabase.MIGRATION_62_63,
+            StreamVaultDatabase.MIGRATION_63_64,
+            StreamVaultDatabase.MIGRATION_64_65,
+            StreamVaultDatabase.MIGRATION_65_66
         )
 
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_advanced_options_json'"))
@@ -1267,6 +1272,7 @@ class StreamVaultDatabaseMigrationTest {
                 "SELECT COUNT(*) FROM providers WHERE id = 1 AND name = 'Release 1.0.14 Provider' AND stalker_advanced_options_json = ''"
             )
         )
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM providers WHERE id = 1 AND guide_source_policy = 'AUTO' AND channel_logo_source_policy = 'SUPPLIER_PREFERRED'"))
 
         migratedDb.close()
     }
@@ -1283,6 +1289,66 @@ class StreamVaultDatabaseMigrationTest {
         )
 
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'stalker_advanced_options_json'"))
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate61To62_addsGuideAndChannelLogoPolicies() {
+        migrationTestHelper.createDatabase("streamvault-61-62-test", 61).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-61-62-test",
+            62,
+            true,
+            StreamVaultDatabase.MIGRATION_61_62
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'guide_source_policy'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'channel_logo_source_policy'"))
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate63To64_addsPluginProviderOwnershipTable() {
+        migrationTestHelper.createDatabase("streamvault-63-64-test", 63).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-63-64-test",
+            64,
+            true,
+            StreamVaultDatabase.MIGRATION_63_64
+        )
+
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plugin_provider_ownership'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'index_plugin_provider_ownership_provider_id'"
+            )
+        )
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate65To66_addsExactAlarmArmedColumns() {
+        migrationTestHelper.createDatabase("streamvault-65-66-test", 65).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-65-66-test",
+            66,
+            true,
+            StreamVaultDatabase.MIGRATION_65_66
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('recording_runs') WHERE name = 'exact_alarm_armed'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('program_reminders') WHERE name = 'exact_alarm_armed'"))
         migratedDb.close()
     }
 

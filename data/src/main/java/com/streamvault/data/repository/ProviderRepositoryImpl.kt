@@ -1,5 +1,8 @@
 package com.streamvault.data.repository
 
+import android.content.Context
+import com.streamvault.data.local.dao.ProviderDeletionCleanupDao
+import com.streamvault.data.local.entity.ProviderDeletionCleanupEntity
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.ProviderEntity
@@ -41,6 +44,7 @@ import kotlinx.coroutines.launch
 import java.util.logging.Logger
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class ProviderRepositoryImpl @Inject constructor(
@@ -61,7 +65,9 @@ class ProviderRepositoryImpl @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val recordingAlarmScheduler: RecordingAlarmScheduler,
     private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler,
-    private val jellyfinProvider: JellyfinProvider
+    private val jellyfinProvider: JellyfinProvider,
+    private val providerDeletionCleanupDao: ProviderDeletionCleanupDao,
+    @ApplicationContext private val appContext: Context
 ) : ProviderRepository {
     private companion object {
         const val XTREAM_GUIDE_BATCH_CONCURRENCY = 4
@@ -160,6 +166,11 @@ class ProviderRepositoryImpl @Inject constructor(
 
         reportProgress("Preparing to remove provider...")
         transactionRunner.inTransaction {
+            providerDeletionCleanupDao.insertAll(
+                recordingRunIds.map { ProviderDeletionCleanupEntity(id = 0, providerId = id, action = ProviderDeletionCleanupWorker.RECORDING_ALARM, targetId = it) } +
+                    reminderIds.map { ProviderDeletionCleanupEntity(id = 0, providerId = id, action = ProviderDeletionCleanupWorker.REMINDER_ALARM, targetId = it.toString()) } +
+                    ProviderDeletionCleanupEntity(id = 0, providerId = id, action = ProviderDeletionCleanupWorker.SYNC_RUNTIME)
+            )
             // ProgramEntity still has no provider FK, so it requires explicit cleanup.
             if (programCount > 0) reportProgress("Removing $programCount guide entries...")
             programDao.deleteByProvider(id)
@@ -182,35 +193,14 @@ class ProviderRepositoryImpl @Inject constructor(
             completedWeight += PROVIDER_ROW_STEP_WEIGHT
         }
         reportProgress("Provider library removed.")
-        recordingRunIds.forEach { runId ->
-            reportProgress("Cleaning recording alarms...")
-            runPostDeleteCleanup("recording alarm $runId") {
-                recordingAlarmScheduler.cancel(runId)
-            }
-            completedWeight += ALARM_STEP_WEIGHT
-        }
-        reminderIds.forEach { reminderId ->
-            reportProgress("Cleaning reminders...")
-            runPostDeleteCleanup("reminder alarm $reminderId") {
-                programReminderAlarmScheduler.cancel(reminderId)
-            }
-            completedWeight += ALARM_STEP_WEIGHT
-        }
         reportProgress("Finalizing provider cleanup...")
-        runPostDeleteCleanup("provider sync cleanup $id") {
-            syncManager.onProviderDeleted(id)
-        }
-        completedWeight += FINALIZE_STEP_WEIGHT
-        reportProgress("Provider deleted.")
+        runCatching { ProviderDeletionCleanupWorker.enqueue(appContext) }
+            .onFailure { logger.warning("Provider cleanup was queued but WorkManager enqueue failed: ${it.message}") }
+        completedWeight = totalWeight
+        reportProgress("Provider deleted; final cleanup continues.")
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to delete provider: ${e.message}", e)
-    }
-
-    private inline fun runPostDeleteCleanup(step: String, block: () -> Unit) {
-        runCatching(block).onFailure { throwable ->
-            logger.warning("Provider delete committed but post-delete cleanup failed for $step: ${throwable.message}")
-        }
     }
 
     override suspend fun setActiveProvider(id: Long): Result<Unit> {

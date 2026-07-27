@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.streamvault.data.local.entity.ProgramReminderEntity
+import com.streamvault.domain.model.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,7 +18,11 @@ class ProgramReminderNotifier @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
-    fun showReminder(reminder: ProgramReminderEntity) {
+    fun showReminder(reminder: ProgramReminderEntity): Result<Unit> {
+        val notificationManager = NotificationManagerCompat.from(context)
+        if (!notificationManager.areNotificationsEnabled()) {
+            return Result.error("Notifications are disabled for program reminders.")
+        }
         createChannelIfNeeded()
         val now = System.currentTimeMillis()
         val minutesUntilStart = ((reminder.programStartTime - now) / 60000L).coerceAtLeast(0L)
@@ -36,9 +41,10 @@ class ProgramReminderNotifier @Inject constructor(
             .setAutoCancel(true)
             .setContentIntent(buildLaunchPendingIntent())
             .build()
-        runCatching {
-            NotificationManagerCompat.from(context).notify(reminderNotificationTag(reminder.id), 0, notification)
-        }
+        return runCatching {
+            notificationManager.notify(reminderNotificationTag(reminder.id), 0, notification)
+            Result.success(Unit)
+        }.getOrElse { error -> Result.error("Unable to show program reminder.", error) }
     }
 
     private fun reminderNotificationTag(reminderId: Long): String = "program-reminder:$reminderId"

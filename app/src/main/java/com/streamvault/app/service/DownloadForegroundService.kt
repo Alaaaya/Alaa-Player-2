@@ -102,6 +102,21 @@ class DownloadForegroundService : Service() {
         super.onDestroy()
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        val downloadId = currentDownloadId
+        Log.e(TAG, "Foreground-service time allowance exhausted; pausing download $downloadId")
+        serviceScope.launch {
+            try {
+                if (!downloadId.isNullOrBlank()) {
+                    entryPoint().downloadManager().pauseDownloadForForegroundServiceTimeout(downloadId)
+                }
+            } finally {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun buildNotification(

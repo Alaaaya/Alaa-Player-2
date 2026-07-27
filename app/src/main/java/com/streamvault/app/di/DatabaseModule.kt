@@ -102,7 +102,11 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_58_59,
                 StreamVaultDatabase.MIGRATION_59_60,
                 StreamVaultDatabase.MIGRATION_60_61,
-                StreamVaultDatabase.MIGRATION_61_62
+                StreamVaultDatabase.MIGRATION_61_62,
+                StreamVaultDatabase.MIGRATION_62_63,
+                StreamVaultDatabase.MIGRATION_63_64,
+                StreamVaultDatabase.MIGRATION_64_65,
+                StreamVaultDatabase.MIGRATION_65_66
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -145,4 +149,6 @@ object DatabaseModule {
     @Provides fun provideXtreamIndexJobDao(db: StreamVaultDatabase): XtreamIndexJobDao = db.xtreamIndexJobDao()
     @Provides fun provideXtreamLiveOnboardingDao(db: StreamVaultDatabase): XtreamLiveOnboardingDao = db.xtreamLiveOnboardingDao()
     @Provides fun provideDownloadDao(db: StreamVaultDatabase): DownloadDao = db.downloadDao()
+    @Provides fun provideProviderDeletionCleanupDao(db: StreamVaultDatabase): ProviderDeletionCleanupDao = db.providerDeletionCleanupDao()
+    @Provides fun providePluginProviderOwnershipDao(db: StreamVaultDatabase): PluginProviderOwnershipDao = db.pluginProviderOwnershipDao()
 }

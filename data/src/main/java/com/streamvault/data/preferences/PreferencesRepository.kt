@@ -210,6 +210,7 @@ class PreferencesRepository @Inject constructor(
         val DOWNLOAD_TREE_URI = stringPreferencesKey("download_tree_uri")
         val MAX_CONCURRENT_STREAMS = intPreferencesKey("max_concurrent_streams")
         val LAST_APP_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_app_update_check_timestamp")
+        val LAST_APP_UPDATE_FAILURE_TIMESTAMP = longPreferencesKey("last_app_update_failure_timestamp")
         val APP_UPDATE_DOWNLOAD_ID = longPreferencesKey("app_update_download_id")
         val APP_UPDATE_DOWNLOAD_VERSION_NAME = stringPreferencesKey("app_update_download_version_name")
         val APP_UPDATE_DOWNLOADED_VERSION_NAME = stringPreferencesKey("app_update_downloaded_version_name")
@@ -616,6 +617,10 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP]?.takeIf { it > 0L }
     }
 
+    val lastAppUpdateFailureTimestamp: Flow<Long?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP]?.takeIf { it > 0L }
+    }
+
     val appUpdateDownloadId: Flow<Long?> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_ID]?.takeIf { it > 0L }
     }
@@ -776,6 +781,16 @@ class PreferencesRepository @Inject constructor(
                 preferences.remove(PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP)
             } else {
                 preferences[PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP] = timestampMs
+            }
+        }
+    }
+
+    suspend fun setLastAppUpdateFailureTimestamp(timestampMs: Long?) {
+        context.dataStore.edit { preferences ->
+            if (timestampMs == null || timestampMs <= 0L) {
+                preferences.remove(PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP)
+            } else {
+                preferences[PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP] = timestampMs
             }
         }
     }

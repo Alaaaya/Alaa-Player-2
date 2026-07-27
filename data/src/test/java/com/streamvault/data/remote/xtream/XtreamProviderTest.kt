@@ -449,6 +449,38 @@ class XtreamProviderTest {
     }
 
     @Test
+    fun `getVodStreams retries adult category prefetch after a transient failure`() = runBlocking {
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    if (categoryRequests++ == 0) {
+                        throw XtreamNetworkException("category prefetch failed")
+                    }
+                    listOf(XtreamCategory(categoryId = "28", categoryName = "Adults", isAdult = true))
+                },
+                vodStreams = listOf(
+                    XtreamStream(
+                        name = "Movie",
+                        streamId = 321,
+                        categoryId = "28",
+                        categoryName = "Movies",
+                        containerExtension = "mp4"
+                    )
+                )
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isFalse()
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isTrue()
+        assertThat(categoryRequests).isEqualTo(2)
+    }
+
+    @Test
     fun `getVodStreams honors explicit adult flag from xtream payload`() = runBlocking {
         val provider = XtreamProvider(
             providerId = 42,
@@ -744,6 +776,7 @@ class XtreamProviderTest {
         private val liveCategories: List<XtreamCategory> = emptyList(),
         private val liveStreams: List<XtreamStream> = emptyList(),
         private val vodCategories: List<XtreamCategory> = emptyList(),
+        private val vodCategoriesLoader: (suspend () -> List<XtreamCategory>)? = null,
         private val vodStreams: List<XtreamStream> = emptyList(),
         private val vodInfo: XtreamVodInfoResponse = XtreamVodInfoResponse(),
         private val seriesCategories: List<XtreamCategory> = emptyList(),
@@ -760,7 +793,8 @@ class XtreamProviderTest {
 
         override suspend fun getLiveStreams(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamStream> = liveStreams
 
-        override suspend fun getVodCategories(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamCategory> = vodCategories
+        override suspend fun getVodCategories(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamCategory> =
+            vodCategoriesLoader?.invoke() ?: vodCategories
 
         override suspend fun getVodStreams(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamStream> = vodStreams
 

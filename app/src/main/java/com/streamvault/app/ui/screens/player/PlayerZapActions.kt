@@ -28,6 +28,33 @@ internal data class LivePlaybackRecordCandidate(
     val history: PlaybackHistory
 )
 
+internal class LivePlaybackRecordTracker {
+    private var latestGeneration = 0L
+    private var lastSuccessfulKey: Pair<Long, Long>? = null
+    private val inFlightGenerations = mutableMapOf<Pair<Long, Long>, Long>()
+
+    fun begin(playbackKey: Pair<Long, Long>): Long? {
+        if (playbackKey == lastSuccessfulKey || playbackKey in inFlightGenerations) return null
+        return (++latestGeneration).also { generation ->
+            inFlightGenerations[playbackKey] = generation
+        }
+    }
+
+    fun complete(playbackKey: Pair<Long, Long>, generation: Long, succeeded: Boolean) {
+        if (inFlightGenerations[playbackKey] != generation) return
+        inFlightGenerations.remove(playbackKey)
+        if (succeeded && generation == latestGeneration) {
+            lastSuccessfulKey = playbackKey
+        }
+    }
+
+    fun reset() {
+        latestGeneration++
+        lastSuccessfulKey = null
+        inFlightGenerations.clear()
+    }
+}
+
 internal fun buildLivePlaybackRecordCandidate(
     currentProviderId: Long,
     currentContentType: ContentType,
@@ -310,14 +337,17 @@ internal fun PlayerViewModel.recordActiveLivePlayback(channel: Channel? = curren
         channel = channel
     ) ?: return
 
-    if (lastRecordedLivePlaybackKey == candidate.playbackKey) return
-    lastRecordedLivePlaybackKey = candidate.playbackKey
+    val generation = livePlaybackRecordTracker.begin(candidate.playbackKey) ?: return
 
     viewModelScope.launch {
-        logRepositoryFailure(
-            operation = "Record live playback",
-            result = playbackHistoryRepository.recordPlayback(candidate.history)
-        )
+        var succeeded = false
+        try {
+            val result = playbackHistoryRepository.recordPlayback(candidate.history)
+            succeeded = result is com.streamvault.domain.model.Result.Success
+            logRepositoryFailure(operation = "Record live playback", result = result)
+        } finally {
+            livePlaybackRecordTracker.complete(candidate.playbackKey, generation, succeeded)
+        }
     }
 }
 
