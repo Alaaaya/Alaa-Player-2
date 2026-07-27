@@ -35,6 +35,7 @@ class ProgramReminderManagerImplTest {
     init {
         whenever(alarmScheduler.canScheduleExactAlarms()).thenReturn(true)
         whenever(alarmScheduler.schedule(org.mockito.kotlin.any(), org.mockito.kotlin.any())).thenReturn(Result.success(Unit))
+        whenever(notifier.showReminder(org.mockito.kotlin.any())).thenReturn(Result.success(Unit))
     }
 
     @Test
@@ -87,6 +88,42 @@ class ProgramReminderManagerImplTest {
     }
 
     @Test
+    fun `scheduleReminder keeps existing reminder when replacement alarm fails`() = runTest {
+        val now = System.currentTimeMillis()
+        val program = Program(
+            channelId = "bbc1",
+            title = "World News",
+            startTime = now + 30 * 60_000L,
+            endTime = now + 60 * 60_000L,
+            providerId = 7L
+        )
+        val existing = ProgramReminderEntity(
+            id = 42L,
+            providerId = 7L,
+            channelId = "bbc1",
+            channelName = "BBC One",
+            programTitle = program.title,
+            programStartTime = program.startTime,
+            remindAt = now + 10 * 60_000L,
+            leadTimeMinutes = 20
+        )
+        whenever(dao.getByProgram(7L, "bbc1", "World News", program.startTime)).thenReturn(existing)
+        whenever(alarmScheduler.schedule(eq(42L), org.mockito.kotlin.any())).thenReturn(Result.error("denied"))
+
+        val result = manager.scheduleReminder(
+            providerId = 7L,
+            channelId = "bbc1",
+            channelName = "BBC One",
+            program = program,
+            leadTimeMinutes = 5
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        verify(dao, never()).update(org.mockito.kotlin.any())
+        verify(alarmScheduler).schedule(42L, existing.remindAt)
+    }
+
+    @Test
     fun `cancelReminder deletes reminder and cancels alarm`() = runTest {
         val reminder = ProgramReminderEntity(
             id = 42L,
@@ -128,7 +165,28 @@ class ProgramReminderManagerImplTest {
 
         val remindAtCaptor = argumentCaptor<Long>()
         verify(alarmScheduler).schedule(eq(42L), remindAtCaptor.capture())
+        verify(dao).setExactAlarmArmed(42L, true)
         assertThat(remindAtCaptor.firstValue).isAtLeast(nowBeforeRestore + 1_000L)
+    }
+
+    @Test
+    fun `restoreScheduledReminders persists unarmed state when permission is unavailable`() = runTest {
+        val reminder = ProgramReminderEntity(
+            id = 42L,
+            providerId = 7L,
+            channelId = "bbc1",
+            channelName = "BBC One",
+            programTitle = "World News",
+            programStartTime = System.currentTimeMillis() + 5 * 60_000L,
+            remindAt = System.currentTimeMillis() + 60_000L
+        )
+        whenever(alarmScheduler.canScheduleExactAlarms()).thenReturn(false)
+        whenever(dao.getPendingActive(org.mockito.kotlin.any())).thenReturn(listOf(reminder))
+
+        manager.restoreScheduledReminders()
+
+        verify(dao).setExactAlarmArmed(42L, false)
+        verify(alarmScheduler, never()).schedule(org.mockito.kotlin.any(), org.mockito.kotlin.any())
     }
 
     @Test
@@ -180,6 +238,25 @@ class ProgramReminderManagerImplTest {
         val updatedCaptor = argumentCaptor<ProgramReminderEntity>()
         verify(dao).update(updatedCaptor.capture())
         assertThat(updatedCaptor.firstValue.notifiedAt).isNotNull()
+    }
+
+    @Test
+    fun `deliverReminder keeps reminder pending when notification fails`() = runTest {
+        val reminder = ProgramReminderEntity(
+            id = 42L,
+            providerId = 7L,
+            channelId = "bbc1",
+            channelName = "BBC One",
+            programTitle = "World News",
+            programStartTime = System.currentTimeMillis() + 5 * 60_000L,
+            remindAt = System.currentTimeMillis()
+        )
+        whenever(dao.getById(42L)).thenReturn(reminder)
+        whenever(notifier.showReminder(reminder)).thenReturn(Result.error("disabled"))
+
+        manager.deliverReminder(42L)
+
+        verify(dao, never()).update(org.mockito.kotlin.any())
     }
 
     @Test
@@ -240,6 +317,8 @@ class ProgramReminderManagerImplTest {
             override suspend fun insert(reminder: ProgramReminderEntity): Long = error("unused")
 
             override suspend fun update(reminder: ProgramReminderEntity) = error("unused")
+
+            override suspend fun setExactAlarmArmed(id: Long, armed: Boolean) = error("unused")
 
             override suspend fun deleteByProgram(
                 providerId: Long,

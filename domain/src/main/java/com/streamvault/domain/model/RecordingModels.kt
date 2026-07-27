@@ -83,7 +83,8 @@ data class RecordingItem(
     val scheduleEnabled: Boolean = true,
     val priority: Int = 0,
     val failureReason: String? = null,
-    val terminalAtMs: Long? = null
+    val terminalAtMs: Long? = null,
+    val exactAlarmArmed: Boolean = true
 ) {
     init {
         require(id.isNotBlank()) { "id must not be blank" }

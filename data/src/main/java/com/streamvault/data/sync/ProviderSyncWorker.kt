@@ -82,6 +82,12 @@ internal suspend fun reconcileTargetedProviderStatus(
     }
 }
 
+internal fun isFreshRunningIndexJob(
+    updatedAt: Long,
+    now: Long,
+    staleAfterMillis: Long
+): Boolean = updatedAt <= now && now - updatedAt < staleAfterMillis
+
 internal suspend fun shouldTrackInitialLiveOnboarding(
     provider: com.streamvault.data.local.entity.ProviderEntity,
     onboardingDao: XtreamLiveOnboardingDao
@@ -155,6 +161,8 @@ class ProviderSyncWorker(
             }
 
             if (sawRetryableFailure) Result.retry() else Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Provider sync worker failed", e)
             if (shouldRetry(e)) Result.retry() else Result.failure()
@@ -312,7 +320,7 @@ class ProviderSyncWorker(
     ): Boolean {
         val job = entryPoint.xtreamIndexJobDao().get(providerId, section.name) ?: return true
         if (job.state in setOf("QUEUED", "PARTIAL", "STALE", "FAILED_RETRYABLE")) return true
-        if (job.state == "RUNNING" && (now - job.updatedAt) < STALE_RUNNING_JOB_MILLIS) return false
+        if (job.state == "RUNNING" && isFreshRunningIndexJob(job.updatedAt, now, STALE_RUNNING_JOB_MILLIS)) return false
         return ContentCachePolicy.shouldRefresh(job.lastSuccessAt, ContentCachePolicy.CATALOG_TTL_MILLIS, now)
     }
 

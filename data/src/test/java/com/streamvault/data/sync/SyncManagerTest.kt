@@ -3525,6 +3525,13 @@ class SyncManagerTest {
     }
 
     @Test
+    fun `isVodEntry_fileExtensionWithQueryOrFragment_returnsTrue`() {
+        assertThat(M3uParser.isVodEntry(entry(url = "https://vod.example.com/film.MP4?token=abc"))).isTrue()
+        assertThat(M3uParser.isVodEntry(entry(url = "https://vod.example.com/show.mkv#preview"))).isTrue()
+        assertThat(M3uParser.isVodEntry(entry(url = "https://vod.example.com/archive.avi?token=abc#preview"))).isTrue()
+    }
+
+    @Test
     fun `isVodEntry_movieGroupTitle_returnsTrue`() {
         assertThat(M3uParser.isVodEntry(entry(group = "Movies HD"))).isTrue()
     }

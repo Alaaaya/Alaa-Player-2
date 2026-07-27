@@ -11,9 +11,12 @@ import coil3.request.crossfade
 import com.streamvault.app.diagnostics.CrashReportStore
 import com.streamvault.app.diagnostics.RuntimeDiagnosticsManager
 import com.streamvault.app.update.GitHubReleaseChecker
+import com.streamvault.app.update.AppUpdateCheckPolicy
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.ui.accessibility.isReducedMotionEnabled
 import com.streamvault.data.remote.jellyfin.JellyfinImageAuthInterceptor
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.domain.repository.DownloadManager
 import com.streamvault.domain.model.Result
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -25,10 +28,10 @@ import okio.Path.Companion.toOkioPath
 
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.streamvault.data.manager.recording.RecordingReconcileWorker
+import com.streamvault.data.repository.ProviderDeletionCleanupWorker
 import com.streamvault.data.sync.ProviderSyncWorker
 import com.streamvault.data.sync.XtreamIndexWorker
 import com.streamvault.player.timeshift.TimeshiftDiskManager
@@ -52,6 +55,12 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
     @Inject
     lateinit var jellyfinImageAuthInterceptor: JellyfinImageAuthInterceptor
 
+    @Inject
+    lateinit var downloadManager: DownloadManager
+
+    @Inject
+    lateinit var streamVaultPluginManager: StreamVaultPluginManager
+
     private val imageOkHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
             .addInterceptor(jellyfinImageAuthInterceptor)
@@ -70,14 +79,16 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
         applicationScope.launch {
             refreshCachedAppUpdateIfNeeded()
         }
+        applicationScope.launch {
+            downloadManager.recoverInterruptedDownloads()
+        }
+        applicationScope.launch {
+            streamVaultPluginManager.reconcilePluginProviders()
+        }
         
         // Schedule daily data maintenance: EPG pruning, stale-favorite cleanup, and DB compaction checks.
-        // BLD-H02: Require network + device idle so the worker doesn't drain battery.
-        val gcConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .setRequiresDeviceIdle(true)
-            .build()
+        // This work is local-only and must also run for offline/local-playlist devices.
+        val gcConstraints = dataMaintenanceConstraints()
 
         val gcWorkRequest = PeriodicWorkRequestBuilder<com.streamvault.data.sync.SyncWorker>(24, java.util.concurrent.TimeUnit.HOURS)
             .setConstraints(gcConstraints)
@@ -95,6 +106,7 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
         XtreamIndexWorker.enqueueLaunchStaleCheck(this)
         RecordingReconcileWorker.enqueuePeriodic(this)
         RecordingReconcileWorker.enqueueOneShot(this)
+        ProviderDeletionCleanupWorker.enqueue(this)
     }
 
     override fun onTerminate() {
@@ -108,14 +120,13 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             return
         }
 
-        val lastCheckedAt = preferencesRepository.lastAppUpdateCheckTimestamp.first()
+        val lastSuccessfulCheckAt = preferencesRepository.lastAppUpdateCheckTimestamp.first()
+        val lastFailedCheckAt = preferencesRepository.lastAppUpdateFailureTimestamp.first()
         val now = System.currentTimeMillis()
-        val checkIntervalMs = 24L * 60L * 60L * 1000L
-        if (lastCheckedAt != null && now - lastCheckedAt < checkIntervalMs) {
+        if (!AppUpdateCheckPolicy.shouldAutoCheck(now, lastSuccessfulCheckAt, lastFailedCheckAt)) {
             return
         }
 
-        preferencesRepository.setLastAppUpdateCheckTimestamp(now)
         when (val result = gitHubReleaseChecker.fetchLatestRelease()) {
             is Result.Success -> {
                 preferencesRepository.setCachedAppUpdateRelease(
@@ -127,8 +138,10 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
                     releaseNotes = result.data.releaseNotes,
                     publishedAt = result.data.publishedAt
                 )
+                preferencesRepository.setLastAppUpdateCheckTimestamp(now)
+                preferencesRepository.setLastAppUpdateFailureTimestamp(null)
             }
-            else -> Unit
+            else -> preferencesRepository.setLastAppUpdateFailureTimestamp(now)
         }
     }
 
@@ -159,3 +172,8 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             .build()
     }
 }
+
+internal fun dataMaintenanceConstraints(): Constraints = Constraints.Builder()
+    .setRequiresBatteryNotLow(true)
+    .setRequiresDeviceIdle(true)
+    .build()

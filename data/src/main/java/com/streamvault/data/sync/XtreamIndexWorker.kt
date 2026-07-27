@@ -80,6 +80,8 @@ class XtreamIndexWorker(
                 }
 
             if (sawRetryableFailure) Result.retry() else Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             Log.e(TAG, "Xtream index worker failed", error)
             if (shouldRetry(error)) Result.retry() else Result.failure()

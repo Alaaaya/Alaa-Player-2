@@ -4,9 +4,11 @@ import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.util.ChannelNormalizer
 import com.streamvault.domain.util.StreamEntryUrlPolicy
+import java.io.BufferedInputStream
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.net.URI
 
 /**
  * Robust M3U parser that handles real-world malformed playlists.
@@ -23,9 +25,11 @@ import java.io.InputStreamReader
 class M3uParser {
 
     data class M3uHeader(
-        val tvgUrl: String? = null,
+        val tvgUrls: List<String> = emptyList(),
         val userAgent: String? = null
-    )
+    ) {
+        val tvgUrl: String? get() = tvgUrls.firstOrNull()
+    }
 
     data class M3uEntry(
         val name: String,
@@ -54,7 +58,7 @@ class M3uParser {
     )
 
     fun parse(inputStream: InputStream): ParseResult {
-        val reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
+        val reader = playlistReader(inputStream)
         val entries = mutableListOf<M3uEntry>()
         var header = M3uHeader()
         var pendingExtinf: ParsedExtinf? = null
@@ -94,9 +98,10 @@ class M3uParser {
     suspend fun parseStreaming(
         inputStream: InputStream,
         onHeader: suspend (M3uHeader) -> Unit = {},
-        onEntry: suspend (M3uEntry) -> Unit
+        onEntry: suspend (M3uEntry) -> Unit,
+        onInvalidEntry: suspend () -> Unit = {}
     ) {
-        val reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
+        val reader = playlistReader(inputStream)
         var header = M3uHeader()
         var pendingExtinf: ParsedExtinf? = null
 
@@ -122,7 +127,9 @@ class M3uParser {
                         pendingExtinf = pendingExtinf?.let { applyPendingDirective(it, line) }
                     }
                     pendingExtinf != null -> {
-                        parseEntry(pendingExtinf!!, line, header.userAgent)?.let { onEntry(it) }
+                        parseEntry(pendingExtinf!!, line, header.userAgent)
+                            ?.let { onEntry(it) }
+                            ?: onInvalidEntry()
                         pendingExtinf = null
                     }
                     else -> {
@@ -212,21 +219,41 @@ class M3uParser {
     private fun parseHeader(line: String): M3uHeader {
         val attributes = parseAttributes(line, line.indexOf(' '))
         return M3uHeader(
-            tvgUrl = extractHeaderEpgUrl(attributes),
+            tvgUrls = extractHeaderEpgUrls(attributes),
             userAgent = attributes["user-agent"]
         )
     }
 
-    private fun extractHeaderEpgUrl(attributes: Map<String, String>): String? {
+    private fun extractHeaderEpgUrls(attributes: Map<String, String>): List<String> {
         val rawValue = headerEpgAttributes
             .firstNotNullOfOrNull { key -> attributes[key]?.takeIf { it.isNotBlank() } }
-            ?: return null
+            ?: return emptyList()
 
         return rawValue
             .split(',')
             .asSequence()
             .map { it.trim() }
-            .firstOrNull { it.isNotEmpty() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(MAX_HEADER_EPG_URLS)
+            .toList()
+    }
+
+    private fun playlistReader(inputStream: InputStream): BufferedReader {
+        val buffered = inputStream as? BufferedInputStream ?: BufferedInputStream(inputStream, 64 * 1024)
+        buffered.mark(3)
+        val first = buffered.read()
+        val second = buffered.read()
+        val third = buffered.read()
+        buffered.reset()
+        val (bomLength, charset) = when {
+            first == 0xEF && second == 0xBB && third == 0xBF -> 3 to Charsets.UTF_8
+            first == 0xFF && second == 0xFE -> 2 to Charsets.UTF_16LE
+            first == 0xFE && second == 0xFF -> 2 to Charsets.UTF_16BE
+            else -> 0 to Charsets.UTF_8
+        }
+        repeat(bomLength) { buffered.read() }
+        return BufferedReader(InputStreamReader(buffered, charset))
     }
 
     private fun parseStandaloneGroupTitle(line: String): String? {
@@ -428,15 +455,20 @@ class M3uParser {
             "tvg-url",
             "url-xml"
         )
+        private const val MAX_HEADER_EPG_URLS = 8
 
         /** Exposed for callers outside M3uParser (e.g. SyncManager) to avoid duplicate logic. */
         fun isVodEntry(entry: M3uEntry): Boolean {
             val url = entry.url.lowercase()
+            val path = runCatching { URI(entry.url).path }
+                .getOrNull()
+                ?.lowercase()
+                ?: entry.url.substringBefore('#').substringBefore('?').lowercase()
             val group = entry.groupTitle.lowercase()
 
-            return url.endsWith(".mp4") ||
-                    url.endsWith(".mkv") ||
-                    url.endsWith(".avi") ||
+            return path.endsWith(".mp4") ||
+                    path.endsWith(".mkv") ||
+                    path.endsWith(".avi") ||
                     url.contains("/movie/") ||
                     group.contains("movie") ||
                     group.contains("vod") ||

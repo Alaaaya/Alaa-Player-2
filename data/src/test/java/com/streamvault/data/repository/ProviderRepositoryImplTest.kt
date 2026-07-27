@@ -1,5 +1,6 @@
 package com.streamvault.data.repository
 
+import android.content.Context
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
@@ -10,6 +11,7 @@ import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.dao.SeriesDao
+import com.streamvault.data.local.dao.ProviderDeletionCleanupDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
@@ -49,6 +51,7 @@ import org.mockito.kotlin.whenever
 
 class ProviderRepositoryImplTest {
 
+
     private val providerDao: ProviderDao = mock()
     private val categoryDao: CategoryDao = mock()
     private val channelDao: ChannelDao = mock()
@@ -66,6 +69,8 @@ class ProviderRepositoryImplTest {
     private val recordingAlarmScheduler: RecordingAlarmScheduler = mock()
     private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler = mock()
     private val jellyfinProvider: JellyfinProvider = mock()
+    private val providerDeletionCleanupDao: ProviderDeletionCleanupDao = mock()
+    private val appContext: Context = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
     }
@@ -90,7 +95,9 @@ class ProviderRepositoryImplTest {
         transactionRunner = transactionRunner,
         recordingAlarmScheduler = recordingAlarmScheduler,
         programReminderAlarmScheduler = programReminderAlarmScheduler,
-        jellyfinProvider = jellyfinProvider
+        jellyfinProvider = jellyfinProvider,
+        providerDeletionCleanupDao = providerDeletionCleanupDao,
+        appContext = appContext
     )
 
     private val repository = createRepository()
@@ -114,14 +121,10 @@ class ProviderRepositoryImplTest {
         val result = repository.deleteProvider(7L)
 
         assertThat(result.isSuccess).isTrue()
-        val inOrder = inOrder(recordingAlarmScheduler, programReminderAlarmScheduler, programDao, providerDao, syncManager)
+        val inOrder = inOrder(programDao, providerDao)
         inOrder.verify(programDao).deleteByProvider(7L)
         inOrder.verify(providerDao).delete(7L)
-        inOrder.verify(recordingAlarmScheduler).cancel("run-1")
-        inOrder.verify(recordingAlarmScheduler).cancel("run-2")
-        inOrder.verify(programReminderAlarmScheduler).cancel(11L)
-        inOrder.verify(programReminderAlarmScheduler).cancel(12L)
-        inOrder.verify(syncManager).onProviderDeleted(7L)
+        verify(providerDeletionCleanupDao).insertAll(any())
         verify(recordingRunDao).getIdsByProvider(7L)
         verify(programReminderDao).getIdsByProvider(7L)
     }
@@ -163,8 +166,7 @@ class ProviderRepositoryImplTest {
             "transaction:start",
             "programs:delete",
             "provider:delete",
-            "transaction:end",
-            "sync:cleanup"
+            "transaction:end"
         ).inOrder()
     }
 
@@ -180,9 +182,7 @@ class ProviderRepositoryImplTest {
         assertThat(result.isSuccess).isTrue()
         verify(programDao).deleteByProvider(7L)
         verify(providerDao).delete(7L)
-        verify(recordingAlarmScheduler).cancel("run-1")
-        verify(programReminderAlarmScheduler).cancel(11L)
-        verify(syncManager).onProviderDeleted(7L)
+        verify(providerDeletionCleanupDao).insertAll(any())
     }
 
     @Test

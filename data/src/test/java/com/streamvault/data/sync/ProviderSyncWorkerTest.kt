@@ -41,6 +41,28 @@ class ProviderSyncWorkerTest {
     }
 
     @Test
+    fun `future running index job timestamp is not fresh`() {
+        assertThat(
+            isFreshRunningIndexJob(
+                updatedAt = 1_001L,
+                now = 1_000L,
+                staleAfterMillis = 15 * 60 * 1_000L
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `recent running index job timestamp is fresh`() {
+        assertThat(
+            isFreshRunningIndexJob(
+                updatedAt = 1_000L,
+                now = 1_001L,
+                staleAfterMillis = 15 * 60 * 1_000L
+            )
+        ).isTrue()
+    }
+
+    @Test
     fun `xtream provider with incomplete onboarding state is tracked for initial live resume`() = runTest {
         val provider = ProviderEntity(
             id = 9L,

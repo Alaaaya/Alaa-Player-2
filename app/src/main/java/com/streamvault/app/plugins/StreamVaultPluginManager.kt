@@ -1,8 +1,10 @@
 package com.streamvault.app.plugins
 
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
@@ -11,15 +13,18 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.cast.CastMediaRequest
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
+import com.streamvault.data.local.dao.PluginProviderOwnershipDao
+import com.streamvault.data.local.entity.PluginProviderOwnershipEntity
+import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.DrmInfo
 import com.streamvault.domain.model.DrmScheme
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
-import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
@@ -31,6 +36,12 @@ import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,18 +56,73 @@ class StreamVaultPluginManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val messengerClient: PluginMessengerClient,
     private val providerRepository: ProviderRepository,
+    private val pluginProviderOwnershipDao: PluginProviderOwnershipDao,
     private val combinedM3uRepository: CombinedM3uRepository,
     private val tvInputChannelSyncManager: TvInputChannelSyncManager,
     private val okHttpClient: OkHttpClient,
     private val json: Json
 ) {
     private val prefs = context.getSharedPreferences("streamvault_plugins", Context.MODE_PRIVATE)
+    private val discoveryLock = Any()
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var cachedDiscovery: List<InstalledStreamVaultPlugin>? = null
+
+    @Volatile
+    private var discoveryExpiresAtMillis = 0L
+
+    private val packageChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = invalidateDiscovery()
+    }
+
+    init {
+        ContextCompat.registerReceiver(
+            context.applicationContext,
+            packageChangeReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addDataScheme("package")
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
 
     suspend fun discoverPlugins(): List<InstalledStreamVaultPlugin> = withContext(Dispatchers.IO) {
-        queryPluginServices()
-            .mapNotNull { resolveInfo -> resolvePlugin(resolveInfo) }
-            .distinctBy { it.manifest.id }
+        cachedDiscovery?.takeIf { System.currentTimeMillis() < discoveryExpiresAtMillis }?.let { return@withContext it }
+        val plugins = queryPluginServices()
+            .map { resolveInfo -> async { resolvePlugin(resolveInfo) } }
+            .awaitAll()
+            .filterNotNull()
             .sortedBy { it.displayName.lowercase() }
+        migrateLegacyEnabledStates(plugins)
+        plugins.map { plugin -> plugin.copy(enabled = isEnabled(plugin)) }.also { discovered ->
+            synchronized(discoveryLock) {
+                cachedDiscovery = discovered
+                discoveryExpiresAtMillis = System.currentTimeMillis() + DISCOVERY_CACHE_TTL_MILLIS
+            }
+        }
+    }
+
+    /** Removes only providers with a durable ownership record for an uninstalled plugin service. */
+    suspend fun reconcilePluginProviders() = withContext(Dispatchers.IO) {
+        val installedOwners = queryPluginServices().mapNotNull { resolveInfo ->
+            val serviceInfo = resolveInfo.serviceInfo ?: return@mapNotNull null
+            val packageName = serviceInfo.packageName ?: return@mapNotNull null
+            val serviceName = serviceInfo.name ?: return@mapNotNull null
+            val manifest = readManifestFromService(packageName, serviceName)
+                ?: readManifestFromMetadata(serviceInfo.metaData)
+                ?: StreamVaultPluginManifest(id = packageName, name = packageName)
+            StreamVaultPluginOwner(packageName, serviceName, manifest.id)
+        }.toSet()
+        pluginProviderOwnershipDao.getAll()
+            .filter { ownership ->
+                StreamVaultPluginOwner(ownership.packageName, ownership.serviceClassName, ownership.manifestId) !in installedOwners
+            }
+            .forEach { ownership -> removeOwnedProvider(ownership) }
     }
 
     suspend fun setPluginEnabled(
@@ -67,7 +133,7 @@ class StreamVaultPluginManager @Inject constructor(
         val command = Bundle().apply {
             putBoolean(StreamVaultPluginContract.KEY_ENABLED, enabled)
         }
-        val response = runCatching {
+        val response = runPluginCatching {
             messengerClient.send(
                 packageName = plugin.packageName,
                 serviceClassName = plugin.serviceClassName,
@@ -87,7 +153,7 @@ class StreamVaultPluginManager @Inject constructor(
             )
         }
 
-        prefs.edit().putBoolean(enabledKey(plugin.manifest.id), enabled).apply()
+        prefs.edit().putBoolean(enabledKey(plugin.owner), enabled).apply()
         if (enabled && plugin.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PROVIDER_M3U)) {
             syncPluginProvider(plugin, onProgress)?.let { return@withContext it }
         } else if (!enabled) {
@@ -103,7 +169,7 @@ class StreamVaultPluginManager @Inject constructor(
 
     suspend fun installApkFromUri(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         val target = pluginApkFile("local-${System.currentTimeMillis()}.apk")
-        runCatching {
+        runPluginCatching {
             target.parentFile?.mkdirs()
             context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "Cannot open selected APK" }
@@ -122,10 +188,10 @@ class StreamVaultPluginManager @Inject constructor(
         }
 
         val target = pluginApkFile("plugin-${System.currentTimeMillis()}.apk")
-        runCatching {
+        runPluginCatching {
             target.parentFile?.mkdirs()
             val request = Request.Builder().url(normalizedUrl).build()
-            okHttpClient.newCall(request).execute().use { response ->
+            okHttpClient.newCall(request).useCancellableResponse { response ->
                 if (!response.isSuccessful) error("HTTP ${response.code}")
                 val body = response.body ?: error("Empty response")
                 target.outputStream().use { output -> body.byteStream().copyTo(output) }
@@ -157,7 +223,7 @@ class StreamVaultPluginManager @Inject constructor(
                 return@withContext Result.error("This plugin does not expose a StreamVault configuration schema")
             }
 
-            val schemaResponse = runCatching {
+            val schemaResponse = runPluginCatching {
                 messengerClient.send(
                     packageName = plugin.packageName,
                     serviceClassName = plugin.serviceClassName,
@@ -191,7 +257,7 @@ class StreamVaultPluginManager @Inject constructor(
 
     suspend fun loadPluginConfigurationValues(plugin: InstalledStreamVaultPlugin): Result<JsonObject> =
         withContext(Dispatchers.IO) {
-            val valuesResponse = runCatching {
+            val valuesResponse = runPluginCatching {
                 messengerClient.send(
                     packageName = plugin.packageName,
                     serviceClassName = plugin.serviceClassName,
@@ -226,7 +292,7 @@ class StreamVaultPluginManager @Inject constructor(
         plugin: InstalledStreamVaultPlugin,
         valuesJson: String
     ): PluginActionResult = withContext(Dispatchers.IO) {
-        val response = runCatching {
+        val response = runPluginCatching {
             messengerClient.send(
                 packageName = plugin.packageName,
                 serviceClassName = plugin.serviceClassName,
@@ -246,7 +312,7 @@ class StreamVaultPluginManager @Inject constructor(
         plugin: InstalledStreamVaultPlugin,
         actionId: String
     ): PluginActionResult = withContext(Dispatchers.IO) {
-        val response = runCatching {
+        val response = runPluginCatching {
             messengerClient.send(
                 packageName = plugin.packageName,
                 serviceClassName = plugin.serviceClassName,
@@ -268,53 +334,70 @@ class StreamVaultPluginManager @Inject constructor(
     suspend fun preparePlaybackStreamInfo(streamInfo: StreamInfo): Result<StreamInfo> = withContext(Dispatchers.IO) {
         val url = streamInfo.url
         if (url.isBlank()) return@withContext Result.success(streamInfo)
-        val plugins = discoverPlugins()
-            .filter { it.enabled && it.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PLAYBACK_PREPARE) }
-        for (plugin in plugins) {
-            val response = runCatching {
-                messengerClient.send(
-                    packageName = plugin.packageName,
-                    serviceClassName = plugin.serviceClassName,
-                    what = StreamVaultPluginContract.MSG_PREPARE_PLAYBACK,
-                    data = Bundle().apply { putString(StreamVaultPluginContract.KEY_INPUT_URL, url) },
-                    timeoutMillis = 120_000L
-                )
-            }.getOrNull() ?: continue
-
-            if (!response.getBoolean(StreamVaultPluginContract.KEY_HANDLED, false)) continue
-            if (response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, false)) {
-                return@withContext Result.success(applyPlaybackPreparationResponse(streamInfo, response))
-            }
-            return@withContext Result.error(
-                response.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
-                    .ifBlank { "${plugin.displayName} could not prepare playback" }
+        val prepared = withPluginPlaybackDeadline(PLAYBACK_TOTAL_TIMEOUT_MILLIS) {
+            val plugins = playbackCandidates(
+                discoverPlugins(), url, StreamVaultPluginContract.CAPABILITY_PLAYBACK_PREPARE
             )
+            coroutineScope {
+                val requests = plugins.associateWith { plugin -> async {
+                    runPluginCallOrNull {
+                        messengerClient.send(
+                            packageName = plugin.packageName,
+                            serviceClassName = plugin.serviceClassName,
+                            what = StreamVaultPluginContract.MSG_PREPARE_PLAYBACK,
+                            data = Bundle().apply { putString(StreamVaultPluginContract.KEY_INPUT_URL, url) },
+                            timeoutMillis = PLAYBACK_HANDLER_TIMEOUT_MILLIS
+                        )
+                    }
+                } }
+                for (plugin in plugins) {
+                    val response = requests.getValue(plugin).await() ?: continue
+                    if (!response.getBoolean(StreamVaultPluginContract.KEY_HANDLED, false)) continue
+                    requests.values.forEach { it.cancel() }
+                    return@coroutineScope if (response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, false)) {
+                        Result.success(applyPlaybackPreparationResponse(streamInfo, response))
+                    } else {
+                        Result.error(response.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
+                            .ifBlank { "${plugin.displayName} could not prepare playback" })
+                    }
+                }
+                Result.success(streamInfo)
+            }
         }
-        Result.success(streamInfo)
+        prepared ?: Result.success(streamInfo)
     }
 
     suspend fun rewriteCastUrl(request: CastMediaRequest): String? = withContext(Dispatchers.IO) {
         val url = request.url
         if (url.isBlank()) return@withContext url
-        val plugins = discoverPlugins()
-            .filter { it.enabled && it.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_CAST_REWRITE_URL) }
-        for (plugin in plugins) {
-            val response = runCatching {
-                messengerClient.send(
+        val rewritten = withPluginPlaybackDeadline(PLAYBACK_TOTAL_TIMEOUT_MILLIS) {
+            val plugins = playbackCandidates(
+                discoverPlugins(), url, StreamVaultPluginContract.CAPABILITY_CAST_REWRITE_URL
+            )
+            coroutineScope {
+                val requests = plugins.associateWith { plugin -> async {
+                    runPluginCallOrNull {
+                        messengerClient.send(
                     packageName = plugin.packageName,
                     serviceClassName = plugin.serviceClassName,
                     what = StreamVaultPluginContract.MSG_REWRITE_CAST_URL,
                     data = request.toCastRewriteBundle(),
-                    timeoutMillis = 10_000L
-                )
-            }.getOrNull() ?: continue
-
-            if (!response.getBoolean(StreamVaultPluginContract.KEY_HANDLED, false)) continue
-            if (!response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, false)) return@withContext null
-            return@withContext response.getString(StreamVaultPluginContract.KEY_OUTPUT_URL).orEmpty()
-                .ifBlank { url }
+                            timeoutMillis = PLAYBACK_HANDLER_TIMEOUT_MILLIS
+                        )
+                    }
+                } }
+                for (plugin in plugins) {
+                    val response = requests.getValue(plugin).await() ?: continue
+                    if (!response.getBoolean(StreamVaultPluginContract.KEY_HANDLED, false)) continue
+                    requests.values.forEach { it.cancel() }
+                    return@coroutineScope if (response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, false)) {
+                        response.getString(StreamVaultPluginContract.KEY_OUTPUT_URL).orEmpty().ifBlank { url }
+                    } else null
+                }
+                url
+            }
         }
-        url
+        rewritten ?: url
     }
 
     suspend fun rewriteCastUrl(url: String): String? =
@@ -424,7 +507,7 @@ class StreamVaultPluginManager @Inject constructor(
         plugin: InstalledStreamVaultPlugin,
         onProgress: (String) -> Unit
     ): PluginActionResult? {
-        val providerResponse = runCatching {
+        val providerResponse = runPluginCatching {
             messengerClient.send(
                 packageName = plugin.packageName,
                 serviceClassName = plugin.serviceClassName,
@@ -493,7 +576,14 @@ class StreamVaultPluginManager @Inject constructor(
             }
         }
 
-        prefs.edit().putLong(providerKey(plugin.manifest.id), provider.id).apply()
+        pluginProviderOwnershipDao.upsert(
+            PluginProviderOwnershipEntity(
+                packageName = plugin.packageName,
+                serviceClassName = plugin.serviceClassName,
+                manifestId = plugin.manifest.id,
+                providerId = provider.id
+            )
+        )
         providerRepository.setActiveProvider(provider.id)
         attachProviderToLiveSource(provider.id, activeSource)
         refreshTvInputCatalogInBackground()
@@ -501,20 +591,12 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private suspend fun removePluginProvider(plugin: InstalledStreamVaultPlugin): PluginActionResult? {
-        val providerId = prefs.getLong(providerKey(plugin.manifest.id), -1L).takeIf { it > 0L }
-            ?: return null
-        when (val result = providerRepository.deleteProvider(providerId)) {
-            is Result.Error -> return PluginActionResult(false, result.message)
-            Result.Loading -> return PluginActionResult(false, "Provider removal is still running")
-            is Result.Success -> Unit
-        }
-        val activeSource = combinedM3uRepository.getActiveLiveSource().first()
-        if (activeSource is ActiveLiveSource.ProviderSource && activeSource.providerId == providerId) {
-            combinedM3uRepository.setActiveLiveSource(null)
-        }
-        prefs.edit().remove(providerKey(plugin.manifest.id)).apply()
-        refreshTvInputCatalogInBackground()
-        return null
+        val ownership = pluginProviderOwnershipDao.get(
+            plugin.packageName,
+            plugin.serviceClassName,
+            plugin.manifest.id
+        ) ?: return null
+        return removeOwnedProvider(ownership)
     }
 
     private suspend fun attachProviderToLiveSource(providerId: Long, activeSource: ActiveLiveSource?) {
@@ -529,65 +611,66 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private suspend fun trackedProvider(plugin: InstalledStreamVaultPlugin): Provider? {
-        val providerId = prefs.getLong(providerKey(plugin.manifest.id), -1L).takeIf { it > 0L }
-            ?: return providerRepository.getProviders().first().firstOrNull {
-                it.type == ProviderType.M3U && it.m3uUrl.isNotBlank() && it.name == plugin.manifest.providerName
-            }
-        return providerRepository.getProvider(providerId)
+        val ownership = pluginProviderOwnershipDao.get(
+            plugin.packageName,
+            plugin.serviceClassName,
+            plugin.manifest.id
+        ) ?: return null
+        return providerRepository.getProvider(ownership.providerId)
     }
 
     private fun refreshTvInputCatalogInBackground() {
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).let { scope ->
-            scope.launchCatching { tvInputChannelSyncManager.refreshTvInputCatalog() }
-        }
+        backgroundScope.launchCatching { tvInputChannelSyncManager.refreshTvInputCatalog() }
     }
 
-    private fun resolvePlugin(resolveInfo: ResolveInfo): InstalledStreamVaultPlugin? {
-        val serviceInfo = resolveInfo.serviceInfo ?: return null
-        val packageName = serviceInfo.packageName ?: return null
-        val serviceName = serviceInfo.name ?: return null
+    private suspend fun resolvePlugin(resolveInfo: ResolveInfo): InstalledStreamVaultPlugin? = coroutineScope {
+        val serviceInfo = resolveInfo.serviceInfo ?: return@coroutineScope null
+        val packageName = serviceInfo.packageName ?: return@coroutineScope null
+        val serviceName = serviceInfo.name ?: return@coroutineScope null
         val appLabel = serviceInfo.loadLabel(context.packageManager)?.toString().orEmpty()
-        val manifest = readManifestFromService(packageName, serviceName)
-            ?: readManifestFromMetadata(serviceInfo.metaData)
+        val metadataManifest = readManifestFromMetadata(serviceInfo.metaData)
+        val manifestResult = async { readManifestFromService(packageName, serviceName) }
+        val statusResult = async {
+            runPluginCallOrNull {
+                messengerClient.send(
+                    packageName = packageName,
+                    serviceClassName = serviceName,
+                    what = StreamVaultPluginContract.MSG_GET_STATUS,
+                    timeoutMillis = DISCOVERY_REQUEST_TIMEOUT_MILLIS
+                )
+            }
+        }
+        val manifest = manifestResult.await()
+            ?: metadataManifest
             ?: StreamVaultPluginManifest(
                 id = packageName,
                 name = appLabel.ifBlank { packageName },
                 description = "StreamVault plugin"
             )
-        val status = runCatching {
-            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                messengerClient.send(
-                    packageName = packageName,
-                    serviceClassName = serviceName,
-                    what = StreamVaultPluginContract.MSG_GET_STATUS,
-                    timeoutMillis = 2_500L
-                )
-            }
-        }.getOrNull()
-        return InstalledStreamVaultPlugin(
+        val status = statusResult.await()
+        InstalledStreamVaultPlugin(
             packageName = packageName,
             serviceClassName = serviceName,
             appLabel = appLabel,
             manifest = manifest,
-            enabled = prefs.getBoolean(enabledKey(manifest.id), false),
+            enabled = false,
             statusLabel = status?.getString(StreamVaultPluginContract.KEY_STATUS_LABEL).orEmpty(),
             lastMessage = status?.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
         )
     }
 
-    private fun readManifestFromService(packageName: String, serviceName: String): StreamVaultPluginManifest? =
-        runCatching {
-            val response = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+    private suspend fun readManifestFromService(packageName: String, serviceName: String): StreamVaultPluginManifest? =
+        runPluginCallOrNull {
+            val response =
                 messengerClient.send(
                     packageName = packageName,
                     serviceClassName = serviceName,
                     what = StreamVaultPluginContract.MSG_GET_MANIFEST,
-                    timeoutMillis = 3_000L
+                    timeoutMillis = DISCOVERY_REQUEST_TIMEOUT_MILLIS
                 )
-            }
             val manifestJson = response.getString(StreamVaultPluginContract.KEY_MANIFEST_JSON).orEmpty()
             json.decodeFromString<StreamVaultPluginManifest>(manifestJson)
-        }.getOrNull()
+        }
 
     private fun readManifestFromMetadata(metaData: Bundle?): StreamVaultPluginManifest? {
         if (metaData == null) return null
@@ -677,12 +760,88 @@ class StreamVaultPluginManager @Inject constructor(
                 parsed.scheme.equals("https", ignoreCase = true)
         }.getOrDefault(false)
 
-    private fun enabledKey(pluginId: String): String = "enabled.$pluginId"
-    private fun providerKey(pluginId: String): String = "provider.$pluginId"
+    private fun invalidateDiscovery() {
+        synchronized(discoveryLock) {
+            cachedDiscovery = null
+            discoveryExpiresAtMillis = 0L
+        }
+    }
+
+    private suspend fun <T> runPluginCallOrNull(block: suspend () -> T): T? = try {
+        block()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
+    private suspend inline fun <T> runPluginCatching(
+        block: suspend () -> T
+    ): kotlin.Result<T> = try {
+        kotlin.Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        kotlin.Result.failure(error)
+    }
+
+    private suspend fun removeOwnedProvider(ownership: PluginProviderOwnershipEntity): PluginActionResult? {
+        when (val result = providerRepository.deleteProvider(ownership.providerId)) {
+            is Result.Error -> return PluginActionResult(false, result.message)
+            Result.Loading -> return PluginActionResult(false, "Provider removal is still running")
+            is Result.Success -> Unit
+        }
+        val activeSource = combinedM3uRepository.getActiveLiveSource().first()
+        if (activeSource is ActiveLiveSource.ProviderSource && activeSource.providerId == ownership.providerId) {
+            combinedM3uRepository.setActiveLiveSource(null)
+        }
+        pluginProviderOwnershipDao.delete(ownership.packageName, ownership.serviceClassName, ownership.manifestId)
+        refreshTvInputCatalogInBackground()
+        return null
+    }
+
+    private fun isEnabled(plugin: InstalledStreamVaultPlugin): Boolean =
+        prefs.getBoolean(enabledKey(plugin.owner), false)
+
+    /** Legacy state is safe to migrate only when no installed service shares its manifest ID. */
+    private fun migrateLegacyEnabledStates(plugins: List<InstalledStreamVaultPlugin>) {
+        val uniqueManifestIds = plugins.groupingBy { it.manifest.id }.eachCount()
+            .filterValues { it == 1 }
+            .keys
+        val editor = prefs.edit()
+        plugins.filter { it.manifest.id in uniqueManifestIds }.forEach { plugin ->
+            val newKey = enabledKey(plugin.owner)
+            val legacyKey = legacyEnabledKey(plugin.manifest.id)
+            if (!prefs.contains(newKey) && prefs.contains(legacyKey)) {
+                editor.putBoolean(newKey, prefs.getBoolean(legacyKey, false))
+            }
+        }
+        editor.apply()
+    }
+
+    private fun enabledKey(owner: StreamVaultPluginOwner): String =
+        "enabled.${owner.packageName}.${owner.serviceClassName}.${owner.manifestId}"
+
+    private fun legacyEnabledKey(pluginId: String): String = "enabled.$pluginId"
+
+    private companion object {
+        const val DISCOVERY_CACHE_TTL_MILLIS = 30_000L
+        const val DISCOVERY_REQUEST_TIMEOUT_MILLIS = 1_500L
+        const val PLAYBACK_HANDLER_TIMEOUT_MILLIS = 5_000L
+        const val PLAYBACK_TOTAL_TIMEOUT_MILLIS = 5_000L
+    }
 }
 
 private fun kotlinx.coroutines.CoroutineScope.launchCatching(block: suspend () -> Unit) {
-    launch { runCatching { block() } }
+    launch {
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Best-effort catalog refresh; the next provider/plugin change retries it.
+        }
+    }
 }
 
 private fun StreamType.defaultContainerExtension(): String? = when (this) {

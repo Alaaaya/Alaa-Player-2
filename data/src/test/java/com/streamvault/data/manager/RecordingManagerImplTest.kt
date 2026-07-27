@@ -195,6 +195,39 @@ class RecordingManagerImplTest {
         verify(recordingServiceLauncher, never()).startCapture(any(), any())
     }
 
+    @Test
+    fun `reconcileRecordingState persists unarmed schedules while exact alarms are unavailable`(): Unit = runBlocking {
+        val scheduled = scheduledRun(id = "unarmed")
+        whenever(alarmScheduler.canScheduleExactAlarms()).thenReturn(false)
+        whenever(recordingRunDao.getAlarmManagedScheduledRuns()).thenReturn(listOf(scheduled))
+
+        val result = createManager().reconcileRecordingState()
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(recordingRunDao).setExactAlarmArmed(eq(scheduled.id), eq(false), any())
+        verify(alarmScheduler, never()).scheduleStart(any(), any())
+    }
+
+    @Test
+    fun `foreground service timeout joins capture and persists a terminal reason`() = runBlocking {
+        val activeRun = scheduledRun(id = "quota-timeout", status = RecordingStatus.RECORDING)
+        whenever(recordingRunDao.getById(activeRun.id)).thenReturn(activeRun)
+
+        val manager = createManager()
+        val result = manager.stopRecordingForForegroundServiceTimeout(activeRun.id)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        verify(alarmScheduler).cancel(activeRun.id)
+        verify(recordingRunDao).update(
+            argThat {
+                id == activeRun.id &&
+                    status == RecordingStatus.FAILED &&
+                    failureReason?.contains("foreground-service time allowance") == true &&
+                    terminalAtMs != null
+            }
+        )
+    }
+
     private fun createManager() = RecordingManagerImpl(
         context = context,
         gson = Gson(),

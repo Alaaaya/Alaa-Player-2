@@ -18,6 +18,9 @@ interface RecordingManager {
     suspend fun startManualRecording(request: RecordingRequest): Result<RecordingItem>
     suspend fun scheduleRecording(request: RecordingRequest): Result<RecordingItem>
     suspend fun stopRecording(recordingId: String): Result<Unit>
+    /** Stops a recording because Android exhausted the foreground-service time allowance. */
+    suspend fun stopRecordingForForegroundServiceTimeout(recordingId: String): Result<Unit> =
+        stopRecording(recordingId)
     suspend fun cancelRecording(recordingId: String): Result<Unit>
     suspend fun deleteRecording(recordingId: String): Result<Unit>
     suspend fun retryRecording(recordingId: String): Result<Unit> = Result.error("Retry is not supported by this recording manager.")

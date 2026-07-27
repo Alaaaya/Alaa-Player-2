@@ -59,6 +59,7 @@ interface RecordingRunDao {
             rr.failure_reason,
             rr.terminal_at_ms,
             rr.schedule_enabled,
+            rr.exact_alarm_armed,
             rr.priority
         FROM recording_runs rr
         ORDER BY rr.scheduled_start_ms DESC, rr.created_at DESC
@@ -77,6 +78,9 @@ interface RecordingRunDao {
 
     @Update
     suspend fun update(run: RecordingRunEntity)
+
+    @Query("UPDATE recording_runs SET exact_alarm_armed = :armed, updated_at = :updatedAt WHERE id = :id")
+    suspend fun setExactAlarmArmed(id: String, armed: Boolean, updatedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM recording_runs WHERE id = :id")
     suspend fun delete(id: String)
@@ -207,6 +211,9 @@ interface ProgramReminderDao {
 
     @Update
     suspend fun update(reminder: ProgramReminderEntity)
+
+    @Query("UPDATE program_reminders SET exact_alarm_armed = :armed WHERE id = :id")
+    suspend fun setExactAlarmArmed(id: Long, armed: Boolean)
 
     @Query(
         """

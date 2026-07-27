@@ -48,6 +48,8 @@ import java.io.OutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.Writer
@@ -268,52 +270,33 @@ class BackupManagerImpl @Inject constructor(
             val existingScheduledRecordings = recordingManager.observeRecordingItems().first()
                 .filter { it.status == RecordingStatus.SCHEDULED }
 
-            val providerConflicts = backupData.providers.orEmpty().count { incoming ->
-                existingProviders.findMatchingProvider(
-                    serverUrl = incoming.serverUrl,
-                    username = incoming.username,
-                    stalkerMacAddress = incoming.stalkerMacAddress
-                ) != null
+            val providersByIdentity = existingProviders.associateBy { it.backupIdentity() }
+            val groupKeys = existingGroups.mapTo(hashSetOf()) { it.name.lowercase() to it.contentType }
+            val favoriteKeys = existingFavorites.mapTo(hashSetOf()) { Triple(it.contentId, it.contentType, it.groupId) }
+            val historyKeys = existingHistory.mapTo(hashSetOf()) { Triple(it.contentId, it.contentType, it.providerId) }
+            val protectedCategoryKeys = existingProtectedCategories.mapTo(hashSetOf()) { (provider, name, type) ->
+                Triple(provider.id, name, type)
             }
-            val groupConflicts = backupData.virtualGroups.orEmpty().count { incoming ->
-                existingGroups.any { it.name.equals(incoming.name, ignoreCase = true) && it.contentType == incoming.contentType }
+            val recordingKeys = existingScheduledRecordings.mapTo(hashSetOf()) {
+                RecordingConflictKey(it.providerId, it.scheduledStartMs, it.channelId, it.streamUrl)
             }
-            val favoriteConflicts = backupData.favorites.orEmpty().count { incoming ->
-                existingFavorites.any {
-                    it.contentId == incoming.contentId &&
-                        it.contentType == incoming.contentType &&
-                        it.groupId == incoming.groupId
-                }
+            val providerConflicts = backupData.providers.orEmpty().count { it.backupIdentity() in providersByIdentity }
+            val groupConflicts = backupData.virtualGroups.orEmpty().count { (it.name.lowercase() to it.contentType) in groupKeys }
+            val favoriteConflicts = backupData.favorites.orEmpty().count {
+                Triple(it.contentId, it.contentType, it.groupId) in favoriteKeys
             }
-            val historyConflicts = backupData.playbackHistory.orEmpty().count { incoming ->
-                existingHistory.any {
-                    it.contentId == incoming.contentId &&
-                        it.contentType == incoming.contentType &&
-                        it.providerId == incoming.providerId
-                }
+            val historyConflicts = backupData.playbackHistory.orEmpty().count {
+                Triple(it.contentId, it.contentType, it.providerId) in historyKeys
             }
             val protectedCategoryConflicts = backupData.protectedCategories.orEmpty().count { incoming ->
-                val provider = existingProviders.findMatchingProvider(
-                    serverUrl = incoming.providerServerUrl,
-                    username = incoming.providerUsername,
-                    stalkerMacAddress = incoming.providerStalkerMacAddress
-                ) ?: return@count false
-                existingProtectedCategories.any { (existingProvider, categoryName, type) ->
-                    existingProvider.id == provider.id &&
-                        categoryName == incoming.categoryName.lowercase() &&
-                        type == incoming.type
-                }
+                val provider = providersByIdentity[incoming.backupIdentity()] ?: return@count false
+                Triple(provider.id, incoming.categoryName.lowercase(), incoming.type) in protectedCategoryKeys
             }
             val recordingConflicts = backupData.scheduledRecordings.orEmpty().normalizedRecurringBackups().count { incoming ->
-                val provider = existingProviders.findMatchingProvider(
-                    serverUrl = incoming.providerServerUrl,
-                    username = incoming.providerUsername,
-                    stalkerMacAddress = incoming.providerStalkerMacAddress
-                ) ?: return@count false
-                existingScheduledRecordings.any {
-                    it.providerId == provider.id &&
-                        it.scheduledStartMs == incoming.scheduledStartMs &&
-                        (it.channelId == incoming.channelId || it.streamUrl == incoming.streamUrl)
+                val provider = providersByIdentity[incoming.backupIdentity()] ?: return@count false
+                recordingKeys.any { key ->
+                    key.providerId == provider.id && key.startMs == incoming.scheduledStartMs &&
+                        (key.channelId == incoming.channelId || key.streamUrl == incoming.streamUrl)
                 }
             }
 
@@ -512,9 +495,25 @@ class BackupManagerImpl @Inject constructor(
 
     private fun readBackupData(uriString: String): BackupData? {
         return openBackupInputStream(uriString)?.use { inputStream ->
-            InputStreamReader(inputStream).use { reader ->
-                gson.fromJson(reader, BackupData::class.java)
+            BoundedInputStream(inputStream, MAX_BACKUP_BYTES).use { boundedInput ->
+                InputStreamReader(boundedInput).use { reader ->
+                    gson.fromJson(reader, BackupData::class.java).also(::validateBackupDataLimits)
+                }
             }
+        }
+    }
+
+    private fun validateBackupDataLimits(data: BackupData) {
+        require(data.preferences.orEmpty().size <= MAX_PREFERENCES) { "Backup has too many preferences" }
+        require(data.providers.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many providers" }
+        require(data.favorites.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many favorites" }
+        require(data.virtualGroups.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many groups" }
+        require(data.playbackHistory.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too much playback history" }
+        require(data.protectedCategories.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many protected categories" }
+        require(data.scheduledRecordings.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many recording schedules" }
+        require(data.multiViewPresets.orEmpty().values.sumOf { it.size } <= MAX_SECTION_ITEMS) { "Backup has too many preset entries" }
+        data.preferences.orEmpty().forEach { (key, value) ->
+            require(key.length <= MAX_FIELD_CHARS && value.length <= MAX_FIELD_CHARS) { "Backup contains an overlong preference" }
         }
     }
 
@@ -925,7 +924,48 @@ class BackupManagerImpl @Inject constructor(
         val importedSections: List<String>,
         val skippedSections: List<String>
     )
+
+    private data class RecordingConflictKey(
+        val providerId: Long,
+        val startMs: Long,
+        val channelId: Long,
+        val streamUrl: String
+    )
+
+    private class BoundedInputStream(input: java.io.InputStream, private val maxBytes: Long) : FilterInputStream(input) {
+        private var bytesRead = 0L
+
+        override fun read(): Int = super.read().also { if (it >= 0) consume(1) }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            super.read(buffer, offset, length).also { if (it > 0) consume(it.toLong()) }
+
+        private fun consume(count: Long) {
+            bytesRead += count
+            if (bytesRead > maxBytes) throw IOException("Backup exceeds the ${maxBytes / (1024 * 1024)} MiB import limit")
+        }
+    }
+
+    private companion object {
+        const val MAX_BACKUP_BYTES = 16L * 1024 * 1024
+        const val MAX_PREFERENCES = 5_000
+        const val MAX_PROVIDERS = 1_000
+        const val MAX_SECTION_ITEMS = 100_000
+        const val MAX_FIELD_CHARS = 8_192
+    }
 }
+
+private fun ProviderEntity.backupIdentity(): Triple<String, String, String> =
+    Triple(serverUrl, username, stalkerMacAddress)
+
+private fun com.streamvault.domain.model.Provider.backupIdentity(): Triple<String, String, String> =
+    Triple(serverUrl, username, stalkerMacAddress)
+
+private fun ProtectedCategoryBackup.backupIdentity(): Triple<String, String, String> =
+    Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
+
+private fun ScheduledRecordingBackup.backupIdentity(): Triple<String, String, String> =
+    Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
 
 internal fun com.streamvault.domain.model.RecordingItem.toScheduledRecordingBackup(
     provider: com.streamvault.domain.model.Provider,
@@ -1035,28 +1075,31 @@ internal suspend fun importScheduledRecordingBackups(
             )
             return@forEach
         }
-        if (conflict != null && conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING) {
-            when (val cancelResult = recordingManager.cancelRecording(conflict.id)) {
-                is Result.Success -> existingSchedules.remove(conflict)
-                is Result.Error -> {
-                    outcomes += scheduled.toImportOutcome(
-                        disposition = RecordingScheduleImportDisposition.FAILED,
-                        reason = cancelResult.message
-                    )
-                    return@forEach
-                }
-                Result.Loading -> {
-                    outcomes += scheduled.toImportOutcome(
-                        disposition = RecordingScheduleImportDisposition.FAILED,
-                        reason = "Cancellation did not complete."
-                    )
-                    return@forEach
-                }
-            }
-        }
-
         when (val result = recordingManager.scheduleRecording(scheduled.toRecordingRequest(provider.id))) {
             is Result.Success -> {
+                if (conflict != null && conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING) {
+                    when (val cancelResult = recordingManager.cancelRecording(conflict.id)) {
+                        is Result.Success -> existingSchedules.remove(conflict)
+                        is Result.Error -> {
+                            // The replacement is already armed; remove it again so a failed
+                            // promotion leaves the prior schedule intact.
+                            recordingManager.cancelRecording(result.data.id)
+                            outcomes += scheduled.toImportOutcome(
+                                disposition = RecordingScheduleImportDisposition.FAILED,
+                                reason = "Could not replace existing schedule: ${cancelResult.message}"
+                            )
+                            return@forEach
+                        }
+                        Result.Loading -> {
+                            recordingManager.cancelRecording(result.data.id)
+                            outcomes += scheduled.toImportOutcome(
+                                disposition = RecordingScheduleImportDisposition.FAILED,
+                                reason = "Could not replace existing schedule because cancellation did not complete."
+                            )
+                            return@forEach
+                        }
+                    }
+                }
                 existingSchedules += result.data
                 outcomes += scheduled.toImportOutcome(
                     disposition = if (conflict != null) {

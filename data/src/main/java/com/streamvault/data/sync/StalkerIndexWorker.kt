@@ -78,6 +78,8 @@ class StalkerIndexWorker(
                 }
 
             if (sawRetryableFailure) Result.retry() else Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (error: Exception) {
             Log.e(TAG, "Stalker index worker failed", error)
             if (shouldRetry(error)) Result.retry() else Result.failure()

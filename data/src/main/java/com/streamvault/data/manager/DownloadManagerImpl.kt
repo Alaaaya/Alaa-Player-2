@@ -13,8 +13,10 @@ import androidx.documentfile.provider.DocumentFile
 import com.streamvault.data.local.dao.DownloadDao
 import com.streamvault.data.local.entity.DownloadEntity
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.data.remote.xtream.ResolvedStreamUrl
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
+import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DownloadContentType
 import com.streamvault.domain.model.DownloadItem
@@ -108,7 +110,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     override suspend fun enqueueDownload(request: DownloadRequest): Result<DownloadItem> {
-        return runCatching {
+        return runSuspendCatching {
             val entity = DownloadEntity.fromRequest(
                 request = request,
                 outputUri = null,
@@ -124,7 +126,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     override suspend fun resumeDownload(id: String): Result<Unit> {
-        return runCatching {
+        return runSuspendCatching {
             downloadDao.getByIdOnce(id)?.let { entity ->
                 if (entity.status != DownloadStatus.COMPLETED && entity.status != DownloadStatus.CANCELLED) {
                     deleteOutput(entity)
@@ -150,7 +152,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     override suspend fun cancelDownload(id: String): Result<Unit> {
-        return runCatching {
+        return runSuspendCatching {
             activeCalls.remove(id)?.cancel()
             activeJobs.remove(id)?.cancelAndJoin()
             downloadDao.getByIdOnce(id)?.let { entity ->
@@ -164,16 +166,16 @@ class DownloadManagerImpl @Inject constructor(
 
     override fun onPlaybackStarted() {
         playbackActive = true
-        applicationScope.launch(Dispatchers.IO) { runCatching { pauseActiveDownloadsForPlayback() } }
+        applicationScope.launch(Dispatchers.IO) { runSuspendCatching { pauseActiveDownloadsForPlayback() } }
     }
 
     override fun onPlaybackStopped() {
         playbackActive = false
-        applicationScope.launch(Dispatchers.IO) { runCatching { startNextQueued() } }
+        applicationScope.launch(Dispatchers.IO) { runSuspendCatching { startNextQueued() } }
     }
 
     override suspend fun deleteDownload(id: String): Result<Unit> {
-        return runCatching {
+        return runSuspendCatching {
             activeCalls.remove(id)?.cancel()
             activeJobs.remove(id)?.cancelAndJoin()
             downloadDao.getByIdOnce(id)?.let { deleteOutput(it) }
@@ -189,7 +191,7 @@ class DownloadManagerImpl @Inject constructor(
         treeUri: String?,
         displayName: String?
     ): Result<DownloadStorageConfig> {
-        return runCatching {
+        return runSuspendCatching {
             preferencesRepository.setDownloadTreeUri(treeUri)
             DownloadStorageConfig(
                 treeUri = treeUri,
@@ -239,6 +241,27 @@ class DownloadManagerImpl @Inject constructor(
         }
     }
 
+    override suspend fun recoverInterruptedDownloads(): Result<Int> = runSuspendCatching {
+        val recovered = schedulerMutex.withLock {
+            // This method runs only at process startup, before this manager owns any job.
+            // Reconnect callbacks deliberately do not call it, so live work is never reclaimed.
+            check(activeJobs.isEmpty()) { "Cannot recover downloads while this process owns active jobs" }
+            downloadDao.recoverOrphanedDownloading(
+                "Interrupted after app process stopped; queued to resume"
+            )
+        }
+        startNextQueued()
+        recovered
+    }.fold(
+        onSuccess = { Result.success(it) },
+        onFailure = { Result.error("Failed to recover interrupted downloads", it) }
+    )
+
+    /**
+     * A process death destroys active jobs and HTTP calls. Persisted DOWNLOADING rows therefore
+     * have no owner on the next manager instance and must be made schedulable again.
+     */
+
     private suspend fun pauseActiveDownloadsForPlayback() {
         activeJobs.entries.toList().forEach { (id, job) ->
             playbackPausedIds.add(id)
@@ -247,6 +270,20 @@ class DownloadManagerImpl @Inject constructor(
             job.join()
         }
     }
+
+    override suspend fun pauseDownloadForForegroundServiceTimeout(id: String): Result<Unit> = runSuspendCatching {
+        activeCalls.remove(id)?.cancel()
+        activeJobs.remove(id)?.let { job ->
+            job.cancel(ForegroundServiceTimeoutCancellation())
+            job.join()
+        }
+        downloadDao.getByIdOnce(id)
+            ?.takeIf { it.status == DownloadStatus.DOWNLOADING }
+            ?.let { pauseForForegroundServiceTimeout(it) }
+    }.fold(
+        onSuccess = { Result.success(Unit) },
+        onFailure = { Result.error("Failed to pause download after foreground-service timeout", it) }
+    )
 
     private suspend fun captureDownload(initial: DownloadEntity) {
         var current = downloadDao.getByIdOnce(initial.id) ?: initial
@@ -273,7 +310,7 @@ class DownloadManagerImpl @Inject constructor(
             if (resumeFrom > 0L) requestBuilder.header("Range", "bytes=$resumeFrom-")
             val call = okHttpClient.newCall(requestBuilder.build())
             activeCalls[initial.id] = call
-            call.execute().use { response ->
+            call.useCancellableResponse { response ->
                 if (!response.isSuccessful) throw HttpDownloadException(response.code)
                 val body = response.body ?: error("Empty response body")
                 val rangeAccepted = resumeFrom > 0L && response.code == HttpURLConnection.HTTP_PARTIAL
@@ -290,7 +327,7 @@ class DownloadManagerImpl @Inject constructor(
                 }
                 val supportsResume = response.header("Accept-Ranges")
                     ?.contains("bytes", ignoreCase = true) == true || rangeAccepted
-                val target = runCatching { createOutputTarget(current, response.header("Content-Type"), append) }
+                val target = runSuspendCatching { createOutputTarget(current, response.header("Content-Type"), append) }
                     .getOrElse { error ->
                         if (!append) throw error
                         throw RestartFromZeroException(error)
@@ -352,6 +389,8 @@ class DownloadManagerImpl @Inject constructor(
             downloadDao.getByIdOnce(initial.id)?.let { entity ->
                 if (cancelled is PlaybackStartedCancellation || playbackPausedIds.contains(initial.id)) {
                     resetInterruptedDownload(current, DownloadStatus.PAUSED, "Waiting for playback to stop")
+                } else if (cancelled is ForegroundServiceTimeoutCancellation) {
+                    pauseForForegroundServiceTimeout(current)
                 } else {
                     downloadDao.update(entity.copy(status = DownloadStatus.CANCELLED))
                 }
@@ -423,6 +462,16 @@ class DownloadManagerImpl @Inject constructor(
         )
     }
 
+    private suspend fun pauseForForegroundServiceTimeout(entity: DownloadEntity) {
+        downloadDao.update(
+            entity.copy(
+                status = DownloadStatus.PAUSED,
+                completedAt = null,
+                failureReason = FOREGROUND_SERVICE_TIMEOUT_REASON
+            )
+        )
+    }
+
     private fun hasAppendTarget(entity: DownloadEntity): Boolean {
         val path = entity.outputDisplayPath
         return !entity.outputUri.isNullOrBlank() || (!path.isNullOrBlank() && File(path).exists())
@@ -445,7 +494,7 @@ class DownloadManagerImpl @Inject constructor(
 
     private suspend fun resolveFreshDownloadStream(entity: DownloadEntity): ResolvedStreamUrl? {
         val logicalUrl = entity.sourceStreamUrl?.takeIf { it.isNotBlank() } ?: entity.streamUrl
-        return runCatching {
+        return runSuspendCatching {
             xtreamStreamUrlResolver.resolveWithMetadata(
                 url = logicalUrl,
                 fallbackProviderId = entity.providerId,
@@ -597,6 +646,8 @@ class DownloadManagerImpl @Inject constructor(
         const val DEFAULT_BUFFER_SIZE = 64 * 1024
         const val PROGRESS_UPDATE_BYTES = 512 * 1024
         const val MAX_RETRIES = 5
+        const val FOREGROUND_SERVICE_TIMEOUT_REASON =
+            "Download paused because Android exhausted the foreground-service time allowance."
     }
 
     private class HttpDownloadException(val code: Int) : Exception("HTTP $code")
@@ -604,4 +655,7 @@ class DownloadManagerImpl @Inject constructor(
     private class RestartFromZeroException(cause: Throwable) : Exception(cause)
 
     private class PlaybackStartedCancellation : CancellationException("Playback started")
+
+    private class ForegroundServiceTimeoutCancellation :
+        CancellationException("Android exhausted the foreground-service time allowance")
 }

@@ -103,6 +103,7 @@ internal data class M3uImportStats(
 internal data class StreamedPlaylist(
     val inputStream: InputStream,
     val contentEncoding: String? = null,
+    val contentLength: Long? = null,
     val sourceName: String? = null
 )
 

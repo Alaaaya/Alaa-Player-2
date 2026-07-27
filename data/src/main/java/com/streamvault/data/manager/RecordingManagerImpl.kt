@@ -25,6 +25,7 @@ import com.streamvault.data.manager.recording.ResolvedRecordingSource
 import com.streamvault.data.manager.recording.TsPassThroughCaptureEngine
 import com.streamvault.data.manager.recording.UnsupportedRecordingException
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.data.manager.recording.asPersistenceValues
 import com.streamvault.data.manager.recording.createOutputTarget
 import com.streamvault.data.manager.recording.deleteOutputTarget
@@ -52,10 +53,13 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -71,6 +75,22 @@ private const val TAG = "RecordingManager"
 private const val MIN_FREE_SPACE_BYTES = 512L * 1024L * 1024L // 512 MB
 private const val FAILURE_NOTIFICATION_CHANNEL_ID = "streamvault_recording_failure"
 private const val FAILURE_NOTIFICATION_ID_BASE = 5000
+private const val FOREGROUND_SERVICE_TIMEOUT_REASON =
+    "Recording stopped because Android exhausted the foreground-service time allowance."
+
+internal class ActiveCapture(private val job: Job) {
+    private val cancellationRequested = AtomicBoolean(false)
+
+    val isActive: Boolean
+        get() = job.isActive
+
+    suspend fun cancelAndJoin() {
+        if (cancellationRequested.compareAndSet(false, true)) {
+            job.cancel()
+        }
+        job.join()
+    }
+}
 
 @Singleton
 class RecordingManagerImpl @Inject constructor(
@@ -90,8 +110,9 @@ class RecordingManagerImpl @Inject constructor(
 ) : RecordingManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val activeJobs = mutableMapOf<String, Job>()
+    private val activeJobs = mutableMapOf<String, ActiveCapture>()
     private val activeJobsMutex = Mutex()
+    private val foregroundServiceTimeoutRecordingIds = ConcurrentHashMap.newKeySet<String>()
     private val recordingMutex = Mutex()
     private val legacyStateFile by lazy { File(File(context.filesDir, "recordings"), "recordings_state.json") }
 
@@ -132,7 +153,7 @@ class RecordingManagerImpl @Inject constructor(
         }
 
     override suspend fun startManualRecording(request: RecordingRequest): Result<RecordingItem> = withContext(Dispatchers.IO) {
-        runCatching {
+        runSuspendCatching {
             val storage = ensureStorageStateSync()
             if (!storage.isWritable) {
                 return@withContext Result.error("Recording storage is not writable.")
@@ -152,6 +173,8 @@ class RecordingManagerImpl @Inject constructor(
             )
             val run = try {
                 persistManualRun(request, source, outputTarget)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 val (outputUri, outputDisplayPath) = outputTarget.asPersistenceValues()
                 deleteOutputTarget(context, outputUri, outputDisplayPath)
@@ -161,6 +184,8 @@ class RecordingManagerImpl @Inject constructor(
             scheduleStopAlarmOrFail(run.id, request.scheduledEndMs)
             try {
                 recordingServiceLauncher.startCapture(context, run.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 markRunFailed(run.id, error.message ?: "Capture failed to start.", inferFailureCategory(error))
                 throw IllegalStateException(error.message ?: "Capture failed to start.", error)
@@ -173,7 +198,7 @@ class RecordingManagerImpl @Inject constructor(
     }
 
     override suspend fun scheduleRecording(request: RecordingRequest): Result<RecordingItem> = withContext(Dispatchers.IO) {
-        runCatching {
+        runSuspendCatching {
             val storage = ensureStorageStateSync()
             if (!storage.isWritable) {
                 return@withContext Result.error("Recording storage is not writable.")
@@ -210,6 +235,29 @@ class RecordingManagerImpl @Inject constructor(
                 updatedAt = now
             )
         )
+        Result.success(Unit)
+    }
+
+    override suspend fun stopRecordingForForegroundServiceTimeout(recordingId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val run = recordingRunDao.getById(recordingId) ?: return@withContext Result.error("Recording not found")
+        foregroundServiceTimeoutRecordingIds.add(recordingId)
+        try {
+            cancelActiveJob(recordingId)
+            alarmScheduler.cancel(recordingId)
+            val now = System.currentTimeMillis()
+            recordingRunDao.update(
+                run.copy(
+                    status = RecordingStatus.FAILED,
+                    failureCategory = RecordingFailureCategory.UNKNOWN,
+                    failureReason = FOREGROUND_SERVICE_TIMEOUT_REASON,
+                    endedAtMs = now,
+                    terminalAtMs = now,
+                    updatedAt = now
+                )
+            )
+        } finally {
+            foregroundServiceTimeoutRecordingIds.remove(recordingId)
+        }
         Result.success(Unit)
     }
 
@@ -277,7 +325,7 @@ class RecordingManagerImpl @Inject constructor(
     }
 
     override suspend fun forceScheduleRecording(request: RecordingRequest): Result<RecordingItem> = withContext(Dispatchers.IO) {
-        runCatching {
+        runSuspendCatching {
             val storage = ensureStorageStateSync()
             if (!storage.isWritable) {
                 return@withContext Result.error("Recording storage is not writable.")
@@ -347,7 +395,7 @@ class RecordingManagerImpl @Inject constructor(
     }
 
     override suspend fun retryRecording(recordingId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
+        runSuspendCatching {
             ensureExactRecordingAlarmsAvailableOrThrow()
             val run = recordingRunDao.getById(recordingId) ?: return@withContext Result.error("Recording not found")
             val schedule = recordingScheduleDao.getById(run.scheduleId) ?: return@withContext Result.error("Recording schedule not found")
@@ -431,7 +479,7 @@ class RecordingManagerImpl @Inject constructor(
     }
 
     override suspend fun updateStorageConfig(config: RecordingStorageConfig): Result<RecordingStorageState> = withContext(Dispatchers.IO) {
-        runCatching {
+        runSuspendCatching {
             val existing = recordingStorageDao.get()
             val (outputDirectory, availableBytes, isWritable) =
                 resolveStorageDetails(context, config.treeUri, config.localDirectory)
@@ -449,18 +497,20 @@ class RecordingManagerImpl @Inject constructor(
         runCatching<Unit> {
             ensureStorageState()
             pruneExpiredRecordings()
-            recordingRunDao.getAlarmManagedScheduledRuns()
+            val scheduledRuns = recordingRunDao.getAlarmManagedScheduledRuns()
                 .filter { it.scheduleEnabled && it.status == RecordingStatus.SCHEDULED }
-                .forEach { run ->
+            if (!alarmScheduler.canScheduleExactAlarms()) {
+                scheduledRuns.forEach { run -> recordingRunDao.setExactAlarmArmed(run.id, false) }
+            } else scheduledRuns.forEach { run ->
                     if (run.scheduledEndMs <= System.currentTimeMillis()) {
                         markRunFailed(run.id, "Recording window expired before capture started.", RecordingFailureCategory.UNKNOWN)
                     } else {
                         when (val result = alarmScheduler.scheduleStart(run.id, run.scheduledStartMs)) {
                             is Result.Error -> markRunFailed(run.id, result.message, RecordingFailureCategory.UNKNOWN)
-                            else -> Unit
+                            else -> recordingRunDao.setExactAlarmArmed(run.id, true)
                         }
                     }
-                }
+            }
             recordingRunDao.getRecordingRuns().forEach { run ->
                 if (run.scheduledEndMs <= System.currentTimeMillis()) {
                     stopRecording(run.id)
@@ -538,7 +588,7 @@ class RecordingManagerImpl @Inject constructor(
 
     internal suspend fun onCaptureFinished(recordingId: String) {
         val remaining = observeActiveRecordingCountSync().coerceAtLeast(0)
-        if (remaining == 0) {
+        if (remaining == 0 && recordingId !in foregroundServiceTimeoutRecordingIds) {
             recordingServiceLauncher.stopIfIdle(context)
         }
     }
@@ -561,7 +611,8 @@ class RecordingManagerImpl @Inject constructor(
             RecordingSourceType.DASH -> return Result.error("DASH live recording is not supported yet.")
         }
         val maxVideoHeight = resolveMaxVideoHeightForCurrentNetwork()
-        val job = scope.launch {
+        lateinit var activeCapture: ActiveCapture
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 engine.capture(
                     source = source,
@@ -574,22 +625,25 @@ class RecordingManagerImpl @Inject constructor(
                 completeRun(run.id)
             } catch (cancelled: CancellationException) {
                 Log.i("RecordingManager", "Capture cancelled for ${run.id}")
+                throw cancelled
             } catch (unsupported: UnsupportedRecordingException) {
                 markRunFailed(run.id, unsupported.message ?: "Recording format is unsupported.", unsupported.category)
             } catch (error: Throwable) {
                 markRunFailed(run.id, error.message ?: "Recording failed.", inferFailureCategory(error))
             } finally {
-                removeActiveJob(run.id)
+                removeActiveJob(run.id, activeCapture)
                 onCaptureFinished(run.id)
             }
         }
-        registerActiveJob(run.id, job)
+        activeCapture = ActiveCapture(job)
+        registerActiveJob(run.id, activeCapture)
+        job.start()
         return Result.success(Unit)
     }
 
     private suspend fun migrateLegacyStateIfNeeded() {
         if (!legacyStateFile.exists()) return
-        val hasExistingRuns = runCatching {
+        val hasExistingRuns = runSuspendCatching {
             recordingRunDao.getByStatus(RecordingStatus.SCHEDULED).isNotEmpty() || recordingRunDao.getRecordingRuns().isNotEmpty()
         }.getOrDefault(false)
         if (hasExistingRuns) return
@@ -1070,15 +1124,23 @@ class RecordingManagerImpl @Inject constructor(
         }
     }
 
-    private suspend fun registerActiveJob(id: String, job: Job) {
-        activeJobsMutex.withLock { activeJobs[id] = job }
+    private suspend fun registerActiveJob(id: String, capture: ActiveCapture) {
+        activeJobsMutex.withLock { activeJobs[id] = capture }
     }
 
-    private suspend fun removeActiveJob(id: String): Job? =
-        activeJobsMutex.withLock { activeJobs.remove(id) }
+    private suspend fun removeActiveJob(id: String, expected: ActiveCapture? = null): ActiveCapture? =
+        activeJobsMutex.withLock {
+            val current = activeJobs[id] ?: return@withLock null
+            if (expected != null && current !== expected) return@withLock null
+            activeJobs.remove(id)
+        }
 
     private suspend fun cancelActiveJob(id: String) {
-        removeActiveJob(id)?.cancel()
+        val capture = activeJobsMutex.withLock { activeJobs[id] }
+        capture?.let {
+            it.cancelAndJoin()
+            removeActiveJob(id, it)
+        }
     }
 
     private suspend fun isActiveJob(id: String): Boolean =
@@ -1122,7 +1184,8 @@ class RecordingManagerImpl @Inject constructor(
         scheduleEnabled = scheduleEnabled,
         priority = priority,
         failureReason = failureReason,
-        terminalAtMs = terminalAtMs
+        terminalAtMs = terminalAtMs,
+        exactAlarmArmed = exactAlarmArmed
     )
 
 }

@@ -14,6 +14,10 @@ data class StreamVaultPluginManifest(
     val versionCode: Long = 0L,
     val description: String = "",
     val capabilities: List<String> = emptyList(),
+    /** Explicit URL ownership for playback and cast hooks. `*` is an intentional catch-all. */
+    val playbackUrlSchemes: List<String> = emptyList(),
+    val playbackUrlHosts: List<String> = emptyList(),
+    val playbackPriority: Int = 0,
     val configurationMode: String? = null,
     val configurationActivityAction: String? = null,
     val providerName: String? = null
@@ -48,6 +52,15 @@ data class InstalledStreamVaultPlugin(
     val displayName: String
         get() = manifest.name.ifBlank { appLabel.ifBlank { packageName } }
 }
+
+data class StreamVaultPluginOwner(
+    val packageName: String,
+    val serviceClassName: String,
+    val manifestId: String
+)
+
+val InstalledStreamVaultPlugin.owner: StreamVaultPluginOwner
+    get() = StreamVaultPluginOwner(packageName, serviceClassName, manifest.id)
 
 data class PluginActionResult(
     val success: Boolean,
