@@ -1577,6 +1577,24 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         }
     }
 
+    /**
+     * Resolves a portal-relative URL (e.g. `/stalker_portal/screenshots/.../X.png`)
+     * into an absolute URL using the portal origin. Ministra portals return
+     * `screenshot_uri` as a site-relative path; without this, image loaders cannot
+     * resolve the poster/backdrop/cover.
+     */
+    private fun resolvePortalUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        if (url.startsWith("http://", true) || url.startsWith("https://", true)) return url
+        if (!url.startsWith("/")) return url
+        val origin = runCatching { URI(portalUrl) }.getOrNull() ?: return url
+        val scheme = origin.scheme?.takeIf { it == "http" || it == "https" } ?: "https"
+        val host = origin.host?.takeIf(String::isNotBlank) ?: return url
+        val port = origin.port.takeIf { it > 0 }
+        val authority = if (port != null && port != (if (scheme == "https") 443 else 80)) "$host:$port" else host
+        return "$scheme://$authority$url"
+    }
+
     private fun toChannel(item: StalkerItemRecord): Channel? {
         val numericId = stableItemId(ContentType.LIVE, item.id)
         val category = resolveCategory(ContentType.LIVE, item.categoryId, item.categoryName)
@@ -1604,7 +1622,7 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         return Channel(
             id = 0L,
             name = resolvedName,
-            logoUrl = item.logoUrl,
+            logoUrl = resolvePortalUrl(item.logoUrl),
             categoryId = category.id,
             categoryName = category.name,
             streamUrl = streamUrl,
@@ -1647,8 +1665,8 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         return Movie(
             id = 0L,
             name = item.name.ifBlank { "Movie $numericId" },
-            posterUrl = item.logoUrl,
-            backdropUrl = item.backdropUrl,
+            posterUrl = resolvePortalUrl(item.logoUrl),
+            backdropUrl = resolvePortalUrl(item.backdropUrl),
             categoryId = category.id,
             categoryName = category.name,
             streamUrl = streamUrl,
@@ -1698,8 +1716,8 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         return Series(
             id = 0L,
             name = item.name.ifBlank { "Series $numericId" },
-            posterUrl = item.logoUrl,
-            backdropUrl = item.backdropUrl,
+            posterUrl = resolvePortalUrl(item.logoUrl),
+            backdropUrl = resolvePortalUrl(item.backdropUrl),
             categoryId = category.id,
             categoryName = category.name,
             plot = item.plot,
