@@ -1775,7 +1775,7 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
-    fun getVodStreams_reports_aggregate_page_limit_before_silently_returning_partial_catalog() = runTest {
+    fun getVodStreams_truncates_huge_catalogs_at_page_limit_instead_of_failing() = runTest {
         var requestCount = 0
         val service = OkHttpStalkerApiService(
             okHttpClient = OkHttpClient.Builder()
@@ -1787,7 +1787,7 @@ class OkHttpStalkerApiServiceTest {
                         .code(200)
                         .message("OK")
                         .body(
-                            """{"js":{"total_items":201,"max_page_items":1,"data":[{"id":"1","name":"Movie","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+                            """{"js":{"total_items":201,"max_page_items":1,"data":[{"id":"$requestCount","name":"Movie $requestCount","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
                                 .toResponseBody("application/json".toMediaType())
                         )
                         .build()
@@ -1798,13 +1798,13 @@ class OkHttpStalkerApiServiceTest {
 
         val result = service.getVodStreams(stalkerSession(), stalkerProfile(), categoryId = "42")
 
-        assertThat(result).isInstanceOf(Result.Error::class.java)
-        val error = result as Result.Error
-        assertThat(error.exception).isInstanceOf(StalkerApiError.CatalogTruncated::class.java)
-        val truncation = error.exception as StalkerApiError.CatalogTruncated
-        assertThat(truncation.advertisedTotalPages).isEqualTo(201)
-        assertThat(truncation.pageLimit).isEqualTo(200)
-        assertThat(requestCount).isEqualTo(1)
+        // Huge catalogs (advertised 201 pages) no longer throw CatalogTruncated —
+        // instead the first MAX_PAGE_COUNT (200) pages load so a partial catalog
+        // reaches the user, and the on-demand paged API serves the rest.
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val success = result as Result.Success
+        assertThat(success.data).hasSize(200)
+        assertThat(requestCount).isEqualTo(200)
     }
 
     @Test

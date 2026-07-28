@@ -697,7 +697,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 put("JsHttpRequest", "1-xml")
                 categoryId?.takeIf { it.isNotBlank() }?.let { put("category", it) }
             }
-        ).filterNot { it.isSeries }
+        )
     }
 
     override suspend fun getVodStreamsPage(
@@ -716,7 +716,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 put("JsHttpRequest", "1-xml")
                 categoryId?.takeIf { it.isNotBlank() }?.let { put("category", it) }
             }
-        ).let { paged -> paged.copy(items = paged.items.filterNot { it.isSeries }) }
+        )
     }
 
     override suspend fun getSeriesCategories(

@@ -343,26 +343,59 @@ internal companion object {
         }
     }
 
-    override suspend fun getSeriesCategories(): Result<List<Category>> =
-        mapCategories(ContentType.SERIES) { session, profile ->
+    override suspend fun getSeriesCategories(): Result<List<Category>> {
+        val primary = mapCategories(ContentType.SERIES) { session, profile ->
             api.getSeriesCategories(session, profile)
         }
-
-    override suspend fun getSeriesList(categoryId: Long?): Result<List<Series>> {
-        val result = mapItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
-            api.getSeries(session, profile, rawCategoryId)
+        // Many Ministra portals serve series inside VOD (is_series=1) with the separate
+        // type=series endpoint returning false/empty. Fall back to VOD categories so the
+        // Series tab is populated — adds no overhead for portals that do use type=series.
+        if (primary is Result.Success && primary.data.size <= 1) {
+            return mapCategories(ContentType.SERIES) { session, profile ->
+                api.getVodCategories(session, profile)
+            }
         }
-        return mapResolvedItems(ContentType.SERIES, result) { item ->
-            toSeries(item, requestedCategoryId = categoryId)
-        }
+        return primary
     }
 
-    suspend fun getSeriesListPage(categoryId: Long?, page: Int): Result<StalkerPagedResult<Series>> =
-        mapPagedItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
+    override suspend fun getSeriesList(categoryId: Long?): Result<List<Series>> {
+        val primaryResult = mapItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
+            api.getSeries(session, profile, rawCategoryId)
+        }
+        val mapped = mapResolvedItems(ContentType.SERIES, primaryResult) { item ->
+            toSeries(item, requestedCategoryId = categoryId)
+        }
+        // Fall back to VOD items with is_series=1 when the type=series endpoint is empty.
+        if (mapped is Result.Success && mapped.data.isEmpty()) {
+            val vodResult = mapItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
+                api.getVodStreams(session, profile, rawCategoryId)
+            }
+            return mapResolvedItems(ContentType.SERIES, vodResult) { item ->
+                if (item.isSeries) toSeries(item, requestedCategoryId = categoryId) else null
+            }
+        }
+        return mapped
+    }
+
+    suspend fun getSeriesListPage(categoryId: Long?, page: Int): Result<StalkerPagedResult<Series>> {
+        val primary = mapPagedItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
             api.getSeriesPage(session, profile, rawCategoryId, page)
         }.let { result -> mapResolvedPage(ContentType.SERIES, result) { item ->
             toSeries(item, requestedCategoryId = categoryId)
         } }
+        // Fall back to VOD items with is_series=1 when the type=series endpoint returns
+        // empty (providers that serve series inside VOD). Only triggers when the primary
+        // path produces zero items, so portals using type=series are unaffected.
+        if (primary is Result.Success && primary.data.items.isEmpty()) {
+            val vodPage = mapPagedItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
+                api.getVodStreamsPage(session, profile, rawCategoryId, page)
+            }.let { result -> mapResolvedPage(ContentType.SERIES, result) { item ->
+                if (item.isSeries) toSeries(item, requestedCategoryId = categoryId) else null
+            } }
+            return vodPage
+        }
+        return primary
+    }
 
     suspend fun isWildcardCategory(type: ContentType, categoryId: Long): Boolean {
         val normalizedType = when (type) {
