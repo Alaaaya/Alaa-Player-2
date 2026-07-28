@@ -1077,13 +1077,11 @@ class OkHttpStalkerApiService @Inject constructor(
         val items = mutableListOf<StalkerItemRecord>()
         items += firstPage.toItemRecords()
         val advertisedTotalPages = firstPage.advertisedTotalPages()
-        if (advertisedTotalPages != null && advertisedTotalPages > MAX_PAGE_COUNT) {
-            throw StalkerApiError.CatalogTruncated(
-                advertisedTotalPages = advertisedTotalPages,
-                pageLimit = MAX_PAGE_COUNT
-            )
-        }
-        val totalPages = advertisedTotalPages ?: 1
+        // Huge catalogs (e.g. 218k items at 14/page = 15,600 pages) are common on
+        // Flussonic/NFS-backed Stalker portals. Instead of aborting the entire
+        // catalog with CatalogTruncated, load the first MAX_PAGE_COUNT pages and
+        // let the on-demand paged API serve the rest as the user scrolls.
+        val totalPages = (advertisedTotalPages ?: 1).coerceAtMost(MAX_PAGE_COUNT)
         for (page in 2..totalPages) {
             val pagePayload = requestJson(
                 url = session.loadUrl,
