@@ -6,11 +6,15 @@ import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.ProviderType
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 internal const val MAX_NUMERIC_CHANNEL_INPUT_DIGITS = 6
 
@@ -28,30 +32,71 @@ internal data class LivePlaybackRecordCandidate(
     val history: PlaybackHistory
 )
 
-internal class LivePlaybackRecordTracker {
-    private var latestGeneration = 0L
+internal data class LivePlaybackRecordAttempt(
+    val candidate: LivePlaybackRecordCandidate,
+    val attemptId: Long
+)
+
+internal class LivePlaybackRecordCoordinator(
+    private val recordPlayback: suspend (PlaybackHistory) -> com.streamvault.domain.model.Result<Unit>
+) {
+    private val stateLock = Any()
+    private val writeMutex = Mutex()
+    private var nextAttemptId = 0L
+    private var latestRequestedKey: Pair<Long, Long>? = null
     private var lastSuccessfulKey: Pair<Long, Long>? = null
     private val inFlightGenerations = mutableMapOf<Pair<Long, Long>, Long>()
 
-    fun begin(playbackKey: Pair<Long, Long>): Long? {
-        if (playbackKey == lastSuccessfulKey || playbackKey in inFlightGenerations) return null
-        return (++latestGeneration).also { generation ->
-            inFlightGenerations[playbackKey] = generation
+    fun begin(candidate: LivePlaybackRecordCandidate): LivePlaybackRecordAttempt? = synchronized(stateLock) {
+        val playbackKey = candidate.playbackKey
+        val isUninterruptedDuplicate = latestRequestedKey == playbackKey
+        latestRequestedKey = playbackKey
+        if (isUninterruptedDuplicate && playbackKey in inFlightGenerations) return@synchronized null
+        if (playbackKey == lastSuccessfulKey && inFlightGenerations.isEmpty()) return@synchronized null
+
+        LivePlaybackRecordAttempt(candidate, ++nextAttemptId).also { attempt ->
+            inFlightGenerations[playbackKey] = attempt.attemptId
         }
     }
 
-    fun complete(playbackKey: Pair<Long, Long>, generation: Long, succeeded: Boolean) {
-        if (inFlightGenerations[playbackKey] != generation) return
-        inFlightGenerations.remove(playbackKey)
-        if (succeeded && generation == latestGeneration) {
-            lastSuccessfulKey = playbackKey
+    suspend fun execute(
+        attempt: LivePlaybackRecordAttempt
+    ): com.streamvault.domain.model.Result<Unit>? {
+        var succeeded = false
+        try {
+            return writeMutex.withLock {
+                if (!isLatestRequest(attempt.candidate.playbackKey)) return@withLock null
+                recordPlayback(attempt.candidate.history).also { result ->
+                    currentCoroutineContext().ensureActive()
+                    succeeded = result is com.streamvault.domain.model.Result.Success
+                }
+            }
+        } finally {
+            complete(attempt, succeeded)
         }
     }
 
     fun reset() {
-        latestGeneration++
-        lastSuccessfulKey = null
-        inFlightGenerations.clear()
+        synchronized(stateLock) {
+            latestRequestedKey = null
+            lastSuccessfulKey = null
+            inFlightGenerations.clear()
+        }
+    }
+
+    private fun isLatestRequest(playbackKey: Pair<Long, Long>): Boolean = synchronized(stateLock) {
+        latestRequestedKey == playbackKey
+    }
+
+    private fun complete(attempt: LivePlaybackRecordAttempt, succeeded: Boolean) {
+        synchronized(stateLock) {
+            val playbackKey = attempt.candidate.playbackKey
+            if (inFlightGenerations[playbackKey] != attempt.attemptId) return
+            inFlightGenerations.remove(playbackKey)
+            if (succeeded && latestRequestedKey == playbackKey) {
+                lastSuccessfulKey = playbackKey
+            }
+        }
     }
 }
 
@@ -337,16 +382,11 @@ internal fun PlayerViewModel.recordActiveLivePlayback(channel: Channel? = curren
         channel = channel
     ) ?: return
 
-    val generation = livePlaybackRecordTracker.begin(candidate.playbackKey) ?: return
+    val attempt = livePlaybackRecordCoordinator.begin(candidate) ?: return
 
     viewModelScope.launch {
-        var succeeded = false
-        try {
-            val result = playbackHistoryRepository.recordPlayback(candidate.history)
-            succeeded = result is com.streamvault.domain.model.Result.Success
+        livePlaybackRecordCoordinator.execute(attempt)?.let { result ->
             logRepositoryFailure(operation = "Record live playback", result = result)
-        } finally {
-            livePlaybackRecordTracker.complete(candidate.playbackKey, generation, succeeded)
         }
     }
 }

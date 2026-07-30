@@ -29,9 +29,23 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status = 'PAUSED' AND retry_count < :maxRetries ORDER BY created_at ASC")
     suspend fun getRetryablePausedOnce(maxRetries: Int): List<DownloadEntity>
 
-    /** A DOWNLOADING row is valid only while an in-process job owns it. */
-    @Query("UPDATE downloads SET status = 'PENDING', failure_reason = :reason WHERE status = 'DOWNLOADING'")
-    suspend fun recoverOrphanedDownloading(reason: String): Int
+    @Query("SELECT * FROM downloads WHERE status = 'DOWNLOADING' AND (owner_id IS NULL OR owner_id != :ownerId)")
+    suspend fun getOrphanedDownloading(ownerId: String): List<DownloadEntity>
+
+    @Query(
+        """
+        UPDATE downloads
+        SET status = 'DOWNLOADING',
+            owner_id = :ownerId,
+            owner_epoch = owner_epoch + 1,
+            heartbeat_at = :now,
+            failure_reason = NULL
+        WHERE id = :id
+          AND status IN ('PENDING', 'PAUSED')
+          AND owner_id IS NULL
+        """
+    )
+    suspend fun claimForDownload(id: String, ownerId: String, now: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: DownloadEntity)

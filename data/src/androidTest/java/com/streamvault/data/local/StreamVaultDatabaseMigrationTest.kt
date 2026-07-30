@@ -1352,6 +1352,196 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
+    @Test
+    fun migrate66To67_createsDurableProviderConfigRevisionTable() {
+        migrationTestHelper.createDatabase("streamvault-66-67-test", 66).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-66-67-test",
+            67,
+            true,
+            StreamVaultDatabase.MIGRATION_66_67
+        )
+
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'provider_config_revisions'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'index_provider_config_revisions_provider_id_state'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_foreign_key_list('provider_config_revisions') WHERE \"table\" = 'providers' AND \"from\" = 'provider_id' AND on_delete = 'CASCADE'"
+            )
+        )
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate67To68_createsBackupRestoreCheckpointTable() {
+        migrationTestHelper.createDatabase("streamvault-67-68-test", 67).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-67-68-test",
+            68,
+            true,
+            StreamVaultDatabase.MIGRATION_67_68
+        )
+
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'backup_restore_checkpoints'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('backup_restore_checkpoints') WHERE name = 'preference_snapshot_json'"
+            )
+        )
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate68To69_addsDurableDownloadOwnershipColumns() {
+        migrationTestHelper.createDatabase("streamvault-68-69-test", 68).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-68-69-test",
+            69,
+            true,
+            StreamVaultDatabase.MIGRATION_68_69
+        )
+
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'owner_id'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'owner_epoch'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'heartbeat_at'"))
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'owner_epoch' AND \"notnull\" = 1 AND dflt_value = '0'"
+            )
+        )
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate69To70_addsDurableReminderDeliveryState() {
+        val databaseName = "streamvault-69-70-test"
+        migrationTestHelper.createDatabase(databaseName, 69).apply {
+            execSQL(
+                """
+                INSERT INTO program_reminders (
+                    provider_id, channel_id, channel_name, program_title,
+                    program_start_time, remind_at, lead_time_minutes,
+                    is_dismissed, notified_at, exact_alarm_armed, created_at
+                ) VALUES
+                    (1, 'one', 'One', 'Delivered', 1000, 500, 5, 0, 600, 1, 100),
+                    (1, 'two', 'Two', 'Dismissed', 2000, 1500, 5, 1, NULL, 0, 100),
+                    (1, 'three', 'Three', 'Pending', 3000, 2500, 5, 0, NULL, 1, 100)
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            databaseName,
+            70,
+            true,
+            StreamVaultDatabase.MIGRATION_69_70
+        )
+
+        assertEquals(
+            5,
+            countRows(
+                migratedDb,
+                """
+                SELECT COUNT(*) FROM pragma_table_info('program_reminders')
+                WHERE name IN (
+                    'delivery_state',
+                    'delivery_attempt_token',
+                    'delivery_attempted_at',
+                    'delivery_attempt_count',
+                    'delivery_failure_reason'
+                )
+                """.trimIndent()
+            )
+        )
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM program_reminders WHERE delivery_state = 'DELIVERED'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM program_reminders WHERE delivery_state = 'DISMISSED'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM program_reminders WHERE delivery_state = 'PENDING'"))
+        migratedDb.close()
+    }
+
+    @Test
+    fun migrate70To71_createsDurableProviderWorkflowTables() {
+        val databaseName = "streamvault-70-71-test"
+        migrationTestHelper.createDatabase(databaseName, 70).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            databaseName,
+            71,
+            true,
+            StreamVaultDatabase.MIGRATION_70_71
+        )
+
+        assertEquals(
+            2,
+            countRows(
+                migratedDb,
+                """
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('provider_workflows', 'provider_workflow_phases')
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            3,
+            countRows(
+                migratedDb,
+                """
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'index'
+                  AND name IN (
+                      'index_provider_workflows_state',
+                      'index_provider_workflows_updated_at',
+                      'index_provider_workflows_lease_expires_at'
+                  )
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            2,
+            countRows(
+                migratedDb,
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM pragma_foreign_key_list('provider_workflows')
+                     WHERE "table" = 'providers' AND "from" = 'provider_id' AND on_delete = 'CASCADE')
+                    +
+                    (SELECT COUNT(*) FROM pragma_foreign_key_list('provider_workflow_phases')
+                     WHERE "table" = 'providers' AND "from" = 'provider_id' AND on_delete = 'CASCADE')
+                """.trimIndent()
+            )
+        )
+        migratedDb.close()
+    }
+
     private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0

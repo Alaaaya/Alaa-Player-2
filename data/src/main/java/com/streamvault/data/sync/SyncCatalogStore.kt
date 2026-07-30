@@ -33,6 +33,7 @@ internal class SyncCatalogStore(
     private val catalogSyncDao: CatalogSyncDao,
     private val tmdbIdentityDao: TmdbIdentityDao,
     private val transactionRunner: DatabaseTransactionRunner,
+    private val workflowCommitFence: ProviderWorkflowCommitFence = ProviderWorkflowCommitFence(),
     private val sizeLimits: CatalogSizeLimits = CatalogSizeLimits()
 ) {
     companion object {
@@ -72,7 +73,12 @@ internal class SyncCatalogStore(
         }
     }
 
-    suspend fun replaceLiveCatalog(providerId: Long, categories: List<CategoryEntity>?, channels: List<ChannelEntity>): Int {
+    suspend fun replaceLiveCatalog(
+        providerId: Long,
+        categories: List<CategoryEntity>?,
+        channels: List<ChannelEntity>,
+        afterCatalogApply: suspend () -> Unit = {}
+    ): Int {
         val sessionId = newSessionId()
         val stagedChannels = buildChannelStages(providerId, sessionId, channels)
         val limitedChannels = limitChannels(providerId, stagedChannels)
@@ -84,7 +90,7 @@ internal class SyncCatalogStore(
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             insertStageRows(limitedChannels, catalogSyncDao::insertChannelStages)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "LIVE", pruneStale = !overflowed) }
                 if (overflowed) {
                     upsertChannels(providerId, sessionId)
@@ -92,6 +98,7 @@ internal class SyncCatalogStore(
                     applyChannels(providerId, sessionId)
                 }
                 catalogSyncDao.rebuildChannelFts()
+                afterCatalogApply()
             }
             return limitedChannels.size
         } finally {
@@ -105,7 +112,7 @@ internal class SyncCatalogStore(
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             val stagingResult = stageMovieSequence(providerId, sessionId, movies)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "MOVIE", pruneStale = !stagingResult.overflowed) }
                 if (stagingResult.overflowed) {
                     upsertMovies(providerId, sessionId)
@@ -127,7 +134,7 @@ internal class SyncCatalogStore(
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             val stagingResult = stageSeriesSequence(providerId, sessionId, series)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "SERIES", pruneStale = !stagingResult.overflowed) }
                 if (stagingResult.overflowed) {
                     upsertSeries(providerId, sessionId)
@@ -142,26 +149,38 @@ internal class SyncCatalogStore(
         }
     }
 
-    suspend fun applyStagedLiveCatalog(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
+    suspend fun applyStagedLiveCatalog(
+        providerId: Long,
+        sessionId: Long,
+        categories: List<CategoryEntity>?,
+        afterCatalogApply: suspend () -> Unit = {}
+    ) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "LIVE") }
                 applyChannels(providerId, sessionId)
                 catalogSyncDao.rebuildChannelFts()
+                afterCatalogApply()
             }
         } finally {
             clearSession(providerId, sessionId)
         }
     }
 
-    suspend fun applyStagedMovieCatalog(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
+    suspend fun applyStagedMovieCatalog(
+        providerId: Long,
+        sessionId: Long,
+        categories: List<CategoryEntity>?,
+        afterCatalogApply: suspend () -> Unit = {}
+    ) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "MOVIE") }
                 applyMovies(providerId, sessionId)
                 catalogSyncDao.rebuildMovieFts()
+                afterCatalogApply()
             }
             movieDao.restoreWatchProgress(providerId)
         } finally {
@@ -169,13 +188,19 @@ internal class SyncCatalogStore(
         }
     }
 
-    suspend fun applyStagedSeriesCatalog(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
+    suspend fun applyStagedSeriesCatalog(
+        providerId: Long,
+        sessionId: Long,
+        categories: List<CategoryEntity>?,
+        afterCatalogApply: suspend () -> Unit = {}
+    ) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "SERIES") }
                 applySeries(providerId, sessionId)
                 catalogSyncDao.rebuildSeriesFts()
+                afterCatalogApply()
             }
         } finally {
             clearSession(providerId, sessionId)
@@ -189,13 +214,19 @@ internal class SyncCatalogStore(
      * Use when the staged session represents a partial (subset) of categories/channels —
      * absent rows must NOT be treated as deletions.
      */
-    suspend fun applyStagedLiveCatalogUpsertOnly(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
+    suspend fun applyStagedLiveCatalogUpsertOnly(
+        providerId: Long,
+        sessionId: Long,
+        categories: List<CategoryEntity>?,
+        afterCatalogApply: suspend () -> Unit = {}
+    ) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "LIVE", pruneStale = false) }
                 upsertChannels(providerId, sessionId)
                 catalogSyncDao.rebuildChannelFts()
+                afterCatalogApply()
             }
         } finally {
             clearSession(providerId, sessionId)
@@ -208,7 +239,7 @@ internal class SyncCatalogStore(
      */
     suspend fun applyStagedMovieCatalogUpsertOnly(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "MOVIE", pruneStale = false) }
                 upsertMovies(providerId, sessionId)
@@ -226,7 +257,7 @@ internal class SyncCatalogStore(
      */
     suspend fun applyStagedSeriesCatalogUpsertOnly(providerId: Long, sessionId: Long, categories: List<CategoryEntity>?) {
         try {
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { stageCategories(providerId, sessionId, it) }
                 categories?.let { applyCategories(providerId, sessionId, "SERIES", pruneStale = false) }
                 upsertSeries(providerId, sessionId)
@@ -241,17 +272,23 @@ internal class SyncCatalogStore(
      * Non-staged live-catalog upsert: stages the given channels, then updates and inserts
      * without deleting stale rows. Used for partial Xtream category results.
      */
-    suspend fun upsertLiveCatalog(providerId: Long, categories: List<CategoryEntity>?, channels: List<ChannelEntity>): Int {
+    suspend fun upsertLiveCatalog(
+        providerId: Long,
+        categories: List<CategoryEntity>?,
+        channels: List<ChannelEntity>,
+        afterCatalogApply: suspend () -> Unit = {}
+    ): Int {
         val sessionId = newSessionId()
         val stagedChannels = buildChannelStages(providerId, sessionId, channels)
         try {
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             insertStageRows(stagedChannels, catalogSyncDao::insertChannelStages)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "LIVE", pruneStale = false) }
                 upsertChannels(providerId, sessionId)
                 catalogSyncDao.rebuildChannelFts()
+                afterCatalogApply()
             }
             return stagedChannels.size
         } finally {
@@ -269,7 +306,7 @@ internal class SyncCatalogStore(
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             val stagingResult = stageMovieSequence(providerId, sessionId, movies)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "MOVIE", pruneStale = false) }
                 upsertMovies(providerId, sessionId)
                 catalogSyncDao.rebuildMovieFts()
@@ -291,7 +328,7 @@ internal class SyncCatalogStore(
             clearProviderStaging(providerId)
             categories?.let { stageCategories(providerId, sessionId, it) }
             val stagingResult = stageSeriesSequence(providerId, sessionId, series)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 categories?.let { applyCategories(providerId, sessionId, "SERIES", pruneStale = false) }
                 upsertSeries(providerId, sessionId)
                 catalogSyncDao.rebuildSeriesFts()
@@ -307,7 +344,7 @@ internal class SyncCatalogStore(
         try {
             clearProviderStaging(providerId)
             stageCategories(providerId, sessionId, categories)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 applyCategories(providerId, sessionId, type, pruneStale = false)
             }
         } finally {
@@ -320,7 +357,7 @@ internal class SyncCatalogStore(
         try {
             clearProviderStaging(providerId)
             stageCategories(providerId, sessionId, categories)
-            transactionRunner.inTransaction {
+            providerTransaction(providerId) {
                 applyCategories(providerId, sessionId, type)
             }
         } finally {
@@ -376,9 +413,10 @@ internal class SyncCatalogStore(
         liveCategories: List<CategoryEntity>?,
         movieCategories: List<CategoryEntity>?,
         includeLive: Boolean,
-        includeMovies: Boolean
+        includeMovies: Boolean,
+        afterCatalogApply: suspend () -> Unit = {}
     ) {
-        transactionRunner.inTransaction {
+        providerTransaction(providerId) {
             if (includeLive) {
                 stageCategories(providerId, sessionId, liveCategories.orEmpty())
                 applyCategories(providerId, sessionId, "LIVE")
@@ -391,6 +429,9 @@ internal class SyncCatalogStore(
                 applyMovies(providerId, sessionId)
                 catalogSyncDao.rebuildMovieFts()
             }
+            if (includeLive || includeMovies) {
+                afterCatalogApply()
+            }
         }
         if (includeMovies) {
             movieDao.restoreWatchProgress(providerId)
@@ -399,6 +440,14 @@ internal class SyncCatalogStore(
 
     suspend fun discardStagedImport(providerId: Long, sessionId: Long) {
         clearSession(providerId, sessionId)
+    }
+
+    private suspend fun <T> providerTransaction(
+        providerId: Long,
+        block: suspend () -> T
+    ): T = transactionRunner.inTransaction {
+        workflowCommitFence.assertCanCommit(providerId)
+        block()
     }
 
     private fun requireStageCapacity(currentCount: Int, incomingCount: Int, maximum: Int, label: String) {

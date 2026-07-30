@@ -9,6 +9,7 @@ import com.streamvault.domain.model.RecordingFailureCategory
 import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingSourceType
 import com.streamvault.domain.model.RecordingStatus
+import com.streamvault.domain.model.ProgramReminderDeliveryState
 
 @Entity(
     tableName = "recording_schedules",
@@ -157,6 +158,12 @@ data class ProgramReminderEntity(
     @ColumnInfo(name = "is_dismissed") val isDismissed: Boolean = false,
     @ColumnInfo(name = "notified_at") val notifiedAt: Long? = null,
     @ColumnInfo(name = "exact_alarm_armed") val exactAlarmArmed: Boolean = true,
+    @ColumnInfo(name = "delivery_state")
+    val deliveryState: ProgramReminderDeliveryState = ProgramReminderDeliveryState.PENDING,
+    @ColumnInfo(name = "delivery_attempt_token") val deliveryAttemptToken: String? = null,
+    @ColumnInfo(name = "delivery_attempted_at") val deliveryAttemptedAt: Long? = null,
+    @ColumnInfo(name = "delivery_attempt_count") val deliveryAttemptCount: Int = 0,
+    @ColumnInfo(name = "delivery_failure_reason") val deliveryFailureReason: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )
 

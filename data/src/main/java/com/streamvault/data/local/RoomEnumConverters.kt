@@ -1,6 +1,11 @@
 package com.streamvault.data.local
 
 import androidx.room.TypeConverter
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
+import com.streamvault.data.local.entity.ProviderWorkflowPhase
+import com.streamvault.data.local.entity.ProviderWorkflowPhaseState
+import com.streamvault.data.local.entity.ProviderWorkflowReason
+import com.streamvault.data.local.entity.ProviderWorkflowState
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.GuideSourcePolicy
@@ -8,6 +13,7 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.ProgramReminderDeliveryState
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCookieMode
@@ -35,6 +41,48 @@ class RoomEnumConverters {
 
     @TypeConverter
     fun toProviderStatus(value: String?): ProviderStatus? = enumValueOrDefault(value, ProviderStatus.UNKNOWN)
+
+    @TypeConverter
+    fun fromProviderConfigRevisionState(value: ProviderConfigRevisionState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderConfigRevisionState(value: String?): ProviderConfigRevisionState? =
+        enumValueOrDefault(value, ProviderConfigRevisionState.FAILED)
+
+    @TypeConverter
+    fun fromProviderWorkflowState(value: ProviderWorkflowState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowState(value: String?): ProviderWorkflowState? =
+        enumValueOrDefault(value, ProviderWorkflowState.FAILED)
+
+    @TypeConverter
+    fun fromProviderWorkflowPhase(value: ProviderWorkflowPhase?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowPhase(value: String?): ProviderWorkflowPhase? =
+        enumValueOrDefault(value, ProviderWorkflowPhase.PREPARE)
+
+    @TypeConverter
+    fun fromProviderWorkflowPhaseState(value: ProviderWorkflowPhaseState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowPhaseState(value: String?): ProviderWorkflowPhaseState? =
+        enumValueOrDefault(value, ProviderWorkflowPhaseState.FAILED_PERMANENT)
+
+    @TypeConverter
+    fun fromProviderWorkflowReason(value: ProviderWorkflowReason?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowReason(value: String?): ProviderWorkflowReason? =
+        enumValueOrDefault(value, ProviderWorkflowReason.RECOVERY)
+
+    @TypeConverter
+    fun fromProgramReminderDeliveryState(value: ProgramReminderDeliveryState?): String? = value?.name
+
+    @TypeConverter
+    fun toProgramReminderDeliveryState(value: String?): ProgramReminderDeliveryState? =
+        enumValueOrDefault(value, ProgramReminderDeliveryState.PENDING)
 
     @TypeConverter
     fun fromProviderEpgSyncMode(value: ProviderEpgSyncMode?): String? = value?.name

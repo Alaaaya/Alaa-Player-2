@@ -169,7 +169,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 | ARCH-005 | Architectural concern | High | `PlayerViewModel` is a 25+ dependency feature orchestrator that crosses domain/data/player boundaries. | Architectural |
 | ARCH-006 | Highly likely defect | High | Plugin discovery performs multiple blocking IPC calls and maps plugin providers into M3U records. | Local + architectural |
 | ARCH-007 | Architectural concern | Medium | Database schema and the full migration history are concentrated in one multi-thousand-line class. | Architectural |
-| ARCH-008 | Suspected risk | Medium | Startup launches several overlapping background pipelines with independent work identities and state stores. | Architectural |
+| ARCH-008 | Implemented; device validation pending | Medium | Startup launches several overlapping background pipelines with independent work identities and state stores. | Architectural |
 
 ## Detailed Phase 1 findings
 
@@ -259,8 +259,9 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 
 ### ARCH-008 — Background work is fragmented across independently scheduled pipelines
 
-- **Classification:** Suspected risk requiring further verification
+- **Classification:** Implemented; device integration validation pending
 - **Severity:** Medium
+- **Implementation status (2026-07-30):** Implemented in code; device integration validation pending. The migration introduces one provider work identity, one in-process provider execution lane, a central startup-work registry, and a durable Room-backed workflow/phase coordinator with generation-fenced catalog and status commits. Configuration revisions explicitly supersede older work; ordinary sync, index, and EPG requests join the provider chain.
 - **Where:** `StreamVaultApp.onCreate:74-97`; `ProviderSyncWorker`; `XtreamIndexWorker`; `StalkerIndexWorker`; `BackgroundEpgSyncWorker`; `RecordingReconcileWorker`; scheduling methods inside `SyncManager`.
 - **Current behavior:** Every process start enqueues maintenance, provider stale-check, Xtream index stale-check, and recording reconciliation, while periodic equivalents also exist. Provider sync can queue provider-specific index and EPG workers. Each class has separate unique names, `KEEP`/`REPLACE`/`APPEND_OR_REPLACE` policy, retry classification, delays, and persisted job metadata. In-process provider mutexes serialize some `SyncManager` calls but do not by themselves define a durable cross-worker state machine.
 - **Why this is wrong/fragile:** WorkManager uniqueness prevents duplicates only within an identical unique name. Different worker types can target the same provider and network/database concurrently. Status is distributed across WorkManager, Room job tables, provider status, sync metadata, and in-memory `SyncStateTracker`, so cancellation/process death may leave contradictory state.
@@ -268,6 +269,45 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Define a durable per-provider work coordinator/state machine with named phases and one serialized chain. Worker entry points should claim persisted leases/epochs and reject stale work. Manual refresh should explicitly supersede or join background work. Consolidate retry/error/status publication rules.
 - **Fix scope:** Architectural.
 - **Required tests:** Simultaneous launch workers; manual refresh during each worker phase; process death and restart; stale WorkManager input after provider edit/delete; network loss and retry across phases; verify one authoritative user-visible status.
+
+**Implementation evidence (2026-07-30, slice 1):**
+
+- `StartupWorkRegistry` is now the sole durable-work registration entry point called by `StreamVaultApp`; data maintenance uses periodic `UPDATE` so changed constraints are applied without creating a second schedule.
+- Provider resume, Xtream index, Stalker index, background EPG, and provider-configuration recovery now resolve to one `provider-workflow-{providerId}` unique chain. Ordinary phases use `APPEND_OR_REPLACE`; configuration recovery uses `REPLACE` as an explicit superseding operation.
+- `ProviderWorkLockRegistry` replaces the separate full-sync, Stalker-summary, and Stalker-EPG mutex ownership paths. All `SyncManager` provider operations now share one per-provider execution lane while different providers can still execute concurrently.
+- This slice closes same-process overlap and centralizes scheduling policy.
+
+**Implementation evidence (2026-07-30, slice 2):**
+
+- Room schema version 71 adds `provider_workflows`, the authoritative current generation/state/lease row for each provider, plus `provider_workflow_phases`, a per-generation phase ledger for prepare, catalog, index, EPG, and finalize work.
+- `ProviderWorkflowDao.request` gives ordinary startup/periodic/manual work explicit join semantics and gives configuration changes explicit supersede semantics. Supersession atomically increments the generation, clears the prior lease, and marks unfinished older phases `SUPERSEDED`.
+- Lease claim, renewal, completion, and failure all require provider ID, generation, phase, and an opaque lease token. A worker from an older generation therefore cannot renew or publish completion after a provider edit supersedes it.
+- Lease expiry and heartbeat recovery handle expired, missing, stale, invalid, and future-clock state. Retryable failures preserve phase checkpoints and return the phase to the durable pending workflow.
+- `ProviderWorkflowDaoTest` covers concurrent claim exclusion, join/phase serialization, generation fencing, retry, and restart candidate selection. `MIGRATION_70_71` and its `MigrationTestHelper` case validate both new tables, indices, and cascade ownership for upgraded installations.
+
+**Implementation evidence (2026-07-30, slice 3):**
+
+- `ProviderWorkflowRunner` is now the common execution boundary for full provider sync, configuration-revision recovery, Xtream indexing, Stalker indexing, and background EPG. It claims an opaque generation-bound lease before entering `SyncManager`, renews that lease during long calls, and publishes success, partial, retryable failure, or permanent failure through the phase ledger.
+- `ProviderWorkFailureClassifier` consolidates the duplicated network/SQLite retry rule used by those workers. Worker result mapping now follows the durable disposition: busy or retryable work retries, permanent failure fails, and a superseded generation exits without overwriting the newer workflow result.
+- A restarted request can atomically reclaim a `RUNNING` phase only when its lease is expired, missing, stale, or has a future-clock heartbeat. A live lease is left untouched. This closes the process-death loop for WorkManager's persisted retries without requiring an in-memory owner to release its mutex.
+- `ProviderWorkflowRunnerTest` covers durable success and retry publication, overlapping-owner admission, and supersession during execution. `ProviderWorkflowDaoTest` additionally covers stale-process reclaim while proving that a live owner is not disturbed.
+
+**Implementation evidence (2026-07-30, slice 4):**
+
+- `ProviderRepositoryImpl.refreshProviderData` now executes through `ProviderWorkflowRunner`. A forced manual refresh explicitly supersedes background work at priority 50; a non-forced refresh joins the current generation and reports a busy workflow instead of starting a second sync.
+- Workflow admission is priority-aware inside the Room transaction. Configuration changes (priority 100) cannot be displaced by manual refresh (50), and manual work cannot be displaced by periodic/startup work (0). Rejected lower-priority requests do not mutate the generation, reason, or phase ledger.
+- `ProviderWorkflowExecutionContext` carries the claimed generation/token through the sync coroutine. Every `SyncCatalogStore` apply path now checks that token inside the same Room transaction that applies staged categories/channels/movies/series. Supersession and catalog commit are therefore serialized: whichever transaction commits first determines whether the old apply is accepted or rejected.
+- `ProviderWorkflowCommitFenceTest` proves that a superseded generation cannot replace committed catalog rows and that the current owner can apply normally. Manual-refresh tests verify explicit join versus supersede arguments, and DAO tests cover configuration-over-manual priority inversion.
+- `ProviderSyncStateReaderImpl` now combines durable active workflow phases with the legacy Xtream job table, so queued/running movie or series indexing remains observable after process recreation.
+- Provider sync timestamps, sync metadata, discovered M3U EPG URLs, manual status reconciliation, and targeted-worker status reconciliation are now checked inside generation-owned transactions before publication. ARCH-008 remains open only for device-backed process-kill and manual-refresh-during-each-phase integration tests, plus final removal or demotion of redundant legacy status stores after UI compatibility is verified.
+
+**Implementation evidence (2026-07-30, slice 5):**
+
+- `ProviderWorkflowIntegrationTest` adds file-backed Room instrumentation coverage for the remaining coordinator boundaries. It closes and reopens the database to model process recreation, then proves that an expired durable phase lease can be reclaimed without relying on in-memory ownership.
+- The integration matrix forces a manual refresh while each background phase owns the workflow (`PRIMARY_CATALOG`, `CONTENT_INDEX`, `MOVIE_INDEX`, `SERIES_INDEX`, `EPG`, and `FINALIZE`). In every case the old generation loses commit authority and the manual generation can claim the phase. A separate case proves that manual priority cannot supersede an active configuration migration.
+- The data module now declares `AndroidJUnitRunner`; both the new integration suite and the 70-to-71 migration test compile and package successfully with `:data:assembleDebugAndroidTest`.
+- A targeted `:data:connectedDebugAndroidTest` run was attempted on 2026-07-30, but ADB reported no attached device and Gradle stopped with `DeviceException: No connected devices!`. These cases are implemented but must still be executed on an Android device/emulator; this is why the finding remains **Implemented; device integration validation pending**.
+- After device execution, the remaining architectural cleanup is to remove or explicitly demote redundant legacy status stores once UI compatibility has been verified.
 
 ## Phase 1 open questions
 
@@ -322,10 +362,10 @@ Phase 2 should review these files/modules first, in this order:
 | PERF-001 | Playback snapshots synchronously rewrite a file every second on main | Resolved (2026-07-26) | High |
 | PERF-002 | VOD progress triggers DB and Android TV rewrites every five seconds | Resolved (2026-07-26) | High |
 | WORK-001 | Local database maintenance is incorrectly gated on connectivity | Resolved (2026-07-26) | Medium |
-| WORK-002 | Recording reconciliation retries every error without classification/cap | Resolved (2026-07-26) | Medium |
-| UPDATE-001 | Failed automatic update checks suppress another attempt for 24 hours | Resolved (2026-07-26) | Medium |
+| WORK-002 | Recording reconciliation retries every error without classification/cap | Resolved (2026-07-29) | Medium |
+| UPDATE-001 | Failed automatic update checks suppress another attempt for 24 hours | Resolved (2026-07-29) | Medium |
 | MEMORY-001 | Process-lifetime maps grow with provider/category/host/media identities | Architectural concern | Medium |
-| PERSIST-001 | The central preferences DataStore has no explicit corruption recovery | Suspected risk | Medium |
+| PERSIST-001 | The central preferences DataStore has no explicit corruption recovery | Implemented; boundary verification pending (2026-07-30) | Medium |
 | TEST-001 | The player suite asserts the opposite MPEG-TS extractor policy from production | Resolved (2026-07-26) | Medium |
 
 The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycle ownership, M3U admission limits, and removal of main-thread/per-five-second persistence churn. These can cause work after cancellation, contradictory terminal state, retained resources, storage exhaustion, and playback jank independently of provider protocol correctness.
@@ -360,7 +400,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 
 ### SYNC-001 — M3U staging has no effective response or catalog-size bound
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (2026-07-29)
 - **Severity:** High
 - **Where:** `SyncManagerM3uImporter.kt:60-220,236-267,314-320`; `SyncCatalogStore.kt:331-379`; compare `NetworkTimeoutConfig` and `CatalogSizeLimits` used by non-staging paths.
 - **Current behavior:** The importer does not bound `Content-Length`, decompressed bytes/lines, entries, or categories. It retains unbounded live/movie identity sets and category accumulators. M3U uses `stageChannelBatch`/`stageMovieBatch` then `finalizeStagedImport`, bypassing catalog limits applied by other store methods.
@@ -462,28 +502,31 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 
 ### WORK-002 — Recording reconciliation retries every error without classification or cap
 
-- **Classification:** Confirmed defect
+- **Classification:** Resolved (2026-07-29)
 - **Severity:** Medium
-- **Where:** `RecordingReconcileWorker.kt:17-67`; `RecordingManagerImpl.reconcileRecordingState:279-444`.
-- **Current behavior:** Every domain `Error` and even `Loading` maps to `Result.retry()`, without explicit backoff, attempt ceiling, or category. Startup replaces a one-shot while periodic work runs every six hours.
+- **Where:** `RecordingReconcileWorker.kt`; `RecordingManagerImpl.reconcileRecordingState`; typed contract in `RecordingModels.kt` and `RecordingManager.kt`.
+- **Original behavior:** Every domain `Error` and even `Loading` mapped to `Result.retry()`, without explicit backoff, attempt ceiling, or category. A preliminary correction added a three-attempt ceiling and exponential backoff, but still classified every error as transient, returned only `Result<Unit>`, swallowed cancellation through `runCatching`, emitted no diagnostic metadata, and used startup `REPLACE`, which reset the unfinished one-shot and its attempt history.
 - **Why this is wrong/fragile:** Permanent row/configuration failures retry indefinitely. Startup replacement can reset the history of a repeatedly failing one-shot and diagnostics cannot distinguish causes.
 - **Concrete failure scenario:** A malformed legacy recording row fails deterministically; each launch replaces/restarts work and WorkManager repeatedly scans state without quarantining it.
 - **Recommended correction:** Return typed transient/permanent/per-row outcomes, quarantine/report bad rows, cap one-shot attempts with exponential backoff, and make `Loading` impossible as a terminal return.
 - **Fix scope:** Worker plus result refinement.
 - **Required tests:** Transient then success, permanent/partial row failure, ceiling/backoff, cancellation, startup replacement, and diagnostic metadata.
+- **Resolution:** Recording reconciliation now returns the closed `Complete`, `Partial`, `TransientFailure`, or `PermanentFailure` contract; `Loading` is not representable. Deterministic row failures are marked `FAILED` with a persisted quarantine reason and accumulated into a partial report without blocking healthy rows. I/O and locked/busy database failures remain retryable, other global failures terminate, and `CancellationException` is always rethrown without a status write. The one-shot uses 30-second exponential backoff, stops after three attempts, and startup/boot enqueue uses unique `KEEP` ownership so another launch cannot reset an unfinished attempt chain. Periodic transient work remains retryable independently. Success/failure output and retry progress carry bounded outcome, attempt, inspected, repaired, quarantined, and reason diagnostics.
+- **Verification:** `RecordingReconcileWorkerTest` covers transient-then-success, permanent and partial outcomes, the one-shot ceiling/backoff, periodic independence, startup `KEEP`, and diagnostic fields. `RecordingManagerImplTest` covers row quarantine/persisted reason, transient/permanent classification, cancellation propagation, stale capture repair, and exact-alarm reconciliation. The focused 17-test data matrix and full domain test task passed, and `:app:assembleDebug` passed on 2026-07-29.
 
 ### UPDATE-001 — Failed automatic update checks suppress another attempt for 24 hours
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (2026-07-29)
 - **Severity:** Medium
-- **Where:** `StreamVaultApp.refreshCachedAppUpdateIfNeeded:105-132`; `GitHubReleaseChecker.kt:39-68`; `PreferencesRepository.kt:748-778`; similar ordering in `SettingsAppUpdateActions.kt:42-55`.
-- **Current behavior:** Startup writes the last-check timestamp before fetching. Only success refreshes cache; error is ignored. The timestamp gates checks for 24 hours, treating transient failure as success.
+- **Where:** `AppUpdateCheckWorker.kt`; `GitHubReleaseChecker.kt:39-68`; `PreferencesRepository.kt`; `SettingsAppUpdateActions.kt:42-55`.
+- **Original behavior:** Startup wrote the last-check timestamp before fetching. Only success refreshed cache; error was ignored. The timestamp gated checks for 24 hours, treating transient failure as success.
 - **Why this is wrong/fragile:** Last attempt and last success require different retry semantics; update discovery depends on being online at one startup and stale cache has no observable reason.
 - **Concrete failure scenario:** The TV starts before Wi-Fi, records the attempt, fails, then stays online all day without another automatic check.
 - **Recommended correction:** Store separate attempt/success/outcome. Rate-limit success for 24 hours, use short bounded failure backoff, and preferably use network-constrained unique WorkManager work. Preserve valid cache on failure.
 - **Fix scope:** Local/shared startup-settings policy.
 - **Required tests:** Offline then reconnect, 429/500, malformed response, cached success then failure, restart, force check, and clock changes.
-- **Resolution:** Successful checks retain the 24-hour cadence; failed checks persist separately and retry after a 15-minute bounded backoff without overwriting valid cached release data.
+- **Resolution:** Successful checks retain the 24-hour cadence; attempts, outcomes, and failures are persisted separately; failed automatic checks run as unique network-constrained WorkManager work with exponential 15-minute backoff, including when connectivity returns after startup. Manual checks use the same markers, and failures never overwrite valid cached release data.
+- **Verification:** `GitHubReleaseCheckerTest` covers HTTP 429/5xx and malformed successful responses; `SettingsAppUpdateActionsTest` proves failed refreshes preserve cached release data; `AppUpdateCheckPolicyTest` covers success cadence, failure backoff, and backward clock changes. The focused 8-test app matrix and `:app:compileDebugKotlin` passed on 2026-07-30.
 
 ### MEMORY-001 — Process-lifetime maps grow with provider/category/host/media identities
 
@@ -499,13 +542,15 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 
 ### PERSIST-001 — The central preferences DataStore has no explicit corruption recovery
 
-- **Classification:** Suspected risk requiring runtime fixture
+- **Classification:** Implemented; boundary verification pending (2026-07-30)
 - **Severity:** Medium
 - **Where:** `PreferencesRepository.kt:62-64` and its direct `.data.map/first` consumers; startup consumers in application/welcome/settings/player.
-- **Current behavior:** `preferencesDataStore(name = "user_preferences")` has no `ReplaceFileCorruptionHandler`, and no central read-I/O fallback/diagnostic policy was found. This graph god node backs onboarding, provider/source choices, playback configuration, updates, plugin mappings, and feature flags.
+- **Original behavior:** `preferencesDataStore(name = "user_preferences")` had no `ReplaceFileCorruptionHandler`, and no central read-I/O fallback/diagnostic policy was present. This graph god node backs onboarding, provider/source choices, playback configuration, updates, plugin mappings, and feature flags.
 - **Why this is wrong/fragile:** DataStore surfaces corruption/read failure unless recovery is configured. One damaged file can repeatedly fail unrelated startup flows. Blindly defaulting every error is also unsafe, so the policy must reconcile Room-backed state explicitly.
 - **Concrete failure scenario:** Storage/power damage corrupts preferences; eager collectors and `.first()` calls fail every process start even though the Room catalog remains usable.
 - **Recommended correction:** Add a documented corruption handler that preserves a diagnostic copy when possible and replaces known defaults; distinguish corruption from transient I/O; expose recoverable UI/telemetry; centralize policy.
+- **Resolution:** `PreferencesRepository` now creates the preferences DataStore through a single `PreferenceDataStoreFactory` policy. `ReplaceFileCorruptionHandler` snapshots the damaged file when possible, writes a bounded recovery marker outside DataStore, logs the corruption for diagnostics, and returns `emptyPreferences()` so known repository defaults can restore service. Snapshots are capped at 4 MiB and three retained copies. Transient I/O exceptions and coroutine cancellation remain outside the corruption handler and are not converted into defaults.
+- **Verification:** `PreferencesCorruptionRecoveryTest` proves corrupt input produces empty defaults, persists a recovery marker, and retains one diagnostic snapshot. `:data:testDebugUnitTest --tests com.streamvault.data.preferences.PreferencesCorruptionRecoveryTest` and `:data:compileDebugKotlin` passed on 2026-07-30. The broader runtime matrix below remains pending.
 - **Fix scope:** Shared persistence policy, possibly recovery UX.
 - **Required tests:** Corrupt checksum/file, transient unreadable file, one-time handler, Room/provider reconciliation, restart, backup/restore, and cancellation not treated as corruption.
 
@@ -861,11 +906,11 @@ Phase 4 should trace feature flows end to end in this order:
 
 | ID | Finding | Classification | Severity |
 |---|---|---|---|
-| SETUP-001 | Editing an active provider deactivates it before replacement sync succeeds | Confirmed defect | High |
-| BACKUP-001 | Restore is non-atomic across Room, preferences, and recording alarms | Confirmed defect | High |
-| BACKUP-002 | Provider-scoped restored preferences retain obsolete database IDs | Confirmed defect | High |
-| DELETE-001 | Post-delete alarm/sync cleanup failures are never reconciled | Resolved (2026-07-26) | Medium |
-| EPG-001 | Editing a reminder can persist a time whose alarm replacement failed | Confirmed defect | Medium |
+| SETUP-001 | Editing an active provider deactivates it before replacement sync succeeds | Resolved (2026-07-29) | High |
+| BACKUP-001 | Restore is non-atomic across Room, preferences, and recording alarms | Resolved (2026-07-29) | High |
+| BACKUP-002 | Provider-scoped restored preferences retain obsolete database IDs | Resolved (2026-07-29) | High |
+| DELETE-001 | Post-delete alarm/sync cleanup failures are never reconciled | Resolved (2026-07-29) | Medium |
+| EPG-001 | Editing a reminder can persist a time whose alarm replacement failed | Resolved (2026-07-29) | Medium |
 | PLAY-001 | Failed live-history persistence suppresses same-channel retry for the session | Confirmed defect | Medium |
 | MIGRATION-001 | The current 61→62 migration and full supported chain are untested | Needs improvement (2026-07-26 audit) | Medium |
 
@@ -873,8 +918,8 @@ The main feature risks are cross-store transitions: provider edits expose partia
 
 ## Feature-flow observations
 
-- **Setup/catalog/navigation:** Authentication/save converges in `ProviderRepositoryImpl`; activation follows initial sync. Xtream/Stalker require committed content while M3U/Jellyfin need not contain live channels. Catalog staging protects replacement rows, but provider state changes before commit (SETUP-001). Browsing, search, favorites, protection, and virtual groups are provider-scoped; backup breaks that identity model (BACKUP-002).
-- **EPG/catch-up/zapping:** Source refresh/matching, cached lookup, catch-up construction, and launch have clear owners. Phase 3 covers source/parser faults. New-reminder alarm failure is compensated, but edit failure is not (EPG-001). Zap resolution uses request generations to reject stale work; live-history de-duplication is optimistic (PLAY-001).
+- **Setup/catalog/navigation:** Authentication/save converges in `ProviderRepositoryImpl`; activation follows initial sync. Xtream/Stalker require committed content while M3U/Jellyfin need not contain live channels. Candidate revisions now retain the committed provider/catalog through replacement sync (SETUP-001). Browsing, search, favorites, protection, and virtual groups are provider-scoped; backup v9 now carries that identity model into portable preference restore (BACKUP-002).
+- **EPG/catch-up/zapping:** Source refresh/matching, cached lookup, catch-up construction, and launch have clear owners. Phase 3 covers source/parser faults. Reminder creation, edit, cancellation, and startup repair now use compensating alarm/Room ordering (EPG-001). Zap resolution uses request generations to reject stale work; live-history de-duplication is optimistic (PLAY-001).
 - **Playback/download/cast/multiview:** Logical URLs become `StreamInfo`, followed by preparation, renewal, and recovery. Phase 2 lifecycle/timeshift/progress/cancellation findings remain controlling. Downloads correctly restart when a server ignores `Range` and returns `200`. Cast eligibility/media creation is centralized and tested for unsupported headers. Auxiliary multiview engines inherit LIFE-001/LIFE-002.
 - **Recording/backup/plugins/updates/migrations:** Scheduling validates storage, conflicts, connection limits, and exact alarms; alarm failure leaves an observable failed run. Capture inherits REC-001. Only provider/library/history restore is one Room transaction (BACKUP-001). Plugins retain PLUGIN-001–003 and updates UPDATE-001. Room 62 defines and production-registers every adjacent migration; the latest boundary lacks tests (MIGRATION-001).
 
@@ -882,66 +927,72 @@ The main feature risks are cross-store transitions: provider edits expose partia
 
 ### SETUP-001 — Editing an active provider deactivates it before replacement sync succeeds
 
-- **Classification / severity:** Confirmed defect — High
+- **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** `ProviderRepositoryImpl.kt:285-333` (Xtream), `381-420` (M3U), `467-485` (Jellyfin), `635-700` (Stalker), and `707-764` (shared completion).
 - **Current behavior:** Existing-provider paths write `isActive = false`, `status = PARTIAL`, and reset sync metadata before initial sync. Only success reactivates; error persists inactive state and schedules resume. The old committed catalog does not preserve selection.
 - **Why / scenario:** Replacement authentication and catalog promotion are separate commits. A transient failure after editing the active account's name or HTTP profile disables Home/Live TV despite a previously usable catalog.
 - **Recommended correction:** Keep the last active provider/catalog until a pending configuration revision and sync epoch commit atomically. At minimum restore prior active state on failure and delay timestamp reset.
 - **Fix scope:** Shared provider state-transition architecture.
 - **Required tests:** Active/inactive edit for every provider; sync failure, cancellation, process death, success, old-catalog availability, and stale-epoch isolation.
+- **Resolution:** Provider edits now create a candidate configuration revision and keep the last committed provider/catalog active until the replacement sync epoch promotes successfully. Failed or cancelled replacements retain the prior configuration and active catalog; stale candidate epochs cannot promote. Focused repository and worker coverage exercises successful promotion, failure, cancellation, and retry isolation.
 
 ### BACKUP-001 — Restore is non-atomic across Room, preferences, and recording alarms
 
-- **Classification / severity:** Confirmed defect — High
+- **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** `BackupManagerImpl.kt:344-434,693-778,995-1080`.
 - **Current behavior:** Provider/library/history commit in Room, followed by DataStore preferences, presets, and schedules/alarms. Later exceptions return generic failure without rollback. `REPLACE_EXISTING` cancels the old recording before the replacement is known to schedule.
 - **Why / scenario:** One result hides irreversible commits. Room and several preferences can change before a later write fails, yet UI reports total failure; failed schedule replacement can leave neither schedule.
 - **Recommended correction:** Use a durable sectioned restore with validated plan, checkpoints, and complete/partial/failed-before-commit outcomes. Snapshot/compensate preferences and restore the prior schedule if replacement promotion fails.
 - **Fix scope:** Cross-store restore protocol and result contract.
 - **Required tests:** Failure/cancellation/process death at every Room/DataStore/alarm boundary; idempotent retry; replacement compensation; exact section outcomes; no duplicates.
+- **Resolution:** Backup restore now records durable section checkpoints and returns explicit `complete`, `partial`, or `failed-before-commit` outcomes. The Room checkpoint commits with the Room section; preference/preset changes use a pre-import snapshot for retry/compensation; failed recording replacement compensates the new alarm without removing the prior schedule. Replaying the same backup and plan is idempotent, and partial UI state retains the source/plan for retry. Focused manager and settings-action tests cover outcome reporting, cancellation, compensation, checkpoint replay, and retry state.
 
 ### BACKUP-002 — Provider-scoped restored preferences retain obsolete database IDs
 
-- **Classification / severity:** Confirmed defect — High
+- **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** Export `BackupManagerImpl.kt:118-137`; restore `558-690`; Room mapping `714-810`.
 - **Current behavior:** `guideDefaultCategoryId`, `promotedLiveGroupIds`, `hiddenChannels_<providerId>`, and `hiddenCategories_<providerId>_<type>` contain source row IDs and are restored directly. Provider/group mappings never reach preferences; channel/category IDs can also change after resync.
 - **Why / scenario:** Auto-generated IDs are not portable. If source provider 2 maps to target 7, `hiddenChannels_2` affects no intended channel and can affect unrelated provider 2; group/category references similarly drift.
 - **Recommended correction:** Back up semantic provider/content/group identities, resolve them after Room import, then write target IDs; explicitly report unresolved references.
 - **Fix scope:** Backup schema/version and identity contract.
 - **Required tests:** Empty/populated targets with shifted IDs; keep/replace conflicts; changed catalog IDs; duplicate group names; unresolved references; semantic round trip.
+- **Resolution:** Backup schema v9 exports semantic provider, active-provider, category, virtual-group, and channel references while retaining the legacy preference map for v8-and-older imports. Restore resolves providers and content only when the target match is unambiguous, supports changed category IDs through a unique semantic-name fallback, writes target provider/group/channel/category IDs, and reports both source-side stale references and target-side unresolved/duplicate matches as a truthful partial outcome without applying raw v9 IDs. Unresolved portable references remain retryable through the durable preference checkpoint. Focused coverage exercises semantic export/JSON round trip, shifted provider/Room/catalog IDs, empty and populated targets, keep/replace provider conflicts, duplicate group names, unresolved references, and explicit v8 compatibility.
 
 ### DELETE-001 — Post-delete alarm and sync cleanup failures are never reconciled
 
-- **Classification / severity:** Resolved (2026-07-26) — Medium
+- **Classification / severity:** Resolved (2026-07-29) — Medium
 - **Where:** `ProviderRepositoryImpl.kt:131-213`; behavior is explicit in `ProviderRepositoryImplTest`.
 - **Current behavior:** Room deletion commits, then alarm cancellation and `syncManager.onProviderDeleted` use a catch-and-log helper. Success is returned without a retry marker.
 - **Why / scenario:** A transient external failure becomes permanent after its provider record is gone. Orphan alarms can fire against deleted rows and provider work/cache can survive.
 - **Recommended correction:** Persist a deletion tombstone, make cleanup idempotent, and enqueue unique reconciliation until all steps succeed; distinguish library-deleted from cleanup-pending diagnostics.
 - **Fix scope:** Deletion workflow and external cleanup hooks.
 - **Required tests:** Failure/process death after each step, reboot repair, repeated cleanup, concurrent alarm, and tombstone completion.
-- **Resolution:** Provider deletion now inserts durable per-action cleanup records in the same Room transaction as the provider-row deletion. A unique WorkManager worker retries recording-alarm, reminder-alarm, and sync-runtime cleanup after process death or transient failure, deleting each record only on success; startup enqueues the same drain worker.
+- **Resolution:** Provider deletion re-reads recording and reminder alarm identities inside the same Room transaction that inserts per-action tombstones and removes the provider, closing the concurrent-scheduling orphan-alarm window. The returned typed outcome truthfully reports that the library is deleted while cleanup remains pending, including the pending-action count and whether reconciliation was requested. Cleanup drains bounded batches until empty, retains tombstones on every external or database failure, propagates cancellation, and removes each tombstone only after its idempotent side effect succeeds. Unique work uses `APPEND_OR_REPLACE`, so a deletion committed while a drain is running cannot be lost; persisted work and the application-start enqueue repair pending tombstones after process restart or reboot.
+- **Verification:** Focused repository and worker fixtures cover tombstone-write rollback, alarm identities committed immediately before the deletion transaction, enqueue failure, recording/reminder/sync failures, database read/diagnostic failures, process restart after each side effect but before tombstone deletion, tombstones added during a drain, repeated cleanup, cancellation, append-safe unique work, and final tombstone completion. Settings coverage verifies that cleanup-pending is surfaced distinctly from complete deletion. The focused tests and `:app:assembleDebug` passed on 2026-07-29.
 
 ### EPG-001 — Editing a reminder can persist a time whose alarm replacement failed
 
-- **Classification / severity:** Resolved (2026-07-26) — Medium
+- **Classification / severity:** Resolved (2026-07-29) — Medium
 - **Where:** `ProgramReminderManagerImpl.kt:81-127`; tests omit existing-row scheduler failure.
 - **Current behavior:** Existing reminder rows update before alarm scheduling. Failure deletes only a new row, so an edit remains stored although the alarm was not replaced; cancellation also deletes first.
 - **Why / scenario:** Changing lead time from 10 to 30 minutes can show/store 30 while the old 10-minute alarm remains after scheduler failure.
 - **Recommended correction:** Keep the old entity, schedule replacement, then commit; compensate with the prior alarm when necessary and reconcile on startup.
 - **Fix scope:** Local reminder compensation protocol.
 - **Required tests:** Existing schedule/cancel/rollback failure, process death between boundaries, permission changes, startup repair.
-- **Resolution:** Existing reminder rows now update only after their replacement alarm schedules successfully. A failed replacement restores the prior alarm and leaves the persisted reminder unchanged.
+- **Resolution:** Reminder mutations are serialized. Existing rows remain the source of truth while a replacement alarm is scheduled, and Room commits the new time only after scheduling succeeds. A Room commit failure reschedules the prior alarm; failed compensation marks the persisted row unarmed so startup repair can retry truthfully. Cancellation now cancels AlarmManager before deleting Room, restores the prior alarm when deletion fails, and verifies ambiguous delete failures before deciding whether cancellation completed. New rows are persisted unarmed until scheduling succeeds. Every application process start now reconciles persisted reminders in addition to boot, package-replacement, and exact-alarm permission broadcasts.
+- **Verification:** Focused fixtures cover existing replacement failure, Room failure after replacement scheduling, rollback success/failure, cancellation failure, Room failure after cancellation, ambiguous delete completion, permission loss between capability check and scheduling, unarmed new rows, process restart between replacement/cancel side effects and Room commit, startup repair, permission-unavailable repair, and continued reconciliation after one reminder fails. `ProgramReminderManagerImplTest` and `:app:assembleDebug` passed on 2026-07-29.
 
 ### PLAY-001 — Failed live-history persistence suppresses same-channel retry for the session
 
-- **Classification / severity:** Resolved (2026-07-26) — Medium
+- **Classification / severity:** Resolved (2026-07-29) — Medium
 - **Where:** `PlayerZapActions.kt:298-321`; state `PlayerViewModel.kt:268`; candidate tests omit repository failure.
 - **Current behavior:** `lastRecordedLivePlaybackKey` is assigned before asynchronous `recordPlayback`. Failure is logged without clearing it; later same-channel events return early.
 - **Why / scenario:** A transient first insert failure prevents every later retry, so last-watched/recent state remains absent even after staying on or returning to the channel.
 - **Recommended correction:** Separate in-flight and last-successful keys; mark success only after `Result.Success`, clear on failure/cancellation, and serialize stale completions.
 - **Fix scope:** Local player/history coordination.
 - **Required tests:** Failure then success, A→B→A, cancellation, concurrent duplicates, stale completion.
-- **Resolution:** Live-history de-duplication now distinguishes in-flight writes from the latest successful write. Failed or cancelled writes become retryable, concurrent duplicates remain suppressed, and stale completions cannot replace the active channel's successful key.
+- **Resolution:** Live-history persistence now runs through a serialized coordinator with distinct latest-request, in-flight-attempt, and last-successful markers. Only `Result.Success` advances the successful marker; failure and cancellation clear the matching attempt in `finally`, including cancellation swallowed into a repository result. Uninterrupted same-channel duplicates are coalesced, while A→B→A creates a new A attempt so a failed first A cannot suppress the return. Obsolete queued writes are skipped before repository entry. If a stale write was already inside the repository when the channel changed, the latest-channel attempt runs after it, making the latest channel the final durable recent-history write rather than merely ignoring the stale marker completion.
+- **Verification:** `PlayerZapActionsLivePlaybackTest` now drives the production coordinator across failure-then-success, successful de-duplication, A→B→A with the first A failing, concurrent duplicate events, cancellation followed by retry, a queued stale write, and a stale write already inside the repository followed by the latest-channel repair write. The focused test task and `:app:assembleDebug` passed on 2026-07-29.
 
 ### MIGRATION-001 — The current 61→62 migration and full supported chain are untested
 
@@ -994,12 +1045,12 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 |---|---|---|---|
 | PLATFORM-001 | Boot recovery starts a prohibited `dataSync` foreground service before enqueuing durable work | Needs improvement (2026-07-26 audit) | High |
 | PLATFORM-002 | Recording and downloads share the six-hour `dataSync` quota without timeout handling | Needs improvement (2026-07-26 audit) | High |
-| DOWNLOAD-001 | Process-killed downloads remain permanently `DOWNLOADING` | Resolved (2026-07-26) | High |
+| DOWNLOAD-001 | Process-killed downloads remain permanently `DOWNLOADING` | Resolved (2026-07-29) | High |
 | ALARM-001 | Exact-alarm permission revocation cancels schedules with no grant-time restoration | Needs improvement (2026-07-26 audit) | High |
-| BACKUP-003 | Backup inspection/import has unbounded parsing and quadratic conflict scans | Confirmed defect | High |
-| REMINDER-001 | Notification failure is swallowed and the reminder is marked delivered | Confirmed defect | Medium |
-| CLOCK-001 | A future-dated `RUNNING` Xtream index job can suppress recovery indefinitely | Confirmed defect | Medium |
-| TEST-002 | The download manager/service has no focused tests | Confirmed test gap | Medium |
+| BACKUP-003 | Backup inspection/import has unbounded parsing and quadratic conflict scans | Resolved (2026-07-29) | High |
+| REMINDER-001 | Notification failure is swallowed and the reminder is marked delivered | Resolved (2026-07-29) | Medium |
+| CLOCK-001 | A future-dated `RUNNING` Xtream index job can suppress recovery indefinitely | Resolved (2026-07-29) | Medium |
+| TEST-002 | The download manager/service lacks complete boundary coverage | Needs improvement (2026-07-29 audit) | Medium |
 | COMPAT-001 | Legacy-route decoding calls an API-33 overload on API 25–32 | Needs improvement (2026-07-26 audit) | High |
 
 ## Adversarial scenario matrix
@@ -1009,13 +1060,13 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 | Process death during staged catalog import | Epoch/staging state is persisted and active catalog promotion is transactional | Good baseline; size/cancellation defects remain in Phase 2 |
 | Rapid player prepare/zap | Request generations reject stale URL resolution/preload completion | Good baseline |
 | Clock moves backward for cache TTL | `ContentCachePolicy` explicitly treats negative elapsed time as stale | Good baseline |
-| Process death during download | Startup reclaims the ownerless row into the pending queue | Resolved (DOWNLOAD-001) |
+| Process death during download | Startup reconciles the durable owner and validates the partial output before completion, resume, or safe restart | Resolved (DOWNLOAD-001) |
 | Reboot with scheduled recording | Boot receiver starts a forbidden FGS before WorkManager enqueue | PLATFORM-001 |
 | Exact-alarm permission revoked/re-granted | System cancels alarms; app has no grant receiver | ALARM-001 |
 | Long/cumulative recording and download work | Both services consume one six-hour `dataSync` budget; neither handles timeout | PLATFORM-002 |
-| Notification permission/channel changes after reminder creation | Notify error is discarded and delivery is still committed | REMINDER-001 |
+| Notification permission/channel changes after reminder creation | Delivery is blocked truthfully, persisted with a reason, surfaced on resume, and retried without duplicate ownership | Resolved (REMINDER-001) |
 | Huge/malformed backup | Full Gson object graph is allocated before validation; preview conflict checks are nested scans | BACKUP-003 |
-| Wall clock is corrected behind a persisted running-job timestamp | Negative age is treated as “still running” in one Xtream gate | CLOCK-001 |
+| Wall clock is corrected behind a persisted running-job timestamp | Future/invalid persisted event timestamps are stale; orphaned index/config work is recovered while a genuinely fresh owner is retained | Resolved (CLOCK-001) |
 | Encoded legacy route on API 25–32 | Unconditionally calls an API-33 URL-decoder overload | COMPAT-001 |
 | Recurring recording across DST | `ZonedDateTime.plusDays/plusWeeks` preserves local start time and fixed duration | Good baseline |
 | Range server returns `200` to resume request | Partial output is discarded and restarted from zero | Good baseline |
@@ -1046,14 +1097,15 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 
 ### DOWNLOAD-001 — Process-killed downloads remain permanently DOWNLOADING
 
-- **Classification / severity:** Resolved (2026-07-26) — High
+- **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** `DownloadManagerImpl.kt:74-88,207-239,251-383`; `DownloadDao.kt:23-30`; `DownloadForegroundService.kt:50-100`.
-- **Current behavior:** Capture persists `DOWNLOADING` before network/file work. Process death prevents catch/finally from changing it. Startup/connectivity scheduling selects only `PENDING`/`PAUSED`; `getActive()` observes but does not repair `DOWNLOADING`. Although a valid service start returns `START_STICKY`, a system restart supplies no download ID, causing the service to stop without reconciliation.
+- **Original behavior:** Capture persisted `DOWNLOADING` before network/file work. Process death prevented catch/finally from changing it. Startup/connectivity scheduling selected only `PENDING`/`PAUSED`; `getActive()` observed but did not repair `DOWNLOADING`. Although a valid service start returned `START_STICKY`, a system restart supplied no download ID, causing the service to stop without reconciliation.
 - **Why / scenario:** Killing the process mid-download leaves a row and partial document that no queue path owns. Reopening Downloads or reconnecting does not resume/fail it; only manual resume restarts from zero.
 - **Recommended correction:** Persist an owner generation/heartbeat and reconcile orphan `DOWNLOADING` rows at application/service initialization. If the output grant and byte count remain valid, resume with `Range`; otherwise atomically mark paused/restartable. Use durable unique work or a service command journal rather than in-memory jobs as ownership proof.
 - **Fix scope:** Download state machine and durable execution ownership.
 - **Required tests:** Kill after row transition, target creation, progress checkpoint, final byte, and before completion update; sticky null intent; reboot; revoked SAF grant; server `206/200/416`; exactly one resumed owner.
-- **Resolution:** A fresh `DownloadManagerImpl` now reclaims persisted `DOWNLOADING` rows before scheduling downloads, transitioning them to `PENDING` with an interruption reason so the existing queue/resume path owns them again.
+- **Resolution:** Download rows now persist `owner_id`, monotonic `owner_epoch`, and `heartbeat_at` through migration 68-to-69. Every scheduling entry point serializes orphan reconciliation before queue admission, and a conditional DAO update grants exactly one process owner. Recovery validates the real target length: a fully written known-length target is completed, an exact resumable checkpoint is queued with `Range`, and missing, revoked, zero-length, or mismatched output is deleted and restarted safely. Resume handling validates `Content-Range`, appends only an aligned `206`, replaces output on `200`, recognizes an exact-length `416`, and rejects malformed fresh partial responses without a restart loop. A sticky service restart with no download ID now enters the same reconciliation path instead of stopping.
+- **Verification:** `DownloadRecoveryStateMachineTest` covers interruption after row transition, target creation, an exact progress checkpoint, bytes beyond the checkpoint, final bytes before the completion commit, revoked SAF access, request headers, aligned/misaligned/malformed `206`, `200`, and exact/mismatched `416`. `DownloadDaoOwnershipTest` uses Room with concurrent schedulers to prove a single claim and verifies that a new process sees the prior owner as orphaned. `DownloadForegroundServicePolicyTest` covers null, blank, and explicit sticky commands. The focused data and app tests passed; the 68-to-69 Android migration test sources compiled; and `:app:assembleDebug` passed on 2026-07-29.
 
 ### ALARM-001 — Exact-alarm permission revocation cancels schedules with no grant-time restoration
 
@@ -1069,45 +1121,50 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 
 ### BACKUP-003 — Backup inspection/import has unbounded parsing and quadratic conflict scans
 
-- **Classification / severity:** Confirmed defect — High
+- **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** `BackupManagerImpl.kt:232-340,344-359,513-518`; nested preview scans at `271-317`; no size/count/depth limits are defined.
 - **Current behavior:** Inspection and import deserialize the entire stream into `BackupData` with Gson before version, structure, or checksum validation. Preview then performs incoming-list `count` operations containing linear `any` scans over existing groups/favorites/history/recordings. `OutOfMemoryError` is not caught by the surrounding `catch (Exception)`.
 - **Why / scenario:** A mistakenly selected huge JSON file or an oversized legitimate backup can allocate an unbounded object graph, perform quadratic work, freeze/kill a TV process, and never return the intended corruption result. Checksum validation happens too late to protect admission.
 - **Recommended correction:** Enforce compressed/uncompressed byte, nesting, per-section count, and field-length limits while streaming. Validate header/version and compute checksum incrementally. Build hash-indexed conflict keys for O(n+m) preview and reject oversized sections with typed diagnostics.
 - **Fix scope:** Backup format reader/admission architecture.
 - **Required tests:** Oversized seekable/non-seekable URI, deep JSON, million-entry/duplicate-heavy sections, long strings, malformed/truncated input, cancellation, low-heap fixture, and linear-time conflict benchmark.
+- **Resolution:** Inspection and import now share a bounded streaming reader that admits the version header first, limits the input to 16 MiB, rejects nesting beyond 64 levels, caps every materialized section, and rejects strings beyond 8,192 characters before Gson can allocate the corresponding object graph. Admission failures carry typed reasons, cancellation is propagated, trailing/duplicate/malformed input is rejected, and canonical SHA-256 verification is streamed through a digest output. Preview conflict detection uses hash-indexed keys, including recording channel/URL alternatives, for O(n+m) behavior.
+- **Verification:** `BackupManagerImplTest` covers oversized seekable and non-seekable streams, early unsupported/missing headers, depth, million-entry section rejection, duplicate fields, long strings, malformed/truncated JSON, cancellation, and a 20,000-by-20,000 duplicate-heavy recording benchmark. `:data:lowHeapBackupAdmissionTest` runs the focused suite in a 128 MiB test JVM. Both focused tasks passed on 2026-07-29.
 
 ### REMINDER-001 — Notification failure is swallowed and the reminder is marked delivered
 
-- **Classification / severity:** Resolved (2026-07-26) — Medium
+- **Classification / severity:** Resolved (2026-07-29) — Medium
 - **Where:** `ProgramReminderNotifier.kt:20-42`; `ProgramReminderManagerImpl.kt:153-163`; scheduling-time UI gate in `NotificationPermissionGate.kt:36-103`.
-- **Current behavior:** `notify()` is wrapped in `runCatching` and returns no outcome. `deliverReminder()` unconditionally writes `notifiedAt` after the call. The UI checks permission when creating a reminder, but permission/channel state can change later.
+- **Original behavior:** `notify()` was wrapped in `runCatching` and returned no outcome. `deliverReminder()` unconditionally wrote `notifiedAt` after the call. The UI checked permission when creating a reminder, but permission/channel state could change later.
 - **Why / scenario:** If notifications are revoked, the channel is disabled, or notify throws at delivery time, the user sees nothing while the row permanently records successful delivery and cannot be retried or diagnosed.
 - **Recommended correction:** Return a typed notification result, check runtime/channel state at delivery, and commit `notifiedAt` only after accepted delivery. Persist a blocked/failed reason and surface it when the app resumes; avoid blind repeated alerts.
 - **Fix scope:** Reminder delivery result/state model.
 - **Required tests:** Permission revoked after scheduling, channel disabled, notify exception, process death between notify and DB update, retry/deduplication, stale reminder, and reboot.
-- **Resolution:** Notification delivery now returns a typed result and `notifiedAt` is written only after successful delivery. Disabled app notifications remain pending for a later retry.
+- **Resolution:** Reminder delivery now uses typed `Accepted`, `Blocked`, and `Failed` outcomes and checks both app-level notification permission and the reminder channel's importance. Migration 69-to-70 persists delivery state, attempt token/time/count, and failure reason. A conditional DAO claim grants one delivery owner; terminal writes require the same attempt token, so concurrent or stale completions cannot overwrite a newer attempt. `notifiedAt` is committed only after `NotificationManager` accepts the stable-tag notification. If the process dies after posting but before that commit, startup checks the app's active notification and completes the interrupted attempt without reposting; if no notification exists, it retries safely with the same stable tag. Blocked/failed reminders are retried during startup, reboot, and guide foreground reconciliation, remain visible through the stale grace period, and surface their persisted reason in the guide. Stale reminders are dismissed without notifying.
+- **Verification:** `ProgramReminderManagerImplTest` covers permission loss, channel blocking, notifier exceptions, cancellation, stale reminders, already-delivered deduplication, process death before and after posting, due-reminder retry, and reboot restoration. `ProgramReminderNotifierPolicyTest` verifies app and channel admission. `ProgramReminderDeliveryDaoTest` proves one concurrent attempt owner and rejects a stale completion token. `ProgramReminderIssueMessageTest` verifies persisted failures are surfaced, and the complete `EpgViewModelTest` suite remains green. Focused tests passed, migration 69-to-70 Android test sources compiled, and `:app:assembleDebug` passed on 2026-07-29.
 
 ### CLOCK-001 — A future-dated running Xtream index job can suppress recovery indefinitely
 
-- **Classification / severity:** Resolved (2026-07-26) — Medium
-- **Where:** `ProviderSyncWorker.kt:307-316`; contrast `ContentCachePolicy.kt:8-13`, which correctly handles negative elapsed time.
-- **Current behavior:** A `RUNNING` job is treated as fresh when `(now - updatedAt) < 15 minutes`. If `updatedAt` is in the future after manual/NTP clock correction, the negative age satisfies the condition until wall time catches up.
+- **Classification / severity:** Resolved (2026-07-29) — Medium
+- **Where:** `ProviderSyncWorker.kt`; `ContentCachePolicy.kt`; shared policy in `PersistedTimestampPolicy.kt`; related persisted-event gates in `ProviderConfigRevisionDao.kt`, `EpgSourceRepositoryImpl.kt`, `SettingsProviderActions.kt`, and `AppUpdateCheckPolicy.kt`.
+- **Original behavior:** A `RUNNING` job was treated as fresh when `(now - updatedAt) < 15 minutes`. The earlier local correction rejected future timestamps, but then fell through to the previous successful-index TTL; an orphaned `RUNNING` job could therefore still be skipped when `lastSuccessAt` was recent. Durable `SYNCING` provider revisions and several persisted “last event” gates also used raw wall-clock comparisons that extended suppression after a rollback.
 - **Why / scenario:** A process dies with a running job, then the device clock moves backward by hours/days. Launch/periodic stale checks repeatedly skip the orphan job and its VOD/series index remains partial.
 - **Recommended correction:** Treat negative age as stale, matching `ContentCachePolicy`, or centralize persisted-age calculation with bounded clock-skew rules. Use monotonic time only for in-process durations and wall time plus explicit skew handling across restarts.
 - **Fix scope:** Local gate plus shared timestamp policy audit.
 - **Required tests:** Future timestamp, backward/forward jumps, process death, exact threshold, zero/invalid timestamps, and no duplicate live owner.
-- **Resolution:** A running index job is fresh only when its timestamp is not in the future and is within the stale window. Future timestamps are now eligible for recovery.
+- **Resolution:** `PersistedTimestampPolicy` now defines one wall-clock freshness rule: missing, non-positive, future, and threshold-expired timestamps are stale. `ContentCachePolicy` and the Xtream worker use it. A `RUNNING` index row now returns directly from the owner-freshness decision, so every stale/invalid orphan is recoverable regardless of an older `lastSuccessAt`; a genuinely fresh row remains the live owner and suppresses duplicate recovery. Provider-revision recovery admits future/invalid `SYNCING` rows after process death, while retaining a recent owner. The shared audit moved persisted EPG refresh, provider auto-sync, and app-update event backoff gates onto the same rule. Absolute schedule timestamps remain wall-clock semantics; in-process elapsed timing is not represented by this persisted policy.
+- **Verification:** `PersistedTimestampPolicyTest`, `ProviderSyncWorkerTest`, `ContentCachePolicyTest`, `ProviderConfigRevisionClockRecoveryTest`, `EpgRefreshClockPolicyTest`, `SettingsProviderActionsTest`, and `AppUpdateCheckPolicyTest` cover future/backward and forward jumps, process-death rows with a recent prior success, exact threshold, zero/negative/missing values, Room recovery admission, and retention of a fresh owner. The focused 33-test matrix passed with zero failures, and `:app:assembleDebug` passed on 2026-07-29.
 
-### TEST-002 — The download manager/service has no focused tests
+### TEST-002 — The download manager/service lacks complete boundary coverage
 
-- **Classification / severity:** Confirmed test gap — Medium
-- **Where:** `DownloadManagerImpl.kt`, `DownloadForegroundService.kt`, `DownloadDao.kt`; no corresponding test class exists. Current download references in tests are UI mocks or update/speed-test code.
-- **Current behavior:** The most failure-sensitive paths—process recovery, SAF output, range resume, cancellation, network retry, playback pause, service restart, and terminal finalization—have no executable regression coverage.
+- **Classification / severity:** Needs improvement (2026-07-29 audit) — Medium
+- **Where:** `DownloadManagerImpl.kt`, `DownloadForegroundService.kt`, `DownloadDao.kt`; focused recovery, ownership, and service-policy tests now exist, but the wider execution matrix remains incomplete.
+- **Current behavior:** DOWNLOAD-001 now has executable state-machine, Room concurrency, and sticky-command regression coverage. Disk-full writes, cancellation at every I/O/commit boundary, retry/backoff ceilings, timeout execution, and concurrent enqueue/playback still lack end-to-end adapter or device coverage.
 - **Why / scenario:** DOWNLOAD-001 and platform timeout behavior can ship while broad builds and unrelated UI tests remain green.
 - **Recommended correction:** Extract a deterministic download state machine with injected clock/dispatcher/output/network adapters, add Room/MockWebServer unit tests, and add API 35/36 service/process-death instrumentation.
 - **Fix scope:** Testability refactor plus unit/instrumentation suite.
 - **Required tests:** All DOWNLOAD-001 cases, disk full, permission loss, 200/206/416, unknown length, cancellation at each boundary, retry ceiling/backoff, service null intent, timeout, and concurrent enqueue/playback.
+- **2026-07-29 audit:** The DOWNLOAD-001 subset is covered and passing. The remaining failure and platform boundaries above are still required, so this broader finding is not resolved.
 
 ### COMPAT-001 — Legacy-route decoding calls an API-33 overload on API 25–32
 

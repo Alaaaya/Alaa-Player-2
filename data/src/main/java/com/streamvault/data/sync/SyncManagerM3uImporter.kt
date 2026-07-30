@@ -41,7 +41,8 @@ internal class SyncManagerM3uImporter(
         onProgress: ((String) -> Unit)?,
         includeLive: Boolean = true,
         includeMovies: Boolean = true,
-        batchSize: Int = 1000
+        batchSize: Int = 1000,
+        afterCatalogApply: suspend () -> Unit = {}
     ): M3uImportStats {
         UrlSecurityPolicy.validatePlaylistSourceUrl(provider.m3uUrl.ifBlank { provider.serverUrl })?.let { message ->
             throw IllegalStateException(message)
@@ -243,7 +244,8 @@ internal class SyncManagerM3uImporter(
                 liveCategories = if (effectiveLive) liveCategories.entities() else null,
                 movieCategories = if (effectiveMovies) movieCategories.entities() else null,
                 includeLive = effectiveLive,
-                includeMovies = effectiveMovies
+                includeMovies = effectiveMovies,
+                afterCatalogApply = afterCatalogApply
             )
         } finally {
             syncCatalogStore.discardStagedImport(provider.id, sessionId)

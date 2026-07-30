@@ -1,6 +1,7 @@
 package com.streamvault.data.manager
 
 import android.content.Context
+import android.database.sqlite.SQLiteException
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
@@ -40,6 +41,9 @@ import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.RecordingFailureCategory
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingRecurrence
+import com.streamvault.domain.model.RecordingReconciliationResult
+import com.streamvault.domain.model.RecordingReconciliationRowFailure
+import com.streamvault.domain.model.RecordingReconciliationSummary
 import com.streamvault.domain.model.RecordingRequest
 import com.streamvault.domain.model.RecordingSourceType
 import com.streamvault.domain.model.RecordingStatus
@@ -49,6 +53,7 @@ import com.streamvault.domain.model.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -73,6 +78,16 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "RecordingManager"
 private const val MIN_FREE_SPACE_BYTES = 512L * 1024L * 1024L // 512 MB
+
+internal fun isTransientRecordingReconciliationFailure(error: Throwable): Boolean = when (error) {
+    is IOException -> true
+    is SQLiteException -> {
+        val message = error.message.orEmpty()
+        message.contains("locked", ignoreCase = true) ||
+            message.contains("busy", ignoreCase = true)
+    }
+    else -> false
+}
 private const val FAILURE_NOTIFICATION_CHANNEL_ID = "streamvault_recording_failure"
 private const val FAILURE_NOTIFICATION_ID_BASE = 5000
 private const val FOREGROUND_SERVICE_TIMEOUT_REASON =
@@ -493,35 +508,127 @@ class RecordingManagerImpl @Inject constructor(
         )
     }
 
-    override suspend fun reconcileRecordingState(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching<Unit> {
+    override suspend fun reconcileRecordingState(): RecordingReconciliationResult =
+        withContext(Dispatchers.IO) {
+        val rowFailures = mutableListOf<RecordingReconciliationRowFailure>()
+        var rowsInspected = 0
+        var rowsRepaired = 0
+        try {
             ensureStorageState()
             pruneExpiredRecordings()
             val scheduledRuns = recordingRunDao.getAlarmManagedScheduledRuns()
                 .filter { it.scheduleEnabled && it.status == RecordingStatus.SCHEDULED }
-            if (!alarmScheduler.canScheduleExactAlarms()) {
-                scheduledRuns.forEach { run -> recordingRunDao.setExactAlarmArmed(run.id, false) }
-            } else scheduledRuns.forEach { run ->
-                    if (run.scheduledEndMs <= System.currentTimeMillis()) {
-                        markRunFailed(run.id, "Recording window expired before capture started.", RecordingFailureCategory.UNKNOWN)
-                    } else {
-                        when (val result = alarmScheduler.scheduleStart(run.id, run.scheduledStartMs)) {
-                            is Result.Error -> markRunFailed(run.id, result.message, RecordingFailureCategory.UNKNOWN)
-                            else -> recordingRunDao.setExactAlarmArmed(run.id, true)
+            val canScheduleExactAlarms = alarmScheduler.canScheduleExactAlarms()
+            scheduledRuns.forEach { run ->
+                rowsInspected++
+                try {
+                    when {
+                        !canScheduleExactAlarms -> {
+                            recordingRunDao.setExactAlarmArmed(run.id, false)
+                            rowsRepaired++
+                        }
+                        run.scheduledEndMs <= System.currentTimeMillis() -> {
+                            quarantineReconciliationRow(
+                                run,
+                                "Recording window expired before capture started."
+                            )
+                            rowsRepaired++
+                        }
+                        else -> when (val result = alarmScheduler.scheduleStart(run.id, run.scheduledStartMs)) {
+                            is Result.Success -> {
+                                recordingRunDao.setExactAlarmArmed(run.id, true)
+                                rowsRepaired++
+                            }
+                            is Result.Error -> {
+                                result.exception
+                                    ?.takeIf(::isTransientRecordingReconciliationFailure)
+                                    ?.let { throw it }
+                                val reason = result.message.ifBlank {
+                                    "Recording alarm could not be restored."
+                                }
+                                quarantineReconciliationRow(run, reason)
+                                rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                                rowsRepaired++
+                            }
+                            Result.Loading -> {
+                                val reason = "Recording alarm restore returned a non-terminal result."
+                                quarantineReconciliationRow(run, reason)
+                                rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                                rowsRepaired++
+                            }
                         }
                     }
-            }
-            recordingRunDao.getRecordingRuns().forEach { run ->
-                if (run.scheduledEndMs <= System.currentTimeMillis()) {
-                    stopRecording(run.id)
-                } else if (!isActiveJob(run.id)) {
-                    markInterruptedRun(run)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    if (isTransientRecordingReconciliationFailure(error)) throw error
+                    val reason = error.message?.takeIf(String::isNotBlank)
+                        ?: "Recording row could not be reconciled."
+                    quarantineReconciliationRow(run, reason)
+                    rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                    rowsRepaired++
                 }
             }
-        }.fold(
-            onSuccess = { Result.success(Unit) },
-            onFailure = { error -> Result.error(error.message ?: "Failed to reconcile recording state", error) }
-        )
+            recordingRunDao.getRecordingRuns().forEach { run ->
+                rowsInspected++
+                try {
+                    if (run.scheduledEndMs <= System.currentTimeMillis()) {
+                        when (val result = stopRecording(run.id)) {
+                            is Result.Success -> rowsRepaired++
+                            is Result.Error -> {
+                                result.exception
+                                    ?.takeIf(::isTransientRecordingReconciliationFailure)
+                                    ?.let { throw it }
+                                val reason = result.message.ifBlank {
+                                    "Expired recording could not be stopped."
+                                }
+                                quarantineReconciliationRow(run, reason)
+                                rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                                rowsRepaired++
+                            }
+                            Result.Loading -> {
+                                val reason = "Recording stop returned a non-terminal result."
+                                quarantineReconciliationRow(run, reason)
+                                rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                                rowsRepaired++
+                            }
+                        }
+                    } else if (!isActiveJob(run.id)) {
+                        markInterruptedRun(run)
+                        rowsRepaired++
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    if (isTransientRecordingReconciliationFailure(error)) throw error
+                    val reason = error.message?.takeIf(String::isNotBlank)
+                        ?: "Recording row could not be reconciled."
+                    quarantineReconciliationRow(run, reason)
+                    rowFailures += RecordingReconciliationRowFailure(run.id, reason)
+                    rowsRepaired++
+                }
+            }
+            val summary = RecordingReconciliationSummary(
+                rowsInspected = rowsInspected,
+                rowsRepaired = rowsRepaired,
+                rowsQuarantined = rowFailures.size
+            )
+            if (rowFailures.isEmpty()) {
+                RecordingReconciliationResult.Complete(summary)
+            } else {
+                RecordingReconciliationResult.Partial(summary, rowFailures)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            val message = error.message?.takeIf(String::isNotBlank)
+                ?: "Failed to reconcile recording state."
+            if (isTransientRecordingReconciliationFailure(error)) {
+                RecordingReconciliationResult.TransientFailure(message)
+            } else {
+                RecordingReconciliationResult.PermanentFailure(message)
+            }
+        }
     }
 
     override suspend fun promoteScheduledRecording(recordingId: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -841,6 +948,14 @@ class RecordingManagerImpl @Inject constructor(
         markRunFailed(
             recordingId = run.id,
             reason = "Recording was interrupted after the app process stopped. Capture was not resumed to avoid overwriting the existing recording.",
+            category = RecordingFailureCategory.UNKNOWN
+        )
+    }
+
+    private suspend fun quarantineReconciliationRow(run: RecordingRunEntity, reason: String) {
+        markRunFailed(
+            recordingId = run.id,
+            reason = "Recording reconciliation quarantined this row: $reason",
             category = RecordingFailureCategory.UNKNOWN
         )
     }

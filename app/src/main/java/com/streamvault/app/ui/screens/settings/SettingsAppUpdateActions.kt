@@ -35,6 +35,8 @@ internal class SettingsAppUpdateActions(
         updateCheckInFlight = true
         scope.launch {
             val checkedAt = System.currentTimeMillis()
+            preferencesRepository.setLastAppUpdateAttemptTimestamp(checkedAt)
+            preferencesRepository.setLastAppUpdateOutcome("ATTEMPTED")
             uiState.update {
                 it.copy(
                     isCheckingForUpdates = true,
@@ -44,6 +46,7 @@ internal class SettingsAppUpdateActions(
             when (val result = gitHubReleaseChecker.fetchLatestRelease()) {
                 is Result.Error -> {
                     preferencesRepository.setLastAppUpdateFailureTimestamp(checkedAt)
+                    preferencesRepository.setLastAppUpdateOutcome("FAILURE: ${result.message}")
                     uiState.update {
                         it.copy(
                             isCheckingForUpdates = false,
@@ -68,6 +71,7 @@ internal class SettingsAppUpdateActions(
                     )
                     preferencesRepository.setLastAppUpdateCheckTimestamp(checkedAt)
                     preferencesRepository.setLastAppUpdateFailureTimestamp(null)
+                    preferencesRepository.setLastAppUpdateOutcome("SUCCESS")
                     val updateAvailable = isRemoteVersionNewer(
                         release.versionCode,
                         release.versionName,

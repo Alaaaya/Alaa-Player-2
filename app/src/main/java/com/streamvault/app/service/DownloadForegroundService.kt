@@ -49,19 +49,12 @@ class DownloadForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val downloadId = intent?.getStringExtra(EXTRA_DOWNLOAD_ID)
-        if (downloadId.isNullOrBlank()) {
-            Log.w(TAG, " onStartCommand called without download_id extra; stopping self")
-            stopSelf(startId)
-            return START_NOT_STICKY
-        }
-
+        val startMode = resolveDownloadServiceStartMode(downloadId)
         currentDownloadId = downloadId
         val entryPoint = entryPoint()
-        val downloadFlow = entryPoint.downloadManager().observeDownload(downloadId)
-
         beginPendingCommand()
 
-        runCatching {
+        val foregroundStarted = runCatching {
             startForeground(
                 NOTIFICATION_ID,
                 buildNotification(
@@ -69,12 +62,37 @@ class DownloadForegroundService : Service() {
                     pendingCommand = true
                 )
             )
+            true
         }.onFailure { error ->
             Log.e(TAG, "Unable to enter foreground", error)
+        }.getOrDefault(false)
+        if (!foregroundStarted) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
 
+        observeJob?.cancel()
+        if (startMode == DownloadServiceStartMode.RECOVER_INTERRUPTED) {
+            Log.w(TAG, "Sticky restart without download_id; reconciling interrupted downloads")
+            observeJob = serviceScope.launch {
+                val manager = entryPoint.downloadManager()
+                if (manager.recoverInterruptedDownloads() is com.streamvault.domain.model.Result.Error) {
+                    stopSelf(startId)
+                    return@launch
+                }
+                manager.observeAllDownloads().collectLatest { downloads ->
+                    val active = downloads.firstOrNull {
+                        it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.PENDING
+                    }
+                    currentDownloadId = active?.id
+                    updateNotification(active)
+                    if (active == null) stopSelf(startId)
+                }
+            }
+            return START_STICKY
+        }
+
+        val downloadFlow = entryPoint.downloadManager().observeDownload(requireNotNull(downloadId))
         observeJob = serviceScope.launch {
             downloadFlow.collectLatest { downloadItem ->
                 updateNotification(downloadItem)
@@ -238,3 +256,15 @@ class DownloadForegroundService : Service() {
         }
     }
 }
+
+internal enum class DownloadServiceStartMode {
+    OBSERVE_REQUESTED,
+    RECOVER_INTERRUPTED
+}
+
+internal fun resolveDownloadServiceStartMode(downloadId: String?): DownloadServiceStartMode =
+    if (downloadId.isNullOrBlank()) {
+        DownloadServiceStartMode.RECOVER_INTERRUPTED
+    } else {
+        DownloadServiceStartMode.OBSERVE_REQUESTED
+    }

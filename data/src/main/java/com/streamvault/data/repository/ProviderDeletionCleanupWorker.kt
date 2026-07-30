@@ -15,6 +15,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CancellationException
+import javax.inject.Inject
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 class ProviderDeletionCleanupWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     @EntryPoint @InstallIn(SingletonComponent::class)
@@ -27,23 +29,17 @@ class ProviderDeletionCleanupWorker(appContext: Context, params: WorkerParameter
 
     override suspend fun doWork(): Result {
         val entry = EntryPointAccessors.fromApplication(applicationContext, Entry::class.java)
-        val dao = entry.providerDeletionCleanupDao()
-        var failed = false
-        dao.getAll().forEach { item ->
-            try {
-                when (item.action) {
-                    RECORDING_ALARM -> entry.recordingAlarmScheduler().cancel(item.targetId)
-                    REMINDER_ALARM -> entry.programReminderAlarmScheduler().cancel(item.targetId.toLong())
-                    SYNC_RUNTIME -> entry.syncManager().onProviderDeleted(item.providerId)
-                }
-                dao.delete(item.id)
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                dao.recordFailure(item.id, t.message ?: t.javaClass.simpleName)
-                failed = true
-            }
+        return when (
+            drainProviderDeletionCleanup(
+                dao = entry.providerDeletionCleanupDao(),
+                cancelRecordingAlarm = entry.recordingAlarmScheduler()::cancel,
+                cancelReminderAlarm = entry.programReminderAlarmScheduler()::cancel,
+                cleanupSyncRuntime = entry.syncManager()::onProviderDeleted
+            )
+        ) {
+            ProviderDeletionDrainOutcome.COMPLETE -> Result.success()
+            ProviderDeletionDrainOutcome.RETRY -> Result.retry()
         }
-        return if (failed) Result.retry() else Result.success()
     }
 
     companion object {
@@ -52,7 +48,69 @@ class ProviderDeletionCleanupWorker(appContext: Context, params: WorkerParameter
         const val SYNC_RUNTIME = "SYNC_RUNTIME"
         private const val WORK_NAME = "ProviderDeletionCleanup"
         fun enqueue(context: Context) = WorkManager.getInstance(context).enqueueUniqueWork(
-            WORK_NAME, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<ProviderDeletionCleanupWorker>().build()
+            WORK_NAME,
+            PROVIDER_DELETION_EXISTING_WORK_POLICY,
+            OneTimeWorkRequestBuilder<ProviderDeletionCleanupWorker>().build()
         )
     }
 }
+
+class ProviderDeletionCleanupEnqueuer @Inject constructor(
+    @param:ApplicationContext private val context: Context
+) {
+    fun enqueue() {
+        ProviderDeletionCleanupWorker.enqueue(context)
+    }
+}
+
+internal enum class ProviderDeletionDrainOutcome {
+    COMPLETE,
+    RETRY
+}
+
+internal suspend fun drainProviderDeletionCleanup(
+    dao: ProviderDeletionCleanupDao,
+    cancelRecordingAlarm: (String) -> Unit,
+    cancelReminderAlarm: (Long) -> Unit,
+    cleanupSyncRuntime: suspend (Long) -> Unit
+): ProviderDeletionDrainOutcome {
+    while (true) {
+        val items = try {
+            dao.getBatch(CLEANUP_BATCH_SIZE)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return ProviderDeletionDrainOutcome.RETRY
+        }
+        if (items.isEmpty()) return ProviderDeletionDrainOutcome.COMPLETE
+
+        var failed = false
+        items.forEach { item ->
+            try {
+                when (item.action) {
+                    ProviderDeletionCleanupWorker.RECORDING_ALARM -> cancelRecordingAlarm(item.targetId)
+                    ProviderDeletionCleanupWorker.REMINDER_ALARM -> cancelReminderAlarm(item.targetId.toLong())
+                    ProviderDeletionCleanupWorker.SYNC_RUNTIME -> cleanupSyncRuntime(item.providerId)
+                    else -> error("Unknown provider cleanup action '${item.action}'")
+                }
+                dao.delete(item.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                failed = true
+                try {
+                    dao.recordFailure(item.id, error.message ?: error.javaClass.simpleName)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // The tombstone remains durable. Returning retry is more important than
+                    // successfully recording diagnostics for this attempt.
+                }
+            }
+        }
+        if (failed) return ProviderDeletionDrainOutcome.RETRY
+    }
+}
+
+private const val CLEANUP_BATCH_SIZE = 100
+internal val PROVIDER_DELETION_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE

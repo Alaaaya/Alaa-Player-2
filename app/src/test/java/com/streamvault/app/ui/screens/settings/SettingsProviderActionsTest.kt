@@ -56,6 +56,17 @@ class SettingsProviderActionsTest {
     )
 
     @Test
+    fun providerWithFutureSyncTimestampIsStaleAfterBackwardClockJump() {
+        assertThat(
+            shouldAutoSyncProvider(
+                lastSyncedAt = 10_001L,
+                now = 10_000L,
+                staleAfterMillis = 86_400_000L
+            )
+        ).isTrue()
+    }
+
+    @Test
     fun setActiveProvider_refreshesProviderScopedTvSurfaces() = runTest(StandardTestDispatcher()) {
         val provider = Provider(
             id = 7L,
@@ -80,7 +91,15 @@ class SettingsProviderActionsTest {
 
     @Test
     fun deleteProvider_refreshesProviderScopedTvSurfaces() = runTest(StandardTestDispatcher()) {
-        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(Result.success(Unit))
+        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(
+            Result.success(
+                com.streamvault.domain.repository.ProviderDeleteOutcome(
+                    providerId = 7L,
+                    pendingCleanupActions = 0,
+                    reconciliationRequested = true
+                )
+            )
+        )
 
         actions.deleteProvider(this, 7L)
         advanceUntilIdle()
@@ -93,8 +112,35 @@ class SettingsProviderActionsTest {
     }
 
     @Test
+    fun deleteProvider_surfacesLibraryDeletedWhileCleanupIsPending() = runTest(StandardTestDispatcher()) {
+        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(
+            Result.success(
+                com.streamvault.domain.repository.ProviderDeleteOutcome(
+                    providerId = 7L,
+                    pendingCleanupActions = 3,
+                    reconciliationRequested = true
+                )
+            )
+        )
+
+        actions.deleteProvider(this, 7L)
+        advanceUntilIdle()
+
+        assertThat(uiState.value.userMessage)
+            .isEqualTo("Provider library deleted; final cleanup continues")
+    }
+
+    @Test
     fun deleteProvider_stillCompletesSuccessWhenFollowUpRefreshFails() = runTest(StandardTestDispatcher()) {
-        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(Result.success(Unit))
+        whenever(providerRepository.deleteProvider(eq(7L), any())).thenReturn(
+            Result.success(
+                com.streamvault.domain.repository.ProviderDeleteOutcome(
+                    providerId = 7L,
+                    pendingCleanupActions = 0,
+                    reconciliationRequested = true
+                )
+            )
+        )
         doThrow(IllegalStateException("refresh boom")).whenever(launcherRecommendationsManager)
             .refreshRecommendations(force = true)
         var onSuccessCalled = false

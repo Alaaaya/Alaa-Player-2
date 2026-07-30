@@ -34,6 +34,36 @@ enum class RecordingRecurrence {
     WEEKLY
 }
 
+data class RecordingReconciliationSummary(
+    val rowsInspected: Int = 0,
+    val rowsRepaired: Int = 0,
+    val rowsQuarantined: Int = 0
+)
+
+data class RecordingReconciliationRowFailure(
+    val recordingId: String,
+    val reason: String
+)
+
+sealed interface RecordingReconciliationResult {
+    data class Complete(
+        val summary: RecordingReconciliationSummary
+    ) : RecordingReconciliationResult
+
+    data class Partial(
+        val summary: RecordingReconciliationSummary,
+        val rowFailures: List<RecordingReconciliationRowFailure>
+    ) : RecordingReconciliationResult
+
+    data class TransientFailure(
+        val message: String
+    ) : RecordingReconciliationResult
+
+    data class PermanentFailure(
+        val message: String
+    ) : RecordingReconciliationResult
+}
+
 data class RecordingRequest(
     val providerId: Long,
     val channelId: Long,

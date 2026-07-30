@@ -1,0 +1,42 @@
+package com.streamvault.data.sync
+
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * Provides one in-process execution lane per provider, regardless of whether work originated
+ * from foreground refresh, catalog indexing, EPG, or a WorkManager recovery entry point.
+ */
+internal class ProviderWorkLockRegistry {
+    private val admissionMutex = Mutex()
+    private val providerMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val admittedCount = AtomicInteger(0)
+
+    fun isAnyWorkActiveOrWaiting(): Boolean = admittedCount.get() > 0
+
+    suspend fun <T> withProviderLock(providerId: Long, block: suspend () -> T): T {
+        require(providerId > 0L) { "Provider work requires a positive provider ID." }
+        val providerMutex = admissionMutex.withLock {
+            admittedCount.incrementAndGet()
+            providerMutexes.computeIfAbsent(providerId) { Mutex() }
+        }
+        return try {
+            providerMutex.withLock { block() }
+        } finally {
+            admissionMutex.withLock {
+                admittedCount.decrementAndGet()
+            }
+        }
+    }
+
+    suspend fun runWhenNoWorkActive(block: suspend () -> Boolean): Boolean =
+        admissionMutex.withLock {
+            if (admittedCount.get() > 0) {
+                false
+            } else {
+                block()
+            }
+        }
+}
