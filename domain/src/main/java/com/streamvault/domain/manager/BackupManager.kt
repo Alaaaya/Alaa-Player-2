@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import com.streamvault.domain.model.Result
 
 data class BackupData(
-    val version: Int = 9,
+    val version: Int = 10,
     val checksum: String? = null,
     val preferences: Map<String, String>? = null,
     val providers: List<Provider>? = null,
@@ -18,7 +18,8 @@ data class BackupData(
     val multiViewPresets: Map<String, List<Long>>? = null,
     val protectedCategories: List<ProtectedCategoryBackup>? = null,
     val scheduledRecordings: List<ScheduledRecordingBackup>? = null,
-    val portableProviderPreferences: PortableProviderPreferencesBackup? = null
+    val portableProviderPreferences: PortableProviderPreferencesBackup? = null,
+    val epgSources: List<com.streamvault.domain.model.EpgSource>? = null
 )
 
 /**

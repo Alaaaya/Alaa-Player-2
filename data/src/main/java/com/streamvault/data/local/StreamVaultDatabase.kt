@@ -56,7 +56,7 @@ import com.streamvault.data.local.entity.*
         ProviderWorkflowEntity::class,
         ProviderWorkflowPhaseEntity::class
     ],
-    version = 71,
+    version = 72,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -2960,6 +2960,22 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_updated_at ON provider_workflow_phases(updated_at)"
                 )
                 validateForeignKeys(database, "provider_workflows", "provider_workflow_phases")
+            }
+        }
+
+        /**
+         * Migration 71 -> 72: make the interpretation of offset-free XMLTV timestamps an
+         * explicit property of the source. Existing sources require an offset until the user
+         * deliberately selects UTC or an IANA timezone; they must never inherit device state.
+         */
+        val MIGRATION_71_72 = object : Migration(71, 72) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE epg_sources ADD COLUMN timezone_policy TEXT NOT NULL DEFAULT 'REQUIRE_OFFSET'"
+                )
+                database.execSQL(
+                    "ALTER TABLE epg_sources ADD COLUMN timezone_id TEXT"
+                )
             }
         }
 

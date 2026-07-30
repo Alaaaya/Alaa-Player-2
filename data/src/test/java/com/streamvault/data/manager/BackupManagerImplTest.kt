@@ -7,6 +7,7 @@ import com.google.gson.Gson
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.EpisodeDao
+import com.streamvault.data.local.dao.EpgSourceDao
 import com.streamvault.data.local.dao.FavoriteDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
@@ -16,6 +17,7 @@ import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.EpgSourceEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.RecordingScheduleEntity
@@ -40,6 +42,7 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.Favorite
+import com.streamvault.domain.model.EpgSource
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderType
@@ -47,6 +50,7 @@ import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.XmltvTimezonePolicy
 import com.streamvault.domain.repository.CategoryRepository
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -70,6 +74,64 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class BackupManagerImplTest {
+
+    @Test
+    fun `importConfig preserves explicit EPG source timezone interpretation`() = runBlocking {
+        val context: Context = mock()
+        val providerDao: ProviderDao = mock()
+        val epgSourceDao: EpgSourceDao = mock()
+        val file = File.createTempFile("streamvault-epg-timezone", ".json")
+        val backupData = BackupData(
+            version = 10,
+            epgSources = listOf(
+                EpgSource(
+                    id = 91L,
+                    name = "Local-time guide",
+                    url = "https://example.com/guide.xml",
+                    timezonePolicy = XmltvTimezonePolicy.EXPLICIT_ZONE,
+                    timezoneId = "Europe/Amsterdam"
+                )
+            )
+        )
+        FileOutputStream(file).use { it.write(Gson().toJson(backupData).toByteArray()) }
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(epgSourceDao.getByUrl("https://example.com/guide.xml")).thenReturn(
+            EpgSourceEntity(
+                id = 7L,
+                name = "Existing",
+                url = "https://example.com/guide.xml"
+            )
+        )
+
+        try {
+            val result = backupManagerForValidation(
+                context = context,
+                providerDao = providerDao,
+                epgSourceDao = epgSourceDao
+            ).importConfig(
+                uriString = file.toURI().toString(),
+                plan = BackupImportPlan(
+                    importPreferences = false,
+                    importProviders = true,
+                    importSavedLibrary = false,
+                    importPlaybackHistory = false,
+                    importMultiViewPresets = false,
+                    importRecordingSchedules = false,
+                    conflictStrategy = BackupConflictStrategy.REPLACE_EXISTING
+                )
+            )
+
+            assertThat(result).isInstanceOf(Result.Success::class.java)
+            verify(epgSourceDao).update(argThat<EpgSourceEntity> {
+                id == 7L &&
+                    timezonePolicy == XmltvTimezonePolicy.EXPLICIT_ZONE &&
+                    timezoneId == "Europe/Amsterdam"
+            })
+        } finally {
+            file.delete()
+        }
+        Unit
+    }
 
     @Test
     fun `inspectBackup rejects oversized non seekable input with typed byte limit`() = runBlocking {
@@ -173,7 +235,7 @@ class BackupManagerImplTest {
     fun `inspectBackup rejects unsupported version before reading sections`() = runBlocking {
         val error = inspectAdmissionFailure(
             "unsupported-version",
-            """{"version":10,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
+            """{"version":11,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
         )
 
         assertThat(error.reason).isEqualTo(BackupAdmissionReason.UNSUPPORTED_VERSION)
@@ -1873,6 +1935,7 @@ class BackupManagerImplTest {
         categoryRepository: CategoryRepository = mock(),
         virtualGroupDao: VirtualGroupDao = mock(),
         credentialCrypto: CredentialCrypto = mock(),
+        epgSourceDao: EpgSourceDao? = null,
     ): BackupManagerImpl = BackupManagerImpl(
         context = context,
         preferencesRepository = preferencesRepository,
@@ -1891,7 +1954,8 @@ class BackupManagerImplTest {
         },
         gson = Gson(),
         backupRestoreCheckpointDao = checkpointDao,
-        channelDao = channelDao
+        channelDao = channelDao,
+        epgSourceDao = epgSourceDao
     )
 
     private fun preferencesOnlyPlan() = BackupImportPlan(

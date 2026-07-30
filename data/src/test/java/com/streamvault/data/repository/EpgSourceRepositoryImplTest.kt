@@ -10,13 +10,11 @@ import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.EpgChannelDao
 import com.streamvault.data.local.dao.EpgProgrammeDao
 import com.streamvault.data.local.dao.EpgSourceDao
-import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderEpgSourceDao
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
 import com.streamvault.data.local.entity.EpgChannelEntity
 import com.streamvault.data.local.entity.EpgProgrammeEntity
 import com.streamvault.data.local.entity.EpgSourceEntity
-import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.ProviderEpgSourceEntity
 import com.streamvault.data.parser.XmltvParser
 import com.streamvault.data.preferences.PreferencesRepository
@@ -24,7 +22,7 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.EpgMatchType
 import com.streamvault.domain.model.EpgSourceType
 import com.streamvault.domain.model.Result
-import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.XmltvTimezonePolicy
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -71,7 +69,6 @@ class EpgSourceRepositoryImplTest {
     private val contentResolver: ContentResolver = mock()
     private val epgSourceDao: EpgSourceDao = mock()
     private val providerEpgSourceDao: ProviderEpgSourceDao = mock()
-    private val providerDao: ProviderDao = mock()
     private val channelEpgMappingDao: ChannelEpgMappingDao = mock()
     private val epgChannelDao: EpgChannelDao = mock()
     private val epgProgrammeDao: EpgProgrammeDao = mock()
@@ -94,13 +91,11 @@ class EpgSourceRepositoryImplTest {
         whenever(epgHttpClientBuilder.readTimeout(any<Long>(), any())).thenReturn(epgHttpClientBuilder)
         whenever(epgHttpClientBuilder.build()).thenReturn(okHttpClient)
         runBlocking {
-            whenever(providerDao.getById(any())).thenReturn(null)
         }
         repository = EpgSourceRepositoryImpl(
             context = context,
             epgSourceDao = epgSourceDao,
             providerEpgSourceDao = providerEpgSourceDao,
-            providerDao = providerDao,
             channelEpgMappingDao = channelEpgMappingDao,
             epgChannelDao = epgChannelDao,
             epgProgrammeDao = epgProgrammeDao,
@@ -306,7 +301,6 @@ class EpgSourceRepositoryImplTest {
             context = context,
             epgSourceDao = epgSourceDao,
             providerEpgSourceDao = providerEpgSourceDao,
-            providerDao = providerDao,
             channelEpgMappingDao = channelEpgMappingDao,
             epgChannelDao = epgChannelDao,
             epgProgrammeDao = epgProgrammeDao,
@@ -420,11 +414,13 @@ class EpgSourceRepositoryImplTest {
     }
 
     @Test
-    fun `refreshSource passes shared provider timezone to parser when assignments agree`() = runTest {
+    fun `refreshSource uses explicit source timezone regardless of assignments`() = runTest {
         val source = EpgSourceEntity(
             id = 10L,
             name = "Primary",
-            url = "https://example.com/epg.xml"
+            url = "https://example.com/epg.xml",
+            timezonePolicy = XmltvTimezonePolicy.EXPLICIT_ZONE,
+            timezoneId = "America/New_York"
         )
         val request = Request.Builder().url(source.url).build()
         val response = Response.Builder()
@@ -441,24 +437,6 @@ class EpgSourceRepositoryImplTest {
         enqueueResponse(call, response)
         whenever(xmltvParser.maybeDecompressGzip(eq(source.url), any())).thenAnswer { it.arguments[1] }
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(listOf(7L, 8L))
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
-                id = 7L,
-                name = "Provider 7",
-                type = ProviderType.M3U,
-                serverUrl = "https://provider7.example.com",
-                stalkerDeviceTimezone = "America/New_York"
-            )
-        )
-        whenever(providerDao.getById(8L)).thenReturn(
-            ProviderEntity(
-                id = 8L,
-                name = "Provider 8",
-                type = ProviderType.M3U,
-                serverUrl = "https://provider8.example.com",
-                stalkerDeviceTimezone = "America/New_York"
-            )
-        )
 
         val result = repository.refreshSource(10L)
 
@@ -467,7 +445,7 @@ class EpgSourceRepositoryImplTest {
     }
 
     @Test
-    fun `refreshSource falls back to system timezone when assigned providers disagree`() = runTest {
+    fun `refreshSource requires offsets when source has no timezone override`() = runTest {
         val source = EpgSourceEntity(
             id = 10L,
             name = "Primary",
@@ -488,29 +466,31 @@ class EpgSourceRepositoryImplTest {
         enqueueResponse(call, response)
         whenever(xmltvParser.maybeDecompressGzip(eq(source.url), any())).thenAnswer { it.arguments[1] }
         whenever(providerEpgSourceDao.getProviderIdsForSourceSync(10L)).thenReturn(listOf(7L, 8L))
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
-                id = 7L,
-                name = "Provider 7",
-                type = ProviderType.M3U,
-                serverUrl = "https://provider7.example.com",
-                stalkerDeviceTimezone = "America/New_York"
-            )
-        )
-        whenever(providerDao.getById(8L)).thenReturn(
-            ProviderEntity(
-                id = 8L,
-                name = "Provider 8",
-                type = ProviderType.M3U,
-                serverUrl = "https://provider8.example.com",
-                stalkerDeviceTimezone = "Europe/London"
-            )
-        )
 
         val result = repository.refreshSource(10L)
 
         assertThat(result is Result.Success).isTrue()
         verify(xmltvParser).parseStreamingWithChannels(any(), isNull(), any(), any())
+    }
+
+    @Test
+    fun `timezone policy validation accepts only valid explicit IANA zones`() {
+        val valid = validateXmltvTimezonePolicy(
+            XmltvTimezonePolicy.EXPLICIT_ZONE,
+            " Europe/Amsterdam "
+        )
+        val invalid = validateXmltvTimezonePolicy(
+            XmltvTimezonePolicy.EXPLICIT_ZONE,
+            "Mars/Olympus"
+        )
+        val missing = validateXmltvTimezonePolicy(
+            XmltvTimezonePolicy.EXPLICIT_ZONE,
+            null
+        )
+
+        assertThat((valid as Result.Success).data).isEqualTo("Europe/Amsterdam")
+        assertThat(invalid).isInstanceOf(Result.Error::class.java)
+        assertThat(missing).isInstanceOf(Result.Error::class.java)
     }
 
     private class CloseTrackingInputStream : ByteArrayInputStream(byteArrayOf()) {

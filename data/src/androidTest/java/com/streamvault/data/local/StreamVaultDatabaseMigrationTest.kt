@@ -1542,6 +1542,46 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
+    @Test
+    fun migrate71To72_addsDeterministicXmltvTimezonePolicy() {
+        val databaseName = "streamvault-71-72-test"
+        migrationTestHelper.createDatabase(databaseName, 71).apply {
+            execSQL(
+                """
+                INSERT INTO epg_sources (
+                    id, name, url, enabled, last_refresh_at, last_success_at, last_error,
+                    priority, created_at, updated_at, etag, last_modified_header
+                ) VALUES (
+                    1, 'Existing guide', 'https://example.com/guide.xml', 1, 0, 0, NULL,
+                    0, 100, 100, NULL, NULL
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            databaseName,
+            72,
+            true,
+            StreamVaultDatabase.MIGRATION_71_72
+        )
+
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                """
+                SELECT COUNT(*) FROM epg_sources
+                WHERE id = 1
+                  AND timezone_policy = 'REQUIRE_OFFSET'
+                  AND timezone_id IS NULL
+                """.trimIndent()
+            )
+        )
+        migratedDb.close()
+    }
+
     private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0
