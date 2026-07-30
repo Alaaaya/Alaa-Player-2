@@ -11,8 +11,11 @@ interface ProviderDeletionCleanupDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(items: List<ProviderDeletionCleanupEntity>)
 
-    @Query("SELECT * FROM provider_deletion_cleanup ORDER BY id")
-    suspend fun getAll(): List<ProviderDeletionCleanupEntity>
+    @Query("SELECT * FROM provider_deletion_cleanup ORDER BY id LIMIT :limit")
+    suspend fun getBatch(limit: Int): List<ProviderDeletionCleanupEntity>
+
+    @Query("SELECT COUNT(*) FROM provider_deletion_cleanup WHERE provider_id = :providerId")
+    suspend fun countByProvider(providerId: Long): Int
 
     @Query("DELETE FROM provider_deletion_cleanup WHERE id = :id")
     suspend fun delete(id: Long)

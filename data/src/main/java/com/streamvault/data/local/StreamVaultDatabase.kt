@@ -50,9 +50,13 @@ import com.streamvault.data.local.entity.*
         XtreamLiveOnboardingStateEntity::class,
         DownloadEntity::class,
         ProviderDeletionCleanupEntity::class,
-        PluginProviderOwnershipEntity::class
+        PluginProviderOwnershipEntity::class,
+        ProviderConfigRevisionEntity::class,
+        BackupRestoreCheckpointEntity::class,
+        ProviderWorkflowEntity::class,
+        ProviderWorkflowPhaseEntity::class
     ],
-    version = 66,
+    version = 71,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -93,6 +97,9 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun providerDeletionCleanupDao(): ProviderDeletionCleanupDao
     abstract fun pluginProviderOwnershipDao(): PluginProviderOwnershipDao
+    abstract fun providerConfigRevisionDao(): ProviderConfigRevisionDao
+    abstract fun backupRestoreCheckpointDao(): BackupRestoreCheckpointDao
+    abstract fun providerWorkflowDao(): ProviderWorkflowDao
 
     companion object {
         /**
@@ -2766,6 +2773,193 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     columnName = "exact_alarm_armed",
                     columnDefinition = "INTEGER NOT NULL DEFAULT 1"
                 )
+            }
+        }
+
+        /** Migration 66 -> 67: retain candidate provider edits until they are atomically promoted. */
+        val MIGRATION_66_67 = object : Migration(66, 67) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_config_revisions (
+                        provider_id INTEGER NOT NULL,
+                        revision INTEGER NOT NULL,
+                        config_json TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id, revision),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_config_revisions_provider_id_state ON provider_config_revisions(provider_id, state)"
+                )
+                validateForeignKeys(database, "provider_config_revisions")
+            }
+        }
+
+        /** Migration 67 -> 68: retain cross-store backup restore progress for safe retry. */
+        val MIGRATION_67_68 = object : Migration(67, 68) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS backup_restore_checkpoints (
+                        restore_key TEXT NOT NULL,
+                        room_complete INTEGER NOT NULL DEFAULT 0,
+                        preferences_complete INTEGER NOT NULL DEFAULT 0,
+                        presets_complete INTEGER NOT NULL DEFAULT 0,
+                        schedules_complete INTEGER NOT NULL DEFAULT 0,
+                        state TEXT NOT NULL,
+                        preference_snapshot_json TEXT,
+                        last_error TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(restore_key)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** Migration 68 -> 69: make active download ownership durable and reclaimable. */
+        val MIGRATION_68_69 = object : Migration(68, 69) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    tableName = "downloads",
+                    columnName = "owner_id",
+                    columnDefinition = "TEXT"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "downloads",
+                    columnName = "owner_epoch",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "downloads",
+                    columnName = "heartbeat_at",
+                    columnDefinition = "INTEGER"
+                )
+            }
+        }
+
+        /** Migration 69 -> 70: make reminder delivery outcomes durable and recoverable. */
+        val MIGRATION_69_70 = object : Migration(69, 70) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "delivery_state",
+                    columnDefinition = "TEXT NOT NULL DEFAULT 'PENDING'"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "delivery_attempt_token",
+                    columnDefinition = "TEXT"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "delivery_attempted_at",
+                    columnDefinition = "INTEGER"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "delivery_attempt_count",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "delivery_failure_reason",
+                    columnDefinition = "TEXT"
+                )
+                database.execSQL(
+                    """
+                    UPDATE program_reminders
+                    SET delivery_state = CASE
+                        WHEN notified_at IS NOT NULL THEN 'DELIVERED'
+                        WHEN is_dismissed = 1 THEN 'DISMISSED'
+                        ELSE 'PENDING'
+                    END
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** Migration 70 -> 71: persist the provider workflow generation, lease, and phase ledger. */
+        val MIGRATION_70_71 = object : Migration(70, 71) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_workflows (
+                        provider_id INTEGER NOT NULL,
+                        generation INTEGER NOT NULL,
+                        state TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        priority INTEGER NOT NULL,
+                        force INTEGER NOT NULL,
+                        current_phase TEXT,
+                        lease_token TEXT,
+                        lease_expires_at INTEGER,
+                        heartbeat_at INTEGER,
+                        progress_message TEXT,
+                        last_error_code TEXT,
+                        last_error_message TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        completed_at INTEGER,
+                        PRIMARY KEY(provider_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflows_state ON provider_workflows(state)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflows_updated_at ON provider_workflows(updated_at)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflows_lease_expires_at ON provider_workflows(lease_expires_at)"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_workflow_phases (
+                        provider_id INTEGER NOT NULL,
+                        generation INTEGER NOT NULL,
+                        phase TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL,
+                        checkpoint TEXT,
+                        last_error_code TEXT,
+                        last_error_message TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        completed_at INTEGER,
+                        PRIMARY KEY(provider_id, generation, phase),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_provider_id ON provider_workflow_phases(provider_id)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_state ON provider_workflow_phases(state)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_updated_at ON provider_workflow_phases(updated_at)"
+                )
+                validateForeignKeys(database, "provider_workflows", "provider_workflow_phases")
             }
         }
 

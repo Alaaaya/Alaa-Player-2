@@ -35,10 +35,12 @@ import java.net.ProtocolException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,7 +72,10 @@ class DownloadManagerImpl @Inject constructor(
     private val activeCalls = ConcurrentHashMap<String, okhttp3.Call>()
     private val playbackPausedIds = ConcurrentHashMap.newKeySet<String>()
     private val schedulerMutex = Mutex()
+    private val recoveryMutex = Mutex()
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val ownerId = UUID.randomUUID().toString()
+    @Volatile private var recoveryComplete = false
     @Volatile private var playbackActive = false
 
     init {
@@ -139,7 +144,9 @@ class DownloadManagerImpl @Inject constructor(
                             totalBytes = null,
                             supportsResume = false,
                             retryCount = 0,
-                            failureReason = null
+                            failureReason = null,
+                            ownerId = null,
+                            heartbeatAt = null
                         )
                     )
                 }
@@ -156,7 +163,13 @@ class DownloadManagerImpl @Inject constructor(
             activeCalls.remove(id)?.cancel()
             activeJobs.remove(id)?.cancelAndJoin()
             downloadDao.getByIdOnce(id)?.let { entity ->
-                downloadDao.update(entity.copy(status = DownloadStatus.CANCELLED))
+                downloadDao.update(
+                    entity.copy(
+                        status = DownloadStatus.CANCELLED,
+                        ownerId = null,
+                        heartbeatAt = null
+                    )
+                )
             }
         }.fold(
             onSuccess = { Result.success(Unit) },
@@ -207,6 +220,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     private suspend fun scheduleExisting(id: String, keepPaused: Boolean = false) {
+        ensureInterruptedDownloadsRecovered()
         schedulerMutex.withLock {
             if (activeJobs.containsKey(id)) return
             val entity = downloadDao.getByIdOnce(id) ?: return
@@ -221,13 +235,20 @@ class DownloadManagerImpl @Inject constructor(
         }
     }
 
-    private fun startDownloadJob(entity: DownloadEntity) {
-        activeJobs[entity.id] = applicationScope.launch(Dispatchers.IO) {
-            captureDownload(entity)
+    private suspend fun startDownloadJob(entity: DownloadEntity) {
+        if (downloadDao.claimForDownload(entity.id, ownerId, System.currentTimeMillis()) != 1) return
+        val claimed = downloadDao.getByIdOnce(entity.id)
+            ?.takeIf { it.ownerId == ownerId && it.status == DownloadStatus.DOWNLOADING }
+            ?: return
+        val job = applicationScope.launch(start = CoroutineStart.LAZY) {
+            captureDownload(claimed)
         }
+        activeJobs[entity.id] = job
+        job.start()
     }
 
     private suspend fun startNextQueued() {
+        ensureInterruptedDownloadsRecovered()
         schedulerMutex.withLock {
             if (playbackActive || activeJobs.isNotEmpty()) return
             val next = downloadDao.getQueuedOnce()
@@ -242,14 +263,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     override suspend fun recoverInterruptedDownloads(): Result<Int> = runSuspendCatching {
-        val recovered = schedulerMutex.withLock {
-            // This method runs only at process startup, before this manager owns any job.
-            // Reconnect callbacks deliberately do not call it, so live work is never reclaimed.
-            check(activeJobs.isEmpty()) { "Cannot recover downloads while this process owns active jobs" }
-            downloadDao.recoverOrphanedDownloading(
-                "Interrupted after app process stopped; queued to resume"
-            )
-        }
+        val recovered = ensureInterruptedDownloadsRecovered()
         startNextQueued()
         recovered
     }.fold(
@@ -257,10 +271,68 @@ class DownloadManagerImpl @Inject constructor(
         onFailure = { Result.error("Failed to recover interrupted downloads", it) }
     )
 
-    /**
-     * A process death destroys active jobs and HTTP calls. Persisted DOWNLOADING rows therefore
-     * have no owner on the next manager instance and must be made schedulable again.
-     */
+    private suspend fun ensureInterruptedDownloadsRecovered(): Int = recoveryMutex.withLock {
+        if (recoveryComplete) return@withLock 0
+        check(activeJobs.isEmpty()) { "Cannot recover downloads while this process owns active jobs" }
+        val interrupted = downloadDao.getOrphanedDownloading(ownerId)
+        interrupted.forEach { entity ->
+            val targetLength = outputLength(entity)
+            when (
+                planInterruptedDownload(
+                    bytesWritten = entity.bytesWritten,
+                    totalBytes = entity.totalBytes,
+                    supportsResume = entity.supportsResume,
+                    targetLength = targetLength
+                )
+            ) {
+                InterruptedDownloadPlan.COMPLETE -> {
+                    val completedBytes = requireNotNull(targetLength)
+                    downloadDao.update(
+                        entity.copy(
+                            status = DownloadStatus.COMPLETED,
+                            bytesWritten = completedBytes,
+                            totalBytes = entity.totalBytes ?: completedBytes,
+                            retryCount = 0,
+                            completedAt = System.currentTimeMillis(),
+                            failureReason = null,
+                            ownerId = null,
+                            heartbeatAt = null
+                        )
+                    )
+                }
+                InterruptedDownloadPlan.RESUME -> {
+                    downloadDao.update(
+                        entity.copy(
+                            status = DownloadStatus.PENDING,
+                            completedAt = null,
+                            failureReason = INTERRUPTED_RESUME_REASON,
+                            ownerId = null,
+                            heartbeatAt = null
+                        )
+                    )
+                }
+                InterruptedDownloadPlan.RESTART -> {
+                    deleteOutput(entity)
+                    downloadDao.update(
+                        entity.copy(
+                            outputUri = null,
+                            outputDisplayPath = null,
+                            status = DownloadStatus.PENDING,
+                            bytesWritten = 0L,
+                            totalBytes = null,
+                            supportsResume = false,
+                            completedAt = null,
+                            failureReason = INTERRUPTED_RESTART_REASON,
+                            ownerId = null,
+                            heartbeatAt = null
+                        )
+                    )
+                }
+            }
+        }
+        recoveryComplete = true
+        interrupted.size
+    }
 
     private suspend fun pauseActiveDownloadsForPlayback() {
         activeJobs.entries.toList().forEach { (id, job) ->
@@ -286,47 +358,79 @@ class DownloadManagerImpl @Inject constructor(
     )
 
     private suspend fun captureDownload(initial: DownloadEntity) {
-        var current = downloadDao.getByIdOnce(initial.id) ?: initial
-        current = current.copy(status = DownloadStatus.DOWNLOADING, failureReason = null)
-        downloadDao.update(current)
+        var current = downloadDao.getByIdOnce(initial.id)
+            ?.takeIf { it.ownerId == ownerId && it.ownerEpoch == initial.ownerEpoch }
+            ?: return
 
         try {
             val resumeFrom = current.bytesWritten.takeIf {
-                current.supportsResume && it > 0L && hasAppendTarget(current)
+                current.supportsResume && it > 0L && outputLength(current) == it
             } ?: 0L
+            if (current.bytesWritten > 0L && resumeFrom == 0L) {
+                deleteOutput(current)
+                current = current.copy(
+                    outputUri = null,
+                    outputDisplayPath = null,
+                    bytesWritten = 0L,
+                    totalBytes = null,
+                    supportsResume = false,
+                    heartbeatAt = System.currentTimeMillis()
+                )
+                downloadDao.update(current)
+            }
             val resolvedStream = resolveFreshDownloadStream(current)
             val requestUrl = resolvedStream?.url?.takeIf { it.isNotBlank() } ?: current.streamUrl
             if (requestUrl != current.streamUrl) {
                 current = current.copy(streamUrl = requestUrl)
                 downloadDao.update(current)
             }
-            val requestBuilder = Request.Builder().url(requestUrl).get()
-            resolvedStream?.headers.orEmpty().forEach { (name, value) ->
-                requestBuilder.header(name, value)
-            }
-            resolvedStream?.userAgent?.takeIf { it.isNotBlank() }?.let { userAgent ->
-                requestBuilder.header("User-Agent", userAgent)
-            }
-            if (resumeFrom > 0L) requestBuilder.header("Range", "bytes=$resumeFrom-")
-            val call = okHttpClient.newCall(requestBuilder.build())
+            val request = buildDownloadHttpRequest(
+                url = requestUrl,
+                headers = resolvedStream?.headers.orEmpty(),
+                userAgent = resolvedStream?.userAgent,
+                resumeFrom = resumeFrom
+            )
+            val call = okHttpClient.newCall(request)
             activeCalls[initial.id] = call
             call.useCancellableResponse { response ->
-                if (!response.isSuccessful) throw HttpDownloadException(response.code)
                 val body = response.body ?: error("Empty response body")
-                val rangeAccepted = resumeFrom > 0L && response.code == HttpURLConnection.HTTP_PARTIAL
-                val restartFromZero = resumeFrom > 0L && response.code == HttpURLConnection.HTTP_OK
-                if (restartFromZero) {
+                val resumeDecision = resolveResumeResponse(
+                    resumeFrom = resumeFrom,
+                    responseCode = response.code,
+                    contentLength = body.contentLength().takeIf { it >= 0L },
+                    acceptRanges = response.header("Accept-Ranges"),
+                    contentRange = response.header("Content-Range")
+                )
+                if (resumeDecision == DownloadResumeResponse.RESTART) {
+                    throw RestartFromZeroException()
+                }
+                if (resumeDecision == DownloadResumeResponse.COMPLETE) {
+                    downloadDao.update(
+                        current.copy(
+                            status = DownloadStatus.COMPLETED,
+                            bytesWritten = resumeFrom,
+                            totalBytes = resumeFrom,
+                            retryCount = 0,
+                            completedAt = System.currentTimeMillis(),
+                            failureReason = null,
+                            ownerId = null,
+                            heartbeatAt = null
+                        )
+                    )
+                    return@useCancellableResponse
+                }
+                if (resumeDecision == DownloadResumeResponse.FAIL) {
+                    throw ProtocolException("Invalid partial download response")
+                }
+                if (!response.isSuccessful) throw HttpDownloadException(response.code)
+                val transfer = resumeDecision as DownloadResumeResponse.TRANSFER
+                if (!transfer.append && resumeFrom > 0L) {
                     deleteOutput(current)
                     current = current.copy(bytesWritten = 0L, outputUri = null, outputDisplayPath = null, supportsResume = false)
                 }
-                val append = rangeAccepted
-                val contentLength = body.contentLength().takeIf { it > 0L }
-                val totalBytes = when {
-                    append && contentLength != null -> resumeFrom + contentLength
-                    else -> contentLength
-                }
-                val supportsResume = response.header("Accept-Ranges")
-                    ?.contains("bytes", ignoreCase = true) == true || rangeAccepted
+                val append = transfer.append
+                val totalBytes = transfer.totalBytes
+                val supportsResume = transfer.supportsResume
                 val target = runSuspendCatching { createOutputTarget(current, response.header("Content-Type"), append) }
                     .getOrElse { error ->
                         if (!append) throw error
@@ -340,7 +444,8 @@ class DownloadManagerImpl @Inject constructor(
                     bytesWritten = bytesWritten,
                     totalBytes = totalBytes,
                     supportsResume = supportsResume,
-                    status = DownloadStatus.DOWNLOADING
+                    status = DownloadStatus.DOWNLOADING,
+                    heartbeatAt = System.currentTimeMillis()
                 )
                 downloadDao.update(current)
 
@@ -362,7 +467,8 @@ class DownloadManagerImpl @Inject constructor(
                                     bytesWritten = bytesWritten,
                                     totalBytes = totalBytes,
                                     supportsResume = supportsResume,
-                                    status = DownloadStatus.DOWNLOADING
+                                    status = DownloadStatus.DOWNLOADING,
+                                    heartbeatAt = System.currentTimeMillis()
                                 )
                                 downloadDao.update(current)
                                 lastProgressUpdate = bytesWritten
@@ -381,7 +487,9 @@ class DownloadManagerImpl @Inject constructor(
                         supportsResume = supportsResume,
                         retryCount = 0,
                         completedAt = System.currentTimeMillis(),
-                        failureReason = null
+                        failureReason = null,
+                        ownerId = null,
+                        heartbeatAt = null
                     )
                 )
             }
@@ -392,7 +500,13 @@ class DownloadManagerImpl @Inject constructor(
                 } else if (cancelled is ForegroundServiceTimeoutCancellation) {
                     pauseForForegroundServiceTimeout(current)
                 } else {
-                    downloadDao.update(entity.copy(status = DownloadStatus.CANCELLED))
+                    downloadDao.update(
+                        entity.copy(
+                            status = DownloadStatus.CANCELLED,
+                            ownerId = null,
+                            heartbeatAt = null
+                        )
+                    )
                 }
             }
             throw cancelled
@@ -457,7 +571,9 @@ class DownloadManagerImpl @Inject constructor(
                 supportsResume = false,
                 retryCount = retryCount,
                 completedAt = null,
-                failureReason = reason
+                failureReason = reason,
+                ownerId = null,
+                heartbeatAt = null
             )
         )
     }
@@ -467,14 +583,25 @@ class DownloadManagerImpl @Inject constructor(
             entity.copy(
                 status = DownloadStatus.PAUSED,
                 completedAt = null,
-                failureReason = FOREGROUND_SERVICE_TIMEOUT_REASON
+                failureReason = FOREGROUND_SERVICE_TIMEOUT_REASON,
+                ownerId = null,
+                heartbeatAt = null
             )
         )
     }
 
-    private fun hasAppendTarget(entity: DownloadEntity): Boolean {
-        val path = entity.outputDisplayPath
-        return !entity.outputUri.isNullOrBlank() || (!path.isNullOrBlank() && File(path).exists())
+    private fun outputLength(entity: DownloadEntity): Long? {
+        entity.outputDisplayPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::File)
+            ?.takeIf { it.isAbsolute && it.exists() }
+            ?.let { return it.length() }
+        val outputUri = entity.outputUri?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            DocumentFile.fromSingleUri(context, Uri.parse(outputUri))
+                ?.takeIf { it.exists() && it.canWrite() }
+                ?.length()
+        }.getOrNull()
     }
 
     private fun isTransient(error: Throwable): Boolean {
@@ -646,16 +773,151 @@ class DownloadManagerImpl @Inject constructor(
         const val DEFAULT_BUFFER_SIZE = 64 * 1024
         const val PROGRESS_UPDATE_BYTES = 512 * 1024
         const val MAX_RETRIES = 5
+        const val INTERRUPTED_RESUME_REASON =
+            "Interrupted after app process stopped; validated output queued to resume."
+        const val INTERRUPTED_RESTART_REASON =
+            "Interrupted output could not be validated; queued to restart safely."
         const val FOREGROUND_SERVICE_TIMEOUT_REASON =
             "Download paused because Android exhausted the foreground-service time allowance."
     }
 
     private class HttpDownloadException(val code: Int) : Exception("HTTP $code")
 
-    private class RestartFromZeroException(cause: Throwable) : Exception(cause)
+    private class RestartFromZeroException(cause: Throwable? = null) : Exception(cause)
 
     private class PlaybackStartedCancellation : CancellationException("Playback started")
 
     private class ForegroundServiceTimeoutCancellation :
         CancellationException("Android exhausted the foreground-service time allowance")
 }
+
+internal enum class InterruptedDownloadPlan {
+    COMPLETE,
+    RESUME,
+    RESTART
+}
+
+internal fun planInterruptedDownload(
+    bytesWritten: Long,
+    totalBytes: Long?,
+    supportsResume: Boolean,
+    targetLength: Long?
+): InterruptedDownloadPlan {
+    if (targetLength != null && totalBytes != null && totalBytes > 0L && targetLength == totalBytes) {
+        return InterruptedDownloadPlan.COMPLETE
+    }
+    if (supportsResume && bytesWritten > 0L && targetLength == bytesWritten) {
+        return InterruptedDownloadPlan.RESUME
+    }
+    return InterruptedDownloadPlan.RESTART
+}
+
+internal sealed interface DownloadResumeResponse {
+    data class TRANSFER(
+        val append: Boolean,
+        val totalBytes: Long?,
+        val supportsResume: Boolean
+    ) : DownloadResumeResponse
+
+    data object COMPLETE : DownloadResumeResponse
+    data object RESTART : DownloadResumeResponse
+    data object FAIL : DownloadResumeResponse
+}
+
+internal fun resolveResumeResponse(
+    resumeFrom: Long,
+    responseCode: Int,
+    contentLength: Long?,
+    acceptRanges: String?,
+    contentRange: String?
+): DownloadResumeResponse {
+    val parsedRange = parseContentRange(contentRange)
+    if (resumeFrom > 0L) {
+        if (responseCode == 416) {
+            return if (parsedRange?.total == resumeFrom) {
+                DownloadResumeResponse.COMPLETE
+            } else {
+                DownloadResumeResponse.RESTART
+            }
+        }
+        if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
+            if (parsedRange?.start != resumeFrom) return DownloadResumeResponse.RESTART
+            return DownloadResumeResponse.TRANSFER(
+                append = true,
+                totalBytes = parsedRange.total
+                    ?: contentLength?.takeIf { it >= 0L }?.let { resumeFrom + it },
+                supportsResume = true
+            )
+        }
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            return DownloadResumeResponse.TRANSFER(
+                append = false,
+                totalBytes = contentLength?.takeIf { it >= 0L },
+                supportsResume = acceptRanges.hasByteRangeSupport()
+            )
+        }
+        return if (responseCode in 200..299) {
+            DownloadResumeResponse.RESTART
+        } else {
+            DownloadResumeResponse.TRANSFER(
+                append = false,
+                totalBytes = contentLength?.takeIf { it >= 0L },
+                supportsResume = false
+            )
+        }
+    }
+
+    if (responseCode == HttpURLConnection.HTTP_PARTIAL && parsedRange?.start != 0L) {
+        return DownloadResumeResponse.FAIL
+    }
+    return DownloadResumeResponse.TRANSFER(
+        append = false,
+        totalBytes = parsedRange?.total ?: contentLength?.takeIf { it >= 0L },
+        supportsResume = acceptRanges.hasByteRangeSupport() ||
+            responseCode == HttpURLConnection.HTTP_PARTIAL
+    )
+}
+
+internal fun buildDownloadHttpRequest(
+    url: String,
+    headers: Map<String, String>,
+    userAgent: String?,
+    resumeFrom: Long
+): Request = Request.Builder()
+    .url(url)
+    .get()
+    .apply {
+        headers.forEach { (name, value) -> header(name, value) }
+        userAgent?.takeIf { it.isNotBlank() }?.let { header("User-Agent", it) }
+        if (resumeFrom > 0L) header("Range", "bytes=$resumeFrom-")
+    }
+    .build()
+
+private data class ParsedContentRange(
+    val start: Long?,
+    val total: Long?
+)
+
+private fun parseContentRange(header: String?): ParsedContentRange? {
+    val value = header?.trim() ?: return null
+    Regex("""bytes\s+(\d+)-\d+/(\d+|\*)""", RegexOption.IGNORE_CASE)
+        .matchEntire(value)
+        ?.let { match ->
+            return ParsedContentRange(
+                start = match.groupValues[1].toLongOrNull(),
+                total = match.groupValues[2].takeUnless { it == "*" }?.toLongOrNull()
+            )
+        }
+    Regex("""bytes\s+\*/(\d+)""", RegexOption.IGNORE_CASE)
+        .matchEntire(value)
+        ?.let { match ->
+            return ParsedContentRange(
+                start = null,
+                total = match.groupValues[1].toLongOrNull()
+            )
+        }
+    return null
+}
+
+private fun String?.hasByteRangeSupport(): Boolean =
+    this?.contains("bytes", ignoreCase = true) == true

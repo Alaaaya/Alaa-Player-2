@@ -8,44 +8,63 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.streamvault.data.local.entity.ProgramReminderEntity
-import com.streamvault.domain.model.Result
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+
+internal sealed interface ReminderNotificationResult {
+    data object Accepted : ReminderNotificationResult
+    data class Blocked(val reason: String) : ReminderNotificationResult
+    data class Failed(val reason: String, val cause: Throwable? = null) : ReminderNotificationResult
+}
 
 @Singleton
 class ProgramReminderNotifier @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
-    fun showReminder(reminder: ProgramReminderEntity): Result<Unit> {
-        val notificationManager = NotificationManagerCompat.from(context)
-        if (!notificationManager.areNotificationsEnabled()) {
-            return Result.error("Notifications are disabled for program reminders.")
-        }
-        createChannelIfNeeded()
-        val now = System.currentTimeMillis()
-        val minutesUntilStart = ((reminder.programStartTime - now) / 60000L).coerceAtLeast(0L)
-        val contentText = if (minutesUntilStart <= 0L) {
-            "${reminder.channelName} is starting now."
-        } else {
-            "${reminder.channelName} starts in ${minutesUntilStart} min."
-        }
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Starting soon: ${reminder.programTitle}")
-            .setContentText(contentText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(true)
-            .setContentIntent(buildLaunchPendingIntent())
-            .build()
-        return runCatching {
+    internal fun showReminder(reminder: ProgramReminderEntity): ReminderNotificationResult {
+        return try {
+            val notificationManager = NotificationManagerCompat.from(context)
+            createChannelIfNeeded()
+            val channelImportance = reminderChannelImportance()
+            reminderNotificationBlockedReason(
+                notificationsEnabled = notificationManager.areNotificationsEnabled(),
+                channelImportance = channelImportance
+            )?.let { reason ->
+                return ReminderNotificationResult.Blocked(reason)
+            }
+            val now = System.currentTimeMillis()
+            val minutesUntilStart = ((reminder.programStartTime - now) / 60000L).coerceAtLeast(0L)
+            val contentText = if (minutesUntilStart <= 0L) {
+                "${reminder.channelName} is starting now."
+            } else {
+                "${reminder.channelName} starts in ${minutesUntilStart} min."
+            }
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Starting soon: ${reminder.programTitle}")
+                .setContentText(contentText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setAutoCancel(true)
+                .setContentIntent(buildLaunchPendingIntent())
+                .build()
             notificationManager.notify(reminderNotificationTag(reminder.id), 0, notification)
-            Result.success(Unit)
-        }.getOrElse { error -> Result.error("Unable to show program reminder.", error) }
+            ReminderNotificationResult.Accepted
+        } catch (error: Exception) {
+            ReminderNotificationResult.Failed("Unable to show program reminder.", error)
+        }
     }
+
+    internal fun isReminderVisible(reminderId: Long): Boolean = runCatching {
+        val manager = context.getSystemService(NotificationManager::class.java)
+            ?: return@runCatching false
+        manager.activeNotifications.any { notification ->
+            notification.tag == reminderNotificationTag(reminderId)
+        }
+    }.getOrDefault(false)
 
     private fun reminderNotificationTag(reminderId: Long): String = "program-reminder:$reminderId"
 
@@ -73,7 +92,27 @@ class ProgramReminderNotifier @Inject constructor(
         manager.createNotificationChannel(channel)
     }
 
-    companion object {
-        private const val CHANNEL_ID = "program-reminders"
+    private fun reminderChannelImportance(): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return null
+        return manager.getNotificationChannel(CHANNEL_ID)?.importance
     }
+
+    companion object {
+        internal const val CHANNEL_ID = "program-reminders"
+        internal const val NOTIFICATIONS_DISABLED_REASON =
+            "Notifications are disabled for program reminders."
+        internal const val CHANNEL_DISABLED_REASON =
+            "The Program reminders notification channel is disabled."
+    }
+}
+
+internal fun reminderNotificationBlockedReason(
+    notificationsEnabled: Boolean,
+    channelImportance: Int?
+): String? = when {
+    !notificationsEnabled -> ProgramReminderNotifier.NOTIFICATIONS_DISABLED_REASON
+    channelImportance == NotificationManager.IMPORTANCE_NONE ->
+        ProgramReminderNotifier.CHANNEL_DISABLED_REASON
+    else -> null
 }

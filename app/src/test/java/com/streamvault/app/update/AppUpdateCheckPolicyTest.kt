@@ -16,4 +16,10 @@ class AppUpdateCheckPolicyTest {
         assertThat(AppUpdateCheckPolicy.shouldAutoCheck(1_000L, null, 1_000L)).isFalse()
         assertThat(AppUpdateCheckPolicy.shouldAutoCheck(901_000L, null, 1_000L)).isTrue()
     }
+
+    @Test
+    fun `future persisted checks do not suppress retry after backward clock jump`() {
+        assertThat(AppUpdateCheckPolicy.shouldAutoCheck(1_000L, 1_001L, null)).isTrue()
+        assertThat(AppUpdateCheckPolicy.shouldAutoCheck(1_000L, null, 1_001L)).isTrue()
+    }
 }

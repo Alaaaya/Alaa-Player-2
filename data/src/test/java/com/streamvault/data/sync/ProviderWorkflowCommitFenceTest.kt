@@ -1,0 +1,141 @@
+package com.streamvault.data.sync
+
+import androidx.room.Room
+import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.local.RoomDatabaseTransactionRunner
+import com.streamvault.data.local.StreamVaultDatabase
+import com.streamvault.data.local.entity.ChannelEntity
+import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderWorkflowPhase
+import com.streamvault.data.local.entity.ProviderWorkflowReason
+import com.streamvault.domain.model.ProviderType
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+
+@RunWith(RobolectricTestRunner::class)
+class ProviderWorkflowCommitFenceTest {
+    private lateinit var database: StreamVaultDatabase
+
+    @Before
+    fun setUp() {
+        database = Room.inMemoryDatabaseBuilder(
+            RuntimeEnvironment.getApplication(),
+            StreamVaultDatabase::class.java
+        ).allowMainThreadQueries().build()
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun `superseded generation cannot apply staged catalog rows`() = runTest {
+        insertProvider()
+        database.channelDao().insertAll(listOf(channel(name = "Committed", streamUrl = "old")))
+        val workflowDao = database.providerWorkflowDao()
+        val ticket = workflowDao.request(
+            PROVIDER_ID,
+            ProviderWorkflowPhase.PRIMARY_CATALOG,
+            ProviderWorkflowReason.PERIODIC,
+            now = 100L
+        )
+        val staleLease = checkNotNull(
+            workflowDao.claim(ticket, "old-owner", 101L, 1_000L, staleHeartbeatBefore = 0L)
+        )
+        workflowDao.request(
+            PROVIDER_ID,
+            ProviderWorkflowPhase.PREPARE,
+            ProviderWorkflowReason.CONFIG_CHANGE,
+            now = 200L,
+            supersede = true,
+            force = true
+        )
+
+        val error = runCatching {
+            withContext(ProviderWorkflowExecutionContext(staleLease)) {
+                store().replaceLiveCatalog(
+                    providerId = PROVIDER_ID,
+                    categories = null,
+                    channels = listOf(channel(name = "Stale replacement", streamUrl = "new"))
+                )
+            }
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(ProviderWorkflowSupersededException::class.java)
+        val retained = database.channelDao().getByProviderSync(PROVIDER_ID)
+        assertThat(retained).hasSize(1)
+        assertThat(retained.single().name).isEqualTo("Committed")
+        assertThat(retained.single().streamUrl).isEqualTo("old")
+    }
+
+    @Test
+    fun `current generation applies catalog inside fenced transaction`() = runTest {
+        insertProvider()
+        val workflowDao = database.providerWorkflowDao()
+        val ticket = workflowDao.request(
+            PROVIDER_ID,
+            ProviderWorkflowPhase.PRIMARY_CATALOG,
+            ProviderWorkflowReason.MANUAL,
+            now = 100L
+        )
+        val lease = checkNotNull(
+            workflowDao.claim(ticket, "manual-owner", 101L, 1_000L, staleHeartbeatBefore = 0L)
+        )
+
+        withContext(ProviderWorkflowExecutionContext(lease)) {
+            store().replaceLiveCatalog(
+                providerId = PROVIDER_ID,
+                categories = null,
+                channels = listOf(channel(name = "Fresh", streamUrl = "fresh"))
+            )
+        }
+
+        assertThat(database.channelDao().getByProviderSync(PROVIDER_ID).single().name)
+            .isEqualTo("Fresh")
+    }
+
+    private fun store() = SyncCatalogStore(
+        channelDao = database.channelDao(),
+        movieDao = database.movieDao(),
+        seriesDao = database.seriesDao(),
+        categoryDao = database.categoryDao(),
+        catalogSyncDao = database.catalogSyncDao(),
+        tmdbIdentityDao = database.tmdbIdentityDao(),
+        transactionRunner = RoomDatabaseTransactionRunner(database),
+        workflowCommitFence = ProviderWorkflowCommitFence(database.providerWorkflowDao())
+    )
+
+    private suspend fun insertProvider() {
+        database.providerDao().insert(
+            ProviderEntity(
+                id = PROVIDER_ID,
+                name = "Provider",
+                type = ProviderType.M3U,
+                serverUrl = "https://example.com"
+            )
+        )
+    }
+
+    private fun channel(
+        name: String,
+        streamUrl: String,
+        id: Long = 0L
+    ) = ChannelEntity(
+        id = id,
+        streamId = 10L,
+        name = name,
+        streamUrl = streamUrl,
+        providerId = PROVIDER_ID
+    )
+
+    private companion object {
+        const val PROVIDER_ID = 1L
+    }
+}

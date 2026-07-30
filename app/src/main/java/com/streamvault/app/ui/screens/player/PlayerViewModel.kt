@@ -265,7 +265,8 @@ class PlayerViewModel @Inject constructor(
     internal var hasRetriedXtreamAuthRefresh = false
     internal val probePassedPlaybackKeys = mutableSetOf<String>()
     private val notifiedRecordingFailureIds = mutableSetOf<String>()
-    internal val livePlaybackRecordTracker = LivePlaybackRecordTracker()
+    internal val livePlaybackRecordCoordinator =
+        LivePlaybackRecordCoordinator(playbackHistoryRepository::recordPlayback)
     private var currentStreamClassLabel: String = "Primary"
     internal var lastRecordedVariantObservationSignature: String? = null
     internal var lastRecordedVodVariantObservationSignature: String? = null

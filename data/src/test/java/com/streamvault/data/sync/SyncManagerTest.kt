@@ -370,7 +370,8 @@ class SyncManagerTest {
         syncMetadataRepository = syncMetadataRepo,
         transactionRunner = transactionRunner,
         preferencesRepository = preferencesRepo,
-        syncProgressBus = SyncProgressBus()
+        syncProgressBus = SyncProgressBus(),
+        providerWorkflowCommitFence = ProviderWorkflowCommitFence()
     )
 
     // ── Initial state ───────────────────────────────────────────────

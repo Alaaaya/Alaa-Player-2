@@ -1,6 +1,7 @@
 package com.streamvault.data.repository
 
 import android.content.Context
+import com.google.gson.Gson
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
@@ -9,11 +10,15 @@ import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderConfigRevisionDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.ProviderDeletionCleanupDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
 import com.streamvault.data.local.entity.CategoryEntity
+import com.streamvault.data.local.entity.ProviderWorkflowPhase
+import com.streamvault.data.local.entity.ProviderWorkflowReason
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
 import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
 import com.streamvault.data.preferences.PreferencesRepository
@@ -25,6 +30,10 @@ import com.streamvault.data.remote.dto.XtreamServerInfo
 import com.streamvault.data.remote.dto.XtreamUserInfo
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderWorkflowDisposition
+import com.streamvault.data.sync.ProviderWorkflowOutcome
+import com.streamvault.data.sync.ProviderWorkflowRunner
+import com.streamvault.data.sync.ProviderWorkflowCommitFence
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
 import com.streamvault.domain.model.Result
@@ -45,6 +54,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -70,6 +80,10 @@ class ProviderRepositoryImplTest {
     private val programReminderAlarmScheduler: ProgramReminderAlarmScheduler = mock()
     private val jellyfinProvider: JellyfinProvider = mock()
     private val providerDeletionCleanupDao: ProviderDeletionCleanupDao = mock()
+    private val providerDeletionCleanupEnqueuer: ProviderDeletionCleanupEnqueuer = mock()
+    private val providerConfigRevisionDao: ProviderConfigRevisionDao = mock()
+    private val providerWorkflowRunner: ProviderWorkflowRunner = mock()
+    private val gson = Gson()
     private val appContext: Context = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
@@ -97,6 +111,11 @@ class ProviderRepositoryImplTest {
         programReminderAlarmScheduler = programReminderAlarmScheduler,
         jellyfinProvider = jellyfinProvider,
         providerDeletionCleanupDao = providerDeletionCleanupDao,
+        providerDeletionCleanupEnqueuer = providerDeletionCleanupEnqueuer,
+        providerConfigRevisionDao = providerConfigRevisionDao,
+        gson = gson,
+        providerWorkflowRunner = providerWorkflowRunner,
+        providerWorkflowCommitFence = ProviderWorkflowCommitFence(),
         appContext = appContext
     )
 
@@ -105,11 +124,47 @@ class ProviderRepositoryImplTest {
     init {
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         runBlocking {
+            whenever(credentialCrypto.encryptIfNeeded(any())).thenAnswer { invocation ->
+                invocation.getArgument<String>(0)
+            }
+            whenever(providerConfigRevisionDao.latestRevision(any())).thenReturn(0L)
+            whenever(providerConfigRevisionDao.claimForSync(any(), any(), any())).thenReturn(1)
+            whenever(providerConfigRevisionDao.getState(any(), any()))
+                .thenReturn(ProviderConfigRevisionState.COMMITTED)
+            whenever(
+                providerWorkflowRunner.execute(
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                    any()
+                )
+            ).thenAnswer { invocation ->
+                val block = invocation.getArgument<suspend () -> ProviderWorkflowOutcome>(6)
+                when (val outcome = runBlocking { block() }) {
+                    is ProviderWorkflowOutcome.Success -> ProviderWorkflowDisposition.SUCCEEDED
+                    is ProviderWorkflowOutcome.Failure -> {
+                        if (outcome.retryable) {
+                            ProviderWorkflowDisposition.RETRY
+                        } else {
+                            ProviderWorkflowDisposition.FAILED
+                        }
+                    }
+                }
+            }
+            whenever(
+                syncManager.syncWithProviderOverride(
+                    any(), any(), anyOrNull(), anyOrNull(), anyOrNull(), any(), anyOrNull(), anyOrNull()
+                )
+            ).thenReturn(Result.success(Unit))
             whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
             whenever(programDao.countByProvider(any())).thenReturn(0)
             whenever(channelDao.countByProvider(any())).thenReturn(0)
             whenever(movieDao.countByProvider(any())).thenReturn(0)
             whenever(seriesDao.countByProvider(any())).thenReturn(0)
+            whenever(providerDeletionCleanupDao.countByProvider(any())).thenReturn(1)
         }
     }
 
@@ -125,8 +180,51 @@ class ProviderRepositoryImplTest {
         inOrder.verify(programDao).deleteByProvider(7L)
         inOrder.verify(providerDao).delete(7L)
         verify(providerDeletionCleanupDao).insertAll(any())
-        verify(recordingRunDao).getIdsByProvider(7L)
-        verify(programReminderDao).getIdsByProvider(7L)
+        verify(recordingRunDao, times(2)).getIdsByProvider(7L)
+        verify(programReminderDao, times(2)).getIdsByProvider(7L)
+    }
+
+    @Test
+    fun `deleteProvider captures alarm identities inside deletion transaction`() = runTest {
+        var insideTransaction = false
+        val transactionalRunner = object : DatabaseTransactionRunner {
+            override suspend fun <T> inTransaction(block: suspend () -> T): T {
+                insideTransaction = true
+                return try {
+                    block()
+                } finally {
+                    insideTransaction = false
+                }
+            }
+        }
+        whenever(recordingRunDao.getIdsByProvider(7L)).thenAnswer {
+            if (insideTransaction) listOf("run-committed-before-delete") else emptyList()
+        }
+        whenever(programReminderDao.getIdsByProvider(7L)).thenAnswer {
+            if (insideTransaction) listOf(41L) else emptyList()
+        }
+        val tombstones = argumentCaptor<List<com.streamvault.data.local.entity.ProviderDeletionCleanupEntity>>()
+
+        val result = createRepository(transactionRunner = transactionalRunner).deleteProvider(7L)
+
+        assertThat(result.isSuccess).isTrue()
+        verify(providerDeletionCleanupDao).insertAll(tombstones.capture())
+        assertThat(tombstones.firstValue.map { it.targetId })
+            .containsAtLeast("run-committed-before-delete", "41")
+    }
+
+    @Test
+    fun `deleteProvider rolls back provider deletion when tombstone insertion fails`() = runTest {
+        whenever(recordingRunDao.getIdsByProvider(7L)).thenReturn(listOf("run-1"))
+        whenever(programReminderDao.getIdsByProvider(7L)).thenReturn(emptyList())
+        doAnswer { throw IllegalStateException("disk full") }
+            .whenever(providerDeletionCleanupDao).insertAll(any())
+
+        val result = repository.deleteProvider(7L)
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        verify(providerDao, never()).delete(7L)
+        verify(providerDeletionCleanupEnqueuer, never()).enqueue()
     }
 
     @Test
@@ -171,15 +269,20 @@ class ProviderRepositoryImplTest {
     }
 
     @Test
-    fun `deleteProvider keeps success after post commit cleanup failure`() = runTest {
+    fun `deleteProvider reports cleanup pending when reconciliation enqueue fails`() = runTest {
         whenever(recordingRunDao.getIdsByProvider(7L)).thenReturn(listOf("run-1"))
         whenever(programReminderDao.getIdsByProvider(7L)).thenReturn(listOf(11L))
-        doAnswer { throw IllegalStateException("sync cleanup failed") }
-            .whenever(syncManager).onProviderDeleted(7L)
+        doAnswer { throw IllegalStateException("enqueue failed") }
+            .whenever(providerDeletionCleanupEnqueuer).enqueue()
+        whenever(providerDeletionCleanupDao.countByProvider(7L)).thenReturn(3)
 
         val result = repository.deleteProvider(7L)
 
         assertThat(result.isSuccess).isTrue()
+        val outcome = (result as Result.Success).data
+        assertThat(outcome.cleanupPending).isTrue()
+        assertThat(outcome.pendingCleanupActions).isEqualTo(3)
+        assertThat(outcome.reconciliationRequested).isFalse()
         verify(programDao).deleteByProvider(7L)
         verify(providerDao).delete(7L)
         verify(providerDeletionCleanupDao).insertAll(any())
@@ -323,6 +426,52 @@ class ProviderRepositoryImplTest {
         assertThat(updatedProvider.firstValue.lastSyncedAt).isGreaterThan(0L)
         verify(syncManager).scheduleProviderSyncResume(9L)
         verify(providerDao, never()).setActive(9L)
+        verify(providerWorkflowRunner).execute(
+            eq(9L),
+            eq(ProviderWorkflowPhase.PRIMARY_CATALOG),
+            eq(ProviderWorkflowReason.MANUAL),
+            eq(false),
+            eq(false),
+            eq(50),
+            any()
+        )
+    }
+
+    @Test
+    fun `forced manual refresh explicitly requests workflow supersession`() = runTest {
+        whenever(providerDao.getById(9L)).thenReturn(
+            ProviderEntity(
+                id = 9L,
+                name = "M3U",
+                type = ProviderType.M3U,
+                serverUrl = "https://example.com/list.m3u",
+                m3uUrl = "https://example.com/list.m3u",
+                isActive = true,
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(syncManager.sync(9L, true, null, null, null)).thenReturn(Result.success(Unit))
+        whenever(syncManager.currentSyncState(9L)).thenReturn(SyncState.Success(123L))
+        whenever(channelDao.getCount(9L)).thenReturn(flowOf(1))
+
+        val result = repository.refreshProviderData(
+            providerId = 9L,
+            force = true,
+            movieFastSyncOverride = null,
+            epgSyncModeOverride = null,
+            onProgress = null
+        )
+
+        assertThat(result.isSuccess).isTrue()
+        verify(providerWorkflowRunner).execute(
+            eq(9L),
+            eq(ProviderWorkflowPhase.PRIMARY_CATALOG),
+            eq(ProviderWorkflowReason.MANUAL),
+            eq(true),
+            eq(true),
+            eq(50),
+            any()
+        )
     }
 
     @Test
@@ -387,6 +536,47 @@ class ProviderRepositoryImplTest {
         )
 
         assertThat(result.isSuccess).isTrue()
+    }
+
+    @Test
+    fun `validateM3u failed edit preserves the committed provider row`() = runTest {
+        val committedProvider = ProviderEntity(
+            id = 5L,
+            name = "Committed playlist",
+            type = ProviderType.M3U,
+            serverUrl = "https://example.com/committed.m3u",
+            m3uUrl = "https://example.com/committed.m3u",
+            isActive = true,
+            status = ProviderStatus.ACTIVE,
+            lastSyncedAt = 1234L
+        )
+        whenever(providerDao.getByUrlAndUser("https://example.com/replacement.m3u", "", ""))
+            .thenReturn(null)
+        whenever(providerDao.getById(5L)).thenReturn(committedProvider)
+        whenever(providerConfigRevisionDao.getState(5L, 1L))
+            .thenReturn(ProviderConfigRevisionState.SYNCING)
+        whenever(
+            syncManager.syncWithProviderOverride(
+                eq(5L), eq(false), anyOrNull(), anyOrNull(), anyOrNull(), eq(false), anyOrNull(), anyOrNull()
+            )
+        ).thenReturn(Result.error("replacement endpoint unavailable"))
+
+        val result = repository.validateM3u(
+            url = "https://example.com/replacement.m3u",
+            name = "Replacement playlist",
+            epgSyncMode = ProviderEpgSyncMode.UPFRONT,
+            m3uVodClassificationEnabled = false,
+            onProgress = null,
+            id = 5L
+        )
+
+        assertThat(result.isError).isTrue()
+        verify(providerConfigRevisionDao).markFailed(
+            eq(5L), eq(1L), any(), any()
+        )
+        verify(providerDao, never()).update(any())
+        verify(providerDao, never()).setActive(5L)
+        verify(syncManager, never()).scheduleProviderSyncResume(5L)
     }
 
     @Test

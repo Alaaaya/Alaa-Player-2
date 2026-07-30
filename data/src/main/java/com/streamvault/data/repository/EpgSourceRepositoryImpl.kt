@@ -38,6 +38,7 @@ import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.ProviderEpgSourceAssignment
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.EpgSourceRepository
+import com.streamvault.domain.util.PersistedTimestampPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -75,6 +76,16 @@ internal fun limitEpgInput(
         return super.read(bytes, off, remaining).also { if (it > 0) bytesRead += it }
     }
 }
+
+internal fun shouldRateLimitEpgRefresh(
+    lastSuccessfulRefreshAt: Long,
+    now: Long,
+    minimumIntervalMillis: Long
+): Boolean = PersistedTimestampPolicy.isFresh(
+    lastSuccessfulRefreshAt,
+    now,
+    minimumIntervalMillis
+)
 
 @Singleton
 class EpgSourceRepositoryImpl @Inject constructor(
@@ -245,7 +256,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
             val now = System.currentTimeMillis()
 
             // Rate-limit: skip if last successful refresh was less than 5 minutes ago
-            if (source.lastRefreshAt > 0 && now - source.lastRefreshAt < MIN_REFRESH_INTERVAL_MS) {
+            if (shouldRateLimitEpgRefresh(source.lastRefreshAt, now, MIN_REFRESH_INTERVAL_MS)) {
                 Log.d(TAG, "Skipping refresh for source $sourceId: last refresh was ${(now - source.lastRefreshAt) / 1000}s ago")
                 return@withLock Result.success(Unit)
             }

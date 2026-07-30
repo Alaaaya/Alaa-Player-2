@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import com.streamvault.domain.model.Result
 
 data class BackupData(
-    val version: Int = 8,
+    val version: Int = 9,
     val checksum: String? = null,
     val preferences: Map<String, String>? = null,
     val providers: List<Provider>? = null,
@@ -17,7 +17,50 @@ data class BackupData(
     val playbackHistory: List<PlaybackHistory>? = null,
     val multiViewPresets: Map<String, List<Long>>? = null,
     val protectedCategories: List<ProtectedCategoryBackup>? = null,
-    val scheduledRecordings: List<ScheduledRecordingBackup>? = null
+    val scheduledRecordings: List<ScheduledRecordingBackup>? = null,
+    val portableProviderPreferences: PortableProviderPreferencesBackup? = null
+)
+
+/**
+ * Provider-scoped preference values expressed without local Room/DataStore identifiers.
+ * Older backups omit this field and retain the legacy preference map for compatibility.
+ */
+data class PortableProviderPreferencesBackup(
+    val providers: List<BackupProviderReference> = emptyList(),
+    val activeProvider: BackupProviderReference? = null,
+    val guideDefaultCategory: PortableCategoryReference? = null,
+    val guideDefaultVirtualCategoryId: Long? = null,
+    val guideDefaultCategorySpecified: Boolean = false,
+    val promotedLiveGroups: List<PortableVirtualGroupReference> = emptyList(),
+    val hiddenChannels: List<PortableChannelReference> = emptyList(),
+    val hiddenCategories: List<PortableCategoryReference> = emptyList(),
+    val unresolvedReferences: List<String> = emptyList()
+)
+
+data class BackupProviderReference(
+    val serverUrl: String,
+    val username: String,
+    val stalkerMacAddress: String? = null
+)
+
+data class PortableCategoryReference(
+    val provider: BackupProviderReference,
+    val name: String,
+    val type: ContentType,
+    val remoteCategoryId: Long? = null
+)
+
+data class PortableVirtualGroupReference(
+    val provider: BackupProviderReference,
+    val name: String,
+    val contentType: ContentType
+)
+
+data class PortableChannelReference(
+    val provider: BackupProviderReference,
+    val streamId: Long,
+    val name: String,
+    val streamUrl: String
 )
 
 data class ProtectedCategoryBackup(
@@ -119,9 +162,22 @@ data class RecordingScheduleImportSummary(
         get() = outcomes.count { it.disposition == RecordingScheduleImportDisposition.FAILED }
 }
 
+/**
+ * The durable outcome of a restore operation. A successful [Result] means the outcome below is
+ * authoritative; callers must not present a partial restore as a total failure.
+ */
+enum class BackupRestoreOutcome {
+    COMPLETE,
+    PARTIAL,
+    FAILED_BEFORE_COMMIT
+}
+
 data class BackupImportResult(
+    val outcome: BackupRestoreOutcome = BackupRestoreOutcome.COMPLETE,
     val importedSections: List<String> = emptyList(),
     val skippedSections: List<String> = emptyList(),
+    val failedSections: List<String> = emptyList(),
+    val unresolvedReferences: List<String> = emptyList(),
     val recordingScheduleImport: RecordingScheduleImportSummary? = null
 )
 

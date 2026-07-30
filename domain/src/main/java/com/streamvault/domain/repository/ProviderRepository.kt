@@ -21,13 +21,24 @@ data class ProviderDeleteProgress(
     val fraction: Float? = null
 )
 
+data class ProviderDeleteOutcome(
+    val providerId: Long,
+    val pendingCleanupActions: Int,
+    val reconciliationRequested: Boolean
+) {
+    val cleanupPending: Boolean get() = pendingCleanupActions > 0
+}
+
 interface ProviderRepository {
     fun getProviders(): Flow<List<Provider>>
     fun getActiveProvider(): Flow<Provider?>
     suspend fun getProvider(id: Long): Provider?
     suspend fun addProvider(provider: Provider): Result<Long>
     suspend fun updateProvider(provider: Provider): Result<Unit>
-    suspend fun deleteProvider(id: Long, onProgress: ((ProviderDeleteProgress) -> Unit)? = null): Result<Unit>
+    suspend fun deleteProvider(
+        id: Long,
+        onProgress: ((ProviderDeleteProgress) -> Unit)? = null
+    ): Result<ProviderDeleteOutcome>
 
     /**
      * Returns cleartext credentials for all providers that have both a
