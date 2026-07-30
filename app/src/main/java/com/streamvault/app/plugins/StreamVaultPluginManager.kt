@@ -73,7 +73,23 @@ class StreamVaultPluginManager @Inject constructor(
     private var discoveryExpiresAtMillis = 0L
 
     private val packageChangeReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = invalidateDiscovery()
+        override fun onReceive(context: Context, intent: Intent) {
+            invalidateDiscovery()
+            // Package broadcasts are the authoritative lifecycle signal. Reconcile immediately
+            // instead of waiting for the next process start, especially after external uninstall.
+            val pendingResult = goAsync()
+            backgroundScope.launch {
+                try {
+                    reconcilePluginProviders()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Startup reconciliation is the durable retry path.
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+        }
     }
 
     init {
@@ -107,21 +123,20 @@ class StreamVaultPluginManager @Inject constructor(
         }
     }
 
-    /** Removes only providers with a durable ownership record for an uninstalled plugin service. */
+    /**
+     * Removes only providers whose Android service component is no longer installed.
+     *
+     * Manifest retrieval is intentionally absent from this decision: an unresponsive service,
+     * malformed update, or manifest-ID rename is not proof that its provider is orphaned.
+     */
     suspend fun reconcilePluginProviders() = withContext(Dispatchers.IO) {
-        val installedOwners = queryPluginServices().mapNotNull { resolveInfo ->
+        val installedComponents = queryPluginServices().mapNotNull { resolveInfo ->
             val serviceInfo = resolveInfo.serviceInfo ?: return@mapNotNull null
             val packageName = serviceInfo.packageName ?: return@mapNotNull null
             val serviceName = serviceInfo.name ?: return@mapNotNull null
-            val manifest = readManifestFromService(packageName, serviceName)
-                ?: readManifestFromMetadata(serviceInfo.metaData)
-                ?: StreamVaultPluginManifest(id = packageName, name = packageName)
-            StreamVaultPluginOwner(packageName, serviceName, manifest.id)
+            StreamVaultPluginComponent(packageName, serviceName)
         }.toSet()
-        pluginProviderOwnershipDao.getAll()
-            .filter { ownership ->
-                StreamVaultPluginOwner(ownership.packageName, ownership.serviceClassName, ownership.manifestId) !in installedOwners
-            }
+        orphanedPluginOwnerships(pluginProviderOwnershipDao.getAll(), installedComponents)
             .forEach { ownership -> removeOwnedProvider(ownership) }
     }
 
@@ -591,11 +606,7 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private suspend fun removePluginProvider(plugin: InstalledStreamVaultPlugin): PluginActionResult? {
-        val ownership = pluginProviderOwnershipDao.get(
-            plugin.packageName,
-            plugin.serviceClassName,
-            plugin.manifest.id
-        ) ?: return null
+        val ownership = trackedOwnership(plugin) ?: return null
         return removeOwnedProvider(ownership)
     }
 
@@ -611,12 +622,30 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private suspend fun trackedProvider(plugin: InstalledStreamVaultPlugin): Provider? {
-        val ownership = pluginProviderOwnershipDao.get(
-            plugin.packageName,
-            plugin.serviceClassName,
-            plugin.manifest.id
-        ) ?: return null
+        val ownership = trackedOwnership(plugin) ?: return null
         return providerRepository.getProvider(ownership.providerId)
+    }
+
+    /**
+     * Resolves an exact owner first. A sole mapping for the same installed component is an
+     * unambiguous manifest-ID rename and is re-keyed atomically. Multiple legacy mappings are
+     * never guessed between.
+     */
+    private suspend fun trackedOwnership(
+        plugin: InstalledStreamVaultPlugin
+    ): PluginProviderOwnershipEntity? {
+        val owner = plugin.owner
+        pluginProviderOwnershipDao.get(
+            owner.packageName,
+            owner.serviceClassName,
+            owner.manifestId
+        )?.let { return it }
+        val componentOwnerships = pluginProviderOwnershipDao.getByComponent(
+            owner.packageName,
+            owner.serviceClassName
+        )
+        val ownership = selectPluginOwnership(owner, componentOwnerships) ?: return null
+        return pluginProviderOwnershipDao.rekeyManifestId(ownership, owner.manifestId)
     }
 
     private fun refreshTvInputCatalogInBackground() {
@@ -858,6 +887,30 @@ private fun String.isSafeHttpHeaderName(): Boolean =
     isNotBlank() && all { char ->
         char.isLetterOrDigit() || char in setOf('!', '#', '$', '%', '&', '\'', '*', '+', '.', '^', '_', '`', '|', '~', '-')
     }
+
+internal fun orphanedPluginOwnerships(
+    ownerships: List<PluginProviderOwnershipEntity>,
+    installedComponents: Set<StreamVaultPluginComponent>
+): List<PluginProviderOwnershipEntity> = ownerships.filter { ownership ->
+    StreamVaultPluginComponent(ownership.packageName, ownership.serviceClassName) !in installedComponents
+}
+
+internal fun selectPluginOwnership(
+    owner: StreamVaultPluginOwner,
+    componentOwnerships: List<PluginProviderOwnershipEntity>
+): PluginProviderOwnershipEntity? {
+    componentOwnerships.firstOrNull { ownership ->
+        ownership.packageName == owner.packageName &&
+            ownership.serviceClassName == owner.serviceClassName &&
+            ownership.manifestId == owner.manifestId
+    }?.let { return it }
+    return componentOwnerships
+        .filter { ownership ->
+            ownership.packageName == owner.packageName &&
+                ownership.serviceClassName == owner.serviceClassName
+        }
+        .singleOrNull()
+}
 
 @Suppress("DEPRECATION")
 private fun Bundle.metaString(key: String): String = when (val value = get(key)) {

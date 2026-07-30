@@ -13,6 +13,7 @@ import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.EpisodeDao
+import com.streamvault.data.local.dao.EpgSourceDao
 import com.streamvault.data.local.dao.FavoriteDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
@@ -92,7 +93,8 @@ class BackupManagerImpl @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val gson: Gson,
     private val backupRestoreCheckpointDao: BackupRestoreCheckpointDao? = null,
-    private val channelDao: ChannelDao
+    private val channelDao: ChannelDao,
+    private val epgSourceDao: EpgSourceDao? = null
 ) : BackupManager {
 
     override suspend fun exportConfig(uriString: String): com.streamvault.domain.model.Result<Unit> = withContext(Dispatchers.IO) {
@@ -231,7 +233,8 @@ class BackupManagerImpl @Inject constructor(
                 multiViewPresets = multiViewPresets,
                 protectedCategories = protectedCategories,
                 scheduledRecordings = scheduledRecordings,
-                portableProviderPreferences = buildPortableProviderPreferences(providerEntities)
+                portableProviderPreferences = buildPortableProviderPreferences(providerEntities),
+                epgSources = epgSourceDao?.getAllSync()?.map { it.toDomain() }
             )
 
             // Compute checksum over the data without checksum field
@@ -622,12 +625,14 @@ class BackupManagerImpl @Inject constructor(
 
     private fun importedRoomSections(backupData: BackupData, plan: BackupImportPlan): List<String> = buildList {
         if (plan.importProviders && backupData.providers != null) add("Providers")
+        if (plan.importProviders && backupData.epgSources != null && epgSourceDao != null) add("EPG Sources")
         if (plan.importSavedLibrary) add("Saved Library")
         if (plan.importPlaybackHistory && backupData.playbackHistory != null) add("Playback History")
     }
 
     private fun skippedRoomSections(backupData: BackupData, plan: BackupImportPlan): List<String> = buildList {
         if (!plan.importProviders || backupData.providers == null) add("Providers")
+        if (!plan.importProviders || backupData.epgSources == null || epgSourceDao == null) add("EPG Sources")
         if (!plan.importSavedLibrary) add("Saved Library")
         if (!plan.importPlaybackHistory || backupData.playbackHistory == null) add("Playback History")
     }
@@ -712,6 +717,7 @@ class BackupManagerImpl @Inject constructor(
                 backupData.portableProviderPreferences,
                 PortableProviderPreferencesBackup::class.java
             )
+            writeNamedJsonField(jsonWriter, "epgSources", backupData.epgSources, EPG_SOURCE_LIST_TYPE)
             jsonWriter.endObject()
         }
     }
@@ -792,6 +798,7 @@ class BackupManagerImpl @Inject constructor(
         var protectedCategories: List<ProtectedCategoryBackup>? = null
         var scheduledRecordings: List<ScheduledRecordingBackup>? = null
         var portableProviderPreferences: PortableProviderPreferencesBackup? = null
+        var epgSources: List<com.streamvault.domain.model.EpgSource>? = null
         val seenFields = hashSetOf<String>()
         var headerRead = false
 
@@ -836,6 +843,8 @@ class BackupManagerImpl @Inject constructor(
                     readLimitedArray(reader, SCHEDULED_RECORDING_TYPE, MAX_SECTION_ITEMS, "recording schedules")
                 "portableProviderPreferences" -> portableProviderPreferences =
                     readPortableProviderPreferences(reader)
+                "epgSources" -> epgSources =
+                    readLimitedArray(reader, EPG_SOURCE_TYPE, MAX_EPG_SOURCES, "EPG sources")
                 else -> reader.skipValue()
             }
         }
@@ -864,7 +873,8 @@ class BackupManagerImpl @Inject constructor(
             multiViewPresets = multiViewPresets,
             protectedCategories = protectedCategories,
             scheduledRecordings = scheduledRecordings,
-            portableProviderPreferences = portableProviderPreferences
+            portableProviderPreferences = portableProviderPreferences,
+            epgSources = epgSources
         )
     }
 
@@ -1066,7 +1076,21 @@ class BackupManagerImpl @Inject constructor(
         require(data.playbackHistory.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too much playback history" }
         require(data.protectedCategories.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many protected categories" }
         require(data.scheduledRecordings.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many recording schedules" }
+        require(data.epgSources.orEmpty().size <= MAX_EPG_SOURCES) { "Backup has too many EPG sources" }
         require(data.multiViewPresets.orEmpty().values.sumOf { it.size } <= MAX_SECTION_ITEMS) { "Backup has too many preset entries" }
+        data.epgSources.orEmpty().forEach { source ->
+            require(source.name.length <= MAX_FIELD_CHARS && source.url.length <= MAX_FIELD_CHARS) {
+                "Backup contains an overlong EPG source"
+            }
+            require(source.timezoneId.orEmpty().length <= MAX_FIELD_CHARS) {
+                "Backup contains an overlong EPG timezone"
+            }
+            if (source.timezonePolicy == com.streamvault.domain.model.XmltvTimezonePolicy.EXPLICIT_ZONE) {
+                requireNotNull(source.timezoneId?.trim()?.takeIf { it.isNotEmpty() }) {
+                    "Backup contains an EPG source without its explicit timezone"
+                }.also(java.time.ZoneId::of)
+            }
+        }
         data.preferences.orEmpty().forEach { (key, value) ->
             require(key.length <= MAX_FIELD_CHARS && value.length <= MAX_FIELD_CHARS) { "Backup contains an overlong preference" }
         }
@@ -1211,7 +1235,8 @@ class BackupManagerImpl @Inject constructor(
             multiViewPresets.orEmpty().all { it.value.isEmpty() } &&
             protectedCategories.isNullOrEmpty() &&
             scheduledRecordings.isNullOrEmpty() &&
-            portableProviderPreferences == null
+            portableProviderPreferences == null &&
+            epgSources.isNullOrEmpty()
 
     private suspend fun capturePreferenceSnapshot(providerEntities: List<ProviderEntity>): Map<String, String> {
         val parentalPinBackup = preferencesRepository.exportParentalPinBackup()
@@ -1569,8 +1594,32 @@ class BackupManagerImpl @Inject constructor(
                         }
                     importedSections += "Providers"
                 } ?: run { skippedSections += "Providers" }
+                backupData.epgSources?.let { sources ->
+                    val dao = epgSourceDao
+                    if (dao == null) {
+                        skippedSections += "EPG Sources"
+                    } else {
+                        sources.forEach { source ->
+                            val existing = dao.getByUrl(source.url)
+                            if (existing != null && plan.conflictStrategy == BackupConflictStrategy.KEEP_EXISTING) {
+                                return@forEach
+                            }
+                            val entity = source.copy(
+                                id = existing?.id ?: 0L,
+                                lastRefreshAt = 0L,
+                                lastSuccessAt = 0L,
+                                lastError = null,
+                                etag = null,
+                                lastModifiedHeader = null
+                            ).toEntity()
+                            if (existing == null) dao.insert(entity) else dao.update(entity)
+                        }
+                        importedSections += "EPG Sources"
+                    }
+                }
             } else {
                 skippedSections += "Providers"
+                if (!backupData.epgSources.isNullOrEmpty()) skippedSections += "EPG Sources"
             }
 
             if (plan.importSavedLibrary) {
@@ -1884,6 +1933,7 @@ internal fun countScheduledRecordingConflicts(
         const val MAX_JSON_DEPTH = 64
         const val MAX_PREFERENCES = 5_000
         const val MAX_PROVIDERS = 1_000
+        const val MAX_EPG_SOURCES = 10_000
         const val MAX_SECTION_ITEMS = 100_000
         const val MAX_FIELD_CHARS = 8_192
     }
@@ -2186,7 +2236,7 @@ private const val RESTORE_STATE_FAILED_BEFORE_COMMIT = "FAILED_BEFORE_COMMIT"
 private const val RESTORE_SNAPSHOT_PRESET_1 = "__restore_snapshot_preset_1"
 private const val RESTORE_SNAPSHOT_PRESET_2 = "__restore_snapshot_preset_2"
 private const val RESTORE_SNAPSHOT_PRESET_3 = "__restore_snapshot_preset_3"
-private const val CURRENT_BACKUP_VERSION = 9
+private const val CURRENT_BACKUP_VERSION = 10
 private const val FILE_URI_SCHEME = "file"
 private val PORTABLE_VIRTUAL_CATEGORY_IDS = setOf(-998L, -999L)
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
@@ -2203,6 +2253,9 @@ private val PORTABLE_CHANNEL_REFERENCE_TYPE: Type = PortableChannelReference::cl
 private val LONG_TYPE: Type = java.lang.Long::class.java
 private val STRING_TYPE: Type = String::class.java
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type
+private val EPG_SOURCE_TYPE: Type = com.streamvault.domain.model.EpgSource::class.java
+private val EPG_SOURCE_LIST_TYPE: Type =
+    object : TypeToken<List<com.streamvault.domain.model.EpgSource>>() {}.type
 private val FAVORITE_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Favorite>>() {}.type
 private val VIRTUAL_GROUP_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.VirtualGroup>>() {}.type
 private val PLAYBACK_HISTORY_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.PlaybackHistory>>() {}.type

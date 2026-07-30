@@ -10,7 +10,6 @@ import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.EpgChannelDao
 import com.streamvault.data.local.dao.EpgProgrammeDao
 import com.streamvault.data.local.dao.EpgSourceDao
-import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderEpgSourceDao
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
 import com.streamvault.data.local.entity.EpgChannelEntity
@@ -37,6 +36,7 @@ import com.streamvault.domain.model.EpgSource
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.ProviderEpgSourceAssignment
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.XmltvTimezonePolicy
 import com.streamvault.domain.repository.EpgSourceRepository
 import com.streamvault.domain.util.PersistedTimestampPolicy
 import kotlinx.coroutines.Dispatchers
@@ -92,7 +92,6 @@ class EpgSourceRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val epgSourceDao: EpgSourceDao,
     private val providerEpgSourceDao: ProviderEpgSourceDao,
-    private val providerDao: ProviderDao,
     private val channelEpgMappingDao: ChannelEpgMappingDao,
     private val epgChannelDao: EpgChannelDao,
     private val epgProgrammeDao: EpgProgrammeDao,
@@ -129,7 +128,12 @@ class EpgSourceRepositoryImpl @Inject constructor(
     override suspend fun getSourceById(id: Long): EpgSource? =
         epgSourceDao.getById(id)?.toDomain()
 
-    override suspend fun addSource(name: String, url: String): Result<EpgSource> {
+    override suspend fun addSource(
+        name: String,
+        url: String,
+        timezonePolicy: XmltvTimezonePolicy,
+        timezoneId: String?
+    ): Result<EpgSource> {
         val trimmed = url.trim()
         if (trimmed.isBlank()) return Result.error("URL cannot be empty")
         val trimmedUrl = ProviderInputSanitizer.resolveUrlProtocol(trimmed)
@@ -138,12 +142,17 @@ class EpgSourceRepositoryImpl @Inject constructor(
 
         val existing = epgSourceDao.getByUrl(trimmedUrl)
         if (existing != null) return Result.error("A source with this URL already exists")
+        val normalizedTimezone = validateXmltvTimezonePolicy(timezonePolicy, timezoneId)
+        if (normalizedTimezone is Result.Error) return normalizedTimezone
+        val normalizedTimezoneId = (normalizedTimezone as Result.Success).data
 
         val trimmedName = name.trim().takeIf { it.isNotEmpty() } ?: "EPG Source"
         val now = System.currentTimeMillis()
         val entity = EpgSourceEntity(
             name = trimmedName,
             url = trimmedUrl,
+            timezonePolicy = timezonePolicy,
+            timezoneId = normalizedTimezoneId,
             createdAt = now,
             updatedAt = now
         )
@@ -158,12 +167,17 @@ class EpgSourceRepositoryImpl @Inject constructor(
         if (validationError != null) return Result.error(validationError)
 
         val existing = epgSourceDao.getById(source.id) ?: return Result.error("Source not found")
+        val normalizedTimezone = validateXmltvTimezonePolicy(source.timezonePolicy, source.timezoneId)
+        if (normalizedTimezone is Result.Error) return normalizedTimezone
+        val normalizedTimezoneId = (normalizedTimezone as Result.Success).data
         epgSourceDao.update(
             existing.copy(
                 name = source.name.trim().takeIf { it.isNotEmpty() } ?: existing.name,
                 url = trimmedUrl,
                 enabled = source.enabled,
                 priority = source.priority,
+                timezonePolicy = source.timezonePolicy,
+                timezoneId = normalizedTimezoneId,
                 updatedAt = System.currentTimeMillis()
             )
         )
@@ -344,7 +358,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
                 // Stage new data under a negative source ID to avoid clobbering
                 // live data during download/parse. Swap atomically on success.
                 val stagingId = -sourceId
-                val sourceTimezoneId = resolveSourceTimezoneId(sourceId)
+                val sourceTimezoneId = source.parserTimezoneId()
                 prepareStagingSource(source, stagingId)
 
                 rawInputStream.use { raw ->
@@ -599,6 +613,8 @@ class EpgSourceRepositoryImpl @Inject constructor(
                     url = "streamvault://epg-source-staging/${source.id}",
                     enabled = false,
                     priority = Int.MAX_VALUE,
+                    timezonePolicy = source.timezonePolicy,
+                    timezoneId = source.timezoneId,
                     createdAt = now,
                     updatedAt = now
                 )
@@ -606,26 +622,30 @@ class EpgSourceRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun resolveSourceTimezoneId(sourceId: Long): String? {
-        val providerTimezoneIds = providerEpgSourceDao.getProviderIdsForSourceSync(sourceId)
-            .distinct()
-            .mapNotNull { providerId ->
-                providerDao.getById(providerId)
-                    ?.stalkerDeviceTimezone
-                    ?.trim()
-                    ?.takeIf(String::isNotEmpty)
-            }
-            .distinct()
+    private fun EpgSourceEntity.parserTimezoneId(): String? = when (timezonePolicy) {
+        XmltvTimezonePolicy.REQUIRE_OFFSET -> null
+        XmltvTimezonePolicy.UTC -> "UTC"
+        XmltvTimezonePolicy.EXPLICIT_ZONE -> timezoneId
+    }
+}
 
-        return when (providerTimezoneIds.size) {
-            0 -> null
-            1 -> providerTimezoneIds.single()
-            else -> {
-                Log.w(
-                    TAG,
-                    "Source $sourceId has multiple provider timezones $providerTimezoneIds; defaulting no-offset XMLTV timestamps to system timezone"
-                )
-                null
+internal fun validateXmltvTimezonePolicy(
+    policy: XmltvTimezonePolicy,
+    timezoneId: String?
+): Result<String?> {
+    val normalized = timezoneId?.trim()?.takeIf(String::isNotEmpty)
+    return when (policy) {
+        XmltvTimezonePolicy.REQUIRE_OFFSET,
+        XmltvTimezonePolicy.UTC -> Result.success(null)
+        XmltvTimezonePolicy.EXPLICIT_ZONE -> {
+            if (normalized == null) {
+                Result.error("Choose a timezone for offset-less XMLTV timestamps")
+            } else {
+                runCatching { java.time.ZoneId.of(normalized).id }
+                    .fold(
+                        onSuccess = Result.Companion::success,
+                        onFailure = { Result.error("Invalid XMLTV timezone '$normalized'", it) }
+                    )
             }
         }
     }

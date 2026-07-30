@@ -750,7 +750,9 @@ fun EpgSourceEntity.toDomain() = com.streamvault.domain.model.EpgSource(
     createdAt = createdAt,
     updatedAt = updatedAt,
     etag = etag,
-    lastModifiedHeader = lastModifiedHeader
+    lastModifiedHeader = lastModifiedHeader,
+    timezonePolicy = timezonePolicy,
+    timezoneId = timezoneId
 )
 
 fun com.streamvault.domain.model.EpgSource.toEntity() = EpgSourceEntity(
@@ -765,7 +767,9 @@ fun com.streamvault.domain.model.EpgSource.toEntity() = EpgSourceEntity(
     createdAt = createdAt,
     updatedAt = updatedAt,
     etag = etag,
-    lastModifiedHeader = lastModifiedHeader
+    lastModifiedHeader = lastModifiedHeader,
+    timezonePolicy = timezonePolicy,
+    timezoneId = timezoneId
 )
 
 // ── Provider EPG Source Assignment ─────────────────────────────────

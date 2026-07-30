@@ -40,6 +40,9 @@ abstract class ProviderDao {
     @Query("SELECT * FROM providers WHERE id = :id")
     abstract suspend fun getById(id: Long): ProviderEntity?
 
+    @Query("SELECT * FROM providers WHERE id = :id")
+    abstract fun getByIdSync(id: Long): ProviderEntity?
+
     @Query("SELECT * FROM providers WHERE id IN (:ids)")
     abstract suspend fun getByIds(ids: List<Long>): List<ProviderEntity>
 

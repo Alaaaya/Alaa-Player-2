@@ -109,6 +109,7 @@ class SyncManagerTest {
         private val provider: ProviderEntity? = sampleProvider()
     ) : ProviderDao() {
         override suspend fun getById(id: Long): ProviderEntity? = provider
+        override fun getByIdSync(id: Long): ProviderEntity? = provider?.takeIf { it.id == id }
         override suspend fun getByIds(ids: List<Long>): List<ProviderEntity> =
             listOfNotNull(provider).filter { it.id in ids }
         override suspend fun updateSyncTime(id: Long, timestamp: Long) = Unit

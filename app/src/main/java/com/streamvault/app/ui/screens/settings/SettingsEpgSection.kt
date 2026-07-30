@@ -84,6 +84,9 @@ internal fun LazyListScope.epgSourcesSection(
                 pendingDelete = uiState.epgPendingDeleteSourceId == source.id,
                 onToggleEnabled = { enabled -> viewModel.toggleEpgSourceEnabled(source.id, enabled) },
                 onRefresh = { viewModel.refreshEpgSource(source.id) },
+                onUpdateTimezone = { timezoneId, onSuccess, onError ->
+                    viewModel.updateEpgSourceTimezone(source, timezoneId, onSuccess, onError)
+                },
                 onSetPendingDelete = { pending ->
                     viewModel.setPendingDeleteEpgSource(if (pending) source.id else null)
                 },

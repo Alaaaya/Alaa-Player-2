@@ -21,6 +21,7 @@ import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.XmltvTimezonePolicy
 
 @Entity(
     tableName = "providers",
@@ -983,7 +984,10 @@ data class EpgSourceEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
     val etag: String? = null,
-    @ColumnInfo(name = "last_modified_header") val lastModifiedHeader: String? = null
+    @ColumnInfo(name = "last_modified_header") val lastModifiedHeader: String? = null,
+    @ColumnInfo(name = "timezone_policy")
+    val timezonePolicy: XmltvTimezonePolicy = XmltvTimezonePolicy.REQUIRE_OFFSET,
+    @ColumnInfo(name = "timezone_id") val timezoneId: String? = null
 )
 
 // ── Provider ↔ EPG Source Assignment ───────────────────────────────

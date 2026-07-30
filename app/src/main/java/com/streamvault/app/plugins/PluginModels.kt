@@ -57,6 +57,14 @@ data class StreamVaultPluginOwner(
     val packageName: String,
     val serviceClassName: String,
     val manifestId: String
+) {
+    val component: StreamVaultPluginComponent
+        get() = StreamVaultPluginComponent(packageName, serviceClassName)
+}
+
+data class StreamVaultPluginComponent(
+    val packageName: String,
+    val serviceClassName: String
 )
 
 val InstalledStreamVaultPlugin.owner: StreamVaultPluginOwner

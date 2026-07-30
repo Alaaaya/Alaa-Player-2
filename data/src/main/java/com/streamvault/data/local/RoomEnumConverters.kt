@@ -22,6 +22,7 @@ import com.streamvault.domain.model.StalkerMagPreset
 import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import com.streamvault.domain.model.StalkerPortalFingerprint
 import com.streamvault.domain.model.StalkerPortalProfile
+import com.streamvault.domain.model.XmltvTimezonePolicy
 import java.util.logging.Logger
 
 class RoomEnumConverters {
@@ -174,6 +175,13 @@ class RoomEnumConverters {
     @TypeConverter
     fun toContentType(value: String?): ContentType? =
         enumValueOrDefault(value, ContentType.LIVE, contentTypeAliases())
+
+    @TypeConverter
+    fun fromXmltvTimezonePolicy(value: XmltvTimezonePolicy?): String? = value?.name
+
+    @TypeConverter
+    fun toXmltvTimezonePolicy(value: String?): XmltvTimezonePolicy? =
+        enumValueOrDefault(value, XmltvTimezonePolicy.REQUIRE_OFFSET)
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(
         value: String?,

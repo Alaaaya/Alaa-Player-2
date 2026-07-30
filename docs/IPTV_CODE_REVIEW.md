@@ -624,11 +624,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 | M3U-001 | Playlist decoding is fixed to UTF-8 and only the first header EPG URL is retained | Confirmed defect | Medium |
 | M3U-002 | Query-bearing VOD file URLs are classified as live streams | Confirmed defect | Medium |
 | XMLTV-001 | The 200 MB EPG limit measures compressed, not decompressed, bytes | Resolved (2026-07-26) | High |
-| XMLTV-002 | Shared no-offset XMLTV sources fall back to the device timezone | Architectural concern | Medium |
+| XMLTV-002 | Shared no-offset XMLTV sources fall back to the device timezone | Implemented; migration/device verification pending (2026-07-30) | Medium |
 | JELLYFIN-001 | Jellyfin catalog APIs buffer unpaginated libraries without a byte bound | Confirmed defect | High |
-| JELLYFIN-002 | Images from two accounts on one server use whichever provider matches first | Confirmed defect | High |
-| PLUGIN-001 | Plugin provider fallback can overwrite/delete a user-created M3U provider | Resolved (2026-07-26) | High |
-| PLUGIN-002 | Manifest IDs are not package-scoped and absent plugins are not reconciled | Resolved (2026-07-26) | High |
+| JELLYFIN-002 | Images from two accounts on one server use whichever provider matches first | Implemented; migration/device verification pending (2026-07-30) | High |
+| PLUGIN-001 | Plugin provider fallback can overwrite/delete a user-created M3U provider | Implemented; ownership lifecycle matrix pending (2026-07-30) | High |
+| PLUGIN-002 | Manifest IDs are not package-scoped and absent plugins are not reconciled | Implemented; package lifecycle matrix pending (2026-07-30) | High |
 | PLUGIN-003 | Playback preparation is a sequential, multi-minute, first-handler chain | Implemented; IPC lifecycle verification pending (2026-07-27) | High |
 
 ## Stalker Portal deep review
@@ -723,7 +723,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### XTREAM-002 — A transient category failure is cached as an empty adult-category set
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Implemented; ownership lifecycle matrix pending (2026-07-30)
 - **Severity:** Medium
 - **Where:** `XtreamProvider.loadAdultCategoryIds:665-697`; long-lived provider caches in `MovieRepositoryImpl:138,1680-1713` and `SeriesRepositoryImpl:113,1660-1693`.
 - **Current behavior:** Category fetch failure is caught, logged, converted to `emptyList`, then transformed to an empty set and cached by content type. Subsequent item mapping never retries category loading for that provider instance. Repository provider instances can live for the process.
@@ -779,7 +779,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### XMLTV-002 — Shared no-offset XMLTV sources fall back to the device timezone
 
-- **Classification:** Architectural concern
+- **Classification:** Implemented; migration/device verification pending (2026-07-30)
 - **Severity:** Medium
 - **Where:** `EpgSourceRepositoryImpl.resolveSourceTimezoneId:584-605`; `XmltvParser.resolveParsingZoneId:643-652`; unique URL/source and many-provider assignment entities.
 - **Current behavior:** The repository derives timezone only from assigned providers' `stalkerDeviceTimezone`. Zero timezones or more than one distinct timezone returns `null`; the parser then uses `ZoneId.systemDefault()`. A unique EPG source is parsed once, so it cannot represent different no-offset interpretations per provider.
@@ -788,6 +788,8 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Store an explicit timezone/interpretation policy on each EPG source. If assignments require different zones, create provider-scoped parsed instances or reject the ambiguous assignment. Never use device timezone as a silent durable-data default.
 - **Fix scope:** EPG source model and assignment UX; schema work in Phase 4.
 - **Required tests:** Same source on devices with different system zones; one/multiple provider zones; explicit source override; DST; offset-bearing input unaffected; backup/restore preserves interpretation.
+
+**Resolution:** XMLTV interpretation is now owned by the EPG source through an explicit `REQUIRE_OFFSET`, `UTC`, or `EXPLICIT_ZONE` policy. Parsing no longer consults the Android/JVM default timezone or derives a shared source's interpretation from assigned providers. Existing sources migrate to the safe `REQUIRE_OFFSET` policy, while settings allow users to choose UTC or a validated IANA timezone and immediately reparse the source. The policy and timezone are included in backup format v10 and restored transactionally with other Room-backed configuration. Focused parser, repository, backup, compile, and migration-compilation coverage passes; on-device execution of the 71→72 migration remains pending.
 
 ## Jellyfin, local media, and recordings review
 
@@ -810,7 +812,7 @@ Focused JVM coverage verifies explicit continuation parameters, multi-page conti
 
 ### JELLYFIN-002 — Images from two accounts on one server use whichever provider matches first
 
-- **Classification:** Confirmed defect
+- **Classification:** Implemented; migration/device verification pending (2026-07-30)
 - **Severity:** High
 - **Where:** `JellyfinImageAuthInterceptor.kt:13-76`; image URLs built without provider identity at `JellyfinProvider.kt:223-331`; provider lookup is `firstOrNull` by scheme/host/port/base path.
 - **Current behavior:** Image requests carry no provider/account ID. The singleton interceptor loads all Jellyfin providers and selects the first whose base URL matches, then attaches that provider's token. Two users/providers on the same server/base path are indistinguishable. Provider order has no documented ownership rule.
@@ -820,7 +822,7 @@ Focused JVM coverage verifies explicit continuation parameters, multi-page conti
 - **Fix scope:** Image URL/request contract across data/app/Coil.
 - **Required tests:** Two accounts same base URL, different base paths, active-provider switch, delete/edit within cache TTL, parallel image requests, and token-specific visibility.
 
-**Resolution (2026-07-26):** Every generated Jellyfin image URL now carries an internal provider ID, which the interceptor validates against the URL before attaching that provider's token. It never guesses an account from host/path. Database migration 64→65 backfills the marker on existing Jellyfin movie, series, and episode artwork URLs, so already-synced catalogs receive the same account identity on upgrade.
+**Implementation (updated 2026-07-30):** Every generated Jellyfin image URL carries an internal provider ID, which the interceptor validates against the URL before attaching that exact provider's token. It never guesses an account from host/path. The interceptor now queries the exact provider on every request so an edit/delete takes effect immediately, and strips the app-internal marker on every marked request, including malformed, mismatched-path, missing-provider, and caller-authenticated cases. Database migration 64→65 backfills the marker on existing Jellyfin movie, series, and episode artwork URLs. Focused tests cover parallel accounts on one base URL, different base paths, immediate token edit/delete, and marker stripping. The finding remains open until the populated migration and device/Coil cache behavior are verified.
 
 The Phase 2 recording cancellation defect REC-001 remains the principal provider-adjacent recording fault. Local recordings themselves use persisted file/SAF outputs rather than a separate catalog provider; their end-to-end scheduling, reconciliation, and playback flows remain in Phase 4.
 
@@ -838,11 +840,11 @@ The Phase 2 recording cancellation defect REC-001 remains the principal provider
 - **Fix scope:** Plugin-provider persistence model and migration.
 - **Required tests:** Same name as user provider, two plugins same provider name, lost preferences with existing mapping, disable/delete, restore, provider rename, and atomic mapping/provider creation.
 
-**Resolution:** Plugin-created M3U providers now receive a durable Room ownership record keyed by the plugin package, service class, and manifest ID. Plugin synchronization and disable cleanup resolve only through that record; the unsafe display-name fallback was removed. Consequently, a user-created M3U provider is never implicitly adopted, updated, or deleted by a plugin. Existing ambiguous legacy mappings are intentionally not auto-adopted, preserving user providers safely during upgrade.
+**Implementation:** Plugin-created M3U providers receive a durable Room ownership record keyed by the plugin package, service class, and manifest ID. Plugin synchronization and disable cleanup resolve only through that record; the unsafe display-name fallback was removed. Existing ambiguous legacy mappings are intentionally not auto-adopted. The finding remains open until the same-name, lost-preference, disable/delete, restore, rename, and atomic provider-plus-mapping creation matrix passes.
 
 ### PLUGIN-002 — Manifest IDs are not package-scoped and absent plugins are not reconciled
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Implemented; package lifecycle matrix pending (2026-07-30)
 - **Severity:** High
 - **Where:** `discoverPlugins:55-60`, enabled/provider keys at `90,496,504,532,680-681`, `resolvePlugin:545-575`; no package-removal or installed-set reconciliation path was found.
 - **Current behavior:** Discovery deduplicates solely by plugin-supplied `manifest.id`. Enable state and provider mapping are also keyed only by that ID, not package/service. Two installed packages with the same ID share state and one disappears from discovery. If a package is uninstalled externally, its preferences and M3U provider/catalog remain because cleanup only occurs through `setPluginEnabled(false)` on an installed plugin object.
@@ -852,7 +854,7 @@ The Phase 2 recording cancellation defect REC-001 remains the principal provider
 - **Fix scope:** Plugin identity/lifecycle architecture.
 - **Required tests:** Duplicate IDs, multiple services in one package, uninstall/replace/reinstall/signature/version change as product policy allows, active/combined source cleanup, and user adoption preservation.
 
-**Resolution:** Plugin enablement and provider ownership now use the package/service/manifest triple, so manifest-ID collisions across packages or services cannot share state or provider mappings. Startup reconciliation compares durable ownership records with installed service components and removes only providers proven to be owned by an absent plugin, including active-source cleanup. Legacy enabled state is migrated only when the manifest ID is unique among installed services.
+**Implementation (updated 2026-07-30):** Plugin enablement and provider ownership use the package/service/manifest triple, so manifest-ID collisions across packages or services cannot share state or provider mappings. Reconciliation now uses the installed Android package/service component as the deletion authority and never treats transient manifest IPC failure or a manifest-ID rename as uninstall. Package broadcasts trigger immediate reconciliation with a `goAsync` lifetime, startup remains the durable retry, and a sole mapping for a renamed manifest ID is re-keyed atomically; ambiguous component mappings are never guessed between. Legacy enabled state is migrated only when the manifest ID is unique among installed services. The finding remains open pending uninstall/replace/reinstall, signature/version policy, active/combined-source, and explicit user-adoption device/integration coverage.
 
 ### PLUGIN-003 — Playback preparation is a sequential, multi-minute, first-handler chain
 
@@ -1296,6 +1298,12 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - **Primary ownership:** domain provider contracts; Stalker/Jellyfin HTTP/session factories; plugin registry; EPG source model; provider/content persistence.
 - **Deliverables:** capability-based provider interfaces and provider-specific configuration/runtime records; per-provider Stalker cookie/session containers; typed authentication-expiry handling; provider-zone date parsing; collision-resistant remote identity; account-specific Jellyfin image resolution; package/component-scoped plugin IDs and explicit ownership; stable source timezone policy.
 - **Exit criteria:** concurrent same-host/different-account fixtures prove cookie/image/session isolation; nonnumeric IDs remain unique across restart/migration; plugin uninstall cannot alter user-owned M3U data; absent/renamed plugins reconcile deterministically; shared XMLTV sources require explicit timezone or preserve per-assignment semantics.
+
+**Implementation evidence (2026-07-30):**
+
+- Plugins: reconciliation deletion is now package/service-component scoped and runs both at startup and on package lifecycle broadcasts. Manifest retrieval failure cannot masquerade as uninstall; a sole manifest-ID rename retains and atomically re-keys its provider ownership, while ambiguous mappings are left untouched. Focused ownership-policy tests cover cross-package ID reuse, multiple services, rename retention, ambiguity, and component absence.
+- Jellyfin: image authentication now performs an exact provider-ID lookup without a stale account cache and always removes internal routing metadata before network dispatch. Parallel same-server account, base-path, edit/delete, and pre-authenticated request tests pass.
+- Status policy: PLUGIN-001 and PLUGIN-002 were changed from “resolved” to implemented-but-open. Their complete ownership creation, restore, uninstall/replace/reinstall, active/combined-source, and adoption-policy matrices are still required for WP3 closure.
 
 ### WP4 — Bounded ingestion and provider correctness
 

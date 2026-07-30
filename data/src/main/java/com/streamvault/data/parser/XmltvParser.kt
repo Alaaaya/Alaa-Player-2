@@ -556,20 +556,22 @@ class XmltvParser {
         }
     }
 
-    private fun parseDate(dateStr: String?, parsingZoneId: ZoneId): Long {
+    private fun parseDate(dateStr: String?, parsingZoneId: ZoneId?): Long {
         if (dateStr.isNullOrBlank()) return 0
 
         offsetDateFormats.firstNotNullOfOrNull { formatter ->
             parseOffsetDateTime(dateStr, formatter)
         }?.let { return it }
 
-        localDateTimeFormats.firstNotNullOfOrNull { formatter ->
-            parseLocalDateTime(dateStr, formatter, parsingZoneId)
-        }?.let { return it }
+        if (parsingZoneId != null) {
+            localDateTimeFormats.firstNotNullOfOrNull { formatter ->
+                parseLocalDateTime(dateStr, formatter, parsingZoneId)
+            }?.let { return it }
 
-        localDateFormats.firstNotNullOfOrNull { formatter ->
-            parseLocalDate(dateStr, formatter, parsingZoneId)
-        }?.let { return it }
+            localDateFormats.firstNotNullOfOrNull { formatter ->
+                parseLocalDate(dateStr, formatter, parsingZoneId)
+            }?.let { return it }
+        }
 
         // Last resort: extract the timestamp portion only if no timezone offset is detectable.
         //
@@ -589,7 +591,7 @@ class XmltvParser {
                 (dateStr.contains('Z') || dateStr.contains('z') ||
                  dateStr.contains('+') ||
                  dateStr.lastIndexOf('-') > 12)
-            if (!hasTimezoneMarker) {
+            if (!hasTimezoneMarker && parsingZoneId != null) {
                 val cleaned = dateStr.replace("""[^\d]""".toRegex(), "")
                 if (cleaned.length >= 14) {
                     return parseLocalDateTime(
@@ -603,7 +605,11 @@ class XmltvParser {
             // Give up
         }
 
-        logger.warning("Unparseable XMLTV date: $dateStr")
+        if (parsingZoneId == null) {
+            logger.warning("XMLTV date has no offset and the source requires explicit offsets: $dateStr")
+        } else {
+            logger.warning("Unparseable XMLTV date: $dateStr")
+        }
         return 0
     }
 
@@ -640,15 +646,14 @@ class XmltvParser {
                 .toEpochMilli()
         }.getOrNull()
 
-    private fun resolveParsingZoneId(timezoneId: String?): ZoneId {
+    private fun resolveParsingZoneId(timezoneId: String?): ZoneId? {
         val normalizedTimezoneId = timezoneId?.trim().orEmpty()
-        if (normalizedTimezoneId.isBlank()) return ZoneId.systemDefault()
+        if (normalizedTimezoneId.isBlank()) return null
 
-        return runCatching { ZoneId.of(normalizedTimezoneId) }
-            .getOrElse {
-                val fallbackZoneId = ZoneId.systemDefault()
-                logger.warning("Invalid XMLTV timezone '$timezoneId'; defaulting to ${fallbackZoneId.id}")
-                fallbackZoneId
-            }
+        return try {
+            ZoneId.of(normalizedTimezoneId)
+        } catch (error: Exception) {
+            throw IllegalArgumentException("Invalid XMLTV timezone '$timezoneId'", error)
+        }
     }
 }
