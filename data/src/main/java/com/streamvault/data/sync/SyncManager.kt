@@ -90,6 +90,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -109,6 +111,7 @@ import java.net.URI
 import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -123,9 +126,20 @@ private const val STALKER_CATEGORY_RETRY_BUDGET = 3
 private const val STALKER_CATEGORY_RETRY_COOLDOWN_MILLIS = 5 * 60 * 1000L
 private const val STALKER_RUNNING_JOB_STALE_MILLIS = 15 * 60 * 1000L
 private const val STALKER_MIN_HEALTHY_EPG_PROGRAMS = 3
-// Bulk live is an optimization. Bound the complete attempt so a portal that keeps
-// a response alive without completing cannot block the per-category recovery path.
-private const val STALKER_BULK_LIVE_REQUEST_TIMEOUT_MILLIS = 15_000L
+// Bulk live is an optimization. Large portals stream tens of MB over a single
+// response and can spend 8s+ generating it before the first byte, so a fixed
+// wall-clock cap kills healthy transfers on slow links. Instead cancel only
+// when the stream stalls (no items for the stall window) and keep a generous
+// overall cap so a response that never completes cannot block the
+// per-category recovery path forever.
+private const val STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS = 30_000L
+private const val STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS = 5 * 60 * 1000L
+private const val STALKER_BULK_LIVE_STALL_CHECK_INTERVAL_MILLIS = 1_000L
+// A negative bulk-live verdict expires far sooner than the 7-day validated
+// portal state: re-probing costs one fast request, while a stale false verdict
+// forces the very slow per-category path on every sync. Portals that recorded
+// "unsupported" under the old fixed-timeout logic self-heal through this.
+private const val STALKER_BULK_LIVE_UNSUPPORTED_TTL_MILLIS = 6 * 60 * 60 * 1000L
 private const val LIVE_CATEGORY_SEQUENTIAL_MODE_WARNING =
     "Live category sync downgraded to sequential mode after provider stress signals."
 private const val XTREAM_RECOVERY_ABORT_WARNING_SUFFIX =
@@ -5825,15 +5839,22 @@ class SyncManager @Inject constructor(
         try {
             var bulkFailure: Exception? = null
             val learnedState = api.validatedPortalState()
+            val bulkUnsupportedVerdictFresh = learnedState?.bulkLiveSupported == false &&
+                learnedState.validatedAt > 0L &&
+                System.currentTimeMillis() - learnedState.validatedAt <= STALKER_BULK_LIVE_UNSUPPORTED_TTL_MILLIS
             val shouldTryBulk = (
-                learnedState?.bulkLiveSupported != false &&
+                !bulkUnsupportedVerdictFresh &&
                     learnedState?.bulkLiveCategoryFidelity != false
                 ) || preferredCategories.isNullOrEmpty()
             if (shouldTryBulk) {
                 StalkerTelemetry.strategySelected(
                     provider.id,
                     "BULK_LIVE",
-                    if (learnedState?.bulkLiveSupported == true) "VALIDATED_CACHE" else "CAPABILITY_PROBE"
+                    when (learnedState?.bulkLiveSupported) {
+                        true -> "VALIDATED_CACHE"
+                        false -> "STALE_UNSUPPORTED_REPROBE"
+                        else -> "CAPABILITY_PROBE"
+                    }
                 )
             } else {
                 StalkerTelemetry.strategySelected(
@@ -5847,8 +5868,9 @@ class SyncManager @Inject constructor(
                 )
             }
             val streamResult = if (shouldTryBulk) {
-                withTimeoutOrNull(STALKER_BULK_LIVE_REQUEST_TIMEOUT_MILLIS) {
+                withStalkerBulkLiveStallTimeout { markBulkProgress ->
                     api.streamLiveStreams { channel ->
+                        markBulkProgress()
                         if (channel.categoryId != null && channel.categoryId in hiddenLiveCategoryIds) {
                             return@streamLiveStreams
                         }
@@ -5877,7 +5899,14 @@ class SyncManager @Inject constructor(
                     return finalizeStagedImport()
                 }
                 is com.streamvault.domain.model.Result.Error -> {
-                    api.recordBulkLiveCapability(supported = false)
+                    // Only definitive portal verdicts (auth denial, malformed payload,
+                    // blocked action) prove bulk is unsupported. Transport failures and
+                    // 5xx/rate-limit responses are transient: keep bulk eligible so the
+                    // next sync retries it instead of locking in the slow per-category
+                    // path for the validation TTL.
+                    if (isDefinitiveBulkLiveFailure(streamResult.exception)) {
+                        api.recordBulkLiveCapability(supported = false)
+                    }
                     val profileDiagnostic = stalkerCatalogAccessDiagnostic(
                         api = api,
                         primaryMessage = categoriesErrorMessage.orEmpty(),
@@ -5896,7 +5925,9 @@ class SyncManager @Inject constructor(
                 }
                 is com.streamvault.domain.model.Result.Loading -> throw IllegalStateException("Unexpected loading state")
                 null -> if (shouldTryBulk) {
-                    api.recordBulkLiveCapability(supported = false)
+                    // A stalled/timed-out bulk transfer reflects link throughput, not
+                    // portal capability. Leave bulkLiveSupported unset so the next sync
+                    // retries the bulk path.
                     bulkFailure = IOException("Bulk live request timed out; switching to category requests.")
                     progress(provider.id, onProgress, "Bulk live request is slow; loading categories instead...")
                 }
@@ -5961,6 +5992,65 @@ class SyncManager @Inject constructor(
             stagedSessionId?.let { syncCatalogStore.discardStagedImport(provider.id, it) }
             throw error
         }
+    }
+
+    /**
+     * Runs the bulk live stream with a stall watchdog instead of a fixed wall-clock
+     * cap. Large portals stream tens of MB in one response, so the attempt is
+     * cancelled only when no items arrive for [STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS];
+     * [STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS] remains as a final bound so a response
+     * that never completes cannot block the per-category recovery path forever.
+     * Returns null when the attempt ended by stall/overall timeout, mirroring the
+     * previous withTimeoutOrNull contract.
+     */
+    private suspend fun <T> withStalkerBulkLiveStallTimeout(
+        block: suspend (markProgress: () -> Unit) -> T
+    ): T? = coroutineScope {
+        val lastProgressAt = AtomicLong(System.currentTimeMillis())
+        val streamDeferred = async {
+            block { lastProgressAt.set(System.currentTimeMillis()) }
+        }
+        val watchdog = launch {
+            while (isActive) {
+                delay(STALKER_BULK_LIVE_STALL_CHECK_INTERVAL_MILLIS)
+                val stalledFor = System.currentTimeMillis() - lastProgressAt.get()
+                if (stalledFor >= STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS) {
+                    streamDeferred.cancel()
+                    break
+                }
+            }
+        }
+        try {
+            withTimeoutOrNull(STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS) {
+                try {
+                    streamDeferred.await()
+                } catch (cancelled: CancellationException) {
+                    // Propagate cancellation of the outer scope (worker stopped or the
+                    // overall timeout fired); only the watchdog's stall-cancel maps to null.
+                    if (!isActive) throw cancelled
+                    null
+                }
+            }
+        } finally {
+            watchdog.cancel()
+            streamDeferred.cancel()
+        }
+    }
+
+    /**
+     * Only definitive portal verdicts prove the bulk live action is unsupported.
+     * Transport failures, consent challenges, rate limits and 5xx responses are
+     * transient conditions and must not downgrade the learned portal state.
+     */
+    private fun isDefinitiveBulkLiveFailure(error: Throwable?): Boolean = when (error) {
+        is StalkerApiError.Authorization,
+        is StalkerApiError.ModelRejected,
+        is StalkerApiError.AccountBlocked,
+        is StalkerApiError.Malformed,
+        is StalkerApiError.ResponseTooLarge,
+        is StalkerApiError.CatalogTruncated,
+        is StalkerApiError.BlockedOrConfiguration -> true
+        else -> false
     }
 
     private suspend fun loadStalkerLiveCatalog(
