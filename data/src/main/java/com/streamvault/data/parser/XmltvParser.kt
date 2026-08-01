@@ -350,7 +350,8 @@ class XmltvParser {
         inputStream: InputStream,
         timezoneId: String? = null,
         onChannel: suspend (XmltvChannel) -> Unit,
-        onProgramme: suspend (XmltvProgramme) -> Unit
+        onProgramme: suspend (XmltvProgramme) -> Unit,
+        limits: XmltvIngestionLimits = XmltvIngestionLimits()
     ) {
         val parser = newPullParser(inputStream)
         val parsingZoneId = resolveParsingZoneId(timezoneId)
@@ -384,6 +385,12 @@ class XmltvParser {
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
+                        if (parser.depth > limits.maxXmlDepth) {
+                            throw XmltvLimitExceeded(XmltvLimitKind.XML_DEPTH, limits.maxXmlDepth.toLong())
+                        }
+                        for (index in 0 until parser.attributeCount) {
+                            requireXmltvField(parser.getAttributeValue(index), limits)
+                        }
                         when (parser.name) {
                             "channel" -> {
                                 inChannel = true
@@ -443,6 +450,7 @@ class XmltvParser {
                         }
                     }
                     XmlPullParser.TEXT -> {
+                        requireXmltvField(parser.text, limits)
                         if (inChannel) {
                             when (channelTag) {
                                 "display-name" -> {
@@ -459,7 +467,15 @@ class XmltvParser {
                                 "sub-title" -> currentSubtitle = parser.text?.trim()?.takeIf { it.isNotEmpty() }
                                 "desc" -> currentDescription = parser.text
                                 "episode-num" -> currentEpisodeNum = parser.text?.trim()?.takeIf { it.isNotEmpty() }
-                                "category" -> parser.text?.trim()?.takeIf { it.isNotEmpty() }?.let(currentCategories::add)
+                                "category" -> parser.text?.trim()?.takeIf { it.isNotEmpty() }?.let { category ->
+                                    if (currentCategories.size >= limits.maxCategoriesPerProgramme) {
+                                        throw XmltvLimitExceeded(
+                                            XmltvLimitKind.CATEGORIES_PER_PROGRAMME,
+                                            limits.maxCategoriesPerProgramme.toLong()
+                                        )
+                                    }
+                                    currentCategories.add(category)
+                                }
                                 "rating" -> currentRating = parser.text?.trim()?.takeIf { it.isNotEmpty() }
                             }
                             currentTag = null
@@ -468,6 +484,9 @@ class XmltvParser {
                     XmlPullParser.END_TAG -> {
                         if (parser.name == "channel" && inChannel) {
                             if (channelId != null && channelDisplayName != null) {
+                                if (channelCount >= limits.maxChannels) {
+                                    throw XmltvLimitExceeded(XmltvLimitKind.CHANNELS, limits.maxChannels.toLong())
+                                }
                                 onChannel(
                                     XmltvChannel(
                                         id = channelId,
@@ -484,6 +503,11 @@ class XmltvParser {
                         }
                         if (parser.name == "programme" && inProgramme) {
                             if (isValidProgramme(currentChannelId, currentTitle, currentStart, currentEnd)) {
+                                if (programmeCount >= limits.maxProgrammes) {
+                                    throw XmltvLimitExceeded(XmltvLimitKind.PROGRAMMES, limits.maxProgrammes.toLong())
+                                }
+                                val genre = currentCategories.distinct().joinToString(" / ").takeIf { it.isNotBlank() }
+                                requireXmltvField(genre, limits)
                                 onProgramme(
                                     XmltvProgramme(
                                         channelId = currentChannelId!!,
@@ -495,7 +519,7 @@ class XmltvParser {
                                         lang = currentLang,
                                         rating = currentRating,
                                         imageUrl = currentImageUrl,
-                                        genre = currentCategories.distinct().joinToString(" / ").takeIf { it.isNotBlank() },
+                                        genre = genre,
                                         category = currentCategories.firstOrNull(),
                                         episodeInfo = currentEpisodeNum
                                     )
@@ -515,6 +539,12 @@ class XmltvParser {
                 e
             )
             throw e
+        }
+    }
+
+    private fun requireXmltvField(value: String?, limits: XmltvIngestionLimits) {
+        if (value != null && value.length > limits.maxFieldChars) {
+            throw XmltvLimitExceeded(XmltvLimitKind.FIELD_LENGTH, limits.maxFieldChars.toLong())
         }
     }
 

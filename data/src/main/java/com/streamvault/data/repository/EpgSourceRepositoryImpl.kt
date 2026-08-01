@@ -22,6 +22,9 @@ import com.streamvault.domain.model.EpgMatchType
 import com.streamvault.domain.model.EpgOverrideCandidate
 import com.streamvault.domain.model.EpgSourceType
 import com.streamvault.data.parser.XmltvParser
+import com.streamvault.data.parser.XmltvIngestionLimits
+import com.streamvault.data.parser.XmltvLimitExceeded
+import com.streamvault.data.parser.XmltvLimitKind
 import com.streamvault.data.util.ProviderInputSanitizer
 import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.data.util.UrlSecurityPolicy
@@ -50,7 +53,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.FilterInputStream
-import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import com.streamvault.data.remote.NetworkTimeoutConfig
@@ -62,19 +64,40 @@ import javax.inject.Singleton
 internal fun limitEpgInput(
     input: InputStream,
     maxBytes: Long = NetworkTimeoutConfig.EPG_MAX_SIZE_BYTES,
+    kind: XmltvLimitKind = XmltvLimitKind.DECOMPRESSED_BYTES,
 ): InputStream = object : FilterInputStream(input) {
     private var bytesRead = 0L
 
     override fun read(): Int {
-        if (bytesRead >= maxBytes) throw IOException("EPG response too large (>200 MB)")
+        if (bytesRead >= maxBytes) {
+            return if (super.read() == -1) -1 else throw XmltvLimitExceeded(kind, maxBytes)
+        }
         return super.read().also { if (it >= 0) bytesRead++ }
     }
 
     override fun read(bytes: ByteArray, off: Int, len: Int): Int {
-        if (bytesRead >= maxBytes) throw IOException("EPG response too large (>200 MB)")
+        if (len == 0) return 0
+        if (bytesRead >= maxBytes) {
+            return if (super.read() == -1) -1 else throw XmltvLimitExceeded(kind, maxBytes)
+        }
         val remaining = (maxBytes - bytesRead).coerceAtMost(len.toLong()).toInt()
         return super.read(bytes, off, remaining).also { if (it > 0) bytesRead += it }
     }
+}
+
+internal fun openLimitedXmltvInput(
+    rawInput: InputStream,
+    url: String,
+    xmltvParser: XmltvParser,
+    limits: XmltvIngestionLimits = XmltvIngestionLimits()
+): InputStream {
+    val rawLimited = limitEpgInput(rawInput, limits.maxRawBytes, XmltvLimitKind.RAW_BYTES)
+    val decompressed = xmltvParser.maybeDecompressGzip(url, rawLimited)
+    return limitEpgInput(
+        decompressed,
+        limits.maxDecompressedBytes,
+        XmltvLimitKind.DECOMPRESSED_BYTES
+    )
 }
 
 internal fun shouldRateLimitEpgRefresh(
@@ -104,7 +127,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
 
     companion object {
         private const val TAG = "EpgSourceRepo"
-        private const val MAX_EPG_SIZE_BYTES = NetworkTimeoutConfig.EPG_MAX_SIZE_BYTES
+        private const val MAX_EPG_RAW_SIZE_BYTES = NetworkTimeoutConfig.EPG_MAX_RAW_SIZE_BYTES
         private const val CHANNEL_BATCH_SIZE = 500
         private const val PROGRAMME_BATCH_SIZE = 500
         private const val MIN_REFRESH_INTERVAL_MS = 5L * 60L * 1000L // 5 minutes
@@ -294,6 +317,9 @@ class EpgSourceRepositoryImpl @Inject constructor(
                     val requestProfile = HttpRequestProfile(ownerTag = "epg-source:$sourceId")
                     val request = Request.Builder()
                         .url(source.url)
+                        // Preserve the actual wire representation so the smaller raw-byte
+                        // ceiling is enforced before our own gzip detection/decompression.
+                        .header("Accept-Encoding", "identity")
                         .apply {
                             source.etag?.let { header("If-None-Match", it) }
                             source.lastModifiedHeader?.let { header("If-Modified-Since", it) }
@@ -325,11 +351,12 @@ class EpgSourceRepositoryImpl @Inject constructor(
                     }
 
                     val contentLength = response.header("Content-Length")?.toLongOrNull() ?: -1L
-                    if (contentLength > MAX_EPG_SIZE_BYTES) {
+                    if (contentLength > MAX_EPG_RAW_SIZE_BYTES) {
                         ownedResponse.close()
-                        val err = "File too large (${contentLength / 1_048_576}MB)"
+                        val exception = XmltvLimitExceeded(XmltvLimitKind.RAW_BYTES, MAX_EPG_RAW_SIZE_BYTES)
+                        val err = xmltvLimitMessage(exception)
                         epgSourceDao.updateRefreshError(sourceId, err)
-                        return@withLock Result.error(err)
+                        return@withLock Result.error(err, exception)
                     }
 
                     val bodyStream = response.body?.byteStream() ?: run {
@@ -362,10 +389,9 @@ class EpgSourceRepositoryImpl @Inject constructor(
                 prepareStagingSource(source, stagingId)
 
                 rawInputStream.use { raw ->
-                    val rawLimited = limitEpgInput(raw)
-                    xmltvParser.maybeDecompressGzip(source.url, rawLimited).use { decompressed ->
+                    openLimitedXmltvInput(raw, source.url, xmltvParser).use { decompressed ->
                         xmltvParser.parseStreamingWithChannels(
-                            inputStream = limitEpgInput(decompressed),
+                            inputStream = decompressed,
                             timezoneId = sourceTimezoneId,
                             onChannel = { xmltvChannel ->
                                 channelBatch.add(
@@ -446,21 +472,20 @@ class EpgSourceRepositoryImpl @Inject constructor(
                         epgSourceDao.delete(stagingId)
                     }
                 }
-                val isOversizeError = e is IOException && e.message?.contains("too large", ignoreCase = true) == true
-                val statusMessage = if (isOversizeError) {
-                    "EPG response exceeded 200 MB limit"
-                } else {
-                    e.message ?: "Unknown error"
-                }
+                val limitError = e as? XmltvLimitExceeded
+                val statusMessage = limitError?.let(::xmltvLimitMessage) ?: (e.message ?: "Unknown error")
                 epgSourceDao.updateRefreshError(sourceId, statusMessage)
-                if (isOversizeError) {
-                    Result.error("EPG response exceeded 200 MB limit", e)
+                if (limitError != null) {
+                    Result.error(statusMessage, e)
                 } else {
                     Result.error("Failed to refresh EPG source: ${e.message}", e)
                 }
             }
         }
     }
+
+    private fun xmltvLimitMessage(error: XmltvLimitExceeded): String =
+        "EPG ${error.kind.label} exceeded safety limit"
 
     override suspend fun refreshAllForProvider(providerId: Long): Result<Unit> {
         val assignments = providerEpgSourceDao.getEnabledForProviderSync(providerId)

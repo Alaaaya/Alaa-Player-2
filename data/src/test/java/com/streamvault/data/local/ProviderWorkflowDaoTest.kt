@@ -71,6 +71,51 @@ class ProviderWorkflowDaoTest {
     }
 
     @Test
+    fun `running checkpoint survives retryable worker loss and is fenced by lease token`() = runTest {
+        insertProvider()
+        val dao = database.providerWorkflowDao()
+        val ticket = dao.request(
+            providerId = PROVIDER_ID,
+            phase = ProviderWorkflowPhase.PRIMARY_CATALOG,
+            reason = ProviderWorkflowReason.PERIODIC,
+            now = 100L
+        )
+        val firstLease = checkNotNull(
+            dao.claim(ticket, "first-process", 101L, 1_000L, staleHeartbeatBefore = 0L)
+        )
+
+        assertThat(
+            dao.updateRunningCheckpoint(
+                PROVIDER_ID,
+                ticket.generation,
+                ticket.phase,
+                firstLease.token,
+                "jellyfin-v1|101|202|MOVIES|100|300|0|-1",
+                now = 102L
+            )
+        ).isEqualTo(1)
+        assertThat(
+            dao.updateRunningCheckpoint(
+                PROVIDER_ID,
+                ticket.generation,
+                ticket.phase,
+                "wrong-owner",
+                "corrupt",
+                now = 103L
+            )
+        ).isEqualTo(0)
+        assertThat(dao.fail(firstLease, 104L, "IO", "process stopped", retryable = true)).isTrue()
+
+        val resumedLease = checkNotNull(
+            dao.claim(ticket, "second-process", 105L, 1_000L, staleHeartbeatBefore = 0L)
+        )
+
+        assertThat(resumedLease.generation).isEqualTo(firstLease.generation)
+        assertThat(dao.getCheckpoint(PROVIDER_ID, ticket.generation, ticket.phase))
+            .isEqualTo("jellyfin-v1|101|202|MOVIES|100|300|0|-1")
+    }
+
+    @Test
     fun `superseding request fences the old owner and records a new generation`() = runTest {
         insertProvider()
         val dao = database.providerWorkflowDao()

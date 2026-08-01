@@ -23,6 +23,8 @@ import com.streamvault.domain.model.ContentType
 import java.net.URI
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
 internal class SyncCatalogStore(
@@ -366,23 +368,27 @@ internal class SyncCatalogStore(
     }
 
     suspend fun stageChannelBatch(providerId: Long, sessionId: Long, channels: List<ChannelEntity>) {
-        requireStageCapacity(
-            currentCount = catalogSyncDao.countChannelStages(providerId, sessionId),
-            incomingCount = channels.distinctBy { it.streamId }.size,
-            maximum = sizeLimits.maxChannelsPerProvider,
-            label = "channel"
-        )
-        insertStageRows(buildChannelStages(providerId, sessionId, channels), catalogSyncDao::insertChannelStages)
+        providerTransaction(providerId) {
+            requireStageCapacity(
+                currentCount = catalogSyncDao.countChannelStages(providerId, sessionId),
+                incomingCount = channels.distinctBy { it.streamId }.size,
+                maximum = sizeLimits.maxChannelsPerProvider,
+                label = "channel"
+            )
+            insertStageRows(buildChannelStages(providerId, sessionId, channels), catalogSyncDao::insertChannelStages)
+        }
     }
 
     suspend fun stageMovieBatch(providerId: Long, sessionId: Long, movies: List<MovieEntity>) {
-        requireStageCapacity(
-            currentCount = catalogSyncDao.countMovieStages(providerId, sessionId),
-            incomingCount = movies.distinctBy { it.streamId }.size,
-            maximum = sizeLimits.maxMoviesPerProvider,
-            label = "movie"
-        )
-        insertStageRows(buildMovieStages(providerId, sessionId, movies), catalogSyncDao::insertMovieStages)
+        providerTransaction(providerId) {
+            requireStageCapacity(
+                currentCount = catalogSyncDao.countMovieStages(providerId, sessionId),
+                incomingCount = movies.distinctBy { it.streamId }.size,
+                maximum = sizeLimits.maxMoviesPerProvider,
+                label = "movie"
+            )
+            insertStageRows(buildMovieStages(providerId, sessionId, movies), catalogSyncDao::insertMovieStages)
+        }
     }
 
     suspend fun stageSeriesBatch(providerId: Long, sessionId: Long, series: List<SeriesEntity>) {
@@ -404,7 +410,17 @@ internal class SyncCatalogStore(
                     syncFingerprint = categoryFingerprint(category)
                 )
             }
-        insertStageRows(rows, catalogSyncDao::insertCategoryStages)
+        providerTransaction(providerId) {
+            rows.groupBy { it.type }.forEach { (type, typeRows) ->
+                requireStageCapacity(
+                    currentCount = catalogSyncDao.countCategoryStages(providerId, sessionId, type.name),
+                    incomingCount = typeRows.size,
+                    maximum = sizeLimits.maxM3uCategoriesPerType,
+                    label = "${type.name.lowercase()} category"
+                )
+            }
+            insertStageRows(rows, catalogSyncDao::insertCategoryStages)
+        }
     }
 
     suspend fun finalizeStagedImport(
@@ -435,6 +451,37 @@ internal class SyncCatalogStore(
         }
         if (includeMovies) {
             movieDao.restoreWatchProgress(providerId)
+        }
+    }
+
+    /** Promotes one complete Jellyfin Movies+Series snapshot in a single Room transaction. */
+    suspend fun applyStagedJellyfinCatalog(
+        providerId: Long,
+        movieSessionId: Long,
+        seriesSessionId: Long,
+        movieCategories: List<CategoryEntity>,
+        seriesCategories: List<CategoryEntity>,
+        afterCatalogApply: suspend () -> Unit = {}
+    ) {
+        try {
+            providerTransaction(providerId) {
+                stageCategories(providerId, movieSessionId, movieCategories)
+                applyCategories(providerId, movieSessionId, "MOVIE")
+                applyMovies(providerId, movieSessionId)
+                catalogSyncDao.rebuildMovieFts()
+
+                stageCategories(providerId, seriesSessionId, seriesCategories)
+                applyCategories(providerId, seriesSessionId, "SERIES")
+                applySeries(providerId, seriesSessionId)
+                catalogSyncDao.rebuildSeriesFts()
+                afterCatalogApply()
+            }
+            movieDao.restoreWatchProgress(providerId)
+        } finally {
+            withContext(NonCancellable) {
+                clearSession(providerId, movieSessionId)
+                if (seriesSessionId != movieSessionId) clearSession(providerId, seriesSessionId)
+            }
         }
     }
 
@@ -491,10 +538,12 @@ internal class SyncCatalogStore(
     }
 
     suspend fun clearProviderStaging(providerId: Long) {
-        catalogSyncDao.clearProviderChannelStages(providerId)
-        catalogSyncDao.clearProviderMovieStages(providerId)
-        catalogSyncDao.clearProviderSeriesStages(providerId)
-        catalogSyncDao.clearProviderCategoryStages(providerId)
+        transactionRunner.inTransaction {
+            catalogSyncDao.clearProviderChannelStages(providerId)
+            catalogSyncDao.clearProviderMovieStages(providerId)
+            catalogSyncDao.clearProviderSeriesStages(providerId)
+            catalogSyncDao.clearProviderCategoryStages(providerId)
+        }
     }
 
     private suspend fun applyCategories(
@@ -619,10 +668,14 @@ internal class SyncCatalogStore(
     }
 
     private suspend fun clearSession(providerId: Long, sessionId: Long) {
-        catalogSyncDao.clearChannelStages(providerId, sessionId)
-        catalogSyncDao.clearMovieStages(providerId, sessionId)
-        catalogSyncDao.clearSeriesStages(providerId, sessionId)
-        catalogSyncDao.clearCategoryStages(providerId, sessionId)
+        withContext(NonCancellable) {
+            transactionRunner.inTransaction {
+                catalogSyncDao.clearChannelStages(providerId, sessionId)
+                catalogSyncDao.clearMovieStages(providerId, sessionId)
+                catalogSyncDao.clearSeriesStages(providerId, sessionId)
+                catalogSyncDao.clearCategoryStages(providerId, sessionId)
+            }
+        }
     }
 
     private fun buildChannelStages(

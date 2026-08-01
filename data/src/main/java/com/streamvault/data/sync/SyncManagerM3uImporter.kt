@@ -4,6 +4,8 @@ import android.util.Log
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.parser.M3uParser
+import com.streamvault.data.parser.M3uMediaKind
+import com.streamvault.data.parser.M3uVodClassifier
 import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.data.remote.http.safeRequestIdentitySummary
@@ -15,6 +17,8 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -34,7 +38,8 @@ internal class SyncManagerM3uImporter(
     private val retryTransient: suspend (suspend () -> Unit) -> Unit,
     private val progress: (Long, ((String) -> Unit)?, String) -> Unit,
     private val emitProgress: (Long, SyncProgress) -> Unit,
-    private val sizeLimits: CatalogSizeLimits = CatalogSizeLimits()
+    private val sizeLimits: CatalogSizeLimits = CatalogSizeLimits(),
+    private val vodClassifier: M3uVodClassifier = M3uVodClassifier()
 ) {
     suspend fun importPlaylist(
         provider: Provider,
@@ -78,6 +83,15 @@ internal class SyncManagerM3uImporter(
         val warnings = mutableListOf<String>()
         var insecureStreamCount = 0
 
+        fun enforceInvalidEntryRatio() {
+            val candidateCount = parsedCount + invalidEntryCount
+            if (candidateCount >= 100 &&
+                invalidEntryCount * 100 > candidateCount * sizeLimits.maxM3uInvalidEntryRatioPercent
+            ) {
+                throw CatalogAdmissionExceeded("M3U invalid-entry ratio limit exceeded")
+            }
+        }
+
         try {
             openPlaylistStream(provider) { streamed ->
                 streamed.contentLength
@@ -102,6 +116,9 @@ internal class SyncManagerM3uImporter(
                     m3uParser.parseStreaming(
                         inputStream = input,
                         onHeader = { parsedHeader ->
+                            requireM3uFieldBounds(
+                                parsedHeader.tvgUrls + listOfNotNull(parsedHeader.userAgent)
+                            )
                             val validEpgUrls = parsedHeader.tvgUrls.filter { UrlSecurityPolicy.validateOptionalEpgUrl(it) == null }
                             if (validEpgUrls.size != parsedHeader.tvgUrls.size) {
                                 warnings += "Ignored unsupported EPG URL from playlist header."
@@ -113,7 +130,26 @@ internal class SyncManagerM3uImporter(
                         if (parsedCount > sizeLimits.maxM3uEntries) {
                             throw CatalogAdmissionExceeded("M3U entry limit exceeded")
                         }
-                        requireM3uFieldBounds(entry.name, entry.url, entry.groupTitle)
+                        enforceInvalidEntryRatio()
+                        requireM3uFieldBounds(
+                            listOf(
+                                entry.name,
+                                entry.groupTitle,
+                                entry.tvgId,
+                                entry.tvgName,
+                                entry.tvgLogo,
+                                entry.tvgLanguage,
+                                entry.tvgCountry,
+                                entry.catchUp,
+                                entry.catchUpSource,
+                                entry.timeshift,
+                                entry.url,
+                                entry.userAgent,
+                                entry.rating,
+                                entry.year,
+                                entry.genre
+                            )
+                        )
                         if (parsedCount >= nextMilestone) {
                             progress(provider.id, onProgress, "Imported $parsedCount playlist entries...")
                             // D14 — emission M3U etape Imported : current = nombre d'entrees
@@ -138,7 +174,11 @@ internal class SyncManagerM3uImporter(
                         val safeLogoUrl = UrlSecurityPolicy.sanitizeImportedAssetUrl(entry.tvgLogo)
                         val safeCatchUpSource = UrlSecurityPolicy.sanitizeImportedAssetUrl(entry.catchUpSource)
 
-                        if (provider.m3uVodClassificationEnabled && M3uParser.isVodEntry(entry)) {
+                        val mediaClassification = vodClassifier.classify(
+                            entry = entry,
+                            override = if (provider.m3uVodClassificationEnabled) null else M3uMediaKind.LIVE
+                        )
+                        if (mediaClassification.isVod) {
                             if (!includeMovies) return@parseStreaming
                             val groupTitle = entry.groupTitle.ifBlank { "Uncategorized" }
                             val stableStreamId = stableId(
@@ -219,13 +259,9 @@ internal class SyncManagerM3uImporter(
                         },
                         onInvalidEntry = {
                         invalidEntryCount++
-                        val candidateCount = parsedCount + invalidEntryCount
-                        if (candidateCount >= 100 &&
-                            invalidEntryCount * 100 > candidateCount * sizeLimits.maxM3uInvalidEntryRatioPercent
-                        ) {
-                            throw CatalogAdmissionExceeded("M3U invalid-entry ratio limit exceeded")
-                        }
-                        }
+                        enforceInvalidEntryRatio()
+                        },
+                        declaredCharset = streamed.declaredCharset
                     )
                 }
             }
@@ -236,8 +272,12 @@ internal class SyncManagerM3uImporter(
             // empty stage with includeLive=true runs stale deletion and wipes the entire
             // live-TV catalog — even though the absence of entries may reflect a server
             // error or a filtered playlist rather than a legitimate empty provider.
-            val effectiveLive = includeLive && liveCount > 0
-            val effectiveMovies = includeMovies && movieCount > 0
+            // A successful full-playlist refresh must also commit an empty opposite section.
+            // Otherwise changing the user's VOD-classification override leaves stale rows in
+            // Movies or Live TV. Section-only retries retain the empty-catalog safeguard.
+            val isSuccessfulFullRefresh = includeLive && includeMovies && parsedCount > 0
+            val effectiveLive = includeLive && (liveCount > 0 || isSuccessfulFullRefresh)
+            val effectiveMovies = includeMovies && (movieCount > 0 || isSuccessfulFullRefresh)
             syncCatalogStore.finalizeStagedImport(
                 providerId = provider.id,
                 sessionId = sessionId,
@@ -248,7 +288,9 @@ internal class SyncManagerM3uImporter(
                 afterCatalogApply = afterCatalogApply
             )
         } finally {
-            syncCatalogStore.discardStagedImport(provider.id, sessionId)
+            withContext(NonCancellable) {
+                syncCatalogStore.discardStagedImport(provider.id, sessionId)
+            }
         }
 
         if (insecureStreamCount > 0) {
@@ -290,7 +332,8 @@ internal class SyncManagerM3uImporter(
                             inputStream = input,
                             contentEncoding = response.header("Content-Encoding"),
                             contentLength = body.contentLength().takeIf { it >= 0L },
-                            sourceName = urlStr
+                            sourceName = urlStr,
+                            declaredCharset = body.contentType()?.charset(null)
                         )
                     )
                 }
@@ -400,7 +443,7 @@ internal class SyncManagerM3uImporter(
         return value.orEmpty().lowercase().replace(Regex("\\s+"), " ").trim()
     }
 
-    private fun requireM3uFieldBounds(vararg fields: String?) {
+    private fun requireM3uFieldBounds(fields: Iterable<String?>) {
         if (fields.any { it != null && it.length > sizeLimits.maxM3uFieldLength }) {
             throw CatalogAdmissionExceeded("M3U field length limit exceeded")
         }

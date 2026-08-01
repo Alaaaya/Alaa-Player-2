@@ -67,6 +67,44 @@ abstract class ProviderWorkflowDao {
         generation: Long
     ): List<ProviderWorkflowPhaseEntity>
 
+    @Query(
+        """
+        SELECT checkpoint FROM provider_workflow_phases
+        WHERE provider_id = :providerId AND generation = :generation AND phase = :phase
+        """
+    )
+    abstract suspend fun getCheckpoint(
+        providerId: Long,
+        generation: Long,
+        phase: ProviderWorkflowPhase
+    ): String?
+
+    @Query(
+        """
+        UPDATE provider_workflow_phases
+        SET checkpoint = :checkpoint, updated_at = :now
+        WHERE provider_id = :providerId
+          AND generation = :generation
+          AND phase = :phase
+          AND state = 'RUNNING'
+          AND EXISTS (
+              SELECT 1 FROM provider_workflows workflow
+              WHERE workflow.provider_id = :providerId
+                AND workflow.generation = :generation
+                AND workflow.current_phase = :phase
+                AND workflow.lease_token = :token
+          )
+        """
+    )
+    abstract suspend fun updateRunningCheckpoint(
+        providerId: Long,
+        generation: Long,
+        phase: ProviderWorkflowPhase,
+        token: String,
+        checkpoint: String?,
+        now: Long
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     protected abstract suspend fun insertWorkflow(workflow: ProviderWorkflowEntity): Long
 
@@ -580,13 +618,20 @@ abstract class ProviderWorkflowDao {
         } else {
             ProviderWorkflowPhaseState.FAILED_PERMANENT
         }
+        // A retryable failure represents an interrupted attempt, not abandoned work. Preserve
+        // the last atomically recorded page checkpoint when the caller has no newer one.
+        val retainedCheckpoint = if (retryable) {
+            checkpoint ?: getCheckpoint(lease.providerId, lease.generation, lease.phase)
+        } else {
+            checkpoint
+        }
         check(
             finishPhase(
                 lease.providerId,
                 lease.generation,
                 lease.phase,
                 phaseState,
-                checkpoint,
+                retainedCheckpoint,
                 errorCode,
                 errorMessage,
                 now

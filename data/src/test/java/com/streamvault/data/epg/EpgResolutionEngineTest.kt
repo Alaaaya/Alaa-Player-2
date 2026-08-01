@@ -93,6 +93,35 @@ class EpgResolutionEngineTest {
     }
 
     @Test
+    fun `resolveForProvider_accentedExactId_remainsAnExactMatch`() = runTest {
+        val channel = makeChannel(id = 1, name = "Chaîne Été", epgChannelId = "chaîne-é")
+        whenever(channelDao.getByProviderSync(PROVIDER_ID)).thenReturn(listOf(channel))
+        whenever(providerEpgSourceDao.getEnabledForProviderSync(PROVIDER_ID)).thenReturn(
+            listOf(ProviderEpgSourceEntity(id = 1, providerId = PROVIDER_ID, epgSourceId = SOURCE_1, priority = 0))
+        )
+        whenever(epgChannelDao.getBySources(listOf(SOURCE_1))).thenReturn(
+            listOf(
+                EpgChannelEntity(
+                    id = 1,
+                    epgSourceId = SOURCE_1,
+                    xmltvChannelId = "chaîne-é",
+                    displayName = "Chaîne Été",
+                    normalizedName = EpgNameNormalizer.normalize("Chaîne Été")
+                )
+            )
+        )
+        whenever(channelEpgMappingDao.getForProvider(PROVIDER_ID)).thenReturn(emptyList())
+
+        val summary = engine.resolveForProvider(PROVIDER_ID)
+
+        assertThat(summary.exactIdMatches).isEqualTo(1)
+        val captor = argumentCaptor<List<ChannelEpgMappingEntity>>()
+        verify(channelEpgMappingDao).replaceForProvider(any(), captor.capture())
+        assertThat(captor.firstValue.single().xmltvChannelId).isEqualTo("chaîne-é")
+        assertThat(captor.firstValue.single().matchType).isEqualTo(EpgMatchType.EXACT_ID.name)
+    }
+
+    @Test
     fun `resolveForProvider_normalizedNameFallback_resolvesAsNormalizedName`() = runTest {
         // Channel has no matching epgChannelId but name matches after normalization
         val channel = makeChannel(id = 1, name = "CNN International", epgChannelId = null)

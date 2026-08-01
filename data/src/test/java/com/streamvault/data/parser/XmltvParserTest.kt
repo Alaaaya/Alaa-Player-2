@@ -488,6 +488,108 @@ class XmltvParserTest {
     }
 
     @Test
+    fun `parseStreamingWithChannels_enforcesChannelAndProgrammeCounts`() = runTest {
+        val twoChannels = """
+            <tv>
+              <channel id="one"><display-name>One</display-name></channel>
+              <channel id="two"><display-name>Two</display-name></channel>
+            </tv>
+        """.trimIndent()
+        val twoProgrammes = """
+            <tv>
+              <programme start="20250101120000 +0000" stop="20250101130000 +0000" channel="one"><title>One</title></programme>
+              <programme start="20250101130000 +0000" stop="20250101140000 +0000" channel="one"><title>Two</title></programme>
+            </tv>
+        """.trimIndent()
+
+        val channelFailure = runCatching {
+            parser.parseStreamingWithChannels(
+                inputStream = twoChannels.byteInputStream(),
+                onChannel = {},
+                onProgramme = {},
+                limits = XmltvIngestionLimits(maxChannels = 1)
+            )
+        }.exceptionOrNull()
+        val programmeFailure = runCatching {
+            parser.parseStreamingWithChannels(
+                inputStream = twoProgrammes.byteInputStream(),
+                onChannel = {},
+                onProgramme = {},
+                limits = XmltvIngestionLimits(maxProgrammes = 1)
+            )
+        }.exceptionOrNull()
+
+        assertThat(channelFailure).isInstanceOf(XmltvLimitExceeded::class.java)
+        assertThat((channelFailure as XmltvLimitExceeded).kind).isEqualTo(XmltvLimitKind.CHANNELS)
+        assertThat(programmeFailure).isInstanceOf(XmltvLimitExceeded::class.java)
+        assertThat((programmeFailure as XmltvLimitExceeded).kind).isEqualTo(XmltvLimitKind.PROGRAMMES)
+    }
+
+    @Test
+    fun `parseStreamingWithChannels_rejectsVeryLongPersistedText`() = runTest {
+        val xml = """
+            <tv>
+              <programme start="20250101120000 +0000" stop="20250101130000 +0000" channel="one">
+                <title>News</title><desc>${"x".repeat(33)}</desc>
+              </programme>
+            </tv>
+        """.trimIndent()
+
+        val failure = runCatching {
+            parser.parseStreamingWithChannels(
+                inputStream = xml.byteInputStream(),
+                onChannel = {},
+                onProgramme = {},
+                limits = XmltvIngestionLimits(maxFieldChars = 32)
+            )
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(XmltvLimitExceeded::class.java)
+        assertThat((failure as XmltvLimitExceeded).kind).isEqualTo(XmltvLimitKind.FIELD_LENGTH)
+    }
+
+    @Test
+    fun `parseStreamingWithChannels_rejectsExcessiveNesting`() = runTest {
+        val xml = "<tv><programme><desc><b>nested</b></desc></programme></tv>"
+
+        val failure = runCatching {
+            parser.parseStreamingWithChannels(
+                inputStream = xml.byteInputStream(),
+                onChannel = {},
+                onProgramme = {},
+                limits = XmltvIngestionLimits(maxXmlDepth = 3)
+            )
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(XmltvLimitExceeded::class.java)
+        assertThat((failure as XmltvLimitExceeded).kind).isEqualTo(XmltvLimitKind.XML_DEPTH)
+    }
+
+    @Test
+    fun `parseStreamingWithChannels_boundsCategoriesPerProgramme`() = runTest {
+        val xml = """
+            <tv>
+              <programme start="20250101120000 +0000" stop="20250101130000 +0000" channel="one">
+                <title>News</title><category>News</category><category>Current affairs</category>
+              </programme>
+            </tv>
+        """.trimIndent()
+
+        val failure = runCatching {
+            parser.parseStreamingWithChannels(
+                inputStream = xml.byteInputStream(),
+                onChannel = {},
+                onProgramme = {},
+                limits = XmltvIngestionLimits(maxCategoriesPerProgramme = 1)
+            )
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(XmltvLimitExceeded::class.java)
+        assertThat((failure as XmltvLimitExceeded).kind)
+            .isEqualTo(XmltvLimitKind.CATEGORIES_PER_PROGRAMME)
+    }
+
+    @Test
     fun `maybeDecompressGzip_nonGzUrl_returnsReadableStream`() {
         val original = "hello".byteInputStream()
         val result = parser.maybeDecompressGzip("http://example.com/epg.xml", original)
