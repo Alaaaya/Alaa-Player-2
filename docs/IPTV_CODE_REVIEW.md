@@ -355,13 +355,13 @@ Phase 2 should review these files/modules first, in this order:
 | INFRA-001 | Cancellation is broadly converted into normal failure/retry results | Implemented; adverse-case verification pending (2026-07-27) | High |
 | NET-001 | Suspend call paths use blocking, non-cancellable OkHttp `execute()` | Implemented; MockWebServer race matrix pending (2026-07-27) | High |
 | SYNC-001 | M3U staging has no effective response or catalog-size bound | Resolved (2026-07-26) | High |
-| SYNC-002 | A global progress bus corrupts concurrent per-provider sync progress | Resolved (2026-07-26) | High |
+| SYNC-002 | A global progress bus corrupts concurrent per-provider sync progress | Resolved (2026-08-01) | High |
 | LIFE-001 | Every player engine permanently registers a timeshift component callback | Implemented; lifecycle stress verification pending (2026-07-27) | High |
 | LIFE-002 | Player reset launches unowned cleanup that can stop a new timeshift session | Implemented; lifecycle stress verification pending (2026-07-27) | High |
 | REC-001 | Recording stop/cancel neither cancels the HTTP call nor joins the writer | Implemented; capture matrix verification pending (2026-07-27) | High |
 | PERF-001 | Playback snapshots synchronously rewrite a file every second on main | Resolved (2026-07-26) | High |
 | PERF-002 | VOD progress triggers DB and Android TV rewrites every five seconds | Resolved (2026-07-26) | High |
-| WORK-001 | Local database maintenance is incorrectly gated on connectivity | Resolved (2026-07-26) | Medium |
+| WORK-001 | Local database maintenance is incorrectly gated on connectivity | Resolved (2026-08-01) | Medium |
 | WORK-002 | Recording reconciliation retries every error without classification/cap | Resolved (2026-07-29) | Medium |
 | UPDATE-001 | Failed automatic update checks suppress another attempt for 24 hours | Resolved (2026-07-29) | Medium |
 | MEMORY-001 | Process-lifetime maps grow with provider/category/host/media identities | Architectural concern | Medium |
@@ -410,10 +410,12 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Fix scope:** Architectural at catalog admission; parser counters are local.
 - **Required tests:** Chunked/no length, compressed expansion, every catalog maximum, duplicate-heavy input, overlong lines, cancellation/space exhaustion, and preservation of the active catalog.
 - **Resolution:** M3U imports now enforce declared response size, decompressed bytes, raw-line length, total entries, per-type entries, categories, field length, and invalid-entry ratio through `CatalogSizeLimits`. The importer raises `CatalogAdmissionExceeded` before finalization; its existing `finally` clears the staged session, preserving the active catalog. `SyncCatalogStore` independently rejects channel/movie batches that would exceed the durable stage limit, so non-M3U callers cannot bypass it. `M3uParser` reports malformed candidates to support ratio enforcement; its focused unit suite passes.
+- **2026-08-01 hardening:** Field admission now covers every persisted M3U/header string, and malformed candidates replaced by another `#EXTINF` or left pending at EOF contribute to the invalid ratio. The ratio is evaluated after both valid and invalid candidates, closing the malformed-prefix threshold bypass. Channel/movie count-and-insert admission and per-type category admission now run inside the shared Room transaction boundary. Provider/session cleanup is atomic, and session cleanup runs in a non-cancellable context so cancellation cannot skip staging disposal.
+- **Verification:** `SyncManagerM3uImporterTest` covers unknown-length exact-byte admission, declared length, gzip expansion, raw-line and metadata-field bounds, total/live/movie/category limits, duplicate-heavy input, invalid-ratio threshold ordering, storage failure, cancellation, no catalog apply on rejection, and staging disposal. Parser and catalog-store tests cover replaced/unterminated candidates, transactional admission, category limits, and atomic cleanup. The complete `:data:testDebugUnitTest` suite passed on 2026-08-01: 722 tests, zero failures, errors, or skips.
 
 ### SYNC-002 — A global progress bus corrupts concurrent per-provider sync progress
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (2026-08-01)
 - **Severity:** High
 - **Where:** `SyncProgressBus.kt:21-36`; `SyncManager.withProviderLock:296-306`; `SyncManager.sync:659-732` and `retrySection:845-898`; consumers such as `WelcomeViewModel`.
 - **Current behavior:** Different providers have different mutexes and can sync concurrently. State is provider-scoped, but `SyncProgressBus` contains one unkeyed `StateFlow<SyncProgress?>`. Every sync emits into it and every sync's `finally` resets the same value.
@@ -422,7 +424,8 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Key progress by provider ID and monotonic sync epoch, or return a per-session flow. Reset only the matching epoch; derive aggregate progress separately.
 - **Fix scope:** Shared sync API and consumers.
 - **Required tests:** Two interleaved providers; one completes/cancels without clearing the other; stale epoch after replacement; concurrent manual/background entry points.
-- **Resolution:** `SyncProgressBus` now owns an active session per provider, identified by a monotonic epoch. It exposes keyed provider progress and a separately derived aggregate; only the matching session can publish or finish. `SyncManager` opens and closes that session for full syncs, section retries, and Xtream index rebuilds, while M3U and Xtream emitters report through the provider-scoped bridge. Focused bus tests cover independent completion, stale-session replacement, and aggregation.
+- **Resolution:** `SyncProgressBus` now owns an active session per provider, identified by a monotonic epoch. It exposes keyed provider progress and a separately derived aggregate; only the matching session can publish or finish. `SyncManager` opens and closes that session for full syncs, section retries, and Xtream index rebuilds, while M3U and Xtream emitters report through the provider-scoped bridge. Focused bus tests cover two interleaved providers, independent completion and cancellation, stale-session replacement with increasing epochs, aggregate derivation, and genuinely concurrent manual/background lifecycles.
+- **Verification:** The complete data-module suite passed on 2026-08-01 with 778 tests and no failures, errors, or skips. App test compilation and `DataMaintenanceSchedulingTest` also passed after removing the ambiguous defaulted injectable constructor from `ProviderWorkflowCommitFence`.
 
 ### LIFE-001 — Every player engine permanently registers a timeshift component callback
 
@@ -498,7 +501,8 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Remove network. Consider separate light pruning/checkpoint and expensive idle-only vacuum jobs; persist last success.
 - **Fix scope:** Local scheduling.
 - **Required tests:** Request constraints, offline execution, battery/idle variants, locked/full DB retry, and safe skip during active sync.
-- **Resolution:** Daily local maintenance no longer requires network connectivity while retaining the battery-not-low and device-idle constraints.
+- **Resolution (2026-08-01):** Daily local maintenance requires no network connection while retaining battery-not-low and device-idle constraints. The complete prune/statistics/checkpoint/VACUUM operation now holds the same no-provider-sync admission gate, so it cannot race catalog/EPG writes. If any provider work is active or queued, maintenance is deferred as retryable work without writing a false successful-maintenance snapshot; only a completed operation records the persisted success snapshot.
+- **Verification:** `DataMaintenanceSchedulingTest` asserts offline, battery, and idle constraints. `ProviderWorkLockRegistryTest` verifies both active-provider rejection and that provider work cannot enter while admitted maintenance is running. `SyncWorkerPolicyTest` verifies completed work persists one snapshot, deferred work persists none, and locked/busy/full database failures retry. The focused data tests and app-level `DataMaintenanceSchedulingTest` passed on 2026-08-01 after correcting the unrelated Hilt constructor ambiguity.
 
 ### WORK-002 — Recording reconciliation retries every error without classification or cap
 
@@ -606,7 +610,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 | Xtream Codes | Cancellable OkHttp bridge, response byte budgets, streaming catalog decode, typed HTTP/parsing errors, compatibility fallbacks | Provider facade swallows cancellation; transient category failure is cached as authoritative adult classification |
 | M3U/M3U8 | Streaming parser, defensive attribute parser, URL policy, stable 64-bit identity, staging swap | Fixed UTF-8 decode, only one header EPG URL, query-bearing VOD extensions misclassified; Phase 2 also found missing import bounds |
 | XMLTV/manual EPG | XML encoding autodetection, offset-aware dates, staged atomic source swap, channel/program batching | Size limit is applied before decompression; no deterministic timezone when one source is shared across differing providers |
-| Jellyfin/local media | Stable SHA-256-derived remote IDs, bearer request profiles for playback, Quick Connect support | Entire libraries are unpaginated/buffered; image authorization cannot distinguish multiple accounts on one server |
+| Jellyfin/local media | Stable SHA-256-derived remote IDs, bounded verifiable catalog pagination with durable resume, bearer request profiles for playback, Quick Connect support | Image authorization device/migration verification remains pending for multiple accounts on one server |
 | Plugin providers | Explicit Messenger request IDs, bind/unbind cleanup, capability contract, M3U provider integration | Name-based provider ownership, unscoped manifest IDs, orphan cleanup gap, sequential multi-minute playback chain |
 
 ## Phase 3 findings summary
@@ -620,12 +624,12 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 | STALKER-005 | Portal-local dates are parsed as UTC | Confirmed defect | High |
 | STALKER-006 | Non-numeric remote IDs collapse to a 31-bit Java hash | Confirmed defect | Medium |
 | XTREAM-001 | Most Xtream provider operations swallow cancellation | Implemented; facade matrix verification pending (2026-07-27) | High |
-| XTREAM-002 | A transient category failure is cached as an empty adult-category set | Confirmed defect | Medium |
-| M3U-001 | Playlist decoding is fixed to UTF-8 and only the first header EPG URL is retained | Confirmed defect | Medium |
-| M3U-002 | Query-bearing VOD file URLs are classified as live streams | Confirmed defect | Medium |
-| XMLTV-001 | The 200 MB EPG limit measures compressed, not decompressed, bytes | Resolved (2026-07-26) | High |
+| XTREAM-002 | A transient category failure is cached as an empty adult-category set | Resolved; recommended-standard cache policy verified (2026-08-01) | Medium |
+| M3U-001 | Playlist decoding is fixed to UTF-8 and only the first header EPG URL is retained | Resolved; hardened and fully verified (2026-08-01) | Medium |
+| M3U-002 | Query-bearing VOD file URLs are classified as live streams | Resolved; hardened and fully verified (2026-08-01) | Medium |
+| XMLTV-001 | The 200 MB EPG limit measures compressed, not decompressed, bytes | Resolved; hardened and fully verified (2026-08-01) | High |
 | XMLTV-002 | Shared no-offset XMLTV sources fall back to the device timezone | Implemented; migration/device verification pending (2026-07-30) | Medium |
-| JELLYFIN-001 | Jellyfin catalog APIs buffer unpaginated libraries without a byte bound | Confirmed defect | High |
+| JELLYFIN-001 | Jellyfin catalog APIs buffer unpaginated libraries without a byte bound | Resolved; hardened and fully verified (2026-08-01) | High |
 | JELLYFIN-002 | Images from two accounts on one server use whichever provider matches first | Implemented; migration/device verification pending (2026-07-30) | High |
 | PLUGIN-001 | Plugin provider fallback can overwrite/delete a user-created M3U provider | Implemented; ownership lifecycle matrix pending (2026-07-30) | High |
 | PLUGIN-002 | Manifest IDs are not package-scoped and absent plugins are not reconciled | Implemented; package lifecycle matrix pending (2026-07-30) | High |
@@ -723,7 +727,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### XTREAM-002 — A transient category failure is cached as an empty adult-category set
 
-- **Classification:** Implemented; ownership lifecycle matrix pending (2026-07-30)
+- **Classification:** Resolved; recommended-standard cache policy verified (2026-08-01)
 - **Severity:** Medium
 - **Where:** `XtreamProvider.loadAdultCategoryIds:665-697`; long-lived provider caches in `MovieRepositoryImpl:138,1680-1713` and `SeriesRepositoryImpl:113,1660-1693`.
 - **Current behavior:** Category fetch failure is caught, logged, converted to `emptyList`, then transformed to an empty set and cached by content type. Subsequent item mapping never retries category loading for that provider instance. Repository provider instances can live for the process.
@@ -732,13 +736,13 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Cache only successful category responses, or store success/error with TTL and retry backoff. Invalidate on sync/provider update and expose degraded classification state where policy requires it.
 - **Fix scope:** Local provider cache policy plus repository invalidation.
 - **Required tests:** First failure then recovery; cancellation does not cache; genuine successful empty list does cache; TTL/update invalidation; concurrent callers single-flight; explicit item adult flag still wins.
-- **Resolution:** Failed category prefetches now return an uncached empty set, while successful responses (including a genuinely empty response) remain cacheable. Cancellation is rethrown. Regression coverage verifies that a failed prefetch is retried and restored adult classification is applied.
+- **Resolution (2026-08-01):** Failed category prefetches return an uncached empty set, while successful responses (including a genuinely empty response) remain cacheable. Cancellation is rethrown. A mutex makes a successful prefetch single-flight, and a successful direct category refresh replaces the cached classification; provider configuration changes create a replacement provider through the repository signature cache. Focused coverage verifies recovery after failure, cancellation without caching, successful-empty caching, concurrent single-flight behavior, refresh invalidation, and explicit item-level adult flags.
 
 ## M3U/M3U8 review
 
 ### M3U-001 — Playlist decoding is fixed to UTF-8 and only the first header EPG URL is retained
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (hardened 2026-08-01)
 - **Severity:** Medium
 - **Where:** `M3uParser.parse/parseStreaming:56-134`, `M3uHeader:25-28`, `extractHeaderEpgUrl:220-230`; `SyncManagerM3uImporter` header handling at `93-99`.
 - **Current behavior:** Both parser paths construct `InputStreamReader(..., UTF_8)` with no BOM/charset fallback. Header attributes such as `x-tvg-url` are split on commas and only the first non-empty URL survives in the singular `tvgUrl` field. XMLTV itself supports declaration-based encoding, so behavior differs across the paired formats.
@@ -747,11 +751,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Detect BOM, honor a validated HTTP charset when available, and use a documented UTF-8/fallback policy. Model header guide URLs as a bounded deduplicated list and assign/import each valid source with explicit priority.
 - **Fix scope:** M3U parser/header model and importer assignment.
 - **Required tests:** UTF-8 BOM, UTF-16 BOM if supported, Windows-1252/ISO-8859-1, invalid byte sequences, accented EPG matching, multiple/comma-spaced/duplicate guide URLs, and per-URL failure isolation.
-- **Resolution:** M3U parsing now detects UTF-8 and UTF-16 BOMs, falls back to UTF-8 otherwise, and retains up to eight distinct header EPG URLs in source order. The importer validates each URL independently.
+- **Resolution:** M3U parsing now gives UTF-8/UTF-16 BOMs precedence, honors allow-listed HTTP charsets, and otherwise decodes strict UTF-8 with a deterministic Windows-1252 fallback for legacy/invalid lines. Both buffered and streaming paths share this policy. Headers retain up to eight trimmed, distinct guide URLs in source order. The importer validates, imports, and assigns every accepted guide with stable priority; a returned error or exception from one guide is reported as a warning without preventing later guides from being processed. Regression coverage includes every encoding, matching, URL-list, and failure-isolation case listed above.
 
 ### M3U-002 — Query-bearing VOD file URLs are classified as live streams
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (hardened 2026-08-01)
 - **Severity:** Medium
 - **Where:** `M3uParser.isVodEntry:432-444`; classification branch in `SyncManagerM3uImporter:126-190`; tests cover bare `.mp4/.mkv` only.
 - **Current behavior:** VOD classification checks `lowercaseUrl.endsWith(".mp4"/".mkv"/".avi")`, literal `/movie/`, or English group substrings. A tokenized URL such as `film.mp4?token=...` does not end with the extension and is imported as live unless its path/group happens to match another heuristic.
@@ -760,13 +764,13 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Parse the URI path and inspect its final extension independent of query/fragment. Make group/name heuristics configurable and localized, treat classification as confidence/evidence, and allow overrides.
 - **Fix scope:** Local classifier plus tests/UI explanation.
 - **Required tests:** Extensions with query/fragment and uppercase; encoded paths; extensionless VOD; localized groups; misleading live group names; explicit user override and stable reclassification on refresh.
-- **Resolution:** `M3uParser.isVodEntry` now inspects the parsed URI path, so query strings and fragments no longer hide supported VOD file extensions. Regression coverage includes query-bearing, fragment-bearing, and uppercase extensions.
+- **Resolution:** M3U classification now returns a deterministic media kind, confidence, and evidence. It decodes the URI path before matching a configurable extension/path rule set, recognizes localized group and title hints, gives strong live-stream evidence precedence over weak text labels, and supports an explicit override. The provider setting uses that override when classification is disabled. Successful full-playlist refreshes commit both Live and Movies even when one side becomes empty, so changing the setting reliably removes stale rows from the previous classification. The UI explains the evidence order. Regression coverage includes query/fragment/case variants, encoded and extensionless paths, localized groups, name hints, misleading live labels, custom rules, explicit override, deterministic results, importer routing, and both directions of empty-section pruning.
 
 ## XMLTV/manual EPG review
 
 ### XMLTV-001 — The 200 MB EPG limit measures compressed, not decompressed, bytes
 
-- **Classification:** Resolved (2026-07-26)
+- **Classification:** Resolved (hardened 2026-08-01)
 - **Severity:** High
 - **Where:** `EpgSourceRepositoryImpl.refreshSource:316-371`; `XmltvParser.maybeDecompressGzip:523-556`; `MAX_EPG_SIZE_BYTES` policy.
 - **Current behavior:** A `FilterInputStream` counting up to 200 MB wraps the raw HTTP/file stream, then `maybeDecompressGzip` wraps that counted stream in `GZIPInputStream`. The parser consumes unlimited decompressed XML as long as the compressed input stays below 200 MB. Staged rows also grow with the expanded document.
@@ -775,7 +779,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Count decompressed bytes after decompression and retain a smaller raw/network bound before it. Add channel/program/field/depth limits and abort/clean staging with a typed oversize outcome.
 - **Fix scope:** EPG source ingestion boundary.
 - **Required tests:** Small gzip with expansion beyond 200 MB, chunked gzip, nested/very long text, maximum channel/program counts, cleanup after overflow, and active-source atomic preservation.
-- **Resolution:** The ingestion boundary now limits both raw bytes before decompression and decompressed XML bytes passed to the parser, preventing gzip expansion from bypassing the 200 MB ceiling.
+- **Resolution:** XMLTV downloads now request identity transfer encoding so the 64 MB raw-wire ceiling is measured before application-controlled gzip detection, while the parser-facing stream retains an independent 200 MB decompressed ceiling. Exact-limit inputs are accepted and the first excess byte raises a typed `XmltvLimitExceeded` identifying raw bytes, decompressed bytes, channels, programmes, field length, categories per programme, or XML depth. Streaming parsing additionally caps channels, programmes, persisted text/attributes, per-programme categories, and nesting. Any typed overflow removes the negative-ID staging rows and returns a typed repository error without deleting or moving active-source rows. Regression coverage includes gzip expansion, chunked gzip, the raw boundary, exact byte limits, long text, nesting, channel/programme/category maxima, cleanup, and active-source atomic preservation.
 
 ### XMLTV-002 — Shared no-offset XMLTV sources fall back to the device timezone
 
@@ -795,8 +799,8 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### JELLYFIN-001 — Jellyfin catalog APIs buffer unpaginated libraries without a byte bound
 
-- **Status:** Fixed (2026-07-26).
-- **Classification:** Resolved (2026-07-26)
+- **Status:** Fixed; hardened and fully verified (2026-08-01).
+- **Classification:** Resolved (2026-08-01)
 - **Severity:** High
 - **Where:** `JellyfinProvider.fetchMovies/fetchSeries/fetchEpisodes:82-119`, `fetchItems:186-198`, `fetchSeriesEpisodes:200-220`, `executeRequest:303-315`, DTOs at `363-369`.
 - **Current behavior:** `/Items` and `/Shows/{id}/Episodes` requests omit `StartIndex`/`Limit`. Responses are read fully with `body.string()` and decoded into a complete list. There is a 60-second call timeout but no content-length/decompressed-byte/item limit. DTOs do not retain `TotalRecordCount`/`StartIndex`, so pagination cannot be verified or resumed.
@@ -806,9 +810,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Fix scope:** Jellyfin API/catalog sync architecture.
 - **Required tests:** Multiple pages, server default truncation, changing totals, empty/repeated pages, huge single item/body, cancellation mid-page, resume/process death, and catalog limits.
 
-**Resolution:** Jellyfin movie, series, and episode endpoints now send explicit `StartIndex` and `Limit=100`. Catalog responses are decoded from a bounded stream rather than `body.string()`; each page has a 4 MiB read/decompressed-byte budget, rejects more than 100 records, and requires a valid `TotalRecordCount`. Movie and series pages stage incrementally and are promoted only after the reported total is reached without a changed total or early empty page. A failed, oversized, or unstable sync discards its staged snapshot and leaves the active catalog intact. Catalog ceilings are enforced before promotion (200,000 movies, 100,000 series, and 10,000 episodes per series). Episode hydration now pages through the same bounded API before replacing its cached episode set.
+**Resolution:** Jellyfin movie, series, and episode endpoints send explicit `StartIndex` and `Limit=100`, validate the echoed start index and stable `TotalRecordCount`, and reject oversized, empty-early, repeated, or non-advancing pages. Responses are decoded directly from a bounded stream with a 4 MiB decompressed/read budget per page; page item counts, individual string fields, nested collections, and overall catalog sizes are independently bounded. Episode hydration uses the same contract and detects repeated IDs and changing totals.
 
-Focused JVM coverage verifies explicit continuation parameters, multi-page continuation metadata, and rejection of a server response that ignores the requested page size. Broader process-death and cancellation coverage remains part of the shared cancellation/recovery work package, but no longer permits an unbounded Jellyfin response to be loaded into memory.
+Movie and series pages are staged incrementally under separate session IDs. A versioned workflow checkpoint records the phase, next indexes, totals, and session IDs after every committed page. Retryable failure and coroutine cancellation preserve that checkpoint and its matching staged rows across worker/process loss; resume verifies the staged counts before continuing, while force syncs and corrupt/torn checkpoints restart safely. Lease-token fencing prevents an obsolete worker from changing a checkpoint. Movies and series are published together in one database transaction only after both snapshots are complete, so a partial or invalid fetch cannot replace either active catalog. Cancellation is rethrown through both HTTP and sync boundaries.
+
+Focused JVM coverage now exercises multi-page/default-truncated responses, changing totals, mismatched starts, empty and repeated pages/items, oversized bodies and single items, mid-page cancellation, checkpoint serialization and process-loss reclaim, torn-stage rejection, stale lease fencing, atomic dual-catalog promotion, episode and catalog ceilings, and cancellation propagation. The full data-module unit suite also passes.
 
 ### JELLYFIN-002 — Images from two accounts on one server use whichever provider matches first
 

@@ -11,6 +11,7 @@ import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderWorkflowDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
@@ -35,6 +36,10 @@ import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
 import com.streamvault.data.remote.jellyfin.JellyfinProvider
+import com.streamvault.data.remote.jellyfin.JellyfinCatalogLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinItemLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinPaginationException
+import com.streamvault.data.remote.jellyfin.JellyfinResponseTooLargeException
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.remote.dto.XtreamSeriesItem
@@ -73,6 +78,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -80,6 +86,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -212,7 +219,8 @@ class SyncManager @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository,
     private val syncProgressBus: SyncProgressBus,
-    private val providerWorkflowCommitFence: ProviderWorkflowCommitFence
+    private val providerWorkflowCommitFence: ProviderWorkflowCommitFence,
+    private val providerWorkflowDao: ProviderWorkflowDao? = null
 ) {
     private val syncStateTracker = SyncStateTracker()
     private val syncErrorSanitizer = SyncErrorSanitizer()
@@ -3740,21 +3748,27 @@ class SyncManager @Inject constructor(
                     .first()
                     .mapTo(mutableSetOf()) { it.epgSourceId }
                 stats.header.tvgUrls.forEachIndexed { priority, url ->
-                    val source = existingSourcesByUrl[url] ?: when (
-                        val addResult = epgSourceRepository.addSource("Playlist EPG ${priority + 1}", url)
-                    ) {
-                        is Result.Success -> addResult.data
-                        is Result.Error -> {
-                            warnings += "Could not add playlist EPG source: ${addResult.message}"
-                            null
+                    try {
+                        val source = existingSourcesByUrl[url] ?: when (
+                            val addResult = epgSourceRepository.addSource("Playlist EPG ${priority + 1}", url)
+                        ) {
+                            is Result.Success -> addResult.data
+                            is Result.Error -> {
+                                warnings += "Could not add playlist EPG source ${priority + 1}: ${addResult.message}"
+                                null
+                            }
+                            Result.Loading -> null
                         }
-                        Result.Loading -> null
-                    }
-                    if (source != null && assignedSourceIds.add(source.id)) {
-                        when (val assignment = epgSourceRepository.assignSourceToProvider(provider.id, source.id, priority)) {
-                            is Result.Error -> warnings += "Could not assign playlist EPG source: ${assignment.message}"
-                            else -> Unit
+                        if (source != null && assignedSourceIds.add(source.id)) {
+                            when (val assignment = epgSourceRepository.assignSourceToProvider(provider.id, source.id, priority)) {
+                                is Result.Error -> warnings += "Could not assign playlist EPG source ${priority + 1}: ${assignment.message}"
+                                else -> Unit
+                            }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        warnings += "Could not configure playlist EPG source ${priority + 1}: ${sanitizeThrowableMessage(e)}"
                     }
                 }
             }
@@ -4101,88 +4115,151 @@ class SyncManager @Inject constructor(
         onProgress: ((String) -> Unit)?,
         afterCatalogApply: suspend () -> Unit = {}
     ): SyncOutcome {
-        val warnings = mutableListOf<String>()
+        val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
+        val decryptedProvider = provider.copy(password = decryptedPassword)
+        android.util.Log.d("JellyfinSync", "Starting Jellyfin sync for provider=${provider.id}")
+
+        val restoredCheckpoint = if (force) null else loadJellyfinCheckpoint(provider.id)
+        val canResume = restoredCheckpoint != null &&
+            isJellyfinCheckpointConsistent(provider.id, restoredCheckpoint)
+        var checkpoint = if (canResume) {
+            requireNotNull(restoredCheckpoint)
+        } else {
+            withContext(NonCancellable) { syncCatalogStore.clearProviderStaging(provider.id) }
+            JellyfinCatalogCheckpoint(
+                movieSessionId = syncCatalogStore.newSessionId(),
+                seriesSessionId = syncCatalogStore.newSessionId(),
+                phase = JellyfinCatalogPhase.MOVIES
+            ).also { saveJellyfinCheckpoint(provider.id, it) }
+        }
+
         try {
-            val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
-            val decryptedProvider = provider.copy(password = decryptedPassword)
-            android.util.Log.d("JellyfinSync", "Starting Jellyfin sync for provider=${provider.id}")
-            progress(provider.id, onProgress, "Loading Jellyfin movies...")
-            val movieSession = syncCatalogStore.newSessionId()
-            val seriesSession = syncCatalogStore.newSessionId()
-            syncCatalogStore.clearProviderStaging(provider.id)
-            try {
-                var movieStart = 0
-                var movieTotal: Int? = null
+            if (checkpoint.phase == JellyfinCatalogPhase.MOVIES) {
+                progress(provider.id, onProgress, "Loading Jellyfin movies...")
                 do {
-                    when (val result = jellyfinProvider.fetchMoviesPage(decryptedProvider, movieStart)) {
+                    when (val result = jellyfinProvider.fetchMoviesPage(decryptedProvider, checkpoint.movieStartIndex)) {
                         is com.streamvault.domain.model.Result.Error -> throw result.exception ?: IllegalStateException(result.message)
                         is com.streamvault.domain.model.Result.Success -> {
                             val page = result.data
-                            movieTotal = movieTotal ?: page.totalRecordCount
-                            if (page.totalRecordCount != movieTotal || page.totalRecordCount > 200_000) throw IllegalStateException("Jellyfin movie catalog is unstable or exceeds the supported limit")
-                            syncCatalogStore.stageMovieBatch(provider.id, movieSession, page.items)
-                            movieStart = page.nextStartIndex
+                            syncCatalogStore.stageMovieBatch(provider.id, checkpoint.movieSessionId, page.items)
+                            checkpoint = checkpoint.afterMoviePage(
+                                reportedTotal = page.totalRecordCount,
+                                pageItemCount = page.items.size,
+                                stagedCount = catalogSyncDao.countMovieStages(provider.id, checkpoint.movieSessionId)
+                            )
+                            saveJellyfinCheckpoint(provider.id, checkpoint)
                         }
-                        is com.streamvault.domain.model.Result.Loading -> Unit
+                        is com.streamvault.domain.model.Result.Loading ->
+                            throw JellyfinPaginationException("Jellyfin movie page did not complete")
                     }
-                } while (movieStart < (movieTotal ?: 0))
-                if (catalogSyncDao.countMovieStages(provider.id, movieSession) != (movieTotal ?: 0)) {
-                    throw IllegalStateException("Jellyfin movie pagination returned duplicate or invalid items")
-                }
+                } while (checkpoint.movieStartIndex < (checkpoint.movieTotal ?: 0))
+                checkpoint = checkpoint.copy(phase = JellyfinCatalogPhase.SERIES)
+                saveJellyfinCheckpoint(provider.id, checkpoint)
+            }
 
+            if (checkpoint.phase == JellyfinCatalogPhase.SERIES) {
                 progress(provider.id, onProgress, "Loading Jellyfin series...")
-                var seriesStart = 0
-                var seriesTotal: Int? = null
                 do {
-                    when (val result = jellyfinProvider.fetchSeriesPage(decryptedProvider, seriesStart)) {
+                    when (val result = jellyfinProvider.fetchSeriesPage(decryptedProvider, checkpoint.seriesStartIndex)) {
                         is com.streamvault.domain.model.Result.Error -> throw result.exception ?: IllegalStateException(result.message)
                         is com.streamvault.domain.model.Result.Success -> {
                             val page = result.data
-                            seriesTotal = seriesTotal ?: page.totalRecordCount
-                            if (page.totalRecordCount != seriesTotal || page.totalRecordCount > 100_000) throw IllegalStateException("Jellyfin series catalog is unstable or exceeds the supported limit")
-                            syncCatalogStore.stageSeriesBatch(provider.id, seriesSession, page.items)
-                            seriesStart = page.nextStartIndex
+                            syncCatalogStore.stageSeriesBatch(provider.id, checkpoint.seriesSessionId, page.items)
+                            checkpoint = checkpoint.afterSeriesPage(
+                                reportedTotal = page.totalRecordCount,
+                                pageItemCount = page.items.size,
+                                stagedCount = catalogSyncDao.countSeriesStages(provider.id, checkpoint.seriesSessionId)
+                            )
+                            saveJellyfinCheckpoint(provider.id, checkpoint)
                         }
-                        is com.streamvault.domain.model.Result.Loading -> Unit
+                        is com.streamvault.domain.model.Result.Loading ->
+                            throw JellyfinPaginationException("Jellyfin series page did not complete")
                     }
-                } while (seriesStart < (seriesTotal ?: 0))
-                if (catalogSyncDao.countSeriesStages(provider.id, seriesSession) != (seriesTotal ?: 0)) {
-                    throw IllegalStateException("Jellyfin series pagination returned duplicate or invalid items")
-                }
+                } while (checkpoint.seriesStartIndex < (checkpoint.seriesTotal ?: 0))
+                checkpoint = checkpoint.copy(phase = JellyfinCatalogPhase.READY)
+                saveJellyfinCheckpoint(provider.id, checkpoint)
+            }
 
-                progress(provider.id, onProgress, "Importing Jellyfin library...")
-                syncCatalogStore.applyStagedMovieCatalog(
-                    provider.id,
-                    movieSession,
-                    listOf(com.streamvault.data.local.entity.CategoryEntity(
+            progress(provider.id, onProgress, "Importing Jellyfin library...")
+            syncCatalogStore.applyStagedJellyfinCatalog(
+                providerId = provider.id,
+                movieSessionId = checkpoint.movieSessionId,
+                seriesSessionId = checkpoint.seriesSessionId,
+                movieCategories = listOf(com.streamvault.data.local.entity.CategoryEntity(
                         providerId = provider.id,
                         categoryId = 1L,
                         name = "Movies",
                         type = com.streamvault.domain.model.ContentType.MOVIE
                     )),
-                    afterCatalogApply
-                )
-                syncCatalogStore.applyStagedSeriesCatalog(
-                    provider.id,
-                    seriesSession,
-                    listOf(com.streamvault.data.local.entity.CategoryEntity(
+                seriesCategories = listOf(com.streamvault.data.local.entity.CategoryEntity(
                         providerId = provider.id,
                         categoryId = 2L,
                         name = "Series",
                         type = com.streamvault.domain.model.ContentType.SERIES
                     )),
-                    afterCatalogApply
-                )
-                return SyncOutcome(warnings = warnings)
-            } catch (error: Exception) {
-                syncCatalogStore.clearProviderStaging(provider.id)
-                throw error
+                afterCatalogApply = afterCatalogApply
+            )
+            saveJellyfinCheckpoint(provider.id, null)
+            return SyncOutcome()
+        } catch (cancelled: CancellationException) {
+            if (!hasDurableWorkflowContext(provider.id)) {
+                withContext(NonCancellable) { syncCatalogStore.clearProviderStaging(provider.id) }
             }
-        } catch (e: Exception) {
-            warnings.add("Jellyfin sync failed: ${e.message.orEmpty()}")
-            return SyncOutcome(partial = true, warnings = warnings)
+            throw cancelled
+        } catch (error: Exception) {
+            if (!isResumableJellyfinFailure(error) || !hasDurableWorkflowContext(provider.id)) {
+                withContext(NonCancellable) {
+                    syncCatalogStore.clearProviderStaging(provider.id)
+                    saveJellyfinCheckpoint(provider.id, null)
+                }
+            }
+            throw error
         }
     }
+
+    private suspend fun loadJellyfinCheckpoint(providerId: Long): JellyfinCatalogCheckpoint? {
+        val lease = coroutineContext[ProviderWorkflowExecutionContext]?.lease ?: return null
+        if (lease.providerId != providerId) return null
+        return JellyfinCatalogCheckpoint.decode(
+            providerWorkflowDao?.getCheckpoint(providerId, lease.generation, lease.phase)
+        )
+    }
+
+    private suspend fun saveJellyfinCheckpoint(providerId: Long, checkpoint: JellyfinCatalogCheckpoint?) {
+        val lease = coroutineContext[ProviderWorkflowExecutionContext]?.lease ?: return
+        if (lease.providerId != providerId) throw ProviderWorkflowSupersededException(providerId, lease.generation)
+        val workflowDao = providerWorkflowDao ?: return
+        if (workflowDao.updateRunningCheckpoint(
+                providerId = providerId,
+                generation = lease.generation,
+                phase = lease.phase,
+                token = lease.token,
+                checkpoint = checkpoint?.encode(),
+                now = System.currentTimeMillis()
+            ) != 1
+        ) {
+            throw ProviderWorkflowSupersededException(providerId, lease.generation)
+        }
+    }
+
+    private suspend fun isJellyfinCheckpointConsistent(
+        providerId: Long,
+        checkpoint: JellyfinCatalogCheckpoint
+    ): Boolean {
+        val movieCount = catalogSyncDao.countMovieStages(providerId, checkpoint.movieSessionId)
+        val seriesCount = catalogSyncDao.countSeriesStages(providerId, checkpoint.seriesSessionId)
+        return checkpoint.isConsistent(movieCount, seriesCount)
+    }
+
+    private suspend fun hasDurableWorkflowContext(providerId: Long): Boolean =
+        coroutineContext[ProviderWorkflowExecutionContext]?.lease?.providerId == providerId && providerWorkflowDao != null
+
+    private fun isResumableJellyfinFailure(error: Exception): Boolean =
+        error is IOException &&
+            error !is JellyfinPaginationException &&
+            error !is JellyfinCatalogLimitException &&
+            error !is JellyfinResponseTooLargeException &&
+            error !is JellyfinItemLimitException
 
     /**
      * Returned by [syncProviderEpg] so callers can distinguish between warning-only

@@ -8,6 +8,10 @@ import com.streamvault.data.local.entity.ProviderWorkflowPhase
 import com.streamvault.data.local.entity.ProviderWorkflowPhaseState
 import com.streamvault.data.local.entity.ProviderWorkflowReason
 import com.streamvault.data.local.entity.ProviderWorkflowState
+import com.streamvault.data.remote.jellyfin.JellyfinCatalogLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinItemLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinPaginationException
+import com.streamvault.data.remote.jellyfin.JellyfinResponseTooLargeException
 import com.streamvault.domain.model.ProviderType
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
@@ -87,6 +91,15 @@ class ProviderWorkflowRunnerTest {
                 .single()
                 .state
         ).isEqualTo(ProviderWorkflowPhaseState.FAILED_RETRYABLE)
+    }
+
+    @Test
+    fun `jellyfin bounded input violations are permanent while transport IO remains retryable`() {
+        assertThat(ProviderWorkFailureClassifier.isRetryable(IOException("offline"))).isTrue()
+        assertThat(ProviderWorkFailureClassifier.isRetryable(JellyfinPaginationException("unstable"))).isFalse()
+        assertThat(ProviderWorkFailureClassifier.isRetryable(JellyfinCatalogLimitException("too many"))).isFalse()
+        assertThat(ProviderWorkFailureClassifier.isRetryable(JellyfinResponseTooLargeException(5, 4))).isFalse()
+        assertThat(ProviderWorkFailureClassifier.isRetryable(JellyfinItemLimitException("item too large"))).isFalse()
     }
 
     @Test

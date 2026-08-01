@@ -53,7 +53,9 @@ import com.streamvault.data.remote.stalker.StalkerDeviceProfile
 import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.EpgSource
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -85,6 +87,7 @@ import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.reset
 import org.mockito.kotlin.verify
+import java.io.IOException
 import java.util.Locale
 import java.util.zip.GZIPOutputStream
 
@@ -310,6 +313,7 @@ class SyncManagerTest {
             org.mockito.kotlin.whenever(catalogSyncDao.countChannelStages(any(), any())).thenReturn(0)
             org.mockito.kotlin.whenever(catalogSyncDao.countMovieStages(any(), any())).thenReturn(0)
             org.mockito.kotlin.whenever(catalogSyncDao.countSeriesStages(any(), any())).thenReturn(0)
+            org.mockito.kotlin.whenever(catalogSyncDao.countCategoryStages(any(), any(), any())).thenReturn(0)
             org.mockito.kotlin.whenever(catalogSyncDao.getChannelStageCategorySummaries(any(), any())).thenReturn(emptyList())
             org.mockito.kotlin.whenever(xtreamContentIndexDao.pruneStaleLocalContentRows(any(), any())).thenReturn(0)
             // Default stubs for the streamed Stalker API methods. The tests in this file
@@ -331,6 +335,19 @@ class SyncManagerTest {
             org.mockito.kotlin.whenever(epgSourceRepo.refreshAllForProvider(any())).thenReturn(Result.success(Unit))
             org.mockito.kotlin.whenever(epgSourceRepo.resolveForProvider(any(), any()))
                 .thenReturn(com.streamvault.domain.model.EpgResolutionSummary())
+            org.mockito.kotlin.whenever(epgSourceRepo.getAllSources()).thenReturn(flowOf(emptyList()))
+            org.mockito.kotlin.whenever(epgSourceRepo.getAssignmentsForProvider(any())).thenReturn(flowOf(emptyList()))
+            org.mockito.kotlin.whenever(epgSourceRepo.addSource(any(), any(), any(), anyOrNull())).thenAnswer { invocation ->
+                Result.success(
+                    EpgSource(
+                        id = 1L,
+                        name = invocation.getArgument(0),
+                        url = invocation.getArgument(1)
+                    )
+                )
+            }
+            org.mockito.kotlin.whenever(epgSourceRepo.assignSourceToProvider(any(), any(), any()))
+                .thenReturn(Result.success(Unit))
         }
     }
 
@@ -3358,7 +3375,7 @@ class SyncManagerTest {
         advanceUntilIdle()
 
         if (result is Result.Error) {
-            error(result.message)
+            error("${result.message}: ${result.exception?.stackTraceToString()}")
         }
         assertThat(result.isSuccess).isTrue()
         verify(catalogSyncDao, atLeast(3)).insertChannelStages(any())
@@ -3408,6 +3425,9 @@ class SyncManagerTest {
         val result = mgr.sync(1L, force = true)
         advanceUntilIdle()
 
+        if (result is Result.Error) {
+            error("${result.message}: ${result.exception?.stackTraceToString()}")
+        }
         assertThat(result.isSuccess).isTrue()
         val state = mgr.currentSyncState(1L)
         assertThat(state).isInstanceOf(SyncState.Success::class.java)
@@ -3439,6 +3459,61 @@ class SyncManagerTest {
     }
 
     // ── M3U sync failure ────────────────────────────────────────────
+
+    @Test
+    fun `sync_m3u_isolates_each_epg_source_failure_and_preserves_source_priority`() = runTest {
+        val firstUrl = "https://epg.example.com/first.xml"
+        val secondUrl = "https://epg.example.com/second.xml"
+        val thirdUrl = "https://epg.example.com/third.xml"
+        val playlist = tempFolder.newFile("multi-epg-playlist.m3u")
+        playlist.writeText(
+            """
+                #EXTM3U x-tvg-url="$firstUrl, $secondUrl, $thirdUrl"
+                #EXTINF:-1 tvg-id="news",News
+                https://live.example.com/news.ts
+            """.trimIndent()
+        )
+        org.mockito.kotlin.whenever(epgSourceRepo.addSource(any(), any(), any(), anyOrNull())).thenAnswer { invocation ->
+            when (val url = invocation.getArgument<String>(1)) {
+                firstUrl -> throw IOException("first source unavailable")
+                secondUrl -> Result.success(EpgSource(id = 2L, name = "Second", url = url))
+                else -> Result.success(EpgSource(id = 3L, name = "Third", url = url))
+            }
+        }
+        org.mockito.kotlin.whenever(epgSourceRepo.assignSourceToProvider(any(), any(), any())).thenAnswer { invocation ->
+            if (invocation.getArgument<Long>(1) == 2L) throw IOException("second assignment unavailable")
+            Result.success(Unit)
+        }
+        val provider = sampleProvider(ProviderType.M3U).copy(
+            serverUrl = playlist.toURI().toString(),
+            m3uUrl = playlist.toURI().toString(),
+            epgUrl = ""
+        )
+        val manager = buildManager(providerType = ProviderType.M3U, providerEntity = provider)
+
+        val result = manager.sync(1L, force = true)
+        advanceUntilIdle()
+
+        assertThat(result.isSuccess).isTrue()
+        assertThat(manager.currentSyncState(1L)).isInstanceOf(SyncState.Partial::class.java)
+        verify(epgSourceRepo).addSource(eq("Playlist EPG 1"), eq(firstUrl), any(), anyOrNull())
+        verify(epgSourceRepo).addSource(eq("Playlist EPG 2"), eq(secondUrl), any(), anyOrNull())
+        verify(epgSourceRepo).addSource(eq("Playlist EPG 3"), eq(thirdUrl), any(), anyOrNull())
+        verify(epgSourceRepo).assignSourceToProvider(1L, 2L, 1)
+        verify(epgSourceRepo).assignSourceToProvider(1L, 3L, 2)
+    }
+
+    @Test
+    fun `jellyfin cancellation is propagated instead of reported as partial success`() = runTest {
+        org.mockito.kotlin.whenever(jellyfinProvider.fetchMoviesPage(any(), eq(0)))
+            .thenThrow(CancellationException("cancelled"))
+
+        val error = runCatching {
+            buildManager(providerType = ProviderType.JELLYFIN).sync(providerId = 1L)
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(CancellationException::class.java)
+    }
 
     @Test
     fun `sync_m3u_networkError_transitionsToError`() = runTest {
@@ -3535,17 +3610,17 @@ class SyncManagerTest {
 
     @Test
     fun `isVodEntry_movieGroupTitle_returnsTrue`() {
-        assertThat(M3uParser.isVodEntry(entry(group = "Movies HD"))).isTrue()
+        assertThat(M3uParser.isVodEntry(entry(url = "http://vod.example.com/item/1", group = "Movies HD"))).isTrue()
     }
 
     @Test
     fun `isVodEntry_vodGroupTitle_returnsTrue`() {
-        assertThat(M3uParser.isVodEntry(entry(group = "VOD Library"))).isTrue()
+        assertThat(M3uParser.isVodEntry(entry(url = "http://vod.example.com/item/1", group = "VOD Library"))).isTrue()
     }
 
     @Test
     fun `isVodEntry_filmGroupTitle_returnsTrue`() {
-        assertThat(M3uParser.isVodEntry(entry(group = "Film Classics"))).isTrue()
+        assertThat(M3uParser.isVodEntry(entry(url = "http://vod.example.com/item/1", group = "Film Classics"))).isTrue()
     }
 
     @Test

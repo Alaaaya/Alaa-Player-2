@@ -32,8 +32,10 @@ class ProviderWorkflowSupersededException(
  */
 @Singleton
 class ProviderWorkflowCommitFence @Inject constructor(
-    private val workflowDao: ProviderWorkflowDao? = null
+    private val workflowDao: ProviderWorkflowDao?
 ) {
+    internal constructor() : this(null)
+
     suspend fun assertCanCommit(providerId: Long) {
         val execution = coroutineContext[ProviderWorkflowExecutionContext] ?: return
         val lease = execution.lease

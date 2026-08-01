@@ -93,4 +93,36 @@ class ProviderWorkLockRegistryTest {
 
         assertThat(registry.runWhenNoWorkActive { true }).isTrue()
     }
+
+    @Test
+    fun `provider work waits until admitted maintenance completes`() = runTest {
+        val registry = ProviderWorkLockRegistry()
+        val maintenanceEntered = CompletableDeferred<Unit>()
+        val releaseMaintenance = CompletableDeferred<Unit>()
+        val providerEntered = CompletableDeferred<Unit>()
+
+        val maintenance = async {
+            registry.runWhenNoWorkActive {
+                maintenanceEntered.complete(Unit)
+                releaseMaintenance.await()
+                true
+            }
+        }
+        maintenanceEntered.await()
+
+        val providerWork = async {
+            registry.withProviderLock(7L) {
+                providerEntered.complete(Unit)
+            }
+        }
+        runCurrent()
+
+        assertThat(providerEntered.isCompleted).isFalse()
+
+        releaseMaintenance.complete(Unit)
+
+        assertThat(maintenance.await()).isTrue()
+        providerWork.await()
+        assertThat(providerEntered.isCompleted).isTrue()
+    }
 }

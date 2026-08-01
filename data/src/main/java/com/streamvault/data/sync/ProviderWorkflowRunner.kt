@@ -5,6 +5,10 @@ import com.streamvault.data.local.dao.ProviderWorkflowDao
 import com.streamvault.data.local.dao.ProviderWorkflowLease
 import com.streamvault.data.local.entity.ProviderWorkflowPhase
 import com.streamvault.data.local.entity.ProviderWorkflowReason
+import com.streamvault.data.remote.jellyfin.JellyfinCatalogLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinItemLimitException
+import com.streamvault.data.remote.jellyfin.JellyfinPaginationException
+import com.streamvault.data.remote.jellyfin.JellyfinResponseTooLargeException
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
@@ -41,6 +45,10 @@ enum class ProviderWorkflowDisposition {
 
 object ProviderWorkFailureClassifier {
     fun isRetryable(error: Throwable?): Boolean = when (error) {
+        is JellyfinPaginationException,
+        is JellyfinCatalogLimitException,
+        is JellyfinResponseTooLargeException,
+        is JellyfinItemLimitException -> false
         is IOException -> true
         is SQLiteException -> error.message.orEmpty().contains("locked", ignoreCase = true) ||
             error.message.orEmpty().contains("busy", ignoreCase = true)

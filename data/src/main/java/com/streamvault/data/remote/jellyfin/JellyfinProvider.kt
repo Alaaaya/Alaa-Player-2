@@ -39,6 +39,8 @@ class JellyfinProvider @Inject constructor(
         const val PAGE_SIZE = 100
         const val MAX_PAGE_BYTES = 4L * 1024L * 1024L
         const val MAX_EPISODES_PER_SERIES = 10_000
+        const val MAX_ITEM_FIELD_CHARS = 65_536
+        const val MAX_ITEM_COLLECTION_ENTRIES = 128
     }
 
     private val itemsResponseType = object : TypeToken<JellyfinItemsResponseDto>() {}.type
@@ -125,17 +127,26 @@ class JellyfinProvider @Inject constructor(
 
     suspend fun fetchEpisodes(provider: Provider, seriesRemoteId: String, seriesLocalId: Long): Result<List<EpisodeEntity>> = try {
         val episodes = ArrayList<EpisodeEntity>()
+        val seenEpisodeIds = HashSet<Long>()
         var startIndex = 0
         var expectedTotal: Int? = null
         do {
             val page = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 fetchSeriesEpisodesPage(provider, seriesRemoteId, startIndex)
             }
+            if (page.totalRecordCount > MAX_EPISODES_PER_SERIES) {
+                throw JellyfinCatalogLimitException("Jellyfin series exceeds $MAX_EPISODES_PER_SERIES episodes")
+            }
             expectedTotal = expectedTotal ?: page.totalRecordCount
             if (page.totalRecordCount != expectedTotal || page.items.isEmpty() && startIndex < expectedTotal) {
                 throw JellyfinPaginationException("Jellyfin episode catalog changed or ended early")
             }
-            episodes += page.items.map { item -> buildEpisodeEntity(item, provider, seriesLocalId) }
+            page.items.map { item -> buildEpisodeEntity(item, provider, seriesLocalId) }.forEach { episode ->
+                if (!seenEpisodeIds.add(episode.episodeId)) {
+                    throw JellyfinPaginationException("Jellyfin episode pagination repeated an item")
+                }
+                episodes += episode
+            }
             if (episodes.size > MAX_EPISODES_PER_SERIES) {
                 throw JellyfinCatalogLimitException("Jellyfin series exceeds $MAX_EPISODES_PER_SERIES episodes")
             }
@@ -347,19 +358,63 @@ class JellyfinProvider @Inject constructor(
             if (body.contentLength() > MAX_PAGE_BYTES) throw JellyfinResponseTooLargeException(body.contentLength(), MAX_PAGE_BYTES)
             val reader = com.google.gson.stream.JsonReader(InputStreamReader(BoundedInputStream(body.byteStream(), MAX_PAGE_BYTES), body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8))
             var total: Int? = null
+            var returnedStartIndex: Int? = null
             val items = ArrayList<JellyfinItemDto>(PAGE_SIZE)
             reader.use {
                 it.beginObject()
                 while (it.hasNext()) when (it.nextName()) {
                     "TotalRecordCount" -> total = it.nextInt()
-                    "Items" -> { it.beginArray(); while (it.hasNext()) { if (items.size >= PAGE_SIZE) throw JellyfinPaginationException("Jellyfin ignored requested page limit $PAGE_SIZE"); gson.fromJson<JellyfinItemDto>(it, JellyfinItemDto::class.java)?.takeIf { dto -> !dto.id.isNullOrBlank() }?.let(items::add) }; it.endArray() }
+                    "StartIndex" -> returnedStartIndex = it.nextInt()
+                    "Items" -> { it.beginArray(); while (it.hasNext()) { if (items.size >= PAGE_SIZE) throw JellyfinPaginationException("Jellyfin ignored requested page limit $PAGE_SIZE"); gson.fromJson<JellyfinItemDto>(it, JellyfinItemDto::class.java)?.also(::validateCatalogItem)?.takeIf { dto -> !dto.id.isNullOrBlank() }?.let(items::add) }; it.endArray() }
                     else -> it.skipValue()
                 }
                 it.endObject()
             }
             val count = total ?: throw JellyfinPaginationException("Jellyfin response omitted TotalRecordCount")
-            if (count < 0 || startIndex > count || items.isEmpty() && startIndex < count) throw JellyfinPaginationException("Invalid Jellyfin pagination response")
+            if (
+                count < 0 ||
+                startIndex > count ||
+                returnedStartIndex?.let { it != startIndex } == true ||
+                items.size > count - startIndex ||
+                items.isEmpty() && startIndex < count
+            ) throw JellyfinPaginationException("Invalid Jellyfin pagination response")
             return JellyfinPage(startIndex, count, items)
+        }
+    }
+
+    private fun validateCatalogItem(item: JellyfinItemDto) {
+        val scalarFields = listOf(
+            item.id,
+            item.name,
+            item.overview,
+            item.premiereDate,
+            item.dateCreated,
+            item.dateLastMediaAdded,
+            item.primaryMediaSource?.id,
+            item.primaryMediaSource?.container
+        )
+        if (scalarFields.any { it != null && it.length > MAX_ITEM_FIELD_CHARS }) {
+            throw JellyfinItemLimitException("Jellyfin item field exceeded $MAX_ITEM_FIELD_CHARS characters")
+        }
+        val collections = listOf(
+            item.providerIds.orEmpty().entries.map { it.key to it.value },
+            item.genres.orEmpty(),
+            item.imageTags.orEmpty().entries.map { it.key to it.value },
+            item.backdropImageTags.orEmpty(),
+            item.mediaSources.orEmpty()
+        )
+        if (collections.any { it.size > MAX_ITEM_COLLECTION_ENTRIES }) {
+            throw JellyfinItemLimitException("Jellyfin item collection exceeded $MAX_ITEM_COLLECTION_ENTRIES entries")
+        }
+        val collectionStrings = buildList {
+            item.providerIds.orEmpty().forEach { (key, value) -> add(key); add(value) }
+            addAll(item.genres.orEmpty())
+            item.imageTags.orEmpty().forEach { (key, value) -> add(key); add(value) }
+            addAll(item.backdropImageTags.orEmpty())
+            item.mediaSources.orEmpty().forEach { source -> add(source.id); add(source.container) }
+        }
+        if (collectionStrings.any { it != null && it.length > MAX_ITEM_FIELD_CHARS }) {
+            throw JellyfinItemLimitException("Jellyfin item field exceeded $MAX_ITEM_FIELD_CHARS characters")
         }
     }
 
@@ -423,6 +478,7 @@ data class JellyfinPage<T>(val startIndex: Int, val totalRecordCount: Int, val i
 class JellyfinResponseTooLargeException(val observedBytes: Long, val maxAllowedBytes: Long) : IOException("Jellyfin response exceeded safe page budget ($observedBytes B > $maxAllowedBytes B)")
 class JellyfinPaginationException(message: String) : IOException(message)
 class JellyfinCatalogLimitException(message: String) : IOException(message)
+class JellyfinItemLimitException(message: String) : IOException(message)
 
 private class BoundedInputStream(delegate: InputStream, private val limit: Long) : FilterInputStream(delegate) {
     private var count = 0L
