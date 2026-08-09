@@ -54,9 +54,15 @@ import com.streamvault.data.local.entity.*
         StalkerPortalStateEntity::class,
         StalkerRemoteIdentityEntity::class,
         StalkerDiscoveryStageEntity::class,
-        DownloadEntity::class
+        DownloadEntity::class,
+        ProviderDeletionCleanupEntity::class,
+        PluginProviderOwnershipEntity::class,
+        ProviderConfigRevisionEntity::class,
+        BackupRestoreCheckpointEntity::class,
+        ProviderWorkflowEntity::class,
+        ProviderWorkflowPhaseEntity::class
     ],
-    version = 66,
+    version = 72,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -101,6 +107,11 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun stalkerRemoteIdentityDao(): StalkerRemoteIdentityDao
     abstract fun stalkerDiscoveryStageDao(): StalkerDiscoveryStageDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun providerDeletionCleanupDao(): ProviderDeletionCleanupDao
+    abstract fun pluginProviderOwnershipDao(): PluginProviderOwnershipDao
+    abstract fun providerConfigRevisionDao(): ProviderConfigRevisionDao
+    abstract fun backupRestoreCheckpointDao(): BackupRestoreCheckpointDao
+    abstract fun providerWorkflowDao(): ProviderWorkflowDao
 
     companion object {
         /**
@@ -2806,6 +2817,16 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 )
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_stalker_remote_identities_provider_id ON stalker_remote_identities(provider_id)")
                 database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_stalker_remote_identities_provider_id_content_type_surrogate_id ON stalker_remote_identities(provider_id, content_type, surrogate_id)")
+                database.execSQL("""CREATE TABLE IF NOT EXISTS provider_deletion_cleanup (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    provider_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    target_id TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT
+                )""")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_provider_deletion_cleanup_provider_id_action_target_id ON provider_deletion_cleanup(provider_id, action, target_id)")
                 validateForeignKeys(database, "providers", "stalker_index_jobs", "stalker_portal_state", "stalker_remote_identities")
             }
         }
@@ -2837,6 +2858,16 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     WHERE type = 'STALKER_PORTAL'
                     """.trimIndent()
                 )
+                database.execSQL("""CREATE TABLE IF NOT EXISTS plugin_provider_ownership (
+                    package_name TEXT NOT NULL,
+                    service_class_name TEXT NOT NULL,
+                    manifest_id TEXT NOT NULL,
+                    provider_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY(package_name, service_class_name, manifest_id),
+                    FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                )""")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_plugin_provider_ownership_provider_id ON plugin_provider_ownership(provider_id)")
                 validateForeignKeys(database, "providers")
             }
         }
@@ -2926,6 +2957,13 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                       AND lower(server_url) LIKE 'http://%'
                     """.trimIndent()
                 )
+                listOf(
+                    imageUrlMigrationSql("movies", "poster_url"),
+                    imageUrlMigrationSql("movies", "backdrop_url"),
+                    imageUrlMigrationSql("series", "poster_url"),
+                    imageUrlMigrationSql("series", "backdrop_url"),
+                    imageUrlMigrationSql("episodes", "cover_url")
+                ).forEach(database::execSQL)
                 validateForeignKeys(database, "providers")
             }
         }
@@ -3015,9 +3053,171 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id ON vod_catalog_entries(provider_id)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id_category_id_raw_page_raw_index ON vod_catalog_entries(provider_id, category_id, raw_page, raw_index)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id_item_type_target_id ON vod_catalog_entries(provider_id, item_type, target_id)")
+                addColumnIfMissing(
+                    database,
+                    tableName = "recording_runs",
+                    columnName = "exact_alarm_armed",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 1"
+                )
+                addColumnIfMissing(
+                    database,
+                    tableName = "program_reminders",
+                    columnName = "exact_alarm_armed",
+                    columnDefinition = "INTEGER NOT NULL DEFAULT 1"
+                )
                 validateForeignKeys(database, "providers", "vod_category_hydration", "vod_catalog_entries")
             }
         }
+
+        /** Migration 66 -> 67: retain candidate provider edits until they are atomically promoted. */
+        val MIGRATION_66_67 = object : Migration(66, 67) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_config_revisions (
+                        provider_id INTEGER NOT NULL,
+                        revision INTEGER NOT NULL,
+                        config_json TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id, revision),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_config_revisions_provider_id_state ON provider_config_revisions(provider_id, state)")
+                validateForeignKeys(database, "provider_config_revisions")
+            }
+        }
+
+        /** Migration 67 -> 68: retain cross-store backup restore progress for safe retry. */
+        val MIGRATION_67_68 = object : Migration(67, 68) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS backup_restore_checkpoints (
+                        restore_key TEXT NOT NULL,
+                        room_complete INTEGER NOT NULL DEFAULT 0,
+                        preferences_complete INTEGER NOT NULL DEFAULT 0,
+                        presets_complete INTEGER NOT NULL DEFAULT 0,
+                        schedules_complete INTEGER NOT NULL DEFAULT 0,
+                        state TEXT NOT NULL,
+                        preference_snapshot_json TEXT,
+                        last_error TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(restore_key)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** Migration 68 -> 69: make active download ownership durable and reclaimable. */
+        val MIGRATION_68_69 = object : Migration(68, 69) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "downloads", "owner_id", "TEXT")
+                addColumnIfMissing(database, "downloads", "owner_epoch", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "downloads", "heartbeat_at", "INTEGER")
+            }
+        }
+
+        /** Migration 69 -> 70: make reminder delivery outcomes durable and recoverable. */
+        val MIGRATION_69_70 = object : Migration(69, 70) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "program_reminders", "delivery_state", "TEXT NOT NULL DEFAULT 'PENDING'")
+                addColumnIfMissing(database, "program_reminders", "delivery_attempt_token", "TEXT")
+                addColumnIfMissing(database, "program_reminders", "delivery_attempted_at", "INTEGER")
+                addColumnIfMissing(database, "program_reminders", "delivery_attempt_count", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "program_reminders", "delivery_failure_reason", "TEXT")
+                database.execSQL(
+                    """
+                    UPDATE program_reminders
+                    SET delivery_state = CASE
+                        WHEN notified_at IS NOT NULL THEN 'DELIVERED'
+                        WHEN is_dismissed = 1 THEN 'DISMISSED'
+                        ELSE 'PENDING'
+                    END
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** Migration 70 -> 71: persist the provider workflow generation, lease, and phase ledger. */
+        val MIGRATION_70_71 = object : Migration(70, 71) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_workflows (
+                        provider_id INTEGER NOT NULL,
+                        generation INTEGER NOT NULL,
+                        state TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        priority INTEGER NOT NULL,
+                        force INTEGER NOT NULL,
+                        current_phase TEXT,
+                        lease_token TEXT,
+                        lease_expires_at INTEGER,
+                        heartbeat_at INTEGER,
+                        progress_message TEXT,
+                        last_error_code TEXT,
+                        last_error_message TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        completed_at INTEGER,
+                        PRIMARY KEY(provider_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflows_state ON provider_workflows(state)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflows_updated_at ON provider_workflows(updated_at)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflows_lease_expires_at ON provider_workflows(lease_expires_at)")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_workflow_phases (
+                        provider_id INTEGER NOT NULL,
+                        generation INTEGER NOT NULL,
+                        phase TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL,
+                        checkpoint TEXT,
+                        last_error_code TEXT,
+                        last_error_message TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        completed_at INTEGER,
+                        PRIMARY KEY(provider_id, generation, phase),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_provider_id ON provider_workflow_phases(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_state ON provider_workflow_phases(state)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_workflow_phases_updated_at ON provider_workflow_phases(updated_at)")
+                validateForeignKeys(database, "provider_workflows", "provider_workflow_phases")
+            }
+        }
+
+        /** Migration 71 -> 72: make offset-free XMLTV timestamp handling explicit per source. */
+        val MIGRATION_71_72 = object : Migration(71, 72) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(database, "epg_sources", "timezone_policy", "TEXT NOT NULL DEFAULT 'REQUIRE_OFFSET'")
+                addColumnIfMissing(database, "epg_sources", "timezone_id", "TEXT")
+            }
+        }
+
+        private fun imageUrlMigrationSql(table: String, column: String): String = """
+            UPDATE $table SET $column = CASE
+                WHEN instr($column, 'streamvault_provider_id=') > 0 THEN $column
+                ELSE $column || CASE WHEN instr($column, '?') = 0 THEN '?streamvault_provider_id=' ELSE '&streamvault_provider_id=' END || provider_id
+            END
+            WHERE $column IS NOT NULL
+              AND provider_id IN (SELECT id FROM providers WHERE type = 'JELLYFIN')
+        """.trimIndent()
 
         val MIGRATION_52_53 = object : Migration(52, 53) {
             override fun migrate(database: SupportSQLiteDatabase) {

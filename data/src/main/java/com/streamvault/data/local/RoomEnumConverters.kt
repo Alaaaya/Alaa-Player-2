@@ -1,6 +1,11 @@
 package com.streamvault.data.local
 
 import androidx.room.TypeConverter
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
+import com.streamvault.data.local.entity.ProviderWorkflowPhase
+import com.streamvault.data.local.entity.ProviderWorkflowPhaseState
+import com.streamvault.data.local.entity.ProviderWorkflowReason
+import com.streamvault.data.local.entity.ProviderWorkflowState
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.SeriesCatalogOrigin
@@ -10,6 +15,7 @@ import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
+import com.streamvault.domain.model.ProgramReminderDeliveryState
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
@@ -23,6 +29,7 @@ import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolFamily
 import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.XmltvTimezonePolicy
 import java.util.logging.Logger
 
 class RoomEnumConverters {
@@ -42,6 +49,48 @@ class RoomEnumConverters {
 
     @TypeConverter
     fun toProviderStatus(value: String?): ProviderStatus? = enumValueOrDefault(value, ProviderStatus.UNKNOWN)
+
+    @TypeConverter
+    fun fromProviderConfigRevisionState(value: ProviderConfigRevisionState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderConfigRevisionState(value: String?): ProviderConfigRevisionState? =
+        enumValueOrDefault(value, ProviderConfigRevisionState.FAILED)
+
+    @TypeConverter
+    fun fromProviderWorkflowState(value: ProviderWorkflowState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowState(value: String?): ProviderWorkflowState? =
+        enumValueOrDefault(value, ProviderWorkflowState.FAILED)
+
+    @TypeConverter
+    fun fromProviderWorkflowPhase(value: ProviderWorkflowPhase?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowPhase(value: String?): ProviderWorkflowPhase? =
+        enumValueOrDefault(value, ProviderWorkflowPhase.PREPARE)
+
+    @TypeConverter
+    fun fromProviderWorkflowPhaseState(value: ProviderWorkflowPhaseState?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowPhaseState(value: String?): ProviderWorkflowPhaseState? =
+        enumValueOrDefault(value, ProviderWorkflowPhaseState.FAILED_PERMANENT)
+
+    @TypeConverter
+    fun fromProviderWorkflowReason(value: ProviderWorkflowReason?): String? = value?.name
+
+    @TypeConverter
+    fun toProviderWorkflowReason(value: String?): ProviderWorkflowReason? =
+        enumValueOrDefault(value, ProviderWorkflowReason.RECOVERY)
+
+    @TypeConverter
+    fun fromProgramReminderDeliveryState(value: ProgramReminderDeliveryState?): String? = value?.name
+
+    @TypeConverter
+    fun toProgramReminderDeliveryState(value: String?): ProgramReminderDeliveryState? =
+        enumValueOrDefault(value, ProgramReminderDeliveryState.PENDING)
 
     @TypeConverter
     fun fromProviderEpgSyncMode(value: ProviderEpgSyncMode?): String? = value?.name
@@ -182,6 +231,13 @@ class RoomEnumConverters {
     @TypeConverter
     fun toSeriesCatalogOrigin(value: String?): SeriesCatalogOrigin? =
         enumValueOrDefault(value, SeriesCatalogOrigin.NATIVE)
+
+    @TypeConverter
+    fun fromXmltvTimezonePolicy(value: XmltvTimezonePolicy?): String? = value?.name
+
+    @TypeConverter
+    fun toXmltvTimezonePolicy(value: String?): XmltvTimezonePolicy? =
+        enumValueOrDefault(value, XmltvTimezonePolicy.REQUIRE_OFFSET)
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(
         value: String?,

@@ -2,6 +2,7 @@ package com.streamvault.app.ui.screens.settings
 
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.BackupImportPlan
+import com.streamvault.domain.manager.BackupRestoreOutcome
 import com.streamvault.domain.usecase.ExportBackup
 import com.streamvault.domain.usecase.ExportBackupCommand
 import com.streamvault.domain.usecase.ExportBackupResult
@@ -148,6 +149,9 @@ internal class SettingsBackupActions(
         scope.launch {
             val result = importBackup.confirm(ImportBackupCommand(uriString, plan))
             uiState.update { state ->
+                val completed = (result as? ImportBackupResult.Success)
+                    ?.result
+                    ?.outcome == BackupRestoreOutcome.COMPLETE
                 state.copy(
                     isImportingBackup = false,
                     isSyncing = false,
@@ -156,12 +160,16 @@ internal class SettingsBackupActions(
                     } else {
                         "Configuration imported: ${(result as ImportBackupResult.Success).importedSummary}"
                     },
-                    backupPreview = null,
-                    pendingBackupUri = null,
-                    backupImportPlan = BackupImportPlan()
+                    // Preserve the source and plan after partial/failed-before-commit outcomes so
+                    // the user can retry the same durable checkpoint instead of starting over.
+                    backupPreview = if (completed) null else state.backupPreview,
+                    pendingBackupUri = if (completed) null else state.pendingBackupUri,
+                    backupImportPlan = if (completed) BackupImportPlan() else state.backupImportPlan
                 )
             }
-            if (result is ImportBackupResult.Success) {
+            if (result is ImportBackupResult.Success &&
+                result.result.outcome == BackupRestoreOutcome.COMPLETE
+            ) {
                 onSuccess?.invoke()
             }
         }

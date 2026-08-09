@@ -35,16 +35,20 @@ internal fun registerSettingsAppUpdateObservers(
         combine(
             preferencesRepository.autoCheckAppUpdates,
             preferencesRepository.lastAppUpdateCheckTimestamp,
+            preferencesRepository.lastAppUpdateFailureTimestamp,
             preferencesRepository.autoDownloadAppUpdates
-        ) { autoCheckEnabled, lastCheckedAt, autoDownload ->
-            Triple(autoCheckEnabled, lastCheckedAt, autoDownload)
-        }.distinctUntilChanged().collect { (autoCheckEnabled, lastCheckedAt, autoDownload) ->
-            if (autoCheckEnabled && appUpdateActions.shouldAutoCheckForUpdates(lastCheckedAt)) {
+        ) { autoCheckEnabled, lastSuccessfulCheckAt, lastFailedCheckAt, autoDownload ->
+            UpdateCheckPreferences(autoCheckEnabled, lastSuccessfulCheckAt, lastFailedCheckAt, autoDownload)
+        }.distinctUntilChanged().collect { preferences ->
+            if (preferences.autoCheckEnabled && appUpdateActions.shouldAutoCheckForUpdates(
+                    preferences.lastSuccessfulCheckAt,
+                    preferences.lastFailedCheckAt
+                )) {
                 appUpdateActions.checkForAppUpdates(
                     scope = scope,
                     manual = false,
                     isRemoteVersionNewer = ::isRemoteVersionNewer,
-                    autoDownload = autoDownload
+                    autoDownload = preferences.autoDownload
                 )
             }
         }
@@ -62,6 +66,13 @@ internal fun registerSettingsAppUpdateObservers(
         appUpdateInstaller.refreshState()
     }
 }
+
+private data class UpdateCheckPreferences(
+    val autoCheckEnabled: Boolean,
+    val lastSuccessfulCheckAt: Long?,
+    val lastFailedCheckAt: Long?,
+    val autoDownload: Boolean,
+)
 
 internal fun registerCombinedProfileObservers(
     scope: CoroutineScope,

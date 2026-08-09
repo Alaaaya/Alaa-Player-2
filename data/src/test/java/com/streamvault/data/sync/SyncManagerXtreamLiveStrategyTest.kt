@@ -1025,7 +1025,7 @@ class SyncManagerXtreamLiveStrategyTest {
             liveCategorySequentialModeWarning = "Live category sync used sequential mode.",
             isCurrentlyLowOnMemory = isCurrentlyLowOnMemory,
             stageChannelItems = stageChannelItems,
-            syncProgressBus = SyncProgressBus()
+            emitProgress = { _, _ -> }
         )
     }
 

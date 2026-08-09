@@ -105,6 +105,7 @@ class EpgViewModelTest {
         whenever(channelRepository.getChannelsByCategoryPage(any(), any(), any())).thenReturn(flowOf(emptyList()))
         whenever(channelRepository.getChannelsWithoutErrorsPage(any(), any(), any())).thenReturn(flowOf(emptyList()))
         whenever(recordingManager.observeRecordingItems()).thenReturn(flowOf(emptyList()))
+        whenever(programReminderManager.observeUpcomingReminders()).thenReturn(flowOf(emptyList()))
     }
 
     @After

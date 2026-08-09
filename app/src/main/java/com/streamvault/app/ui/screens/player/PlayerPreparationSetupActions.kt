@@ -117,7 +117,7 @@ internal fun PlayerViewModel.applyPrepareSessionState(
         clearSeriesEpisodeContext()
     }
     if (currentContentType != ContentType.LIVE) {
-        lastRecordedLivePlaybackKey = null
+        livePlaybackRecordCoordinator.reset()
         recentChannelsJob?.cancel()
         recentChannelsFlow.value = emptyList()
         lastVisitedCategoryJob?.cancel()

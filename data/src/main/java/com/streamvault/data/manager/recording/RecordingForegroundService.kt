@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.streamvault.data.R
 import com.streamvault.domain.manager.RecordingManager
+import com.streamvault.domain.model.RecordingStatus
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -25,6 +26,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class RecordingForegroundService : Service() {
@@ -105,6 +107,29 @@ class RecordingForegroundService : Service() {
         notificationJob?.cancel()
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.e(TAG, "Foreground-service time allowance exhausted; stopping active recordings")
+        idleStopJob?.cancel()
+        serviceScope.launch {
+            try {
+                val manager = entryPoint().recordingManager()
+                manager.observeRecordingItems().first()
+                    .asSequence()
+                    .filter { it.status == RecordingStatus.RECORDING }
+                    .forEach { recording ->
+                        runCatching {
+                            manager.stopRecordingForForegroundServiceTimeout(recording.id)
+                        }.onFailure { error ->
+                            Log.e(TAG, "Failed to stop recording ${recording.id} after service timeout", error)
+                        }
+                    }
+            } finally {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -207,6 +232,7 @@ class RecordingForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "RecordingFgService"
         private const val CHANNEL_ID = "streamvault_recording"
         private const val NOTIFICATION_ID = 4102
         private const val IDLE_GRACE_MS = 3_000L

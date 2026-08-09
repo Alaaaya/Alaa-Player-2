@@ -10,16 +10,15 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.streamvault.app.diagnostics.CrashReportStore
 import com.streamvault.app.diagnostics.RuntimeDiagnosticsManager
-import com.streamvault.app.update.GitHubReleaseChecker
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.ui.accessibility.isReducedMotionEnabled
 import com.streamvault.data.remote.jellyfin.JellyfinImageAuthInterceptor
-import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.domain.model.Result
+import com.streamvault.domain.repository.DownloadManager
+import com.streamvault.domain.manager.ProgramReminderManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okio.Path.Companion.toOkioPath
 
@@ -42,12 +41,6 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Inject
-    lateinit var preferencesRepository: PreferencesRepository
-
-    @Inject
-    lateinit var gitHubReleaseChecker: GitHubReleaseChecker
-
-    @Inject
     lateinit var okHttpClient: OkHttpClient
 
     @Inject
@@ -55,6 +48,18 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
 
     @Inject
     lateinit var syncManager: SyncManager
+
+    @Inject
+    lateinit var downloadManager: DownloadManager
+
+    @Inject
+    lateinit var streamVaultPluginManager: StreamVaultPluginManager
+
+    @Inject
+    lateinit var programReminderManager: ProgramReminderManager
+
+    @Inject
+    lateinit var startupWorkRegistry: StartupWorkRegistry
 
     private val imageOkHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
@@ -72,71 +77,24 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             TimeshiftDiskManager(applicationContext).cleanupStaleDirectories(activeSessionDir = null)
         }
         applicationScope.launch {
-            refreshCachedAppUpdateIfNeeded()
+            downloadManager.recoverInterruptedDownloads()
+        }
+        applicationScope.launch {
+            streamVaultPluginManager.reconcilePluginProviders()
+        }
+        applicationScope.launch {
+            programReminderManager.restoreScheduledReminders()
         }
         applicationScope.launch {
             syncManager.reconcileStalkerIndexWorkAtStartup()
         }
         
-        // Schedule daily data maintenance: EPG pruning, stale-favorite cleanup, and DB compaction checks.
-        // BLD-H02: Require network + device idle so the worker doesn't drain battery.
-        val gcConstraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .setRequiresDeviceIdle(true)
-            .build()
-
-        val gcWorkRequest = PeriodicWorkRequestBuilder<com.streamvault.data.sync.SyncWorker>(24, java.util.concurrent.TimeUnit.HOURS)
-            .setConstraints(gcConstraints)
-            .build()
-            
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "DataMaintenanceWorker",
-            ExistingPeriodicWorkPolicy.KEEP,
-            gcWorkRequest
-        )
-
-        ProviderSyncWorker.enqueuePeriodic(this)
-        ProviderSyncWorker.enqueueLaunchStaleCheck(this)
-        XtreamIndexWorker.enqueuePeriodic(this)
-        XtreamIndexWorker.enqueueLaunchStaleCheck(this)
-        RecordingReconcileWorker.enqueuePeriodic(this)
-        RecordingReconcileWorker.enqueueOneShot(this)
+        startupWorkRegistry.register()
     }
 
     override fun onTerminate() {
         runtimeDiagnosticsManager.stop()
         super.onTerminate()
-    }
-
-    private suspend fun refreshCachedAppUpdateIfNeeded() {
-        val autoCheckEnabled = preferencesRepository.autoCheckAppUpdates.first()
-        if (!autoCheckEnabled) {
-            return
-        }
-
-        val lastCheckedAt = preferencesRepository.lastAppUpdateCheckTimestamp.first()
-        val now = System.currentTimeMillis()
-        val checkIntervalMs = 24L * 60L * 60L * 1000L
-        if (lastCheckedAt != null && now - lastCheckedAt < checkIntervalMs) {
-            return
-        }
-
-        preferencesRepository.setLastAppUpdateCheckTimestamp(now)
-        when (val result = gitHubReleaseChecker.fetchLatestRelease()) {
-            is Result.Success -> {
-                preferencesRepository.setCachedAppUpdateRelease(
-                    versionName = result.data.versionName,
-                    versionCode = result.data.versionCode,
-                    releaseUrl = result.data.releaseUrl,
-                    downloadUrl = result.data.downloadUrl,
-                    downloadSha256 = result.data.downloadSha256,
-                    releaseNotes = result.data.releaseNotes,
-                    publishedAt = result.data.publishedAt
-                )
-            }
-            else -> Unit
-        }
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
@@ -166,3 +124,8 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             .build()
     }
 }
+
+internal fun dataMaintenanceConstraints(): Constraints = Constraints.Builder()
+    .setRequiresBatteryNotLow(true)
+    .setRequiresDeviceIdle(true)
+    .build()

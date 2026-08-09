@@ -16,6 +16,7 @@ import com.streamvault.domain.repository.SyncMetadataRepository
 import com.streamvault.domain.usecase.SyncProvider
 import com.streamvault.domain.usecase.SyncProviderCommand
 import com.streamvault.domain.usecase.SyncProviderResult
+import com.streamvault.domain.util.PersistedTimestampPolicy
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.preferences.PreferencesRepository
 import kotlinx.coroutines.CancellationException
@@ -25,6 +26,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.hours
+
+internal fun shouldAutoSyncProvider(
+    lastSyncedAt: Long,
+    now: Long,
+    staleAfterMillis: Long
+): Boolean = !PersistedTimestampPolicy.isFresh(lastSyncedAt, now, staleAfterMillis)
 
 internal class SettingsProviderActions(
     private val providerRepository: ProviderRepository,
@@ -64,9 +71,11 @@ internal class SettingsProviderActions(
             watchNextManager.refreshWatchNext()
             launcherRecommendationsManager.refreshRecommendations(force = true)
             tvInputChannelSyncManager.refreshTvInputCatalog()
-            val lastSyncedAt = provider.lastSyncedAt
-            val shouldAutoSync = lastSyncedAt <= 0L ||
-                System.currentTimeMillis() - lastSyncedAt >= AUTO_SWITCH_SYNC_STALE_AFTER_MS
+            val shouldAutoSync = shouldAutoSyncProvider(
+                lastSyncedAt = provider.lastSyncedAt,
+                now = System.currentTimeMillis(),
+                staleAfterMillis = AUTO_SWITCH_SYNC_STALE_AFTER_MS
+            )
             if (shouldAutoSync) {
                 refreshProvider(
                     scope = scope,
@@ -497,12 +506,17 @@ internal class SettingsProviderActions(
                 }
             }) {
                 is Result.Success -> {
+                    val outcome = result.data
                     uiState.update {
                         it.copy(
                             isDeletingProvider = false,
                             deleteProviderProgressMessage = null,
                             deleteProviderProgressFraction = null,
-                            userMessage = "Provider deleted"
+                            userMessage = if (outcome.cleanupPending) {
+                                "Provider library deleted; final cleanup continues"
+                            } else {
+                                "Provider deleted"
+                            }
                         )
                     }
                     onSuccess()

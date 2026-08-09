@@ -7,6 +7,7 @@ import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.domain.model.ContentType
 import java.io.InputStream
+import java.nio.charset.Charset
 import java.security.MessageDigest
 
 internal data class SyncOutcome(
@@ -103,7 +104,9 @@ internal data class M3uImportStats(
 internal data class StreamedPlaylist(
     val inputStream: InputStream,
     val contentEncoding: String? = null,
-    val sourceName: String? = null
+    val contentLength: Long? = null,
+    val sourceName: String? = null,
+    val declaredCharset: Charset? = null
 )
 
 internal class FallbackCategoryCollector(

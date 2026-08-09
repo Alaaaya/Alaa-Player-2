@@ -74,6 +74,9 @@ interface CatalogSyncDao {
     @Query("SELECT COUNT(*) FROM series_import_stage WHERE provider_id = :providerId AND session_id = :sessionId")
     suspend fun countSeriesStages(providerId: Long, sessionId: Long): Int
 
+    @Query("SELECT COUNT(*) FROM category_import_stage WHERE provider_id = :providerId AND session_id = :sessionId AND type = :type")
+    suspend fun countCategoryStages(providerId: Long, sessionId: Long, type: String): Int
+
     @Query(
       """
       SELECT

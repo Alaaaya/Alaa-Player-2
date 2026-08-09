@@ -340,7 +340,7 @@
     <string name="settings_provider_category_controls_subtitle">Lock, unlock, hide, and restore categories for the current playlist from one place.</string>
     <string name="settings_provider_category_controls_search">Search categories...</string>
     <string name="settings_m3u_vod_classification_title">M3U VOD Classification</string>
-    <string name="settings_m3u_vod_classification_summary">Uses the M3U URL and group-title rules to move matching entries into Movies. Refresh after changing this to rearrange the playlist.</string>
+    <string name="settings_m3u_vod_classification_summary">Uses decoded URL evidence first, then localized group and title hints. Live-stream URLs stay in Live TV. Refresh after changing this to reclassify the playlist.</string>
     <string name="settings_m3u_vod_classification_refresh">Refresh Classification</string>
     <string name="settings_categories_title">Category Preferences</string>
     <string name="settings_categories_subtitle">Hide provider categories and keep their sort order exactly how you want it.</string>
@@ -1073,7 +1073,7 @@
     <string name="setup_advanced_options_show">Show</string>
     <string name="setup_advanced_options_hide">Hide</string>
     <string name="setup_m3u_vod_classification_label">M3U VOD Classification</string>
-    <string name="setup_m3u_vod_classification_helper">M3U only. Use playlist URL and group-title heuristics to sort matching entries into Movies instead of Live TV.</string>
+    <string name="setup_m3u_vod_classification_helper">M3U only. Classify decoded movie URLs and localized group or title hints as Movies; recognized live-stream URLs remain in Live TV.</string>
     <string name="setup_xtream_live_sync_mode_label">Xtream Live Sync</string>
     <string name="setup_xtream_live_sync_mode_helper">Choose how Live TV channels are fetched. Auto protects weak devices and routine refreshes while keeping categories populated.</string>
     <string name="setup_xtream_live_sync_mode_auto_title">Auto</string>

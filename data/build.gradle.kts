@@ -94,6 +94,8 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.okhttp.tls)
+    testImplementation(libs.room.testing)
+    testImplementation(libs.robolectric)
     // kxml2: JVM XmlPullParser implementation needed for XmltvParser unit tests
     // (Android platform provides its own impl; the JVM test runner needs an explicit one)
     testImplementation(libs.kxml2)
@@ -106,4 +108,22 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.truth)
     androidTestImplementation(libs.coroutines.test)
+}
+
+afterEvaluate {
+    val debugUnitTests = tasks.named<org.gradle.api.tasks.testing.Test>("testDebugUnitTest")
+    tasks.register<org.gradle.api.tasks.testing.Test>("lowHeapBackupAdmissionTest") {
+        group = "verification"
+        description = "Runs backup admission tests with a TV-class constrained heap."
+        dependsOn(
+            "transformDebugUnitTestClassesWithAsm",
+            "processDebugUnitTestJavaRes"
+        )
+        testClassesDirs = debugUnitTests.get().testClassesDirs
+        classpath = debugUnitTests.get().classpath
+        maxHeapSize = "128m"
+        filter {
+            includeTestsMatching("com.streamvault.data.manager.BackupManagerImplTest")
+        }
+    }
 }

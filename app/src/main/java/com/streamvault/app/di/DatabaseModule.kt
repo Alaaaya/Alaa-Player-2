@@ -106,7 +106,13 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_62_63,
                 StreamVaultDatabase.MIGRATION_63_64,
                 StreamVaultDatabase.MIGRATION_64_65,
-                StreamVaultDatabase.MIGRATION_65_66
+                StreamVaultDatabase.MIGRATION_65_66,
+                StreamVaultDatabase.MIGRATION_66_67,
+                StreamVaultDatabase.MIGRATION_67_68,
+                StreamVaultDatabase.MIGRATION_68_69,
+                StreamVaultDatabase.MIGRATION_69_70,
+                StreamVaultDatabase.MIGRATION_70_71,
+                StreamVaultDatabase.MIGRATION_71_72
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -155,4 +161,9 @@ object DatabaseModule {
     @Provides fun provideStalkerRemoteIdentityDao(db: StreamVaultDatabase): StalkerRemoteIdentityDao = db.stalkerRemoteIdentityDao()
     @Provides fun provideStalkerDiscoveryStageDao(db: StreamVaultDatabase): StalkerDiscoveryStageDao = db.stalkerDiscoveryStageDao()
     @Provides fun provideDownloadDao(db: StreamVaultDatabase): DownloadDao = db.downloadDao()
+    @Provides fun provideProviderDeletionCleanupDao(db: StreamVaultDatabase): ProviderDeletionCleanupDao = db.providerDeletionCleanupDao()
+    @Provides fun provideProviderConfigRevisionDao(db: StreamVaultDatabase): ProviderConfigRevisionDao = db.providerConfigRevisionDao()
+    @Provides fun provideBackupRestoreCheckpointDao(db: StreamVaultDatabase): BackupRestoreCheckpointDao = db.backupRestoreCheckpointDao()
+    @Provides fun provideProviderWorkflowDao(db: StreamVaultDatabase): ProviderWorkflowDao = db.providerWorkflowDao()
+    @Provides fun providePluginProviderOwnershipDao(db: StreamVaultDatabase): PluginProviderOwnershipDao = db.pluginProviderOwnershipDao()
 }

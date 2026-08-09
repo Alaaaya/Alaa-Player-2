@@ -29,6 +29,7 @@ import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolFamily
 import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.XmltvTimezonePolicy
 
 @Entity(
     tableName = "providers",
@@ -101,6 +102,63 @@ data class ProviderEntity(
     val status: ProviderStatus = ProviderStatus.UNKNOWN,
     @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
+)
+
+/** Lifecycle of a provider configuration which has not yet replaced the committed row. */
+enum class ProviderConfigRevisionState {
+    PENDING,
+    SYNCING,
+    FAILED,
+    COMMITTED,
+    SUPERSEDED
+}
+
+/**
+ * A candidate provider configuration that has not yet replaced the committed provider row.
+ *
+ * The configuration payload always contains an already-encrypted password. Keeping it outside
+ * of [ProviderEntity] lets an active provider continue to resolve and play its committed catalog
+ * while a replacement configuration is authenticated and synchronized.
+ */
+@Entity(
+    tableName = "provider_config_revisions",
+    primaryKeys = ["provider_id", "revision"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id", "state"])]
+)
+data class ProviderConfigRevisionEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    val revision: Long,
+    @ColumnInfo(name = "config_json") val configJson: String,
+    val state: ProviderConfigRevisionState,
+    @ColumnInfo(name = "attempt_count") val attemptCount: Int = 0,
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long
+)
+
+/**
+ * Checkpoints a cross-store backup restore. Room is transactional, while DataStore and alarm
+ * scheduling are not; keeping each completed boundary durable lets a retry resume truthfully.
+ */
+@Entity(tableName = "backup_restore_checkpoints")
+data class BackupRestoreCheckpointEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "restore_key") val restoreKey: String,
+    @ColumnInfo(name = "room_complete") val roomComplete: Boolean = false,
+    @ColumnInfo(name = "preferences_complete") val preferencesComplete: Boolean = false,
+    @ColumnInfo(name = "presets_complete") val presetsComplete: Boolean = false,
+    @ColumnInfo(name = "schedules_complete") val schedulesComplete: Boolean = false,
+    val state: String,
+    @ColumnInfo(name = "preference_snapshot_json") val preferenceSnapshotJson: String? = null,
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long
 )
 
 @Entity(
@@ -1013,7 +1071,10 @@ data class EpgSourceEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
     val etag: String? = null,
-    @ColumnInfo(name = "last_modified_header") val lastModifiedHeader: String? = null
+    @ColumnInfo(name = "last_modified_header") val lastModifiedHeader: String? = null,
+    @ColumnInfo(name = "timezone_policy")
+    val timezonePolicy: XmltvTimezonePolicy = XmltvTimezonePolicy.REQUIRE_OFFSET,
+    @ColumnInfo(name = "timezone_id") val timezoneId: String? = null
 )
 
 // ── Provider ↔ EPG Source Assignment ───────────────────────────────
