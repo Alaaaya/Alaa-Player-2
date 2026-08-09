@@ -11,11 +11,18 @@ All notable product changes are recorded in this document.
 - Added Stalker catalog readiness tracking, persisted portal capability state, diagnostics, and playback recovery telemetry.
 - Added generic Stalker catalog and playback support across Live TV, VOD, Movies, and Series.
 - Added Stalker VOD browsing with paged loading, on-demand catalog expansion, and complete-category loading as an option.
+- Added M3U VOD classification to distinguish movie and series entries during playlist imports.
+- Added bounded XMLTV ingestion with deterministic timezone-policy handling for large or inconsistent guide feeds.
+- Added durable provider workflow checkpoints, configuration revisions, and recovery state for resumable background operations.
+- Added plugin provider ownership and playback-routing support for safer plugin integrations.
+- Added app-update policy and worker support for channel-aware update checks.
 
 ### Changed
 
 - Improved Stalker bulk live synchronization to tolerate slow large catalogs, detect stalled transfers, retry transient failures, and fall back to category loading when needed.
 - Improved Stalker playback resolution with content capability detection and direct-media fallback for portals that return non-standard playback responses.
+- Improved cancellation and recovery across downloads, reminders, backups, provider synchronization, and Jellyfin catalog pagination.
+- Improved XMLTV parsing and EPG-source handling to apply ingestion limits, preserve source policies, and recover cleanly from interrupted refreshes.
 
 ### Fixed
 
@@ -23,6 +30,8 @@ All notable product changes are recorded in this document.
 - Fixed Stalker poster, backdrop, and channel artwork loading when portals return relative image paths.
 - Fixed Stalker Series loading for portals that expose series through VOD endpoints, with improved category mapping and fallback behavior.
 - Fixed Stalker VOD and Series requests so mixed VOD/Series portal responses are classified correctly.
+- Fixed Jellyfin image authentication so account-scoped image URLs use the correct provider credentials.
+- Fixed provider deletion and backup restore cleanup by recording durable work and resuming safely after interruption.
 
 ## [1.0.16] - 2026-06-19
 
