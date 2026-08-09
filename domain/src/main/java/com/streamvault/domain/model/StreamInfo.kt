@@ -38,12 +38,26 @@ data class PlaybackTransportPolicy(
     val mode: PlaybackTransportMode,
     val origin: StalkerTransportOrigin,
     /** Base64 SHA-256 of the approved SubjectPublicKeyInfo. */
-    val spkiSha256: String? = null
+    val spkiSha256: String? = null,
+    /**
+     * IPTV providers often redirect an approved HTTP portal URL to a raw-IP or CDN HTTP
+     * stream. The player may follow those redirects only when the user explicitly accepted
+     * cleartext HTTP transport.
+     */
+    val allowCrossOriginHttpRedirects: Boolean = false
 ) {
     init {
         if (mode == PlaybackTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS) {
             require(!spkiSha256.isNullOrBlank()) {
                 "Accepted unverified HTTPS playback requires an SPKI fingerprint"
+            }
+        }
+        if (allowCrossOriginHttpRedirects) {
+            require(mode == PlaybackTransportMode.USER_ACCEPTED_HTTP) {
+                "Cross-origin playback redirects require accepted HTTP transport"
+            }
+            require(origin.scheme.equals("http", ignoreCase = true)) {
+                "Cross-origin playback redirects require an HTTP origin"
             }
         }
     }

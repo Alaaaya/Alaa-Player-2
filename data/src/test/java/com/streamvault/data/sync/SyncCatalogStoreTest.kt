@@ -72,6 +72,7 @@ class SyncCatalogStoreTest {
             name = "News",
             type = ContentType.LIVE,
             providerId = providerId,
+            providerOrder = 4,
             syncFingerprint = "old-category"
         )
         val currentChannel = ChannelEntity(
@@ -93,6 +94,7 @@ class SyncCatalogStoreTest {
                     categoryId = 101L,
                     name = "World News",
                     type = ContentType.LIVE,
+                    providerOrder = 9,
                     syncFingerprint = "new-category"
                 )
             )
@@ -109,6 +111,7 @@ class SyncCatalogStoreTest {
         assertThat(updatedCategories.firstValue.single()).isEqualTo(
             currentCategory.copy(
                 name = "World News",
+                providerOrder = 9,
                 syncFingerprint = "new-category"
             )
         )

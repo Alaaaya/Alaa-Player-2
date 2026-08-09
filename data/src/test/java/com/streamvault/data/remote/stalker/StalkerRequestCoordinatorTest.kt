@@ -8,9 +8,48 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class StalkerRequestCoordinatorTest {
+    @Test
+    fun backgroundNetworkRequestWaitsWhileInteractivePlaybackIsActive() = runTest {
+        val coordinator = StalkerRequestCoordinator()
+        val playback = coordinator.acquireNetworkPermit(
+            21L,
+            StalkerNetworkPriority.INTERACTIVE
+        )
+        val background = async {
+            coordinator.acquireNetworkPermit(21L, StalkerNetworkPriority.BACKGROUND)
+        }
+
+        runCurrent()
+        assertThat(background.isCompleted).isFalse()
+
+        coordinator.releaseNetworkPermit(playback)
+        advanceUntilIdle()
+        assertThat(background.await().priority).isEqualTo(StalkerNetworkPriority.BACKGROUND)
+    }
+
+    @Test
+    fun rateLimitBlocksAllProviderNetworkPermitsWithoutAnotherRequest() = runTest {
+        val coordinator = StalkerRequestCoordinator()
+
+        coordinator.recordFailure(
+            providerId = 11L,
+            error = StalkerApiError.RateLimited(retryAfterMillis = 60_000L)
+        )
+
+        val error = assertThrows(StalkerApiError.RateLimited::class.java) {
+            kotlinx.coroutines.runBlocking { coordinator.acquireNetworkPermit(11L) }
+        }
+        assertThat(error.retryAfterMillis).isAtLeast(59_000L)
+
+        // A different provider remains isolated and healthy.
+        val otherProviderPermit = coordinator.acquireNetworkPermit(12L)
+        assertThat(otherProviderPermit.providerId).isEqualTo(12L)
+    }
+
     @Test
     fun duplicateRequestsShareOneExecution() = runTest {
         val coordinator = StalkerRequestCoordinator()

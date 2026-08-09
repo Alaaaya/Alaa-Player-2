@@ -107,6 +107,35 @@ class StalkerPortalStateStore @Inject constructor(
         StalkerTelemetry.capabilityChanged(providerId, "METADATA_CONCURRENCY", "DOWNGRADED")
     }
 
+    suspend fun recordRateLimitCooldown(
+        providerId: Long,
+        cooldownUntil: Long,
+        now: Long = System.currentTimeMillis()
+    ) = update(providerId) { state ->
+        val health = decodeEndpointHealth(state.endpointHealthJson)
+            .filterValues { expiry -> expiry > now }
+            .toMutableMap()
+        health[rateLimitKey()] = maxOf(health[rateLimitKey()] ?: 0L, cooldownUntil.coerceAtLeast(now))
+        state.copy(
+            endpointHealthJson = encodeBoundedHealth(health),
+            validatedAt = state.validatedAt.takeIf { it > 0L } ?: now
+        )
+    }.also {
+        StalkerTelemetry.capabilityChanged(providerId, "PROVIDER_RATE_LIMIT", "COOLDOWN")
+    }
+
+    suspend fun clearRateLimitCooldown(providerId: Long) {
+        val state = dao.get(providerId) ?: return
+        val health = decodeEndpointHealth(state.endpointHealthJson).toMutableMap()
+        if (health.remove(rateLimitKey()) != null) {
+            dao.upsert(state.copy(endpointHealthJson = json.encodeToString(health)))
+            StalkerTelemetry.capabilityChanged(providerId, "PROVIDER_RATE_LIMIT", "RESTORED")
+        }
+    }
+
+    fun rateLimitCooldownUntil(state: StalkerPortalStateEntity): Long =
+        decodeEndpointHealth(state.endpointHealthJson)[rateLimitKey()] ?: 0L
+
     suspend fun recordHealthyMetadataProbe(
         providerId: Long,
         now: Long = System.currentTimeMillis()
@@ -130,8 +159,7 @@ class StalkerPortalStateStore @Inject constructor(
                 .filterValues { expiry -> expiry > now }
                 .toMutableMap()
             health[endpointKey(endpoint)] = until
-            val bounded = health.entries.sortedByDescending { it.value }.take(MAX_ENDPOINT_HEALTH_ENTRIES)
-                .associate { it.key to it.value }
+            val bounded = decodeEndpointHealth(encodeBoundedHealth(health))
             state.copy(
                 endpointHealthJson = json.encodeToString(bounded),
                 endpointFailedUntil = bounded.values.maxOrNull() ?: 0L
@@ -159,10 +187,7 @@ class StalkerPortalStateStore @Inject constructor(
                 .toMutableMap()
             health[recipeKey(recipe)] = until
             state.copy(
-                endpointHealthJson = json.encodeToString(
-                    health.entries.sortedByDescending { it.value }.take(MAX_ENDPOINT_HEALTH_ENTRIES)
-                        .associate { it.key to it.value }
-                )
+                endpointHealthJson = encodeBoundedHealth(health)
             )
         }
         StalkerTelemetry.capabilityChanged(providerId, "AUTH_RECIPE", "COOLDOWN")
@@ -216,6 +241,18 @@ class StalkerPortalStateStore @Inject constructor(
         return json.encodeToString(health)
     }
 
+    private fun encodeBoundedHealth(health: Map<String, Long>): String {
+        val rateKey = rateLimitKey()
+        val rateEntry = health[rateKey]?.let { mapOf(rateKey to it) }.orEmpty()
+        val ordinary = health.entries
+            .asSequence()
+            .filter { it.key != rateKey }
+            .sortedByDescending { it.value }
+            .take(MAX_ENDPOINT_HEALTH_ENTRIES - rateEntry.size)
+            .associate { it.key to it.value }
+        return json.encodeToString(rateEntry + ordinary)
+    }
+
     private fun decodeEndpointHealth(value: String?): Map<String, Long> = runCatching {
         json.decodeFromString<Map<String, Long>>(value.orEmpty().ifBlank { "{}" })
     }.getOrDefault(emptyMap())
@@ -223,6 +260,8 @@ class StalkerPortalStateStore @Inject constructor(
     private fun endpointKey(endpoint: String): String = healthKey("endpoint", StalkerUrlFactory.normalizePortalUrl(endpoint))
 
     private fun recipeKey(recipe: String): String = healthKey("recipe", recipe.uppercase())
+
+    private fun rateLimitKey(): String = healthKey("provider", "rate_limit")
 
     private fun healthKey(kind: String, value: String): String = MessageDigest.getInstance("SHA-256")
         .digest("$kind:$value".toByteArray(Charsets.UTF_8))

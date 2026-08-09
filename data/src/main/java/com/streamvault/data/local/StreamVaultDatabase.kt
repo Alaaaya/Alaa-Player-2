@@ -33,6 +33,8 @@ import com.streamvault.data.local.entity.*
         SyncMetadataEntity::class,
         MovieCategoryHydrationEntity::class,
         SeriesCategoryHydrationEntity::class,
+        VodCategoryHydrationEntity::class,
+        VodCatalogEntryEntity::class,
         EpgSourceEntity::class,
         ProviderEpgSourceEntity::class,
         EpgChannelEntity::class,
@@ -54,7 +56,7 @@ import com.streamvault.data.local.entity.*
         StalkerDiscoveryStageEntity::class,
         DownloadEntity::class
     ],
-    version = 65,
+    version = 66,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -77,6 +79,8 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun syncMetadataDao(): SyncMetadataDao
     abstract fun movieCategoryHydrationDao(): MovieCategoryHydrationDao
     abstract fun seriesCategoryHydrationDao(): SeriesCategoryHydrationDao
+    abstract fun vodCategoryHydrationDao(): VodCategoryHydrationDao
+    abstract fun vodCatalogEntryDao(): VodCatalogEntryDao
     abstract fun epgSourceDao(): EpgSourceDao
     abstract fun providerEpgSourceDao(): ProviderEpgSourceDao
     abstract fun epgChannelDao(): EpgChannelDao
@@ -2923,6 +2927,95 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 validateForeignKeys(database, "providers")
+            }
+        }
+
+        val MIGRATION_65_66 = object : Migration(65, 66) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "catalog_layout",
+                    "TEXT NOT NULL DEFAULT 'SPLIT'"
+                )
+                addColumnIfMissing(
+                    database,
+                    "providers",
+                    "catalog_layout_detection_version",
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    "categories",
+                    "provider_order",
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    "category_import_stage",
+                    "provider_order",
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+                addColumnIfMissing(
+                    database,
+                    "series",
+                    "catalog_origin",
+                    "TEXT NOT NULL DEFAULT 'NATIVE'"
+                )
+                addColumnIfMissing(
+                    database,
+                    "series",
+                    "episode_playback_template_url",
+                    "TEXT"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS vod_category_hydration (
+                        provider_id INTEGER NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        last_loaded_page INTEGER NOT NULL DEFAULT 0,
+                        last_attempted_page INTEGER NOT NULL DEFAULT 0,
+                        last_successful_page INTEGER NOT NULL DEFAULT 0,
+                        total_pages INTEGER NOT NULL DEFAULT 0,
+                        page_size INTEGER NOT NULL DEFAULT 0,
+                        item_count INTEGER NOT NULL DEFAULT 0,
+                        is_complete INTEGER NOT NULL DEFAULT 0,
+                        has_movies INTEGER NOT NULL DEFAULT 0,
+                        has_series INTEGER NOT NULL DEFAULT 0,
+                        last_hydrated_at INTEGER NOT NULL DEFAULT 0,
+                        last_status TEXT NOT NULL DEFAULT 'IDLE',
+                        last_error TEXT,
+                        retry_after_ms INTEGER NOT NULL DEFAULT 0,
+                        failure_count INTEGER NOT NULL DEFAULT 0,
+                        retry_budget_remaining INTEGER NOT NULL DEFAULT 3,
+                        last_page_fingerprint TEXT,
+                        PRIMARY KEY(provider_id, category_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_vod_category_hydration_provider_id ON vod_category_hydration(provider_id)"
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS vod_catalog_entries (
+                        provider_id INTEGER NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        raw_item_id TEXT NOT NULL,
+                        item_type TEXT NOT NULL,
+                        target_id INTEGER NOT NULL,
+                        raw_page INTEGER NOT NULL,
+                        raw_index INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id, category_id, raw_item_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id ON vod_catalog_entries(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id_category_id_raw_page_raw_index ON vod_catalog_entries(provider_id, category_id, raw_page, raw_index)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_entries_provider_id_item_type_target_id ON vod_catalog_entries(provider_id, item_type, target_id)")
+                validateForeignKeys(database, "providers", "vod_category_hydration", "vod_catalog_entries")
             }
         }
 

@@ -109,7 +109,11 @@ fun PlayerViewModel.retryStream(streamUrl: String, epgChannelId: String?) {
         }
         return
     }
-    val currentId = if (currentChannelIndex != -1 && channelList.isNotEmpty()) channelList[currentChannelIndex].id else -1L
+    val currentId = if (currentContentType == ContentType.LIVE) {
+        if (currentChannelIndex != -1 && channelList.isNotEmpty()) channelList[currentChannelIndex].id else -1L
+    } else {
+        currentContentId
+    }
     prepare(
         streamUrl = streamUrl,
         epgChannelId = epgChannelId,
@@ -120,6 +124,11 @@ fun PlayerViewModel.retryStream(streamUrl: String, epgChannelId: String?) {
         combinedProfileId = currentCombinedProfileId,
         combinedSourceFilterProviderId = currentCombinedSourceFilterProviderId,
         contentType = currentContentType.name,
-        title = currentTitle
+        title = currentTitle,
+        artworkUrl = currentArtworkUrl,
+        seriesId = currentSeriesId,
+        seasonNumber = currentSeasonNumber,
+        episodeNumber = currentEpisodeNumber,
+        episodeId = currentStableEpisodeId
     )
 }

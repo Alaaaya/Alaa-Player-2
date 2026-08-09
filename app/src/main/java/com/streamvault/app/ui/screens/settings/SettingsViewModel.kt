@@ -24,6 +24,7 @@ import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.sync.SyncRepairSection
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupManager
@@ -623,6 +624,14 @@ class SettingsViewModel @Inject constructor(
     fun setVodInfiniteScroll(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setVodInfiniteScroll(enabled)
+        }
+    }
+
+    fun setVodCompleteOnOpen(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setVodCategoryLoadMode(
+                if (enabled) VodCategoryLoadMode.COMPLETE_ON_OPEN else VodCategoryLoadMode.PAGED
+            )
         }
     }
 

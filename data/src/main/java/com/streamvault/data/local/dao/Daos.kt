@@ -67,6 +67,16 @@ abstract class ProviderDao {
     @Query("UPDATE providers SET epg_url = :epgUrl WHERE id = :id")
     abstract suspend fun updateEpgUrl(id: Long, epgUrl: String)
 
+    @Query("UPDATE providers SET catalog_layout_detection_version = 0 WHERE id = :id")
+    abstract suspend fun invalidateCatalogLayoutDetection(id: Long)
+
+    @Query("UPDATE providers SET catalog_layout = :layout, catalog_layout_detection_version = :version WHERE id = :id")
+    abstract suspend fun updateCatalogLayout(
+        id: Long,
+        layout: com.streamvault.domain.model.CatalogLayout,
+        version: Int
+    )
+
     @Transaction
     open suspend fun insert(provider: ProviderEntity): Long {
         if (provider.isActive) {
@@ -1587,6 +1597,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE provider_id = :providerId AND stream_id IN (:streamIds)")
     suspend fun getByStreamIds(providerId: Long, streamIds: List<Long>): List<MovieEntity>
 
+    @Query("SELECT * FROM movies WHERE provider_id = :providerId AND stream_id IN (:streamIds)")
+    fun observeByStreamIds(providerId: Long, streamIds: List<Long>): Flow<List<MovieEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(movies: List<MovieEntity>)
 
@@ -2588,10 +2601,24 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE provider_id = :providerId AND series_id IN (:seriesIds)")
     suspend fun getBySeriesIds(providerId: Long, seriesIds: List<Long>): List<SeriesEntity>
 
+    @Query("SELECT COUNT(*) FROM series WHERE provider_id = :providerId AND category_id = :categoryId AND catalog_origin = :origin")
+    suspend fun countByCategoryAndOrigin(
+        providerId: Long,
+        categoryId: Long,
+        origin: com.streamvault.domain.model.SeriesCatalogOrigin
+    ): Int
+
+    @Query("SELECT * FROM series WHERE provider_id = :providerId AND series_id IN (:seriesIds)")
+    fun observeBySeriesIds(providerId: Long, seriesIds: List<Long>): Flow<List<SeriesEntity>>
+
     @Query("SELECT * FROM series WHERE provider_id = :providerId AND provider_series_id = :providerSeriesId LIMIT 1")
     suspend fun getByProviderSeriesId(providerId: Long, providerSeriesId: String): SeriesEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // REPLACE deletes the existing parent row before inserting it again. Because
+    // episodes reference series with ON DELETE CASCADE, a catalog-page refresh
+    // could silently erase already-hydrated episodes. UPSERT updates matched
+    // primary keys in place and keeps those children intact.
+    @Upsert
     suspend fun insertAll(series: List<SeriesEntity>)
 
     @Update
@@ -2670,11 +2697,46 @@ interface SeriesDao {
     @Transaction
     suspend fun upsertCategoryPage(providerId: Long, series: List<SeriesEntity>) {
         if (series.isEmpty()) return
-        val existingByRemoteId = getIdMappings(providerId).associate { it.remoteId to it.id }
+        val existing = getByProviderSync(providerId)
+        val existingByRemoteId = existing.associateBy {
+            it.providerSeriesId?.takeIf(String::isNotBlank) ?: it.seriesId.toString()
+        }
         fun SeriesEntity.remoteKey(): String = providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesId.toString()
         val remapped = series
             .distinctBy { it.remoteKey() }
-            .map { entity -> entity.copy(id = existingByRemoteId[entity.remoteKey()] ?: 0L) }
+            .map { incoming ->
+                val current = existingByRemoteId[incoming.remoteKey()]
+                when {
+                    current == null -> incoming
+                    current.catalogOrigin == com.streamvault.domain.model.SeriesCatalogOrigin.NATIVE &&
+                        incoming.catalogOrigin == com.streamvault.domain.model.SeriesCatalogOrigin.VOD_DERIVED ->
+                        current.copy(
+                            episodePlaybackTemplateUrl = current.episodePlaybackTemplateUrl
+                                ?: incoming.episodePlaybackTemplateUrl
+                        )
+                    else -> {
+                        val preserveDetails = current.cacheState == "DETAIL_HYDRATED" &&
+                            current.detailHydratedAt > 0L
+                        incoming.copy(
+                            id = current.id,
+                            backdropUrl = if (preserveDetails) current.backdropUrl else incoming.backdropUrl,
+                            plot = if (preserveDetails) current.plot else incoming.plot,
+                            cast = if (preserveDetails) current.cast else incoming.cast,
+                            director = if (preserveDetails) current.director else incoming.director,
+                            releaseDate = if (preserveDetails) current.releaseDate else incoming.releaseDate,
+                            tmdbId = incoming.tmdbId ?: current.tmdbId,
+                            youtubeTrailer = incoming.youtubeTrailer ?: current.youtubeTrailer,
+                            episodeRunTime = if (preserveDetails) current.episodeRunTime else incoming.episodeRunTime,
+                            isUserProtected = current.isUserProtected,
+                            cacheState = if (preserveDetails) current.cacheState else incoming.cacheState,
+                            detailHydratedAt = if (preserveDetails) current.detailHydratedAt else incoming.detailHydratedAt,
+                            remoteStaleAt = if (preserveDetails) current.remoteStaleAt else incoming.remoteStaleAt,
+                            episodePlaybackTemplateUrl = incoming.episodePlaybackTemplateUrl
+                                ?: current.episodePlaybackTemplateUrl
+                        )
+                    }
+                }
+            }
         insertAll(remapped)
     }
 
@@ -2833,10 +2895,10 @@ interface EpisodeDao {
 
 @Dao
 interface CategoryDao {
-    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY id ASC")
+    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY provider_order ASC, id ASC")
     fun getByProviderAndType(providerId: Long, type: String): Flow<List<CategoryEntity>>
 
-    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY id ASC")
+    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY provider_order ASC, id ASC")
     suspend fun getByProviderAndTypeSync(providerId: Long, type: String): List<CategoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -3485,6 +3547,9 @@ interface MovieCategoryHydrationDao {
     @Query("SELECT * FROM movie_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
     suspend fun get(providerId: Long, categoryId: Long): MovieCategoryHydrationEntity?
 
+    @Query("SELECT * FROM movie_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    fun observe(providerId: Long, categoryId: Long): Flow<MovieCategoryHydrationEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(metadata: MovieCategoryHydrationEntity)
 
@@ -3500,6 +3565,9 @@ interface SeriesCategoryHydrationDao {
     @Query("SELECT * FROM series_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
     suspend fun get(providerId: Long, categoryId: Long): SeriesCategoryHydrationEntity?
 
+    @Query("SELECT * FROM series_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    fun observe(providerId: Long, categoryId: Long): Flow<SeriesCategoryHydrationEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(metadata: SeriesCategoryHydrationEntity)
 
@@ -3508,6 +3576,48 @@ interface SeriesCategoryHydrationDao {
 
     @Query("DELETE FROM series_category_hydration WHERE provider_id = :providerId")
     suspend fun deleteByProvider(providerId: Long)
+}
+
+@Dao
+interface VodCategoryHydrationDao {
+    @Query("SELECT * FROM vod_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    suspend fun get(providerId: Long, categoryId: Long): VodCategoryHydrationEntity?
+
+    @Query("SELECT * FROM vod_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    fun observe(providerId: Long, categoryId: Long): Flow<VodCategoryHydrationEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(metadata: VodCategoryHydrationEntity)
+
+    @Query("DELETE FROM vod_category_hydration WHERE provider_id = :providerId")
+    suspend fun deleteByProvider(providerId: Long)
+}
+
+@Dao
+abstract class VodCatalogEntryDao {
+    @Query("SELECT * FROM vod_catalog_entries WHERE provider_id = :providerId AND category_id = :categoryId ORDER BY raw_page ASC, raw_index ASC")
+    abstract fun observeByCategory(providerId: Long, categoryId: Long): Flow<List<VodCatalogEntryEntity>>
+
+    @Query("SELECT COUNT(*) FROM vod_catalog_entries WHERE provider_id = :providerId AND category_id = :categoryId")
+    abstract suspend fun countByCategory(providerId: Long, categoryId: Long): Int
+
+    @Query("DELETE FROM vod_catalog_entries WHERE provider_id = :providerId AND category_id = :categoryId AND raw_page = :page")
+    abstract suspend fun deletePage(providerId: Long, categoryId: Long, page: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insertAll(entries: List<VodCatalogEntryEntity>)
+
+    @Transaction
+    open suspend fun replacePage(providerId: Long, categoryId: Long, page: Int, entries: List<VodCatalogEntryEntity>) {
+        deletePage(providerId, categoryId, page)
+        if (entries.isNotEmpty()) insertAll(entries)
+    }
+
+    @Query("DELETE FROM vod_catalog_entries WHERE provider_id = :providerId AND category_id = :categoryId")
+    abstract suspend fun deleteByCategory(providerId: Long, categoryId: Long)
+
+    @Query("DELETE FROM vod_catalog_entries WHERE provider_id = :providerId")
+    abstract suspend fun deleteByProvider(providerId: Long)
 }
 
 // ── EPG Source DAOs ────────────────────────────────────────────────

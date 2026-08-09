@@ -745,6 +745,9 @@ class ProviderRepositoryImpl @Inject constructor(
             transportGrant = effectiveTransportGrant,
             requestedProfileId = requestedProfileId,
             requireCatalogValidation = requireLiveReadiness,
+            catalogLayoutHint = existingProvider?.catalogLayout
+                ?: com.streamvault.domain.model.CatalogLayout.UNKNOWN,
+            catalogLayoutDetectionVersionHint = 0,
             onProgress = onProgress
         )
 
@@ -1053,6 +1056,7 @@ class ProviderRepositoryImpl @Inject constructor(
     ): Result<Unit> {
         if (force && providerDao.getById(providerId)?.type == ProviderType.STALKER_PORTAL) {
             stalkerPortalStateStore.invalidateCapabilities(providerId)
+            providerDao.invalidateCatalogLayoutDetection(providerId)
         }
         return when (
             val syncResult = syncManager.sync(
@@ -1318,6 +1322,8 @@ class ProviderRepositoryImpl @Inject constructor(
         requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
         learnedProfileId: String = "",
         requireCatalogValidation: Boolean = true,
+        catalogLayoutHint: com.streamvault.domain.model.CatalogLayout = com.streamvault.domain.model.CatalogLayout.UNKNOWN,
+        catalogLayoutDetectionVersionHint: Int = 0,
         onProgress: ((String) -> Unit)? = null
     ): StalkerProvider {
         return StalkerProvider(
@@ -1351,6 +1357,8 @@ class ProviderRepositoryImpl @Inject constructor(
             requestedProfileId = requestedProfileId,
             learnedProfileId = learnedProfileId,
             requireCatalogValidation = requireCatalogValidation,
+            catalogLayoutHint = catalogLayoutHint,
+            catalogLayoutDetectionVersionHint = catalogLayoutDetectionVersionHint,
             identityResolver = stalkerRemoteIdentityResolver,
             portalStateStore = stalkerPortalStateStore,
             onProgress = onProgress
@@ -1391,7 +1399,9 @@ class ProviderRepositoryImpl @Inject constructor(
             protocolPreference = entity.stalkerProtocolPreference,
             transportGrant = entity.toStalkerTransportGrant(),
             requestedProfileId = entity.stalkerRequestedProfileId,
-            learnedProfileId = entity.stalkerLearnedProfileId
+            learnedProfileId = entity.stalkerLearnedProfileId,
+            catalogLayoutHint = entity.catalogLayout,
+            catalogLayoutDetectionVersionHint = entity.catalogLayoutDetectionVersion
         )
     }
 

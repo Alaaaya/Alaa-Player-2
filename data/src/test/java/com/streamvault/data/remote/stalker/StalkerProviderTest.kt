@@ -2,12 +2,16 @@ package com.streamvault.data.remote.stalker
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.local.dao.StalkerPortalStateDao
 import com.streamvault.data.local.dao.StalkerRemoteIdentityDao
+import com.streamvault.data.local.entity.StalkerPortalStateEntity
 import com.streamvault.data.local.entity.StalkerRemoteIdentityEntity
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.PlaybackTransportMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.StalkerTransportOrigin
@@ -63,6 +67,202 @@ class StalkerProviderTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         val success = result as Result.Success
         assertThat(success.data.status).isEqualTo(ProviderStatus.PARTIAL)
+    }
+
+    @Test
+    fun authenticate_detects_unifiedVod_when_nativeSeriesIsEmpty_andVodExists() = runTest {
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                vodCategories = listOf(StalkerCategoryRecord("165", "Movies")),
+                seriesCategories = emptyList()
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.authenticate() as Result.Success
+
+        assertThat(result.data.catalogLayout).isEqualTo(CatalogLayout.UNIFIED_VOD)
+        assertThat(result.data.catalogLayoutDetectionVersion)
+            .isEqualTo(StalkerProvider.CATALOG_LAYOUT_DETECTION_VERSION)
+    }
+
+    @Test
+    fun authenticate_detects_split_when_nativeSeriesCategoriesExist() = runTest {
+        val provider = StalkerProvider(
+            providerId = 8,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                vodCategories = listOf(StalkerCategoryRecord("10", "Movies")),
+                seriesCategories = listOf(StalkerCategoryRecord("20", "Series"))
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:57",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.authenticate() as Result.Success
+
+        assertThat(result.data.catalogLayout).isEqualTo(CatalogLayout.SPLIT)
+    }
+
+    @Test
+    fun authenticate_retainsLastLayout_whenSeriesProbeFails() = runTest {
+        val provider = StalkerProvider(
+            providerId = 10,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                seriesCategoriesResult = Result.error("timeout")
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:59",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            catalogLayoutHint = CatalogLayout.UNIFIED_VOD,
+            catalogLayoutDetectionVersionHint = 0
+        )
+
+        val result = provider.authenticate() as Result.Success
+
+        assertThat(result.data.catalogLayout).isEqualTo(CatalogLayout.UNIFIED_VOD)
+        assertThat(result.data.catalogLayoutDetectionVersion).isEqualTo(0)
+    }
+
+    @Test
+    fun authenticate_treatsHttp200EmptyBody_asNoNativeSeriesSupport() = runTest {
+        val provider = StalkerProvider(
+            providerId = 13,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                vodCategories = listOf(StalkerCategoryRecord("10", "VOD")),
+                seriesCategoriesResult = Result.error(
+                    "Failed to load series categories",
+                    StalkerApiError.EmptyBody("Portal returned an empty response for get_categories.")
+                )
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:63",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val result = provider.authenticate() as Result.Success
+
+        assertThat(result.data.catalogLayout).isEqualTo(CatalogLayout.UNIFIED_VOD)
+        assertThat(result.data.catalogLayoutDetectionVersion)
+            .isEqualTo(StalkerProvider.CATALOG_LAYOUT_DETECTION_VERSION)
+    }
+
+    @Test
+    fun authenticate_keepsProvidersIsolated_whenTheirCatalogCapabilitiesDiffer() = runTest {
+        fun provider(id: Long, seriesCategories: List<StalkerCategoryRecord>) = StalkerProvider(
+            providerId = id,
+            api = FakeStalkerApiService(
+                profile = StalkerProviderProfile(accountName = "Room"),
+                vodCategories = listOf(StalkerCategoryRecord("10", "VOD")),
+                seriesCategories = seriesCategories
+            ),
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:${id.toString().padStart(2, '0')}",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val unified = provider(11, emptyList()).authenticate() as Result.Success
+        val split = provider(12, listOf(StalkerCategoryRecord("20", "Series"))).authenticate() as Result.Success
+
+        assertThat(unified.data.catalogLayout).isEqualTo(CatalogLayout.UNIFIED_VOD)
+        assertThat(split.data.catalogLayout).isEqualTo(CatalogLayout.SPLIT)
+    }
+
+    @Test
+    fun vodPaging_classifiesSeriesMarker_withoutLeakingSeriesIntoMovies() = runTest {
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            vodCategories = listOf(StalkerCategoryRecord("124", "Anime Movies/Series")),
+            vodPageItems = listOf(
+                StalkerItemRecord(
+                    id = "100",
+                    name = "Movie",
+                    streamUrl = "https://cdn.example.com/movie.mp4",
+                    isSeries = false
+                ),
+                StalkerItemRecord(
+                    id = "200",
+                    name = "Series",
+                    streamUrl = "https://cdn.example.com/series.mp4",
+                    isSeries = true
+                )
+            )
+        )
+        val provider = StalkerProvider(
+            providerId = 9,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:58",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+
+        val movies = provider.getVodStreamsPage(null, 1) as Result.Success
+        val series = provider.getSeriesListPage(null, 1) as Result.Success
+
+        assertThat(movies.data.items.map { it.name }).containsExactly("Movie")
+        assertThat(series.data.items.map { it.name }).containsExactly("Series")
+        assertThat(movies.data.totalPages).isEqualTo(1)
+        assertThat(series.data.totalPages).isEqualTo(1)
+    }
+
+    @Test
+    fun unifiedVodPage_keepsMixedProviderOrder_andDefaultsMissingMarkerToMovie() = runTest {
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            vodCategories = listOf(StalkerCategoryRecord("124", "Mixed")),
+            vodPageItems = listOf(
+                StalkerItemRecord(id = "200", name = "Series A", isSeries = true),
+                StalkerItemRecord(id = "100", name = "Unmarked Movie", streamUrl = "https://cdn.example.com/movie.mp4"),
+                StalkerItemRecord(id = "201", name = "Series B", isSeries = true)
+            )
+        )
+        val provider = StalkerProvider(
+            providerId = 14,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:61",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en"
+        )
+        val category = (provider.getUnifiedVodCategories() as Result.Success).data.single()
+
+        val page = (provider.getUnifiedVodPage(category.id, 1) as Result.Success).data
+
+        assertThat(page.items.map { entry ->
+            when (entry.item) {
+                is com.streamvault.domain.model.VodCatalogItem.MovieItem -> "movie"
+                is com.streamvault.domain.model.VodCatalogItem.SeriesItem -> "series"
+            }
+        }).containsExactly("series", "movie", "series").inOrder()
+        assertThat(page.items.map { it.rawItemId }).containsExactly("200", "100", "201").inOrder()
+        assertThat(page.items.map { entry ->
+            when (val item = entry.item) {
+                is com.streamvault.domain.model.VodCatalogItem.MovieItem -> item.movie.categoryId
+                is com.streamvault.domain.model.VodCatalogItem.SeriesItem -> item.series.categoryId
+            }
+        }).containsExactly(category.id, category.id, category.id)
+        assertThat(page.page).isEqualTo(1)
+        assertThat(page.isComplete).isTrue()
     }
 
     @Test
@@ -128,6 +328,46 @@ class StalkerProviderTest {
         assertThat(provider.authenticate()).isInstanceOf(Result.Success::class.java)
 
         assertThat(checkNotNull(api.lastAuthenticateProfile).allowCompatibilityDiscovery).isFalse()
+    }
+
+    @Test
+    fun authenticate_recovers_when_saved_endpoint_and_recipe_are_cooling_down() = runTest {
+        val dao = FakePortalStateDao()
+        val stateStore = StalkerPortalStateStore(dao)
+        dao.upsert(
+            StalkerPortalStateEntity(
+                providerId = 7L,
+                workingEndpoint = "https://portal.example.com/server/load.php",
+                bootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE.name,
+                validatedAt = System.currentTimeMillis()
+            )
+        )
+        stateStore.markEndpointUnhealthy(
+            providerId = 7L,
+            endpoint = "https://portal.example.com/server/load.php"
+        )
+        stateStore.markRecipeUnhealthy(
+            providerId = 7L,
+            recipe = StalkerBootstrapRecipe.GENERIC_SAFE.name
+        )
+        val api = FakeStalkerApiService(
+            profile = StalkerProviderProfile(accountName = "Room"),
+            authenticationFailuresBeforeSuccess = 1
+        )
+        val provider = StalkerProvider(
+            providerId = 7,
+            api = api,
+            portalUrl = "https://portal.example.com/c/",
+            macAddress = "00:1A:79:12:34:56",
+            deviceProfile = "MAG250",
+            timezone = "UTC",
+            locale = "en",
+            portalStateStore = stateStore
+        )
+
+        assertThat(provider.authenticate()).isInstanceOf(Result.Success::class.java)
+        assertThat(api.authenticateCalls).isEqualTo(2)
+        assertThat(checkNotNull(api.lastAuthenticateProfile).allowCompatibilityDiscovery).isTrue()
     }
 
     @Test
@@ -878,8 +1118,13 @@ class StalkerProviderTest {
         private val currentCookieHeader: String = "",
         private val liveCategoryResults: ArrayDeque<Result<List<StalkerCategoryRecord>>> = ArrayDeque(),
         private val seriesDetails: StalkerSeriesDetails? = null,
+        private val vodCategories: List<StalkerCategoryRecord> = emptyList(),
+        private val seriesCategories: List<StalkerCategoryRecord> = emptyList(),
+        private val vodCategoriesResult: Result<List<StalkerCategoryRecord>>? = null,
+        private val seriesCategoriesResult: Result<List<StalkerCategoryRecord>>? = null,
         private val vodPageItems: List<StalkerItemRecord> = emptyList(),
-        private val seriesPageItems: List<StalkerItemRecord> = emptyList()
+        private val seriesPageItems: List<StalkerItemRecord> = emptyList(),
+        private var authenticationFailuresBeforeSuccess: Int = 0
     ) : StalkerApiService {
         var createLinkCalls: Int = 0
             private set
@@ -891,6 +1136,10 @@ class StalkerProviderTest {
         override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
             authenticateCalls += 1
             lastAuthenticateProfile = profile
+            if (authenticationFailuresBeforeSuccess > 0) {
+                authenticationFailuresBeforeSuccess -= 1
+                return Result.error("authentication failed")
+            }
             return Result.success(
                 StalkerSession(
                     loadUrl = "https://portal.example.com/server/load.php",
@@ -923,7 +1172,7 @@ class StalkerProviderTest {
         override suspend fun getVodCategories(
             session: StalkerSession,
             profile: StalkerDeviceProfile
-        ) = Result.success(emptyList<StalkerCategoryRecord>())
+        ) = vodCategoriesResult ?: Result.success(vodCategories)
 
         override suspend fun getVodStreams(
             session: StalkerSession,
@@ -941,7 +1190,7 @@ class StalkerProviderTest {
         override suspend fun getSeriesCategories(
             session: StalkerSession,
             profile: StalkerDeviceProfile
-        ) = Result.success(emptyList<StalkerCategoryRecord>())
+        ) = seriesCategoriesResult ?: Result.success(seriesCategories)
 
         override suspend fun getSeries(
             session: StalkerSession,
@@ -1015,6 +1264,18 @@ class StalkerProviderTest {
         }
 
         override fun currentCookieHeader(session: StalkerSession): String = currentCookieHeader
+    }
+
+    private class FakePortalStateDao : StalkerPortalStateDao {
+        private val rows = mutableMapOf<Long, StalkerPortalStateEntity>()
+
+        override suspend fun get(providerId: Long): StalkerPortalStateEntity? = rows[providerId]
+
+        override suspend fun upsert(entity: StalkerPortalStateEntity) {
+            rows[entity.providerId] = entity
+        }
+
+        override suspend fun invalidate(providerId: Long): Int = if (rows.remove(providerId) != null) 1 else 0
     }
 
     @Test

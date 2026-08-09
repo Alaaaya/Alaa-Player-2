@@ -8,7 +8,10 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.SeriesDetailPresentationHint
 import com.streamvault.domain.model.StreamInfo
+import com.streamvault.domain.model.VodCategoryHydration
+import com.streamvault.domain.model.VodCategoryHydrationRequest
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 interface SeriesRepository {
     fun getSeries(providerId: Long): Flow<List<Series>>
@@ -23,6 +26,12 @@ interface SeriesRepository {
     fun getCategoryItemCounts(providerId: Long): Flow<Map<Long, Int>>
     fun getLibraryCount(providerId: Long): Flow<Int>
     fun browseSeries(query: LibraryBrowseQuery): Flow<PagedResult<Series>>
+    fun observeCategoryHydration(providerId: Long, categoryId: Long): Flow<VodCategoryHydration?> = flowOf(null)
+    suspend fun requestCategoryHydration(
+        providerId: Long,
+        categoryId: Long,
+        request: VodCategoryHydrationRequest
+    ): Result<Unit> = Result.success(Unit)
     fun searchSeries(providerId: Long, query: String): Flow<List<Series>>
     suspend fun getSeriesById(seriesId: Long): Series?
     suspend fun getEpisodeById(episodeId: Long): Episode?

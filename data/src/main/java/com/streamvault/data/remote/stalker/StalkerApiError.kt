@@ -74,6 +74,12 @@ sealed class StalkerApiError(
         val challenge: StalkerTransportChallenge
     ) : StalkerApiError("Transport consent is required for ${challenge.displayHost}.")
     class Malformed(message: String, cause: Throwable? = null) : StalkerApiError(message, cause)
+    class EmptyBody(message: String) : StalkerApiError(message)
+    class ContentUnavailable(
+        override val portalReason: String? = null,
+        message: String = "The provider reported that this item is currently unavailable."
+    ) : StalkerApiError(message, portalReason = portalReason)
+    class UnsupportedProtocol(message: String) : StalkerApiError(message)
     class ResponseTooLarge(message: String) : StalkerApiError(message)
     class DiscoveryBudgetExceeded(message: String) : StalkerApiError(message)
     class ReadinessInconclusive(

@@ -216,6 +216,12 @@ enum class PlayerNoticeAction {
     OPEN_GUIDE
 }
 
+sealed interface PlaybackResolutionUiState {
+    data object Idle : PlaybackResolutionUiState
+    data object Resolving : PlaybackResolutionUiState
+    data class Failure(val message: String) : PlaybackResolutionUiState
+}
+
 enum class AspectRatio(val modeName: String) {
     FIT("Fit"),
     FILL("Stretch"),

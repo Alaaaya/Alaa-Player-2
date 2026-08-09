@@ -112,7 +112,8 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
                         ?.toDomain()
                 } else null
             }
-            ContentType.LIVE -> null
+            ContentType.LIVE,
+            ContentType.VOD -> null
         }
     }
 

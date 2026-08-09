@@ -28,6 +28,7 @@ import com.streamvault.data.remote.stalker.StalkerRequestDescriptor
 import com.streamvault.data.remote.stalker.StalkerResponseMetrics
 import com.streamvault.data.remote.stalker.StalkerPortalStateStore
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
+import com.streamvault.data.remote.stalker.stalkerTransportGrantOrNull
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.remote.xtream.XtreamProvider
@@ -39,6 +40,7 @@ import com.streamvault.data.util.buildPresentedMovies
 import com.streamvault.data.util.rankSearchResults
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.LibraryFilterType
 import com.streamvault.domain.model.LibraryBrowseQuery
@@ -56,6 +58,9 @@ import com.streamvault.domain.model.StalkerRequestPriority
 import com.streamvault.domain.model.VodDuplicateConfidence
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodMovieVariant
+import com.streamvault.domain.model.VodCategoryHydration
+import com.streamvault.domain.model.VodCategoryHydrationRequest
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
@@ -399,18 +404,115 @@ class MovieRepositoryImpl @Inject constructor(
     override fun browseMovies(query: LibraryBrowseQuery): Flow<PagedResult<Movie>> {
         return flow {
             val normalizedSearch = query.searchQuery.trim()
+            val requiresCompleteCategory = normalizedSearch.length >= MIN_SEARCH_QUERY_LENGTH ||
+                query.filterBy.type != LibraryFilterType.ALL ||
+                query.sortBy != LibrarySortBy.LIBRARY ||
+                preferencesRepository.vodDuplicateHandlingMode.first() != VodDuplicateHandlingMode.SHOW_ALL
+            if (requiresCompleteCategory) {
+                query.categoryId?.let {
+                    requestCategoryHydration(query.providerId, it, VodCategoryHydrationRequest.COMPLETE)
+                }
+            }
             query.categoryId?.takeIf { normalizedSearch.length < MIN_SEARCH_QUERY_LENGTH }?.let {
-                ensureXtreamCategoryLoaded(
-                    query.providerId,
-                    it,
-                    fetchIfMissing = true,
-                    refreshStaleInBackground = true,
-                    requiredCount = browseFetchLimit(query),
-                    loadStalkerCategoryCompletely = true
-                )
+                val provider = providerDao.getById(query.providerId)
+                if (provider?.type == ProviderType.XTREAM_CODES) {
+                    ensureXtreamCategoryLoaded(
+                        query.providerId,
+                        it,
+                        fetchIfMissing = true,
+                        refreshStaleInBackground = true,
+                        requiredCount = browseFetchLimit(query)
+                    )
+                }
             }
             emit(fetchMovieBrowseResult(query))
         }.flowOn(Dispatchers.IO)
+    }
+
+    override fun observeCategoryHydration(
+        providerId: Long,
+        categoryId: Long
+    ): Flow<VodCategoryHydration?> = movieCategoryHydrationDao.observe(providerId, categoryId).map { entity ->
+        entity?.let {
+            VodCategoryHydration(
+                lastSuccessfulPage = it.lastSuccessfulPage,
+                totalPages = it.totalPages,
+                itemCount = it.itemCount,
+                isComplete = it.isComplete,
+                hasMovies = it.itemCount > 0,
+                isLoading = it.lastStatus == "RUNNING",
+                error = it.lastError
+            )
+        }
+    }
+
+    override suspend fun requestCategoryHydration(
+        providerId: Long,
+        categoryId: Long,
+        request: VodCategoryHydrationRequest
+    ): Result<Unit> {
+        val provider = providerDao.getById(providerId) ?: return Result.error("Provider not found")
+        if (provider.type != ProviderType.STALKER_PORTAL) return Result.success(Unit)
+        val loadMode = preferencesRepository.vodCategoryLoadMode.first()
+        val effectiveRequest = if (
+            request == VodCategoryHydrationRequest.OPEN && loadMode == VodCategoryLoadMode.COMPLETE_ON_OPEN
+        ) VodCategoryHydrationRequest.COMPLETE else request
+        val current = movieCategoryHydrationDao.get(providerId, categoryId)
+        val requestedPage = if (effectiveRequest == VodCategoryHydrationRequest.NEXT_PAGE) {
+            ((current?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+        } else null
+        if (effectiveRequest == VodCategoryHydrationRequest.OPEN && (current?.lastSuccessfulPage ?: 0) > 0) {
+            scheduleMoviePrefetch(providerId, categoryId, loadMode)
+            return Result.success(Unit)
+        }
+        val result = if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
+            syncManager.hydrateSplitVodCategory(providerId, categoryId, effectiveRequest, ContentType.MOVIE)
+        } else {
+            val count = movieDao.getCountByCategory(providerId, categoryId).first()
+            hydrateStalkerMovieCategoryToCount(
+                providerId = providerId,
+                categoryId = categoryId,
+                provider = provider,
+                requiredCount = if (effectiveRequest == VodCategoryHydrationRequest.COMPLETE) Int.MAX_VALUE else count + 1,
+                localCount = count,
+                hydration = current,
+                loadCompletely = effectiveRequest == VodCategoryHydrationRequest.COMPLETE,
+                requestedPage = requestedPage
+            )
+            Result.success(Unit)
+        }
+        if (result is Result.Success && request == VodCategoryHydrationRequest.OPEN) {
+            scheduleMoviePrefetch(providerId, categoryId, loadMode)
+        }
+        return result
+    }
+
+    private fun scheduleMoviePrefetch(providerId: Long, categoryId: Long, loadMode: VodCategoryLoadMode) {
+        if (loadMode != VodCategoryLoadMode.PAGED) return
+        repositoryScope.launch {
+            val provider = providerDao.getById(providerId) ?: return@launch
+            val current = movieCategoryHydrationDao.get(providerId, categoryId)
+            if (current?.isComplete == true) return@launch
+            if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
+                syncManager.hydrateSplitVodCategory(
+                    providerId,
+                    categoryId,
+                    VodCategoryHydrationRequest.NEXT_PAGE,
+                    ContentType.MOVIE
+                )
+            } else {
+                val count = movieDao.getCountByCategory(providerId, categoryId).first()
+                hydrateStalkerMovieCategoryToCount(
+                    providerId,
+                    categoryId,
+                    provider,
+                    requiredCount = count + 1,
+                    localCount = count,
+                    hydration = current,
+                    requestedPage = ((current?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+                )
+            }
+        }
     }
 
     override fun searchMovies(providerId: Long, query: String): Flow<List<Movie>> =
@@ -1491,6 +1593,18 @@ class MovieRepositoryImpl @Inject constructor(
             ) {
                 return
             }
+            if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
+                syncManager.hydrateSplitVodCategory(
+                    providerId = providerId,
+                    movieCategoryId = categoryId,
+                    request = if (loadStalkerCategoryCompletely) {
+                        VodCategoryHydrationRequest.COMPLETE
+                    } else {
+                        VodCategoryHydrationRequest.OPEN
+                    }
+                )
+                return
+            }
             hydrateStalkerMovieCategoryToCount(
                 providerId = providerId,
                 categoryId = categoryId,
@@ -1528,6 +1642,14 @@ class MovieRepositoryImpl @Inject constructor(
                 val hydration = movieCategoryHydrationDao.get(providerId, categoryId)
                 if (provider.type == ProviderType.STALKER_PORTAL) {
                     if (!shouldUseStalkerLazyFallback(hydration, localCount, requiredCount)) {
+                        return@launch
+                    }
+                    if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
+                        syncManager.hydrateSplitVodCategory(
+                            providerId = providerId,
+                            movieCategoryId = categoryId,
+                            request = VodCategoryHydrationRequest.NEXT_PAGE
+                        )
                         return@launch
                     }
                     hydrateStalkerMovieCategoryToCount(
@@ -1574,15 +1696,18 @@ class MovieRepositoryImpl @Inject constructor(
         localCount: Int? = null,
         hydration: MovieCategoryHydrationEntity? = null,
         allowWildcard: Boolean = true,
-        loadCompletely: Boolean = false
+        loadCompletely: Boolean = false,
+        requestedPage: Int? = null
     ) {
         val key = "$providerId:$categoryId"
         val lock = xtreamCategoryLoadLocks.getOrPut(key) { Mutex() }
         lock.withLock {
+            val persistedHydration = movieCategoryHydrationDao.get(providerId, categoryId)
+            if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return
             val stalkerProvider = createStalkerProvider(providerId, provider)
             if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.MOVIE, categoryId)) return
             var currentCount = localCount ?: movieDao.getCountByCategory(providerId, categoryId).first()
-            var currentHydration = hydration ?: movieCategoryHydrationDao.get(providerId, categoryId)
+            var currentHydration = persistedHydration ?: hydration
             if ((currentHydration?.isComplete == true && currentCount > 0) ||
                 (!loadCompletely && currentCount >= requiredCount)
             ) return
@@ -1623,6 +1748,13 @@ class MovieRepositoryImpl @Inject constructor(
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
                 firstIteration = false
                 remotePagesRequested += 1
+                movieCategoryHydrationDao.upsert(
+                    (currentHydration ?: MovieCategoryHydrationEntity(providerId, categoryId)).copy(
+                        lastAttemptedPage = nextPage,
+                        lastStatus = "RUNNING",
+                        lastError = null
+                    )
+                )
                 val requestPriority = if (isPreviewLoad) {
                     StalkerRequestPriority.VISIBLE_PREVIEW
                 } else {
@@ -1654,7 +1786,7 @@ class MovieRepositoryImpl @Inject constructor(
                 when (val result = coordinatedResult) {
                     is Success -> {
                         val entities = result.data.items.map { movie -> movie.toEntity() }
-                        val pageComplete = result.data.isComplete || entities.isEmpty()
+                        val pageComplete = result.data.isComplete
                         transactionRunner.inTransaction {
                             movieDao.upsertCategoryPage(providerId, entities)
                             val updatedCount = movieDao.getCountByCategory(providerId, categoryId).first()
@@ -1675,7 +1807,8 @@ class MovieRepositoryImpl @Inject constructor(
                                 retryAfterMs = 0L,
                                 failureCount = 0,
                                 retryBudgetRemaining = 3,
-                                lastPageFingerprint = null
+                                lastPageFingerprint = result.data.items.joinToString("|") { it.streamId.toString() }
+                                    .takeIf(String::isNotEmpty)
                             )
                             movieCategoryHydrationDao.upsert(currentHydration!!)
                         }
@@ -1818,6 +1951,7 @@ class MovieRepositoryImpl @Inject constructor(
             signature = provider.stalkerSignature,
             stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
             protocolPreference = provider.stalkerProtocolPreference,
+            transportGrant = provider.stalkerTransportGrantOrNull(),
             requestedProfileId = provider.stalkerRequestedProfileId,
             learnedProfileId = provider.stalkerLearnedProfileId,
             identityResolver = stalkerRemoteIdentityResolver,

@@ -28,12 +28,20 @@ data class Series(
     val selectedVariantId: Long? = null,
     val variants: List<VodSeriesVariant> = emptyList(),
     val duplicateConfidence: VodDuplicateConfidence = VodDuplicateConfidence.NONE,
-    val variantLabel: String? = null
+    val variantLabel: String? = null,
+    val catalogOrigin: SeriesCatalogOrigin = SeriesCatalogOrigin.NATIVE,
+    /** Provider-neutral logical playback URL used when episode rows do not carry their own command. */
+    val episodePlaybackTemplateUrl: String? = null
 ) {
     init {
         require(rating in 0f..10f) { "rating must be between 0 and 10" }
         require(lastModified >= 0) { "lastModified must be non-negative" }
     }
+}
+
+enum class SeriesCatalogOrigin {
+    NATIVE,
+    VOD_DERIVED
 }
 
 data class Season(

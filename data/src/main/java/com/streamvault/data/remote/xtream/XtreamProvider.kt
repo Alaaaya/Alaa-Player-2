@@ -675,6 +675,10 @@ class XtreamProvider(
                         XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_vod_categories"),
                         requestProfile
                     )
+                    ContentType.VOD -> api.getVodCategories(
+                        XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_vod_categories"),
+                        requestProfile
+                    )
                     ContentType.SERIES -> api.getSeriesCategories(
                         XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_series_categories"),
                         requestProfile

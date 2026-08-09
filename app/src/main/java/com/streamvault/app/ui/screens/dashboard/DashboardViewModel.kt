@@ -657,7 +657,8 @@ class DashboardViewModel @Inject constructor(
         val resumeItem = continueWatching.firstOrNull()
         if (resumeItem != null) {
             val detail = when (resumeItem.contentType) {
-                ContentType.MOVIE -> appContext.getString(R.string.dashboard_resume_movie)
+                ContentType.MOVIE,
+                ContentType.VOD -> appContext.getString(R.string.dashboard_resume_movie)
                 ContentType.SERIES -> appContext.getString(R.string.dashboard_resume_series)
                 ContentType.SERIES_EPISODE -> {
                     if (resumeItem.seasonNumber != null && resumeItem.episodeNumber != null) {

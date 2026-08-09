@@ -1129,6 +1129,52 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun requestJson_retries_empty_body_with_mac_query_and_remembers_portal_requirement() = runTest {
+        val requestedMacQueries = mutableListOf<String?>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    requestedMacQueries += request.url.queryParameter("mac")
+                    val body = if (request.url.queryParameter("mac").isNullOrBlank()) {
+                        ""
+                    } else {
+                        """{"js":{"cmd":"ffmpeg http://cdn.example.com/live/stream.ts"}}"""
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+        val session = stalkerSession()
+        val profile = stalkerProfile()
+
+        val first = service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://placeholder"
+        )
+        val second = service.createLink(
+            session = session,
+            profile = profile,
+            kind = StalkerStreamKind.LIVE,
+            cmd = "ffmpeg http://placeholder-2"
+        )
+
+        assertThat(first).isInstanceOf(Result.Success::class.java)
+        assertThat(second).isInstanceOf(Result.Success::class.java)
+        assertThat(requestedMacQueries).containsExactly(null, "00:1A:79:12:34:56", "00:1A:79:12:34:56")
+            .inOrder()
+    }
+
+    @Test
     fun createLink_uses_mag_live_storage_selector_without_changing_vod() = runTest {
         val requested = mutableListOf<Pair<String, String>>()
         val service = OkHttpStalkerApiService(
@@ -1808,6 +1854,36 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
+    fun getVodStreamsPage_parses_supported_isSeries_representations_and_tracks_missing_markers() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """
+                    {"js":{"total_items":"8","max_page_items":"20","data":[
+                      {"id":"1","name":"Numeric series","category_id":"42","is_series":1},
+                      {"id":"2","name":"String series","category_id":"42","is_series":"1"},
+                      {"id":"3","name":"Boolean series","category_id":"42","is_series":true},
+                      {"id":"4","name":"Numeric movie","category_id":"42","is_series":0},
+                      {"id":"5","name":"String movie","category_id":"42","is_series":"0"},
+                      {"id":"6","name":"Boolean movie","category_id":"42","is_series":false},
+                      {"id":"7","name":"Missing marker","category_id":"42"},
+                      {"id":"8","name":"Invalid marker","category_id":"42","is_series":"maybe"}
+                    ]}}
+                """.trimIndent()
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 1)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val items = (result as Result.Success).data.items
+        assertThat(items.take(3).map { it.isSeries }).containsExactly(true, true, true).inOrder()
+        assertThat(items.drop(3).map { it.isSeries }).containsExactly(false, false, false, false, false).inOrder()
+        assertThat(items.take(6).map { it.hasSeriesMarker }).containsExactly(true, true, true, true, true, true).inOrder()
+        assertThat(items.drop(6).map { it.hasSeriesMarker }).containsExactly(false, false).inOrder()
+    }
+
+    @Test
     fun getLiveCategories_stays_on_selected_endpoint_after_authentication() = runTest {
         val requestedUrls = mutableListOf<String>()
         val service = OkHttpStalkerApiService(
@@ -2454,6 +2530,223 @@ class OkHttpStalkerApiServiceTest {
         assertThat(success.data.seasons.map { it.name }).containsExactly("Season 1", "Season 2").inOrder()
         assertThat(success.data.seasons[0].episodes.map { it.episodeNumber }).containsExactly(1, 2).inOrder()
         assertThat(success.data.seasons[1].episodes.map { it.episodeNumber }).containsExactly(1, 2, 3).inOrder()
+    }
+
+    @Test
+    fun getVodSeriesDetails_uses_shell_id_and_retains_all_episode_pages_in_provider_order() = runTest {
+        val requestedSeasonIds = mutableListOf<String>()
+        val requestedPages = mutableListOf<Int>()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    assertThat(request.url.queryParameter("type")).isEqualTo("vod")
+                    val seasonId = request.url.queryParameter("season_id").orEmpty()
+                    val page = request.url.queryParameter("p")?.toIntOrNull() ?: 1
+                    val body = if (seasonId == "0") {
+                        """{"js":{"total_items":1,"max_page_items":14,"data":[{"id":"season-shell-77","video_id":"55000","name":"Season 1","season_number":"1","is_season":"1"}]}}"""
+                    } else {
+                        requestedSeasonIds += seasonId
+                        requestedPages += page
+                        val start = (page - 1) * 14 + 1
+                        val end = minOf(page * 14, 39)
+                        val entries = (start..end).joinToString(",") { episode ->
+                            """{"id":"episode-$episode","name":"Episode $episode","series_number":"$episode","season_id":"season-shell-77","is_episode":true,"series":[1,2,3,4,5,6,7,8]}"""
+                        }
+                        """{"js":{"total_items":39,"max_page_items":14,"data":[$entries]}}"""
+                    }
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body.toResponseBody("application/json".toMediaType()))
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodSeriesDetails(
+            session = stalkerSession(),
+            profile = stalkerProfile(),
+            seriesId = "55000"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val details = (result as Result.Success).data
+        assertThat(requestedSeasonIds).containsExactly(
+            "season-shell-77", "season-shell-77", "season-shell-77"
+        ).inOrder()
+        assertThat(requestedSeasonIds).doesNotContain("55000")
+        assertThat(requestedPages).containsExactly(1, 2, 3).inOrder()
+        assertThat(details.seasons.single().episodes).hasSize(39)
+        assertThat(details.seasons.single().episodes.map { it.episodeNumber })
+            .containsExactlyElementsIn((1..39).toList()).inOrder()
+        assertThat(details.paginationEvidence.single().successfulPages).isEqualTo(3)
+    }
+
+    @Test
+    fun createLink_maps_nothing_to_play_to_content_unavailable() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "create_link" to """{"js":{"error":"nothing_to_play","cmd":""}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = stalkerSession(),
+            profile = stalkerProfile(),
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "ffmpeg http://provider.invalid/movie"
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(StalkerApiError.ContentUnavailable::class.java)
+        assertThat(error.message).contains("currently unavailable")
+    }
+
+    @Test
+    fun createLink_readsPortalErrorBeforeOversizedDiagnosticText() = runTest {
+        val oversizedDiagnostic = "storage timeout ".repeat(8_000)
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "create_link" to
+                    """{"js":{"id":0,"cmd":"","error":"nothing_to_play"},"text":"$oversizedDiagnostic"}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = stalkerSession(),
+            profile = stalkerProfile(),
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "/media/331155.mpg"
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(StalkerApiError.ContentUnavailable::class.java)
+        assertThat(error.exception).isNotInstanceOf(StalkerApiError.ResponseTooLarge::class.java)
+    }
+
+    @Test
+    fun createLink_readsPlayableCommandBeforeOversizedDiagnosticText() = runTest {
+        val oversizedDiagnostic = "ignored backend diagnostics ".repeat(8_000)
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "create_link" to
+                    """{"js":{"id":42,"cmd":"ffmpeg https://cdn.example.com/movie.m3u8","error":""},"text":"$oversizedDiagnostic"}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = stalkerSession(),
+            profile = stalkerProfile(),
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "/media/42.mpg"
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat((result as Result.Success).data).isEqualTo("https://cdn.example.com/movie.m3u8")
+    }
+
+    @Test
+    fun createLink_maps_scalar_nothing_to_play_to_content_unavailable() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "create_link" to """{"js":"nothing_to_play"}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            session = stalkerSession(),
+            profile = stalkerProfile(),
+            kind = StalkerStreamKind.MOVIE,
+            cmd = "/media/123.mpg"
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(StalkerApiError.ContentUnavailable::class.java)
+        assertThat(error.message).contains("currently unavailable")
+    }
+
+    @Test
+    fun createLink_429_opensProviderCircuitAndSuppressesSecondHttpRequest() = runTest {
+        val requestCount = java.util.concurrent.atomic.AtomicInteger()
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                requestCount.incrementAndGet()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(429)
+                    .message("Too Many Requests")
+                    .header("Retry-After", "120")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+        val coordinator = StalkerRequestCoordinator()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = client,
+            json = Json { ignoreUnknownKeys = true },
+            requestCoordinator = coordinator
+        )
+        val profile = stalkerProfile().copy(providerId = 91L)
+
+        val first = service.createLink(
+            stalkerSession(), profile, StalkerStreamKind.MOVIE, "/media/1.mpg"
+        )
+        val second = service.createLink(
+            stalkerSession(), profile, StalkerStreamKind.MOVIE, "/media/2.mpg"
+        )
+
+        assertThat(first).isInstanceOf(Result.Error::class.java)
+        assertThat(second).isInstanceOf(Result.Error::class.java)
+        assertThat((second as Result.Error).exception)
+            .isInstanceOf(StalkerApiError.RateLimited::class.java)
+        assertThat(requestCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun createLink_returnsAuthenticatedEndpointWhenPortalStreamsMediaInsteadOfJson() = runTest {
+        val media = ByteArray(70 * 1024)
+        media[0] = 0x47
+        media[188] = 0x47
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(media.toResponseBody("video/mpeg".toMediaType()))
+                    .build()
+            }
+            .build()
+        val service = OkHttpStalkerApiService(
+            okHttpClient = client,
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.createLink(
+            stalkerSession(),
+            stalkerProfile(),
+            StalkerStreamKind.EPISODE,
+            "/media/123.mpg",
+            seriesNumber = 2
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val endpoint = (result as Result.Success).data
+        assertThat(endpoint).contains("action=create_link")
+        assertThat(endpoint).contains("series=2")
     }
 
     @Test

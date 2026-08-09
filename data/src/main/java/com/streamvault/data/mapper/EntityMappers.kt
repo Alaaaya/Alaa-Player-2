@@ -76,6 +76,8 @@ fun ProviderEntity.toDomain() = Provider(
     xtreamFastSyncEnabled = xtreamFastSyncEnabled,
     xtreamLiveSyncMode = xtreamLiveSyncMode,
     m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+    catalogLayout = catalogLayout,
+    catalogLayoutDetectionVersion = catalogLayoutDetectionVersion,
     status = status,
     lastSyncedAt = lastSyncedAt,
     createdAt = createdAt
@@ -142,6 +144,8 @@ fun Provider.toEntity() = ProviderEntity(
     xtreamFastSyncEnabled = xtreamFastSyncEnabled,
     xtreamLiveSyncMode = xtreamLiveSyncMode,
     m3uVodClassificationEnabled = m3uVodClassificationEnabled,
+    catalogLayout = catalogLayout,
+    catalogLayoutDetectionVersion = catalogLayoutDetectionVersion,
     status = status,
     lastSyncedAt = lastSyncedAt,
     createdAt = createdAt
@@ -366,7 +370,9 @@ fun SeriesEntity.toDomain() = Series(
     isAdult = isAdult,
     isUserProtected = isUserProtected,
     seriesId = seriesId,
-    providerSeriesId = providerSeriesId
+    providerSeriesId = providerSeriesId,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 fun SeriesBrowseEntity.toDomain() = Series(
@@ -390,7 +396,9 @@ fun SeriesBrowseEntity.toDomain() = Series(
     isAdult = isAdult,
     isUserProtected = isUserProtected,
     seriesId = seriesId,
-    providerSeriesId = providerSeriesId
+    providerSeriesId = providerSeriesId,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 fun Series.toEntity() = SeriesEntity(
@@ -416,7 +424,9 @@ fun Series.toEntity() = SeriesEntity(
     lastModified = lastModified,
     providerId = providerId,
     isAdult = isAdult,
-    isUserProtected = isUserProtected
+    isUserProtected = isUserProtected,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 // ── Episode ────────────────────────────────────────────────────────
@@ -495,6 +505,7 @@ fun CategoryEntity.toDomain() = com.streamvault.domain.model.Category(
     name = name,
     parentId = parentId,
     type = type,
+    providerOrder = providerOrder,
     isAdult = isAdult,
     isUserProtected = isUserProtected
 )
@@ -505,6 +516,7 @@ fun com.streamvault.domain.model.Category.toEntity(providerId: Long) = CategoryE
     parentId = parentId,
     type = type,
     providerId = providerId,
+    providerOrder = providerOrder,
     isAdult = isAdult,
     isUserProtected = isUserProtected
 )

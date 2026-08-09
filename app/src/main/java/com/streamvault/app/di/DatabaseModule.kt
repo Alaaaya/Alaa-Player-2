@@ -105,7 +105,8 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_61_62,
                 StreamVaultDatabase.MIGRATION_62_63,
                 StreamVaultDatabase.MIGRATION_63_64,
-                StreamVaultDatabase.MIGRATION_64_65
+                StreamVaultDatabase.MIGRATION_64_65,
+                StreamVaultDatabase.MIGRATION_65_66
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -132,6 +133,8 @@ object DatabaseModule {
     @Provides fun provideSyncMetadataDao(db: StreamVaultDatabase): SyncMetadataDao = db.syncMetadataDao()
     @Provides fun provideMovieCategoryHydrationDao(db: StreamVaultDatabase): MovieCategoryHydrationDao = db.movieCategoryHydrationDao()
     @Provides fun provideSeriesCategoryHydrationDao(db: StreamVaultDatabase): SeriesCategoryHydrationDao = db.seriesCategoryHydrationDao()
+    @Provides fun provideVodCategoryHydrationDao(db: StreamVaultDatabase): VodCategoryHydrationDao = db.vodCategoryHydrationDao()
+    @Provides fun provideVodCatalogEntryDao(db: StreamVaultDatabase): VodCatalogEntryDao = db.vodCatalogEntryDao()
     @Provides fun provideEpgSourceDao(db: StreamVaultDatabase): EpgSourceDao = db.epgSourceDao()
     @Provides fun provideProviderEpgSourceDao(db: StreamVaultDatabase): ProviderEpgSourceDao = db.providerEpgSourceDao()
     @Provides fun provideEpgChannelDao(db: StreamVaultDatabase): EpgChannelDao = db.epgChannelDao()

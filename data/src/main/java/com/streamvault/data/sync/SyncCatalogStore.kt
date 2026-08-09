@@ -351,6 +351,7 @@ internal class SyncCatalogStore(
                     name = category.name,
                     parentId = category.parentId,
                     type = category.type,
+                    providerOrder = category.providerOrder,
                     isAdult = category.isAdult,
                     syncFingerprint = categoryFingerprint(category)
                 )
@@ -405,6 +406,7 @@ internal class SyncCatalogStore(
                         parentId = stage.parentId,
                         type = ContentType.LIVE,
                         providerId = providerId,
+                        providerOrder = stage.providerOrder,
                         isAdult = stage.isAdult
                     )
                 }
@@ -450,6 +452,7 @@ internal class SyncCatalogStore(
                     name = stage.name,
                     parentId = stage.parentId,
                     isAdult = stage.isAdult,
+                    providerOrder = stage.providerOrder,
                     isUserProtected = current.isUserProtected,
                     syncFingerprint = stage.syncFingerprint
                 )
@@ -919,6 +922,7 @@ internal class SyncCatalogStore(
             normalizeText(category.name),
             category.parentId?.toString().orEmpty(),
             category.type.name,
+            category.providerOrder.toString(),
             category.isAdult.toString()
         )
     }

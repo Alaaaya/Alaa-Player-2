@@ -7,6 +7,29 @@ import java.security.MessageDigest
 
 /** Sanitized structured diagnostics. Values accepted here must never contain portal secrets or URLs. */
 internal object StalkerTelemetry {
+    fun catalogLayoutDetected(
+        providerId: Long,
+        layout: String,
+        seriesCategoryCount: Int,
+        vodCategoryCount: Int,
+        evidence: String
+    ) {
+        val event = buildString {
+            append("event=catalog_layout_detected")
+            append(" provider=").append(providerHash(providerId))
+            append(" layout=").append(safeLabel(layout))
+            append(" series_categories=").append(seriesCategoryCount.coerceAtLeast(0))
+            append(" vod_categories=").append(vodCategoryCount.coerceAtLeast(0))
+            append(" evidence=").append(safeLabel(evidence))
+        }
+        runCatching { Log.i(TAG, event) }
+    }
+
+    fun missingVodClassification(providerId: Long) {
+        val event = "event=vod_classification_missing provider=${providerHash(providerId)} fallback=MOVIE"
+        runCatching { Log.w(TAG, event) }
+    }
+
     fun capabilityChanged(providerId: Long, capability: String, outcome: String) {
         val event = buildString {
             append("event=capability_state")

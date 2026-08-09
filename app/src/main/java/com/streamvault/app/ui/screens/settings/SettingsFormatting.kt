@@ -230,7 +230,8 @@ internal fun formatCategorySortModeLabel(mode: CategorySortMode, context: androi
 internal fun categoryTypeLabel(type: ContentType, context: android.content.Context): String {
     return when (type) {
         ContentType.LIVE -> context.getString(R.string.settings_category_sort_live)
-        ContentType.MOVIE -> context.getString(R.string.settings_category_sort_movies)
+        ContentType.MOVIE,
+        ContentType.VOD -> context.getString(R.string.nav_vod)
         ContentType.SERIES -> context.getString(R.string.settings_category_sort_series)
         ContentType.SERIES_EPISODE -> context.getString(R.string.settings_category_sort_series)
     }
@@ -239,7 +240,8 @@ internal fun categoryTypeLabel(type: ContentType, context: android.content.Conte
 internal fun categoryTypeDescription(type: ContentType, context: android.content.Context): String {
     return when (type) {
         ContentType.LIVE -> context.getString(R.string.settings_category_type_live_description)
-        ContentType.MOVIE -> context.getString(R.string.settings_category_type_movies_description)
+        ContentType.MOVIE,
+        ContentType.VOD -> context.getString(R.string.settings_category_type_movies_description)
         ContentType.SERIES -> context.getString(R.string.settings_category_type_series_description)
         ContentType.SERIES_EPISODE -> context.getString(R.string.settings_category_type_series_description)
     }

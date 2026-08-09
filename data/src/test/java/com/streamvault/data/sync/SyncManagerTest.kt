@@ -19,6 +19,8 @@ import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.StalkerIndexJobDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
+import com.streamvault.data.local.dao.VodCategoryHydrationDao
+import com.streamvault.data.local.dao.VodCatalogEntryDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
@@ -136,13 +138,20 @@ class SyncManagerTest {
             stalkerMacAddress: String
         ): ProviderEntity? = null
         override suspend fun updateEpgUrl(id: Long, epgUrl: String) = Unit
+        override suspend fun invalidateCatalogLayoutDetection(id: Long) = Unit
+        override suspend fun updateCatalogLayout(
+            id: Long,
+            layout: com.streamvault.domain.model.CatalogLayout,
+            version: Int
+        ) = Unit
     }
 
     companion object {
         fun sampleProvider(type: ProviderType = ProviderType.XTREAM_CODES) = ProviderEntity(
             id = 1L, name = "Test", type = type,
             serverUrl = "https://test.example.com:8080",
-            username = "demo", password = "demo"
+            username = "demo", password = "demo",
+            catalogLayoutDetectionVersion = com.streamvault.data.remote.stalker.StalkerProvider.CATALOG_LAYOUT_DETECTION_VERSION
         )
 
         fun stalkerSyntheticCategoryId(providerId: Long, type: ContentType, seed: String): Long {
@@ -235,6 +244,8 @@ class SyncManagerTest {
     private val xtreamLiveOnboardingDao: XtreamLiveOnboardingDao = mock()
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
+    private val vodCategoryHydrationDao: VodCategoryHydrationDao = mock()
+    private val vodCatalogEntryDao: VodCatalogEntryDao = mock()
     private val epgRepo: EpgRepository = mock()
     private val epgSourceRepo: EpgSourceRepository = mock()
     private val preferencesRepo: PreferencesRepository = mock()
@@ -360,6 +371,8 @@ class SyncManagerTest {
         categoryDao = categoryDao,
         movieCategoryHydrationDao = movieCategoryHydrationDao,
         seriesCategoryHydrationDao = seriesCategoryHydrationDao,
+        vodCategoryHydrationDao = vodCategoryHydrationDao,
+        vodCatalogEntryDao = vodCatalogEntryDao,
         catalogSyncDao = catalogSyncDao,
         tmdbIdentityDao = tmdbIdentityDao,
         xtreamContentIndexDao = xtreamContentIndexDao,
