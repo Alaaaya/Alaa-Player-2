@@ -15,19 +15,28 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.google.gson.Gson
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderConfigRevisionDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
+import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
+import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderWorkflowPhase
+import com.streamvault.data.local.entity.ProviderWorkflowReason
+import com.streamvault.data.local.entity.XtreamIndexJobEntity
+import com.streamvault.data.mapper.toDomain
+import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderEpgSyncMode
-import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.repository.SyncMetadataRepository
-import com.streamvault.data.remote.stalker.StalkerApiError
+import com.streamvault.domain.util.PersistedTimestampPolicy
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -76,18 +85,32 @@ internal suspend fun reconcileTargetedProviderStatus(
             )
         }
         is com.streamvault.domain.model.Result.Error -> {
-            val consentRequired = result.exception.hasTransportConsentChallenge()
-            if (consentRequired || provider.status != ProviderStatus.PARTIAL) {
-                providerDao.update(
-                    provider.copy(
-                        isActive = false,
-                        status = if (consentRequired) ProviderStatus.PARTIAL else ProviderStatus.ERROR
-                    )
-                )
+            if (provider.status != ProviderStatus.PARTIAL) {
+                providerDao.update(provider.copy(isActive = false, status = ProviderStatus.ERROR))
             }
         }
         is com.streamvault.domain.model.Result.Loading -> Unit
     }
+}
+
+internal fun isFreshRunningIndexJob(
+    updatedAt: Long,
+    now: Long,
+    staleAfterMillis: Long
+): Boolean = PersistedTimestampPolicy.isFresh(updatedAt, now, staleAfterMillis)
+
+internal fun shouldRunPersistedIndexJob(
+    job: XtreamIndexJobEntity?,
+    now: Long,
+    staleRunningAfterMillis: Long,
+    successTtlMillis: Long
+): Boolean {
+    if (job == null) return true
+    if (job.state in setOf("QUEUED", "PARTIAL", "STALE", "FAILED_RETRYABLE")) return true
+    if (job.state == "RUNNING") {
+        return !isFreshRunningIndexJob(job.updatedAt, now, staleRunningAfterMillis)
+    }
+    return ContentCachePolicy.shouldRefresh(job.lastSuccessAt, successTtlMillis, now)
 }
 
 internal suspend fun shouldTrackInitialLiveOnboarding(
@@ -109,8 +132,14 @@ class ProviderSyncWorker(
         fun categoryDao(): CategoryDao
         fun syncManager(): SyncManager
         fun syncMetadataRepository(): SyncMetadataRepository
+        fun providerConfigRevisionDao(): ProviderConfigRevisionDao
+        fun credentialCrypto(): CredentialCrypto
+        fun gson(): Gson
         fun xtreamIndexJobDao(): XtreamIndexJobDao
         fun xtreamLiveOnboardingDao(): XtreamLiveOnboardingDao
+        fun providerWorkflowRunner(): ProviderWorkflowRunner
+        fun providerWorkflowCommitFence(): ProviderWorkflowCommitFence
+        fun databaseTransactionRunner(): DatabaseTransactionRunner
     }
 
     override suspend fun doWork(): Result {
@@ -120,64 +149,115 @@ class ProviderSyncWorker(
                 ProviderSyncWorkerEntryPoint::class.java
             )
             val requestedProviderId = inputData.getLong(KEY_PROVIDER_ID, INVALID_PROVIDER_ID)
-            val requestedGeneration = inputData.getLong(
-                KEY_CONFIGURATION_GENERATION,
-                INVALID_CONFIGURATION_GENERATION
-            )
+            val requestedRevision = inputData.getLong(KEY_PROVIDER_CONFIG_REVISION, INVALID_REVISION)
+            if (requestedRevision != INVALID_REVISION) {
+                return runConfigRevisionWorkflow(
+                    entryPoint,
+                    requestedProviderId,
+                    requestedRevision
+                ).toWorkResult()
+            }
+
+            var sawRetryableFailure = false
+            val recoveryNow = System.currentTimeMillis()
+            val staleSyncingBefore = recoveryNow - STALE_CONFIG_SYNC_MILLIS
+            val revisionDao = entryPoint.providerConfigRevisionDao()
+            // Never run the committed configuration while a newer edit is being recovered.
+            // That would turn a recovery attempt into an implicit fallback to the old settings.
+            val providerIdsWithPendingEdits = revisionDao.getRecoverable()
+                .mapTo(mutableSetOf()) { it.providerId }
+            revisionDao
+                .getRecoveryCandidates(recoveryNow, staleSyncingBefore)
+                .forEach { revision ->
+                    when (
+                        runConfigRevisionWorkflow(
+                            entryPoint,
+                            revision.providerId,
+                            revision.revision
+                        )
+                    ) {
+                        ProviderWorkflowDisposition.RETRY,
+                        ProviderWorkflowDisposition.BUSY -> sawRetryableFailure = true
+                        else -> Unit
+                    }
+                }
+
             val providers = if (requestedProviderId != INVALID_PROVIDER_ID) {
                 entryPoint.providerDao().getById(requestedProviderId)?.let(::listOf).orEmpty()
             } else {
                 entryPoint.providerDao().getAllSync()
             }
             if (providers.isEmpty()) {
-                return Result.success()
+                return if (sawRetryableFailure) Result.retry() else Result.success()
             }
 
-            var sawRetryableFailure = false
-            providers.forEach { provider ->
-                if (requestedProviderId == provider.id &&
-                    requestedGeneration != INVALID_CONFIGURATION_GENERATION &&
-                    provider.type == ProviderType.STALKER_PORTAL &&
-                    provider.stalkerConfigurationGeneration != requestedGeneration
-                ) {
-                    Log.i(
-                        TAG,
-                        "Discarding stale Stalker sync request for provider ${provider.id}."
-                    )
-                    return@forEach
-                }
-                val trackInitialLiveOnboarding = shouldTrackInitialLiveOnboarding(
-                    provider = provider,
-                    onboardingDao = entryPoint.xtreamLiveOnboardingDao()
-                )
-                val result = if (requestedProviderId == provider.id) {
-                    entryPoint.syncManager().sync(
-                        provider.id,
-                        force = false,
-                        trackInitialLiveOnboarding = trackInitialLiveOnboarding
-                    )
-                } else if (provider.type == ProviderType.XTREAM_CODES) {
-                    syncXtreamProviderIfStale(entryPoint, provider)
-                } else if (provider.type == ProviderType.STALKER_PORTAL) {
-                    syncStalkerProviderIfStale(entryPoint, provider)
-                } else {
-                    entryPoint.syncManager().sync(provider.id, force = false)
-                }
-                if (requestedProviderId == provider.id) {
-                    reconcileTargetedProviderStatus(entryPoint, provider, result)
-                }
-                when (result) {
-                    is com.streamvault.domain.model.Result.Error -> {
-                        Log.w(TAG, "Provider sync worker failed for provider ${provider.id}: ${result.message}")
-                        if (shouldRetry(result.exception)) {
-                            sawRetryableFailure = true
-                        }
+            var sawPermanentFailure = false
+            providers.filterNot { it.id in providerIdsWithPendingEdits }.forEach { provider ->
+                val disposition = entryPoint.providerWorkflowRunner().execute(
+                    providerId = provider.id,
+                    phase = ProviderWorkflowPhase.PRIMARY_CATALOG,
+                    reason = if (requestedProviderId == provider.id) {
+                        ProviderWorkflowReason.RECOVERY
+                    } else {
+                        ProviderWorkflowReason.PERIODIC
                     }
+                ) {
+                    val trackInitialLiveOnboarding = shouldTrackInitialLiveOnboarding(
+                        provider = provider,
+                        onboardingDao = entryPoint.xtreamLiveOnboardingDao()
+                    )
+                    val result = if (requestedProviderId == provider.id) {
+                        entryPoint.syncManager().sync(
+                            provider.id,
+                            force = false,
+                            trackInitialLiveOnboarding = trackInitialLiveOnboarding
+                        )
+                    } else if (provider.type == ProviderType.XTREAM_CODES) {
+                        syncXtreamProviderIfStale(entryPoint, provider)
+                    } else if (provider.type == ProviderType.STALKER_PORTAL) {
+                        syncStalkerProviderIfStale(entryPoint, provider)
+                    } else {
+                        entryPoint.syncManager().sync(provider.id, force = false)
+                    }
+                    if (requestedProviderId == provider.id) {
+                        reconcileTargetedProviderStatusFenced(entryPoint, provider, result)
+                    }
+                    when (result) {
+                        is com.streamvault.domain.model.Result.Success ->
+                            ProviderWorkflowOutcome.Success(
+                                partial = entryPoint.syncManager().currentSyncState(provider.id) is SyncState.Partial
+                            )
+                        is com.streamvault.domain.model.Result.Error -> {
+                            Log.w(TAG, "Provider sync worker failed for provider ${provider.id}: ${result.message}")
+                            ProviderWorkflowOutcome.Failure(
+                                code = "PROVIDER_SYNC",
+                                message = result.message,
+                                cause = result.exception
+                            )
+                        }
+                        com.streamvault.domain.model.Result.Loading ->
+                            ProviderWorkflowOutcome.Failure(
+                                code = "PROVIDER_SYNC_LOADING",
+                                message = "Provider sync did not reach a terminal state.",
+                                retryable = true
+                            )
+                    }
+                }
+                when (disposition) {
+                    ProviderWorkflowDisposition.RETRY,
+                    ProviderWorkflowDisposition.BUSY -> sawRetryableFailure = true
+                    ProviderWorkflowDisposition.FAILED -> sawPermanentFailure = true
                     else -> Unit
                 }
             }
 
-            if (sawRetryableFailure) Result.retry() else Result.success()
+            when {
+                sawRetryableFailure -> Result.retry()
+                sawPermanentFailure -> Result.failure()
+                else -> Result.success()
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e(TAG, "Provider sync worker failed", e)
             if (shouldRetry(e)) Result.retry() else Result.failure()
@@ -185,12 +265,180 @@ class ProviderSyncWorker(
     }
 
     private fun shouldRetry(error: Throwable?): Boolean {
-        if (error.hasTransportConsentChallenge()) return false
-        return when (error) {
-            is java.io.IOException -> true
-            is SQLiteException -> error.message.orEmpty().contains("locked", ignoreCase = true) ||
-                error.message.orEmpty().contains("busy", ignoreCase = true)
-            else -> false
+        return ProviderWorkFailureClassifier.isRetryable(error)
+    }
+
+    private fun ProviderWorkflowDisposition.toWorkResult(): Result = when (this) {
+        ProviderWorkflowDisposition.SUCCEEDED,
+        ProviderWorkflowDisposition.SUPERSEDED -> Result.success()
+        ProviderWorkflowDisposition.RETRY,
+        ProviderWorkflowDisposition.BUSY -> Result.retry()
+        ProviderWorkflowDisposition.FAILED -> Result.failure()
+    }
+
+    private suspend fun runConfigRevisionWorkflow(
+        entryPoint: ProviderSyncWorkerEntryPoint,
+        providerId: Long,
+        revisionNumber: Long
+    ): ProviderWorkflowDisposition {
+        if (providerId == INVALID_PROVIDER_ID) {
+            return ProviderWorkflowDisposition.FAILED
+        }
+        return entryPoint.providerWorkflowRunner().execute(
+            providerId = providerId,
+            phase = ProviderWorkflowPhase.PREPARE,
+            reason = ProviderWorkflowReason.CONFIG_CHANGE,
+            force = true,
+            supersede = true,
+            priority = CONFIG_CHANGE_PRIORITY
+        ) {
+            when (recoverProviderConfigRevision(entryPoint, providerId, revisionNumber)) {
+                RevisionRecoveryOutcome.SUCCESS -> ProviderWorkflowOutcome.Success()
+                RevisionRecoveryOutcome.RETRY -> ProviderWorkflowOutcome.Failure(
+                    code = "CONFIG_REVISION_RETRY",
+                    message = "Provider configuration recovery needs retry.",
+                    retryable = true
+                )
+                RevisionRecoveryOutcome.FAILURE -> ProviderWorkflowOutcome.Failure(
+                    code = "CONFIG_REVISION_FAILED",
+                    message = "Provider configuration recovery failed.",
+                    retryable = false
+                )
+            }
+        }
+    }
+
+    private suspend fun reconcileTargetedProviderStatusFenced(
+        entryPoint: ProviderSyncWorkerEntryPoint,
+        provider: ProviderEntity,
+        result: com.streamvault.domain.model.Result<Unit>
+    ) {
+        entryPoint.databaseTransactionRunner().inTransaction {
+            entryPoint.providerWorkflowCommitFence().assertCanCommit(provider.id)
+            reconcileTargetedProviderStatus(entryPoint, provider, result)
+        }
+    }
+
+    /**
+     * Restarts only the durable candidate configuration. It never feeds the committed provider
+     * row back into the sync pipeline, so a process restart cannot silently discard an edit.
+     */
+    private suspend fun recoverProviderConfigRevision(
+        entryPoint: ProviderSyncWorkerEntryPoint,
+        providerId: Long,
+        revisionNumber: Long
+    ): RevisionRecoveryOutcome {
+        if (providerId == INVALID_PROVIDER_ID) return RevisionRecoveryOutcome.SUCCESS
+        val revisionDao = entryPoint.providerConfigRevisionDao()
+        val revision = revisionDao.get(providerId, revisionNumber) ?: return RevisionRecoveryOutcome.SUCCESS
+        if (revision.state == ProviderConfigRevisionState.COMMITTED ||
+            revision.state == ProviderConfigRevisionState.SUPERSEDED
+        ) {
+            return RevisionRecoveryOutcome.SUCCESS
+        }
+
+        val now = System.currentTimeMillis()
+        if (revision.state == ProviderConfigRevisionState.SYNCING) {
+            revisionDao.releaseForRetry(providerId, revisionNumber, now)
+        }
+        if (revisionDao.claimForSync(providerId, revisionNumber, now) != 1) {
+            return RevisionRecoveryOutcome.SUCCESS
+        }
+
+        val secureCandidate = try {
+            entryPoint.gson().fromJson(revision.configJson, ProviderEntity::class.java)
+                ?: throw IllegalStateException("Saved provider edit was empty.")
+        } catch (error: Exception) {
+            revisionDao.markFailed(providerId, revisionNumber, "Saved provider edit is invalid.", now)
+            return RevisionRecoveryOutcome.FAILURE
+        }
+        if (secureCandidate.id != providerId) {
+            revisionDao.markFailed(providerId, revisionNumber, "Saved provider edit did not match its provider.", now)
+            return RevisionRecoveryOutcome.FAILURE
+        }
+
+        val candidate = try {
+            secureCandidate
+                .copy(password = entryPoint.credentialCrypto().decryptIfNeeded(secureCandidate.password))
+                .toDomain()
+        } catch (error: Exception) {
+            revisionDao.markFailed(providerId, revisionNumber, "Saved provider credentials could not be restored.", now)
+            return RevisionRecoveryOutcome.FAILURE
+        }
+
+        val result = entryPoint.syncManager().syncWithProviderOverride(
+            providerId = providerId,
+            force = false,
+            providerOverride = candidate,
+            afterCatalogApply = {
+                val committedAt = System.currentTimeMillis()
+                check(revisionDao.markCommitted(providerId, revisionNumber, committedAt) == 1) {
+                    "Provider edit was superseded before recovery could commit it."
+                }
+                entryPoint.providerDao().update(
+                    secureCandidate.copy(
+                        isActive = true,
+                        status = ProviderStatus.PARTIAL,
+                        lastSyncedAt = committedAt
+                    )
+                )
+            }
+        )
+        val finalState = revisionDao.getState(providerId, revisionNumber)
+        return when (result) {
+            is com.streamvault.domain.model.Result.Success -> {
+                if (finalState != ProviderConfigRevisionState.COMMITTED) {
+                    revisionDao.markFailed(
+                        providerId,
+                        revisionNumber,
+                        "Recovery sync completed without committing catalog content.",
+                        System.currentTimeMillis()
+                    )
+                    RevisionRecoveryOutcome.FAILURE
+                } else {
+                    entryPoint.providerDao().getById(providerId)?.let { committedProvider ->
+                        reconcileTargetedProviderStatusFenced(entryPoint, committedProvider, result)
+                    }
+                    RevisionRecoveryOutcome.SUCCESS
+                }
+            }
+            is com.streamvault.domain.model.Result.Error -> {
+                if (finalState == ProviderConfigRevisionState.COMMITTED) {
+                    entryPoint.providerDao().getById(providerId)?.let { committedProvider ->
+                        entryPoint.databaseTransactionRunner().inTransaction {
+                            entryPoint.providerWorkflowCommitFence().assertCanCommit(providerId)
+                            entryPoint.providerDao().update(
+                                committedProvider.copy(isActive = true, status = ProviderStatus.PARTIAL)
+                            )
+                        }
+                    }
+                } else {
+                    revisionDao.markFailed(
+                        providerId,
+                        revisionNumber,
+                        result.message,
+                        System.currentTimeMillis()
+                    )
+                }
+                if (shouldRetry(result.exception)) {
+                    RevisionRecoveryOutcome.RETRY
+                } else {
+                    RevisionRecoveryOutcome.FAILURE
+                }
+            }
+            is com.streamvault.domain.model.Result.Loading -> RevisionRecoveryOutcome.RETRY
+        }
+    }
+
+    private enum class RevisionRecoveryOutcome {
+        SUCCESS,
+        RETRY,
+        FAILURE;
+
+        fun toWorkResult(): Result = when (this) {
+            SUCCESS -> Result.success()
+            RETRY -> Result.retry()
+            FAILURE -> Result.failure()
         }
     }
 
@@ -199,11 +447,13 @@ class ProviderSyncWorker(
         private const val STALE_RUNNING_JOB_MILLIS = 15 * 60 * 1000L
         private const val UNIQUE_WORK_NAME = "provider-sync-worker"
         private const val UNIQUE_LAUNCH_STALE_WORK_NAME = "provider-sync-launch-stale-check"
-        private const val UNIQUE_PROVIDER_WORK_PREFIX = "provider-sync-provider-"
         private const val KEY_PROVIDER_ID = "provider_id"
+        private const val KEY_PROVIDER_CONFIG_REVISION = "provider_config_revision"
         private const val INVALID_PROVIDER_ID = -1L
-        private const val KEY_CONFIGURATION_GENERATION = "configuration_generation"
-        private const val INVALID_CONFIGURATION_GENERATION = -1L
+        private const val INVALID_REVISION = -1L
+        private const val STALE_CONFIG_SYNC_MILLIS = 60_000L
+        private const val CONFIG_REVISION_RECOVERY_GRACE_MILLIS = 5 * 60 * 1000L
+        private const val CONFIG_CHANGE_PRIORITY = 100
 
         fun enqueuePeriodic(context: Context) {
             val request = PeriodicWorkRequestBuilder<ProviderSyncWorker>(6, TimeUnit.HOURS)
@@ -250,19 +500,9 @@ class ProviderSyncWorker(
             )
         }
 
-        fun enqueueProvider(
-            context: Context,
-            providerId: Long,
-            configurationGeneration: Long? = null
-        ) {
+        fun enqueueProvider(context: Context, providerId: Long) {
             val request = OneTimeWorkRequestBuilder<ProviderSyncWorker>()
-                .setInputData(
-                    workDataOf(
-                        KEY_PROVIDER_ID to providerId,
-                        KEY_CONFIGURATION_GENERATION to
-                            (configurationGeneration ?: INVALID_CONFIGURATION_GENERATION)
-                    )
-                )
+                .setInputData(workDataOf(KEY_PROVIDER_ID to providerId))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -277,8 +517,45 @@ class ProviderSyncWorker(
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
-                UNIQUE_PROVIDER_WORK_PREFIX + providerId,
-                ExistingWorkPolicy.REPLACE,
+                providerWorkUniqueName(providerId),
+                providerWorkExistingPolicy(supersede = false),
+                request
+            )
+        }
+
+        fun enqueueProviderConfigRevision(
+            context: Context,
+            providerId: Long,
+            revision: Long,
+            immediate: Boolean = true
+        ) {
+            val request = OneTimeWorkRequestBuilder<ProviderSyncWorker>()
+                .setInputData(
+                    workDataOf(
+                        KEY_PROVIDER_ID to providerId,
+                        KEY_PROVIDER_CONFIG_REVISION to revision
+                    )
+                )
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .setRequiresBatteryNotLow(true)
+                        .build()
+                )
+                .setInitialDelay(
+                    if (immediate) 0 else CONFIG_REVISION_RECOVERY_GRACE_MILLIS,
+                    TimeUnit.MILLISECONDS
+                )
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    WorkRequest.MIN_BACKOFF_MILLIS,
+                    TimeUnit.MILLISECONDS
+                )
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                providerWorkUniqueName(providerId),
+                providerWorkExistingPolicy(supersede = true),
                 request
             )
         }
@@ -346,10 +623,12 @@ class ProviderSyncWorker(
         section: ContentType,
         now: Long
     ): Boolean {
-        val job = entryPoint.xtreamIndexJobDao().get(providerId, section.name) ?: return true
-        if (job.state in setOf("QUEUED", "PARTIAL", "STALE", "FAILED_RETRYABLE")) return true
-        if (job.state == "RUNNING" && (now - job.updatedAt) < STALE_RUNNING_JOB_MILLIS) return false
-        return ContentCachePolicy.shouldRefresh(job.lastSuccessAt, ContentCachePolicy.CATALOG_TTL_MILLIS, now)
+        return shouldRunPersistedIndexJob(
+            job = entryPoint.xtreamIndexJobDao().get(providerId, section.name),
+            now = now,
+            staleRunningAfterMillis = STALE_RUNNING_JOB_MILLIS,
+            successTtlMillis = ContentCachePolicy.CATALOG_TTL_MILLIS
+        )
     }
 
     private suspend fun syncStalkerProviderIfStale(
@@ -369,9 +648,8 @@ class ProviderSyncWorker(
                 ContentCachePolicy.EPG_TTL_MILLIS,
                 now
             )
-        val maintainCompleteIndex = provider.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX
-        val movieIndexDue = maintainCompleteIndex && shouldRunIndexJob(entryPoint, provider.id, ContentType.MOVIE, now)
-        val seriesIndexDue = maintainCompleteIndex && shouldRunIndexJob(entryPoint, provider.id, ContentType.SERIES, now)
+        val movieIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.MOVIE, now)
+        val seriesIndexDue = shouldRunIndexJob(entryPoint, provider.id, ContentType.SERIES, now)
 
         if (!provider.isActive) {
             return com.streamvault.domain.model.Result.success(Unit)
@@ -411,7 +689,3 @@ class ProviderSyncWorker(
         )
     }
 }
-
-private fun Throwable?.hasTransportConsentChallenge(): Boolean =
-    generateSequence(this) { it.cause }
-        .any { it is StalkerApiError.TransportConsentRequired }

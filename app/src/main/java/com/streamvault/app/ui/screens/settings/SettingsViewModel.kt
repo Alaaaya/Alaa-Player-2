@@ -1255,8 +1255,29 @@ class SettingsViewModel @Inject constructor(
         epgActions.loadEpgAssignments(viewModelScope, providerId)
     }
 
-    fun addEpgSource(name: String, url: String, onSuccess: () -> Unit = {}, onError: () -> Unit = {}) {
-        epgActions.addEpgSource(viewModelScope, name, url, onSuccess, onError)
+    fun addEpgSource(
+        name: String,
+        url: String,
+        timezoneId: String? = null,
+        onSuccess: () -> Unit = {},
+        onError: () -> Unit = {}
+    ) {
+        epgActions.addEpgSource(viewModelScope, name, url, timezoneId, onSuccess, onError)
+    }
+
+    fun updateEpgSourceTimezone(
+        source: com.streamvault.domain.model.EpgSource,
+        timezoneId: String?,
+        onSuccess: () -> Unit = {},
+        onError: () -> Unit = {}
+    ) {
+        epgActions.updateEpgSourceTimezone(
+            viewModelScope,
+            source,
+            timezoneId,
+            onSuccess,
+            onError
+        )
     }
 
     fun setPendingDeleteEpgSource(id: Long?) {

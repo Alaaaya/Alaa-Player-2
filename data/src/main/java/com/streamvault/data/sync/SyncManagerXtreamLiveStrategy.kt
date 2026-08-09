@@ -43,7 +43,7 @@ internal class SyncManagerXtreamLiveStrategy(
     private val liveCategorySequentialModeWarning: String,
     private val isCurrentlyLowOnMemory: () -> Boolean = { false },
     private val stageChannelItems: suspend (Long, List<Channel>, MutableSet<Long>, FallbackCategoryCollector, Long?) -> StagedCatalogSnapshot,
-    private val syncProgressBus: SyncProgressBus
+    private val emitProgress: (Long, SyncProgress) -> Unit
 ) {
     suspend fun syncXtreamLiveCatalog(
         provider: Provider,
@@ -247,7 +247,7 @@ internal class SyncManagerXtreamLiveStrategy(
                 // deja acceptes). Le `reset()` du finally cote SyncManager (T3) viendra
                 // ensuite ramener le flow a null — c'est volontaire (D7) pour eviter que
                 // l'ecran suivant n'herite d'un etat partiel.
-                syncProgressBus.emit(
+                emitProgress(provider.id,
                     SyncProgress(
                         section = Section.LIVE,
                         current = 0,
@@ -286,7 +286,7 @@ internal class SyncManagerXtreamLiveStrategy(
             // on emet en indetermine (`total = 0`) une fois par flush de batch (cadence
             // <= 1/s en pratique, jamais par item). Le label reste vide car aucune
             // categorie ne correspond a la fenetre courante.
-            syncProgressBus.emit(
+            emitProgress(provider.id,
                 SyncProgress(
                     section = Section.LIVE,
                     current = 0,
@@ -464,7 +464,7 @@ internal class SyncManagerXtreamLiveStrategy(
                 // `stagedAcceptedCount` est mis a jour de maniere thread-safe sous le
                 // `stageMutex` (cf `stageMappedBatch`), la lecture ici est best-effort
                 // (snapshot UX, pas une metrique business).
-                syncProgressBus.emit(
+                emitProgress(provider.id,
                     SyncProgress(
                         section = Section.LIVE,
                         current = completed,

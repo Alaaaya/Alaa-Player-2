@@ -1521,6 +1521,47 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
+    @Test
+    fun migrate62To72_combinesStalkerAndInnerBugFixMigrations() {
+        migrationTestHelper.createDatabase("streamvault-62-72-combined-test", 62).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-62-72-combined-test",
+            72,
+            true,
+            StreamVaultDatabase.MIGRATION_62_63,
+            StreamVaultDatabase.MIGRATION_63_64,
+            StreamVaultDatabase.MIGRATION_64_65,
+            StreamVaultDatabase.MIGRATION_65_66,
+            StreamVaultDatabase.MIGRATION_66_67,
+            StreamVaultDatabase.MIGRATION_67_68,
+            StreamVaultDatabase.MIGRATION_68_69,
+            StreamVaultDatabase.MIGRATION_69_70,
+            StreamVaultDatabase.MIGRATION_70_71,
+            StreamVaultDatabase.MIGRATION_71_72
+        )
+
+        listOf(
+            "stalker_index_jobs",
+            "stalker_portal_state",
+            "stalker_remote_identities",
+            "provider_deletion_cleanup",
+            "plugin_provider_ownership",
+            "stalker_discovery_staging",
+            "vod_category_hydration",
+            "vod_catalog_entries",
+            "provider_config_revisions",
+            "backup_restore_checkpoints",
+            "provider_workflows",
+            "provider_workflow_phases"
+        ).forEach { table ->
+            assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$table'"))
+        }
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('recording_runs') WHERE name = 'exact_alarm_armed'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'xmltv_timezone_policy'"))
+        migratedDb.close()
+    }
+
     private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0

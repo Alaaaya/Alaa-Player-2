@@ -3,6 +3,7 @@ package com.streamvault.data.manager.reminder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.app.AlarmManager
 import com.streamvault.data.manager.ProgramReminderManagerImpl
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -24,7 +25,8 @@ class ProgramReminderRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> {
                 val pendingResult = goAsync()
                 val appContext = context.applicationContext
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

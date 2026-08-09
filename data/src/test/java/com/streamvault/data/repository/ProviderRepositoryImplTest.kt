@@ -1,5 +1,7 @@
 package com.streamvault.data.repository
 
+import android.content.Context
+import com.google.gson.Gson
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
@@ -9,11 +11,14 @@ import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProgramReminderDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderConfigRevisionDao
+import com.streamvault.data.local.dao.ProviderDeletionCleanupDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.StalkerIndexJobDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.StalkerIndexJobEntity
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
@@ -31,6 +36,10 @@ import com.streamvault.data.remote.dto.XtreamServerInfo
 import com.streamvault.data.remote.dto.XtreamUserInfo
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderWorkflowDisposition
+import com.streamvault.data.sync.ProviderWorkflowOutcome
+import com.streamvault.data.sync.ProviderWorkflowRunner
+import com.streamvault.data.sync.ProviderWorkflowCommitFence
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
 import com.streamvault.domain.model.Result
@@ -83,6 +92,12 @@ class ProviderRepositoryImplTest {
     private val stalkerIndexJobDao: StalkerIndexJobDao = mock()
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao = mock()
+    private val providerDeletionCleanupDao: ProviderDeletionCleanupDao = mock()
+    private val providerDeletionCleanupEnqueuer: ProviderDeletionCleanupEnqueuer = mock()
+    private val providerConfigRevisionDao: ProviderConfigRevisionDao = mock()
+    private val providerWorkflowRunner: ProviderWorkflowRunner = mock()
+    private val gson = Gson()
+    private val appContext: Context = mock()
     private val transactionRunner = object : DatabaseTransactionRunner {
         override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
     }
@@ -112,7 +127,14 @@ class ProviderRepositoryImplTest {
         stalkerIndexJobDao = stalkerIndexJobDao,
         stalkerPortalStateStore = mock(),
         movieCategoryHydrationDao = movieCategoryHydrationDao,
-        seriesCategoryHydrationDao = seriesCategoryHydrationDao
+        seriesCategoryHydrationDao = seriesCategoryHydrationDao,
+        providerDeletionCleanupDao = providerDeletionCleanupDao,
+        providerDeletionCleanupEnqueuer = providerDeletionCleanupEnqueuer,
+        providerConfigRevisionDao = providerConfigRevisionDao,
+        gson = gson,
+        providerWorkflowRunner = providerWorkflowRunner,
+        providerWorkflowCommitFence = ProviderWorkflowCommitFence(),
+        appContext = appContext
     )
 
     private val repository = createRepository()
@@ -120,11 +142,34 @@ class ProviderRepositoryImplTest {
     init {
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         runBlocking {
+            whenever(providerConfigRevisionDao.latestRevision(any())).thenReturn(0L)
+            whenever(providerConfigRevisionDao.claimForSync(any(), any(), any())).thenReturn(1)
+            whenever(providerConfigRevisionDao.getState(any(), any()))
+                .thenReturn(ProviderConfigRevisionState.COMMITTED)
+            whenever(
+                providerWorkflowRunner.execute(any(), any(), any(), any(), any(), any(), any())
+            ).thenAnswer { invocation ->
+                val block = invocation.getArgument<suspend () -> ProviderWorkflowOutcome>(6)
+                when (val outcome = runBlocking { block() }) {
+                    is ProviderWorkflowOutcome.Success -> ProviderWorkflowDisposition.SUCCEEDED
+                    is ProviderWorkflowOutcome.Failure -> if (outcome.retryable) {
+                        ProviderWorkflowDisposition.RETRY
+                    } else {
+                        ProviderWorkflowDisposition.FAILED
+                    }
+                }
+            }
+            whenever(
+                syncManager.syncWithProviderOverride(
+                    any(), any(), anyOrNull(), anyOrNull(), anyOrNull(), any(), anyOrNull(), anyOrNull()
+                )
+            ).thenReturn(Result.success(Unit))
             whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
             whenever(programDao.countByProvider(any())).thenReturn(0)
             whenever(channelDao.countByProvider(any())).thenReturn(0)
             whenever(movieDao.countByProvider(any())).thenReturn(0)
             whenever(seriesDao.countByProvider(any())).thenReturn(0)
+            whenever(providerDeletionCleanupDao.countByProvider(any())).thenReturn(1)
         }
     }
 

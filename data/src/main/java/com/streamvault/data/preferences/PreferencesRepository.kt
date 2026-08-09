@@ -7,13 +7,16 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.dao.SearchHistoryDao
 import com.streamvault.domain.model.GroupedChannelLabelMode
@@ -58,9 +61,64 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.util.concurrent.atomic.AtomicLong
+
+private const val PREFERENCES_DATASTORE_NAME = "user_preferences"
 
 @Singleton
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
+class PreferencesCorruptionRecovery @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
+    private companion object {
+        const val MAX_SNAPSHOT_BYTES = 4L * 1024L * 1024L
+        const val MAX_SNAPSHOTS = 3
+    }
+
+    private val lastRecoveryAt = AtomicLong(0L)
+
+    fun recover(
+        cause: Throwable,
+        dataStoreName: String = PREFERENCES_DATASTORE_NAME
+    ): Preferences {
+        val recoveredAt = System.currentTimeMillis()
+        lastRecoveryAt.set(recoveredAt)
+        val directory = File(context.filesDir, "preference-recovery").apply { mkdirs() }
+        runCatching {
+            val source = context.preferencesDataStoreFile(dataStoreName)
+            if (!source.isFile) return@runCatching
+            val snapshot = File(directory, "$dataStoreName.corrupt-$recoveredAt")
+            source.inputStream().use { input ->
+                snapshot.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var remaining = MAX_SNAPSHOT_BYTES
+                    while (remaining > 0L) {
+                        val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        remaining -= read
+                    }
+                }
+            }
+            directory.listFiles { _, name ->
+                name.startsWith("$dataStoreName.corrupt-")
+            }?.sortedByDescending(File::lastModified)
+                ?.drop(MAX_SNAPSHOTS)
+                ?.forEach(File::delete)
+        }
+        runCatching {
+            File(directory, "$dataStoreName.recovery").writeText(
+                "timestamp=$recoveredAt\n" +
+                    "type=${cause::class.java.name}\n" +
+                    "message=${cause.message.orEmpty().take(512)}\n"
+            )
+        }
+        Log.e("PreferencesRecovery", "Preferences DataStore was corrupt; defaults restored", cause)
+        return emptyPreferences()
+    }
+
+    fun lastRecoveryTimestamp(): Long = lastRecoveryAt.get()
+}
 
 private fun sanitizePlaybackTimerMinutes(minutes: Int): Int = when (minutes) {
     0, 15, 30, 45, 60, 90, 120 -> minutes
@@ -90,8 +148,20 @@ internal fun parseTimeshiftBackendPreference(saved: String?): TimeshiftBackendPr
 class PreferencesRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val channelPreferenceDao: ChannelPreferenceDao,
-    private val searchHistoryDao: SearchHistoryDao
+    private val searchHistoryDao: SearchHistoryDao,
+    private val corruptionRecovery: PreferencesCorruptionRecovery
 ) : ParentalControlSessionStore, ParentalPinVerifier {
+    private val preferencesDataStore: DataStore<Preferences> by lazy {
+        PreferenceDataStoreFactory.create(
+            corruptionHandler = ReplaceFileCorruptionHandler { cause ->
+                corruptionRecovery.recover(cause)
+            },
+            produceFile = { context.preferencesDataStoreFile(PREFERENCES_DATASTORE_NAME) }
+        )
+    }
+
+    private val Context.dataStore: DataStore<Preferences>
+        get() = preferencesDataStore
     companion object {
         private const val AUDIO_VIDEO_OFFSET_MIN_MS = -2_000
         private const val AUDIO_VIDEO_OFFSET_MAX_MS = 2_000
@@ -211,6 +281,9 @@ class PreferencesRepository @Inject constructor(
         val DOWNLOAD_TREE_URI = stringPreferencesKey("download_tree_uri")
         val MAX_CONCURRENT_STREAMS = intPreferencesKey("max_concurrent_streams")
         val LAST_APP_UPDATE_CHECK_TIMESTAMP = longPreferencesKey("last_app_update_check_timestamp")
+        val LAST_APP_UPDATE_ATTEMPT_TIMESTAMP = longPreferencesKey("last_app_update_attempt_timestamp")
+        val LAST_APP_UPDATE_FAILURE_TIMESTAMP = longPreferencesKey("last_app_update_failure_timestamp")
+        val LAST_APP_UPDATE_OUTCOME = stringPreferencesKey("last_app_update_outcome")
         val APP_UPDATE_DOWNLOAD_ID = longPreferencesKey("app_update_download_id")
         val APP_UPDATE_DOWNLOAD_VERSION_NAME = stringPreferencesKey("app_update_download_version_name")
         val APP_UPDATE_DOWNLOADED_VERSION_NAME = stringPreferencesKey("app_update_downloaded_version_name")
@@ -617,6 +690,18 @@ class PreferencesRepository @Inject constructor(
         preferences[PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP]?.takeIf { it > 0L }
     }
 
+    val lastAppUpdateAttemptTimestamp: Flow<Long?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.LAST_APP_UPDATE_ATTEMPT_TIMESTAMP]?.takeIf { it > 0L }
+    }
+
+    val lastAppUpdateFailureTimestamp: Flow<Long?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP]?.takeIf { it > 0L }
+    }
+
+    val lastAppUpdateOutcome: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.LAST_APP_UPDATE_OUTCOME]?.takeIf { it.isNotBlank() }
+    }
+
     val appUpdateDownloadId: Flow<Long?> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.APP_UPDATE_DOWNLOAD_ID]?.takeIf { it > 0L }
     }
@@ -777,6 +862,36 @@ class PreferencesRepository @Inject constructor(
                 preferences.remove(PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP)
             } else {
                 preferences[PreferencesKeys.LAST_APP_UPDATE_CHECK_TIMESTAMP] = timestampMs
+            }
+        }
+    }
+
+    suspend fun setLastAppUpdateFailureTimestamp(timestampMs: Long?) {
+        context.dataStore.edit { preferences ->
+            if (timestampMs == null || timestampMs <= 0L) {
+                preferences.remove(PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP)
+            } else {
+                preferences[PreferencesKeys.LAST_APP_UPDATE_FAILURE_TIMESTAMP] = timestampMs
+            }
+        }
+    }
+
+    suspend fun setLastAppUpdateAttemptTimestamp(timestampMs: Long?) {
+        context.dataStore.edit { preferences ->
+            if (timestampMs == null || timestampMs <= 0L) {
+                preferences.remove(PreferencesKeys.LAST_APP_UPDATE_ATTEMPT_TIMESTAMP)
+            } else {
+                preferences[PreferencesKeys.LAST_APP_UPDATE_ATTEMPT_TIMESTAMP] = timestampMs
+            }
+        }
+    }
+
+    suspend fun setLastAppUpdateOutcome(outcome: String?) {
+        context.dataStore.edit { preferences ->
+            if (outcome.isNullOrBlank()) {
+                preferences.remove(PreferencesKeys.LAST_APP_UPDATE_OUTCOME)
+            } else {
+                preferences[PreferencesKeys.LAST_APP_UPDATE_OUTCOME] = outcome.take(256)
             }
         }
     }
@@ -1722,6 +1837,12 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
+    suspend fun clearGuideDefaultCategoryId() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(PreferencesKeys.GUIDE_DEFAULT_CATEGORY_ID)
+        }
+    }
+
     val guideFavoritesOnly: Flow<Boolean> = context.dataStore.data.map { preferences ->
         (preferences[PreferencesKeys.GUIDE_FAVORITES_ONLY] ?: 0) == 1
     }
@@ -1749,6 +1870,12 @@ class PreferencesRepository @Inject constructor(
     suspend fun setGuideAnchorTime(anchorTimeMs: Long) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.GUIDE_ANCHOR_TIME] = anchorTimeMs
+        }
+    }
+
+    suspend fun clearGuideAnchorTime() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(PreferencesKeys.GUIDE_ANCHOR_TIME)
         }
     }
 

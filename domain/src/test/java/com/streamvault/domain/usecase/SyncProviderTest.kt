@@ -108,7 +108,10 @@ private class FakeSyncProviderRepository(
 
     override suspend fun updateProvider(provider: Provider): Result<Unit> = error("Not used in test")
 
-    override suspend fun deleteProvider(id: Long, onProgress: ((ProviderDeleteProgress) -> Unit)?): Result<Unit> = error("Not used in test")
+    override suspend fun deleteProvider(
+        id: Long,
+        onProgress: ((ProviderDeleteProgress) -> Unit)?
+    ): Result<com.streamvault.domain.repository.ProviderDeleteOutcome> = error("Not used in test")
 
     override suspend fun getAllProviderCredentials(): List<ProviderCredentials> = emptyList()
 

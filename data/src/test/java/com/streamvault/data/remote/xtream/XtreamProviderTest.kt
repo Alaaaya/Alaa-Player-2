@@ -18,8 +18,13 @@ import com.streamvault.data.remote.dto.XtreamUserInfo
 import com.streamvault.data.remote.dto.XtreamVodInfo
 import com.streamvault.data.remote.dto.XtreamVodInfoResponse
 import com.streamvault.data.remote.dto.XtreamVodMovieData
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -449,6 +454,155 @@ class XtreamProviderTest {
     }
 
     @Test
+    fun `getVodStreams retries adult category prefetch after a transient failure`() = runBlocking {
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    if (categoryRequests++ == 0) {
+                        throw XtreamNetworkException("category prefetch failed")
+                    }
+                    listOf(XtreamCategory(categoryId = "28", categoryName = "Adults", isAdult = true))
+                },
+                vodStreams = listOf(
+                    XtreamStream(
+                        name = "Movie",
+                        streamId = 321,
+                        categoryId = "28",
+                        categoryName = "Movies",
+                        containerExtension = "mp4"
+                    )
+                )
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isFalse()
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isTrue()
+        assertThat(categoryRequests).isEqualTo(2)
+    }
+
+    @Test
+    fun `getVodStreams caches a successful empty adult category response`() = runBlocking {
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    categoryRequests++
+                    emptyList()
+                },
+                vodStreams = listOf(vodStream(categoryId = "28"))
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        provider.getVodStreams()
+        provider.getVodStreams()
+
+        assertThat(categoryRequests).isEqualTo(1)
+    }
+
+    @Test
+    fun `cancelled adult category prefetch is not cached`() = runTest {
+        val firstRequestStarted = CompletableDeferred<Unit>()
+        val keepFirstRequestOpen = CompletableDeferred<Unit>()
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    if (categoryRequests++ == 0) {
+                        firstRequestStarted.complete(Unit)
+                        keepFirstRequestOpen.await()
+                    }
+                    listOf(XtreamCategory(categoryId = "28", categoryName = "Adults", isAdult = true))
+                },
+                vodStreams = listOf(vodStream(categoryId = "28"))
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val firstLoad = async { provider.getVodStreams() }
+        firstRequestStarted.await()
+        firstLoad.cancelAndJoin()
+
+        val recoveredMovie = provider.getVodStreams().getOrNull().orEmpty().single()
+
+        assertThat(recoveredMovie.isAdult).isTrue()
+        assertThat(categoryRequests).isEqualTo(2)
+    }
+
+    @Test
+    fun `concurrent adult category prefetches are single flight`() = runTest {
+        val firstRequestStarted = CompletableDeferred<Unit>()
+        val releaseCategoryResponse = CompletableDeferred<Unit>()
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    categoryRequests++
+                    firstRequestStarted.complete(Unit)
+                    releaseCategoryResponse.await()
+                    listOf(XtreamCategory(categoryId = "28", categoryName = "Adults", isAdult = true))
+                },
+                vodStreams = listOf(vodStream(categoryId = "28"))
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val firstLoad = async { provider.getVodStreams() }
+        firstRequestStarted.await()
+        val secondLoad = async { provider.getVodStreams() }
+        runCurrent()
+
+        assertThat(categoryRequests).isEqualTo(1)
+
+        releaseCategoryResponse.complete(Unit)
+
+        assertThat(firstLoad.await().getOrNull().orEmpty().single().isAdult).isTrue()
+        assertThat(secondLoad.await().getOrNull().orEmpty().single().isAdult).isTrue()
+        assertThat(categoryRequests).isEqualTo(1)
+    }
+
+    @Test
+    fun `successful category refresh replaces cached adult category ids`() = runBlocking {
+        var categoryRequests = 0
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodCategoriesLoader = {
+                    if (categoryRequests++ == 0) {
+                        listOf(XtreamCategory(categoryId = "28", categoryName = "Adults", isAdult = true))
+                    } else {
+                        emptyList()
+                    }
+                },
+                vodStreams = listOf(vodStream(categoryId = "28"))
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isTrue()
+        provider.getVodCategories()
+
+        assertThat(provider.getVodStreams().getOrNull().orEmpty().single().isAdult).isFalse()
+        assertThat(categoryRequests).isEqualTo(2)
+    }
+
+    @Test
     fun `getVodStreams honors explicit adult flag from xtream payload`() = runBlocking {
         val provider = XtreamProvider(
             providerId = 42,
@@ -739,11 +893,20 @@ class XtreamProviderTest {
         assertThat(series?.seasons?.first()?.episodes).isEmpty()
     }
 
+    private fun vodStream(categoryId: String): XtreamStream = XtreamStream(
+        name = "Movie",
+        streamId = 321,
+        categoryId = categoryId,
+        categoryName = "Movies",
+        containerExtension = "mp4"
+    )
+
     private class FakeXtreamApiService(
         private val authResponse: XtreamAuthResponse = XtreamAuthResponse(XtreamUserInfo(auth = 1), XtreamServerInfo()),
         private val liveCategories: List<XtreamCategory> = emptyList(),
         private val liveStreams: List<XtreamStream> = emptyList(),
         private val vodCategories: List<XtreamCategory> = emptyList(),
+        private val vodCategoriesLoader: (suspend () -> List<XtreamCategory>)? = null,
         private val vodStreams: List<XtreamStream> = emptyList(),
         private val vodInfo: XtreamVodInfoResponse = XtreamVodInfoResponse(),
         private val seriesCategories: List<XtreamCategory> = emptyList(),
@@ -760,7 +923,8 @@ class XtreamProviderTest {
 
         override suspend fun getLiveStreams(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamStream> = liveStreams
 
-        override suspend fun getVodCategories(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamCategory> = vodCategories
+        override suspend fun getVodCategories(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamCategory> =
+            vodCategoriesLoader?.invoke() ?: vodCategories
 
         override suspend fun getVodStreams(endpoint: String, requestProfile: HttpRequestProfile): List<XtreamStream> = vodStreams
 

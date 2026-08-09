@@ -11,6 +11,7 @@ import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.parser.XmltvParser
 import com.streamvault.data.remote.http.HttpRequestProfile
+import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.data.remote.http.safeRequestIdentitySummary
 import com.streamvault.data.remote.http.toGenericRequestProfile
 import com.streamvault.data.remote.http.withRequestProfile
@@ -20,6 +21,7 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -285,7 +287,7 @@ class EpgRepositoryImpl @Inject constructor(
                         .url(epgUrl)
                         .build()
                         .withRequestProfile(providerRequestProfile)
-                    epgHttpClient.newCall(request).execute().use { response ->
+                    epgHttpClient.newCall(request).useCancellableResponse { response ->
                         if (!response.isSuccessful) {
                             Log.w(
                                 "EpgRepository",
@@ -340,6 +342,7 @@ class EpgRepositoryImpl @Inject constructor(
 
                     Result.success(Unit)
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     programDao.deleteByProvider(stagingProviderId)
                     if (e is IOException && e.message?.contains("too large", ignoreCase = true) == true) {
                         Result.error("EPG response exceeded 200 MB limit", e)
