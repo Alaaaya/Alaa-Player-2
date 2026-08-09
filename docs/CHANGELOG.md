@@ -2,6 +2,28 @@
 
 All notable product changes are recorded in this document.
 
+## [1.0.17]
+
+### Added
+
+- Added generic Stalker/Ministra compatibility discovery across portal endpoints, authentication modes, and device profiles.
+- Added Stalker portal transport controls for custom headers, API/player User-Agents, HTTP proxies, request rules, and TLS handling.
+- Added Stalker catalog readiness tracking, persisted portal capability state, diagnostics, and playback recovery telemetry.
+- Added generic Stalker catalog and playback support across Live TV, VOD, Movies, and Series.
+- Added Stalker VOD browsing with paged loading, on-demand catalog expansion, and complete-category loading as an option.
+
+### Changed
+
+- Improved Stalker bulk live synchronization to tolerate slow large catalogs, detect stalled transfers, retry transient failures, and fall back to category loading when needed.
+- Improved Stalker playback resolution with content capability detection and direct-media fallback for portals that return non-standard playback responses.
+
+### Fixed
+
+- Fixed Stalker VOD loading for very large catalogs by paging within safe limits instead of aborting the catalog.
+- Fixed Stalker poster, backdrop, and channel artwork loading when portals return relative image paths.
+- Fixed Stalker Series loading for portals that expose series through VOD endpoints, with improved category mapping and fallback behavior.
+- Fixed Stalker VOD and Series requests so mixed VOD/Series portal responses are classified correctly.
+
 ## [1.0.16] - 2026-06-19
 
 ### Added
