@@ -255,6 +255,19 @@ internal fun LazyListScope.settingsBrowsingSection(
             onClick = { onShowVodViewModeDialogChange(true) }
         )
         SwitchSettingsRow(
+            label = stringResource(R.string.settings_vod_complete_on_open),
+            value = stringResource(
+                if (uiState.vodCategoryLoadMode == com.streamvault.domain.model.VodCategoryLoadMode.COMPLETE_ON_OPEN) {
+                    R.string.settings_vod_complete_on_open_on
+                } else {
+                    R.string.settings_vod_complete_on_open_off
+                }
+            ),
+            checked = uiState.vodCategoryLoadMode == com.streamvault.domain.model.VodCategoryLoadMode.COMPLETE_ON_OPEN,
+            onCheckedChange = { viewModel.setVodCompleteOnOpen(it) },
+            indent = 24.dp
+        )
+        SwitchSettingsRow(
             label = stringResource(R.string.settings_vod_infinite_scroll),
             value = stringResource(
                 if (uiState.vodInfiniteScroll) R.string.settings_vod_infinite_scroll_on
@@ -262,7 +275,6 @@ internal fun LazyListScope.settingsBrowsingSection(
             ),
             checked = uiState.vodInfiniteScroll,
             onCheckedChange = { viewModel.setVodInfiniteScroll(it) },
-            enabled = uiState.vodViewMode == VodViewMode.MODERN,
             indent = 24.dp
         )
         ClickableSettingsRow(

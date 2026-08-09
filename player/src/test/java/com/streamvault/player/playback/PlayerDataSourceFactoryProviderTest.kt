@@ -1,6 +1,9 @@
 package com.streamvault.player.playback
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.domain.model.PlaybackTransportMode
+import com.streamvault.domain.model.PlaybackTransportPolicy
+import com.streamvault.domain.model.StalkerTransportOrigin
 import org.junit.Test
 
 class PlayerDataSourceFactoryProviderTest {
@@ -81,5 +84,39 @@ class PlayerDataSourceFactoryProviderTest {
         assertThat(shouldWrapDataSourceReadStats(ResolvedStreamType.MPEG_TS_LIVE)).isTrue()
         assertThat(shouldWrapDataSourceReadStats(ResolvedStreamType.PROGRESSIVE)).isFalse()
         assertThat(shouldWrapDataSourceReadStats(ResolvedStreamType.DASH)).isFalse()
+    }
+
+    @Test
+    fun `accepted HTTP transport permits provider cross-origin HTTP redirect`() {
+        val policy = PlaybackTransportPolicy(
+            mode = PlaybackTransportMode.USER_ACCEPTED_HTTP,
+            origin = StalkerTransportOrigin("http", "portal.example.com", 80),
+            allowCrossOriginHttpRedirects = true
+        )
+
+        assertThat(
+            allowsPlaybackCrossOriginHttpRedirect(
+                source = policy.origin,
+                target = StalkerTransportOrigin("http", "198.51.100.7", 80),
+                policy = policy
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `cross-origin redirect permission does not weaken HTTPS transport`() {
+        val policy = PlaybackTransportPolicy(
+            mode = PlaybackTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS,
+            origin = StalkerTransportOrigin("https", "portal.example.com", 443),
+            spkiSha256 = "sha256/test"
+        )
+
+        assertThat(
+            allowsPlaybackCrossOriginHttpRedirect(
+                source = policy.origin,
+                target = StalkerTransportOrigin("http", "198.51.100.7", 80),
+                policy = policy
+            )
+        ).isFalse()
     }
 }

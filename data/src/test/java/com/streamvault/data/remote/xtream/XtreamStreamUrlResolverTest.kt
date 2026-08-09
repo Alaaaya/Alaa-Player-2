@@ -703,6 +703,12 @@ class XtreamStreamUrlResolverTest {
         override suspend fun activate(id: Long) = Unit
         override suspend fun updateSyncTime(id: Long, timestamp: Long) = Unit
         override suspend fun updateEpgUrl(id: Long, epgUrl: String) = Unit
+        override suspend fun invalidateCatalogLayoutDetection(id: Long) = Unit
+        override suspend fun updateCatalogLayout(
+            id: Long,
+            layout: com.streamvault.domain.model.CatalogLayout,
+            version: Int
+        ) = Unit
     }
 
     private class FakeStalkerApiService : StalkerApiService {

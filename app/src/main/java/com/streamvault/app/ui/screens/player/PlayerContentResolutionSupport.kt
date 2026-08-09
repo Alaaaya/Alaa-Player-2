@@ -99,7 +99,8 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 }
             }
 
-            ContentType.MOVIE -> {
+            ContentType.MOVIE,
+            ContentType.VOD -> {
                 movieRepository.getMovie(internalContentId)?.let { movie ->
                     fallbackStreamId = movie.streamId.takeIf { it > 0L }
                     fallbackContainerExtension = movie.containerExtension

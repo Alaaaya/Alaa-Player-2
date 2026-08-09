@@ -208,7 +208,8 @@ data class StalkerItemRecord(
     val archiveAvailable: Boolean? = null,
     val addedAt: Long = 0L,
     val isAdult: Boolean = false,
-    val isSeries: Boolean = false
+    val isSeries: Boolean = false,
+    val hasSeriesMarker: Boolean = false
 )
 
 data class StalkerPagedItems(
@@ -226,13 +227,24 @@ data class StalkerPagedItems(
 
 data class StalkerSeriesDetails(
     val series: StalkerItemRecord,
-    val seasons: List<StalkerSeasonRecord>
+    val seasons: List<StalkerSeasonRecord>,
+    val paginationEvidence: List<StalkerEpisodePaginationEvidence> = emptyList()
+)
+
+data class StalkerEpisodePaginationEvidence(
+    val seasonSelector: String,
+    val attemptedPages: Int,
+    val successfulPages: Int,
+    val advertisedTotalPages: Int?,
+    val repeatedPageDetected: Boolean = false,
+    val malformedPagination: Boolean = false
 )
 
 data class StalkerSeasonRecord(
     val seasonNumber: Int,
     val name: String,
     val coverUrl: String? = null,
+    val cmd: String? = null,
     val episodes: List<StalkerEpisodeRecord>
 )
 
@@ -242,6 +254,7 @@ data class StalkerEpisodeRecord(
     val episodeNumber: Int,
     val seasonNumber: Int,
     val cmd: String? = null,
+    val playbackSelector: Int? = null,
     val coverUrl: String? = null,
     val plot: String? = null,
     val durationSeconds: Int = 0,
@@ -322,6 +335,12 @@ interface StalkerApiService {
         profile: StalkerDeviceProfile,
         seriesId: String
     ): Result<StalkerSeriesDetails>
+
+    suspend fun getVodSeriesDetails(
+        session: StalkerSession,
+        profile: StalkerDeviceProfile,
+        seriesId: String
+    ): Result<StalkerSeriesDetails> = getSeriesDetails(session, profile, seriesId)
 
     suspend fun getShortEpg(
         session: StalkerSession,

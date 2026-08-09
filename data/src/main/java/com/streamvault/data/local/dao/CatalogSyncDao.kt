@@ -114,6 +114,14 @@ interface CatalogSyncDao {
                   AND stage.type = :type
                   AND stage.category_id = categories.category_id
             ),
+            provider_order = (
+                SELECT stage.provider_order
+                FROM category_import_stage AS stage
+                WHERE stage.session_id = :sessionId
+                  AND stage.provider_id = :providerId
+                  AND stage.type = :type
+                  AND stage.category_id = categories.category_id
+            ),
             is_adult = (
                 SELECT stage.is_adult
                 FROM category_import_stage AS stage
@@ -153,6 +161,7 @@ interface CatalogSyncDao {
             parent_id,
             type,
             provider_id,
+            provider_order,
             is_adult,
             is_user_protected,
             sync_fingerprint
@@ -163,6 +172,7 @@ interface CatalogSyncDao {
             stage.parent_id,
             stage.type,
             stage.provider_id,
+            stage.provider_order,
             stage.is_adult,
             0,
             stage.sync_fingerprint

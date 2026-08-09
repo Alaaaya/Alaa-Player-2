@@ -14,6 +14,7 @@ import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.ExternalPlaybackMode
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.model.GroupedChannelLabelMode
 import com.streamvault.domain.model.LiveChannelGroupingMode
 import com.streamvault.domain.model.LiveVariantPreferenceMode
@@ -103,6 +104,7 @@ internal fun observeSettingsPreferenceSnapshot(
             groupedChannelLabelMode = GroupedChannelLabelMode.HYBRID,
             liveVariantPreferenceMode = LiveVariantPreferenceMode.BALANCED,
             vodViewMode = VodViewMode.MODERN,
+            vodCategoryLoadMode = VodCategoryLoadMode.PAGED,
             vodInfiniteScroll = true,
             vodDuplicateHandlingMode = VodDuplicateHandlingMode.SHOW_ALL,
             vodVariantPreferenceMode = VodVariantPreferenceMode.BALANCED,
@@ -242,6 +244,8 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(liveVariantPreferenceMode = liveVariantPreferenceMode)
     }.combine(preferencesRepository.vodViewMode) { snapshot, vodViewMode ->
         snapshot.copy(vodViewMode = VodViewMode.fromStorage(vodViewMode))
+    }.combine(preferencesRepository.vodCategoryLoadMode) { snapshot, vodCategoryLoadMode ->
+        snapshot.copy(vodCategoryLoadMode = vodCategoryLoadMode)
     }.combine(preferencesRepository.vodInfiniteScroll) { snapshot, vodInfiniteScroll ->
         snapshot.copy(vodInfiniteScroll = vodInfiniteScroll)
     }.combine(preferencesRepository.vodDuplicateHandlingMode) { snapshot, vodDuplicateHandlingMode ->

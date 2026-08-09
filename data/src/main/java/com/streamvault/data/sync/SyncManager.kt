@@ -15,6 +15,8 @@ import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.StalkerIndexJobDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
+import com.streamvault.data.local.dao.VodCategoryHydrationDao
+import com.streamvault.data.local.dao.VodCatalogEntryDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
@@ -24,6 +26,8 @@ import com.streamvault.data.local.entity.ChannelGuideSyncEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.local.entity.StalkerIndexJobEntity
+import com.streamvault.data.local.entity.VodCatalogEntryEntity
+import com.streamvault.data.local.entity.VodCategoryHydrationEntity
 import com.streamvault.data.local.entity.XtreamContentIndexEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.local.entity.XtreamLiveOnboardingStateEntity
@@ -36,6 +40,7 @@ import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerApiError
 import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerVodCatalogItem
 import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
 import com.streamvault.data.remote.stalker.StalkerRequestCoordinator
 import com.streamvault.data.remote.stalker.StalkerRequestDescriptor
@@ -61,6 +66,7 @@ import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.Channel
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Movie
@@ -69,6 +75,7 @@ import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.VodCatalogItem
 import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.StalkerIndexState
 import com.streamvault.domain.model.StalkerRequestPriority
@@ -97,7 +104,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -127,13 +133,10 @@ private const val STALKER_CATEGORY_RETRY_COOLDOWN_MILLIS = 5 * 60 * 1000L
 private const val STALKER_RUNNING_JOB_STALE_MILLIS = 15 * 60 * 1000L
 private const val STALKER_MIN_HEALTHY_EPG_PROGRAMS = 3
 // Bulk live is an optimization. Large portals stream tens of MB over a single
-// response and can spend 8s+ generating it before the first byte, so a fixed
-// wall-clock cap kills healthy transfers on slow links. Instead cancel only
-// when the stream stalls (no items for the stall window) and keep a generous
-// overall cap so a response that never completes cannot block the
-// per-category recovery path forever.
+// response and can spend 8s+ generating it before the first byte. Cancel only
+// when the stream stalls (no items for the stall window); an absolute wall-clock
+// cap would kill healthy transfers that continue making progress.
 private const val STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS = 30_000L
-private const val STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS = 5 * 60 * 1000L
 private const val STALKER_BULK_LIVE_STALL_CHECK_INTERVAL_MILLIS = 1_000L
 // A negative bulk-live verdict expires far sooner than the 7-day validated
 // portal state: re-probing costs one fast request, while a stale false verdict
@@ -163,6 +166,8 @@ private const val XTREAM_ONBOARDING_PHASE_FAILED = "FAILED"
  * 6h period; 5 000 leaves ample headroom while still catching multi-megabyte payloads.
  */
 private const val STALKER_PER_CHANNEL_RECORD_SANITY_CAP = 5_000
+private const val STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN = 48
+private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
 /**
  * Sentinel exception raised inside the streamed per-channel EPG callback when we detect
@@ -209,6 +214,8 @@ class SyncManager @Inject constructor(
     private val categoryDao: CategoryDao,
     private val movieCategoryHydrationDao: MovieCategoryHydrationDao,
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
+    private val vodCategoryHydrationDao: VodCategoryHydrationDao,
+    private val vodCatalogEntryDao: VodCatalogEntryDao,
     private val catalogSyncDao: CatalogSyncDao,
     private val tmdbIdentityDao: TmdbIdentityDao,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
@@ -267,8 +274,347 @@ class SyncManager @Inject constructor(
     private val providerSyncMutexes = ConcurrentHashMap<Long, Mutex>()
     private val providerStalkerSummaryMutexes = ConcurrentHashMap<Long, Mutex>()
     private val providerStalkerIndexSectionMutexes = ConcurrentHashMap<String, Mutex>()
+    private val providerVodCategoryMutexes = ConcurrentHashMap<String, Mutex>()
     private val providerEpgMutexes = ConcurrentHashMap<Long, Mutex>()
     private val syncAdmissionMutex = Mutex()
+
+    suspend fun hydrateUnifiedVodCategory(
+        providerId: Long,
+        categoryId: Long,
+        request: com.streamvault.domain.model.VodCategoryHydrationRequest
+    ): Result<Unit> {
+        val requestedPage = if (request == com.streamvault.domain.model.VodCategoryHydrationRequest.NEXT_PAGE) {
+            ((vodCategoryHydrationDao.get(providerId, categoryId)?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+        } else {
+            null
+        }
+        val lock = providerVodCategoryMutexes.computeIfAbsent("$providerId:$categoryId") { Mutex() }
+        return lock.withLock {
+            val providerEntity = providerDao.getById(providerId)
+                ?: return@withLock Result.error("Provider not found")
+            if (providerEntity.type != ProviderType.STALKER_PORTAL) {
+                return@withLock Result.success(Unit)
+            }
+            val current = vodCategoryHydrationDao.get(providerId, categoryId)
+            if (current?.isComplete == true ||
+                (requestedPage != null && current != null && current.lastSuccessfulPage >= requestedPage) ||
+                (request == com.streamvault.domain.model.VodCategoryHydrationRequest.OPEN &&
+                    (current?.lastSuccessfulPage ?: 0) > 0)
+            ) {
+                return@withLock Result.success(Unit)
+            }
+
+            val api = createStalkerSyncProvider(providerEntity.toDomain())
+            var hydration = current
+            var nextPage = ((current?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+            while (true) {
+                val attemptAt = System.currentTimeMillis()
+                vodCategoryHydrationDao.upsert(
+                    (hydration ?: VodCategoryHydrationEntity(providerId, categoryId)).copy(
+                        lastAttemptedPage = nextPage,
+                        lastStatus = "RUNNING",
+                        lastError = null
+                    )
+                )
+                when (val pageResult = api.getUnifiedVodPage(categoryId, nextPage)) {
+                    is Result.Success -> {
+                        val page = pageResult.data
+                        val category = categoryDao.getByProviderAndTypeSync(providerId, ContentType.VOD.name)
+                            .firstOrNull { it.categoryId == categoryId }
+                        val protected = category?.isUserProtected == true
+                        val movies = page.items.mapNotNull { entry ->
+                            (entry.item as? VodCatalogItem.MovieItem)?.movie
+                                ?.copy(isUserProtected = protected)
+                                ?.toEntity()
+                        }
+                        val series = page.items.mapNotNull { entry ->
+                            (entry.item as? VodCatalogItem.SeriesItem)?.series
+                                ?.copy(isUserProtected = protected)
+                                ?.toEntity()
+                        }
+                        val entries = page.items.mapIndexed { rawIndex, entry ->
+                            when (val item = entry.item) {
+                                is VodCatalogItem.MovieItem -> VodCatalogEntryEntity(
+                                    providerId = providerId,
+                                    categoryId = categoryId,
+                                    rawItemId = entry.rawItemId,
+                                    itemType = ContentType.MOVIE,
+                                    targetId = item.movie.streamId,
+                                    rawPage = page.page,
+                                    rawIndex = rawIndex
+                                )
+                                is VodCatalogItem.SeriesItem -> VodCatalogEntryEntity(
+                                    providerId = providerId,
+                                    categoryId = categoryId,
+                                    rawItemId = entry.rawItemId,
+                                    itemType = ContentType.SERIES,
+                                    targetId = item.series.seriesId,
+                                    rawPage = page.page,
+                                    rawIndex = rawIndex
+                                )
+                            }
+                        }
+                        transactionRunner.inTransaction {
+                            movieDao.upsertCategoryPage(providerId, movies)
+                            seriesDao.upsertCategoryPage(providerId, series)
+                            vodCatalogEntryDao.replacePage(providerId, categoryId, page.page, entries)
+                            val persistedCount = vodCatalogEntryDao.countByCategory(providerId, categoryId)
+                            hydration = VodCategoryHydrationEntity(
+                                providerId = providerId,
+                                categoryId = categoryId,
+                                lastLoadedPage = page.page,
+                                lastAttemptedPage = page.page,
+                                lastSuccessfulPage = page.page,
+                                totalPages = page.totalPages,
+                                pageSize = page.pageSize,
+                                itemCount = persistedCount,
+                                isComplete = page.isComplete,
+                                hasMovies = (hydration?.hasMovies == true) || movies.isNotEmpty(),
+                                hasSeries = (hydration?.hasSeries == true) || series.isNotEmpty(),
+                                lastHydratedAt = attemptAt,
+                                lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
+                                lastError = page.terminationReason,
+                                retryAfterMs = 0L,
+                                failureCount = 0,
+                                retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
+                                lastPageFingerprint = entries.joinToString("|") { it.rawItemId }.takeIf(String::isNotEmpty)
+                            )
+                            vodCategoryHydrationDao.upsert(hydration!!)
+                        }
+                        if (page.isTruncated) return@withLock Result.error(page.terminationReason ?: "VOD response was truncated")
+                        if (page.isComplete) return@withLock Result.success(Unit)
+                        if (request != com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE) {
+                            return@withLock Result.success(Unit)
+                        }
+                        nextPage = page.page + 1
+                    }
+                    is Result.Error -> {
+                        val prior = hydration ?: VodCategoryHydrationEntity(providerId, categoryId)
+                        hydration = prior.copy(
+                            lastAttemptedPage = nextPage,
+                            lastStatus = "FAILED_RETRYABLE",
+                            lastError = pageResult.message,
+                            failureCount = prior.failureCount + 1,
+                            retryBudgetRemaining = (prior.retryBudgetRemaining - 1).coerceAtLeast(0)
+                        )
+                        vodCategoryHydrationDao.upsert(hydration!!)
+                        return@withLock Result.error(pageResult.message, pageResult.exception)
+                    }
+                    Result.Loading -> return@withLock Result.error("VOD hydration did not complete")
+                }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            Result.success(Unit)
+        }
+    }
+
+    suspend fun hydrateSplitVodCategory(
+        providerId: Long,
+        movieCategoryId: Long,
+        request: com.streamvault.domain.model.VodCategoryHydrationRequest,
+        requestedProjection: ContentType = ContentType.MOVIE
+    ): Result<Unit> {
+        val requestedPage = if (request == com.streamvault.domain.model.VodCategoryHydrationRequest.NEXT_PAGE) {
+            ((movieCategoryHydrationDao.get(providerId, movieCategoryId)?.lastSuccessfulPage ?: 0) + 1)
+                .coerceAtLeast(1)
+        } else {
+            null
+        }
+        val lock = providerVodCategoryMutexes.computeIfAbsent("split:$providerId:$movieCategoryId") { Mutex() }
+        return lock.withLock {
+            val providerEntity = providerDao.getById(providerId)
+                ?: return@withLock Result.error("Provider not found")
+            if (providerEntity.type != ProviderType.STALKER_PORTAL || providerEntity.catalogLayout != CatalogLayout.SPLIT) {
+                return@withLock Result.success(Unit)
+            }
+            var hydration = movieCategoryHydrationDao.get(providerId, movieCategoryId)
+            var movieCount = movieDao.getCountByCategory(providerId, movieCategoryId).first()
+            if (hydration?.isComplete == true ||
+                (requestedPage != null && hydration != null && hydration.lastSuccessfulPage >= requestedPage) ||
+                (request == com.streamvault.domain.model.VodCategoryHydrationRequest.OPEN &&
+                    (hydration?.lastSuccessfulPage ?: 0) > 0)
+            ) {
+                return@withLock Result.success(Unit)
+            }
+            val api = createStalkerSyncProvider(providerEntity.toDomain())
+            val movieCategory = categoryDao.getByProviderAndTypeSync(providerId, ContentType.MOVIE.name)
+                .firstOrNull { it.categoryId == movieCategoryId }
+                ?: return@withLock Result.error("Movie category not found")
+            // Populate the provider's category identity cache before translating it to Series.
+            api.getVodCategories()
+            val seriesCategoryId = api.projectVodCategoryToSeries(movieCategoryId)
+                ?: return@withLock Result.error("Unable to resolve VOD-derived Series category")
+            val initialProjectionCount = when (requestedProjection) {
+                ContentType.SERIES -> seriesDao.getCountByCategory(providerId, seriesCategoryId).first()
+                else -> movieCount
+            }
+            var nextPage = ((hydration?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+            while (true) {
+                val attemptAt = System.currentTimeMillis()
+                movieCategoryHydrationDao.upsert(
+                    (hydration ?: com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                        providerId,
+                        movieCategoryId
+                    )).copy(
+                        lastAttemptedPage = nextPage,
+                        lastStatus = "RUNNING",
+                        lastError = null
+                    )
+                )
+                seriesCategoryHydrationDao.get(providerId, seriesCategoryId)?.let { seriesHydration ->
+                    seriesCategoryHydrationDao.upsert(
+                        seriesHydration.copy(
+                            lastAttemptedPage = nextPage,
+                            lastStatus = "RUNNING",
+                            lastError = null
+                        )
+                    )
+                }
+                when (val pageResult = api.getSplitVodPage(movieCategoryId, seriesCategoryId, nextPage)) {
+                    is Result.Success -> {
+                        val page = pageResult.data
+                        val movies = page.items.mapNotNull { (it.item as? VodCatalogItem.MovieItem)?.movie?.toEntity() }
+                        val incomingSeries = page.items.mapNotNull {
+                            (it.item as? VodCatalogItem.SeriesItem)?.series
+                                ?.copy(isUserProtected = movieCategory.isUserProtected)
+                                ?.toEntity()
+                        }
+                        val now = attemptAt
+                        val existingSeriesHydration = seriesCategoryHydrationDao.get(providerId, seriesCategoryId)
+                        transactionRunner.inTransaction {
+                            movieDao.upsertCategoryPage(providerId, movies)
+                            if (incomingSeries.isNotEmpty()) {
+                                categoryDao.insertAll(
+                                    listOf(
+                                        CategoryEntity(
+                                            providerId = providerId,
+                                            categoryId = seriesCategoryId,
+                                            name = movieCategory.name,
+                                            parentId = movieCategory.parentId,
+                                            type = ContentType.SERIES,
+                                            providerOrder = movieCategory.providerOrder,
+                                            isAdult = movieCategory.isAdult,
+                                            isUserProtected = movieCategory.isUserProtected
+                                        )
+                                    )
+                                )
+                            }
+                            // Check inside the same transaction as the write so a concurrent
+                            // native-Series refresh can never be replaced by derived VOD data.
+                            val existingSeries = seriesDao.getBySeriesIds(
+                                providerId,
+                                incomingSeries.map { it.seriesId }
+                            ).associateBy { it.seriesId }
+                            val derivedSeries = incomingSeries.filter { incoming ->
+                                existingSeries[incoming.seriesId]?.catalogOrigin !=
+                                    com.streamvault.domain.model.SeriesCatalogOrigin.NATIVE
+                            }
+                            seriesDao.upsertCategoryPage(providerId, derivedSeries)
+                            movieCount = movieDao.getCountByCategory(providerId, movieCategoryId).first()
+                            val seriesCount = seriesDao.getCountByCategory(providerId, seriesCategoryId).first()
+                            hydration = com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                                providerId = providerId,
+                                categoryId = movieCategoryId,
+                                lastHydratedAt = now,
+                                itemCount = movieCount,
+                                lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
+                                lastError = page.terminationReason,
+                                lastLoadedPage = page.page,
+                                lastAttemptedPage = page.page,
+                                lastSuccessfulPage = page.page,
+                                totalPages = page.totalPages,
+                                isComplete = page.isComplete,
+                                pageSize = page.pageSize,
+                                retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
+                                lastPageFingerprint = page.items.joinToString("|") { it.rawItemId }
+                                    .takeIf(String::isNotEmpty)
+                            )
+                            movieCategoryHydrationDao.upsert(hydration!!)
+                            if (incomingSeries.isNotEmpty() || existingSeriesHydration != null) {
+                                seriesCategoryHydrationDao.upsert(
+                                    com.streamvault.data.local.entity.SeriesCategoryHydrationEntity(
+                                        providerId = providerId,
+                                        categoryId = seriesCategoryId,
+                                        lastHydratedAt = now,
+                                        itemCount = seriesCount,
+                                        lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
+                                        lastError = page.terminationReason,
+                                        lastLoadedPage = page.page,
+                                        lastAttemptedPage = page.page,
+                                        lastSuccessfulPage = page.page,
+                                        totalPages = page.totalPages,
+                                        isComplete = page.isComplete,
+                                        pageSize = page.pageSize,
+                                        retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
+                                        lastPageFingerprint = page.items.joinToString("|") { it.rawItemId }
+                                            .takeIf(String::isNotEmpty)
+                                    )
+                                )
+                            }
+                        }
+                        if (page.isTruncated) return@withLock Result.error(page.terminationReason ?: "VOD response was truncated")
+                        val projectionCount = when (requestedProjection) {
+                            ContentType.SERIES -> seriesDao.getCountByCategory(providerId, seriesCategoryId).first()
+                            else -> movieCount
+                        }
+                        if (page.isComplete ||
+                            (request != com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
+                                projectionCount > initialProjectionCount)
+                        ) {
+                            return@withLock Result.success(Unit)
+                        }
+                        nextPage = page.page + 1
+                    }
+                    is Result.Error -> {
+                        val prior = hydration ?: com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                            providerId,
+                            movieCategoryId
+                        )
+                        movieCategoryHydrationDao.upsert(
+                            prior.copy(
+                                lastAttemptedPage = nextPage,
+                                lastStatus = "FAILED_RETRYABLE",
+                                lastError = pageResult.message,
+                                failureCount = prior.failureCount + 1,
+                                retryBudgetRemaining = (prior.retryBudgetRemaining - 1).coerceAtLeast(0)
+                            )
+                        )
+                        seriesCategoryHydrationDao.get(providerId, seriesCategoryId)?.let { seriesHydration ->
+                            seriesCategoryHydrationDao.upsert(
+                                seriesHydration.copy(
+                                    lastAttemptedPage = nextPage,
+                                    lastStatus = "FAILED_RETRYABLE",
+                                    lastError = pageResult.message,
+                                    failureCount = seriesHydration.failureCount + 1,
+                                    retryBudgetRemaining = (seriesHydration.retryBudgetRemaining - 1).coerceAtLeast(0)
+                                )
+                            )
+                        }
+                        return@withLock Result.error(pageResult.message, pageResult.exception)
+                    }
+                    Result.Loading -> return@withLock Result.error("Split VOD hydration did not complete")
+                }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            Result.success(Unit)
+        }
+    }
+
+    suspend fun hydrateSplitVodSeriesCategory(
+        providerId: Long,
+        seriesCategoryId: Long,
+        request: com.streamvault.domain.model.VodCategoryHydrationRequest
+    ): Result<Unit> {
+        val providerEntity = providerDao.getById(providerId) ?: return Result.error("Provider not found")
+        if (providerEntity.type != ProviderType.STALKER_PORTAL || providerEntity.catalogLayout != CatalogLayout.SPLIT) {
+            return Result.success(Unit)
+        }
+        val api = createStalkerSyncProvider(providerEntity.toDomain())
+        api.getSeriesCategories()
+        val movieCategoryId = api.projectSeriesCategoryToVod(seriesCategoryId)
+            ?: return Result.error("Unable to resolve VOD category for derived Series")
+        return hydrateSplitVodCategory(providerId, movieCategoryId, request, ContentType.SERIES)
+    }
     private val xtreamCatalogHttpService: OkHttpXtreamApiService by lazy {
         OkHttpXtreamApiService(
             client = okHttpClient,
@@ -1498,6 +1844,7 @@ class SyncManager @Inject constructor(
             ContentType.MOVIE -> listOf(ContentType.MOVIE)
             ContentType.SERIES -> listOf(ContentType.SERIES)
             ContentType.LIVE -> listOf(ContentType.LIVE)
+            ContentType.VOD -> emptyList()
             ContentType.SERIES_EPISODE -> emptyList()
             null -> listOf(ContentType.LIVE, ContentType.MOVIE, ContentType.SERIES)
         }
@@ -1515,6 +1862,7 @@ class SyncManager @Inject constructor(
                     ContentType.LIVE -> processXtreamLiveIndexBackfillSection(providerId, onProgress)
                     ContentType.MOVIE,
                     ContentType.SERIES -> processXtreamSummaryIndexSection(provider, api, contentType, maxCategoriesPerSection, onProgress)
+                    ContentType.VOD,
                     ContentType.SERIES_EPISODE -> Unit
                 }
             }.exceptionOrNull()
@@ -1725,9 +2073,15 @@ class SyncManager @Inject constructor(
             )
         }
         if (movie.runnable && series.runnable) {
-            val selected = listOf(movie, series).minWith(
-                compareBy<StalkerCatalogSectionState>({ it.updatedAt }, { it.contentType.ordinal })
-            )
+            // In split mode, finish/prune the native Series projection before VOD-derived
+            // supplementation. That lets a disappeared native row fall back to VOD safely.
+            val selected = if (provider.catalogLayout == CatalogLayout.SPLIT) {
+                series
+            } else {
+                listOf(movie, series).minWith(
+                    compareBy<StalkerCatalogSectionState>({ it.updatedAt }, { it.contentType.ordinal })
+                )
+            }
             return StalkerCatalogDecision(
                 selected.contentType,
                 reason = "oldest pending section is ${selected.contentType.name.lowercase()} (${selected.jobState ?: "no job"})"
@@ -2096,7 +2450,8 @@ class SyncManager @Inject constructor(
                                     api = api,
                                     contentType = contentType,
                                     categoryId = attempt.category.categoryId,
-                                    page = attempt.nextPage
+                                    page = attempt.nextPage,
+                                    splitVod = provider.catalogLayout == CatalogLayout.SPLIT
                                 )
                             }
                         )
@@ -2211,12 +2566,23 @@ class SyncManager @Inject constructor(
             if (successfulPages.isNotEmpty()) {
                 val indexedAt = System.currentTimeMillis()
                 when (contentType) {
-                    ContentType.MOVIE -> upsertXtreamMovieSummaryBatch(
-                        provider.id,
-                        successfulPages.flatMap { page -> page.items.filterIsInstance<Movie>() },
-                        indexedAt,
-                        restoreWatchProgress = false
-                    )
+                    ContentType.MOVIE -> {
+                        val rawItems = successfulPages.flatMap { page -> page.items }
+                        val classified = rawItems.filterIsInstance<StalkerVodCatalogItem>()
+                        val movies = if (classified.isEmpty()) {
+                            rawItems.filterIsInstance<Movie>()
+                        } else {
+                            classified.mapNotNull { (it.item as? VodCatalogItem.MovieItem)?.movie }
+                        }
+                        upsertXtreamMovieSummaryBatch(provider.id, movies, indexedAt, restoreWatchProgress = false)
+                        if (classified.isNotEmpty()) {
+                            upsertVodDerivedSeriesSummaryBatch(
+                                provider.id,
+                                classified.mapNotNull { (it.item as? VodCatalogItem.SeriesItem)?.series },
+                                indexedAt
+                            )
+                        }
+                    }
                     ContentType.SERIES -> upsertXtreamSeriesSummaryBatch(
                         provider.id,
                         successfulPages.flatMap { page -> page.items.filterIsInstance<Series>() },
@@ -2865,16 +3231,25 @@ class SyncManager @Inject constructor(
         api: StalkerProvider,
         contentType: ContentType,
         categoryId: Long,
-        page: Int
+        page: Int,
+        splitVod: Boolean = false
     ): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> {
-        val initial = fetchStalkerSummaryPage(api, contentType, categoryId, page)
+        suspend fun fetch(): Result<com.streamvault.data.remote.stalker.StalkerPagedResult<out Any>> {
+            if (splitVod && contentType == ContentType.MOVIE) {
+                val seriesCategoryId = api.projectVodCategoryToSeries(categoryId)
+                    ?: return Result.error("Unable to resolve VOD-derived Series category")
+                return api.getSplitVodPage(categoryId, seriesCategoryId, page)
+            }
+            return fetchStalkerSummaryPage(api, contentType, categoryId, page)
+        }
+        val initial = fetch()
         val recovered = if (initial is Result.Error && isLikelyStalkerAuthFailure(initial.message, initial.exception)) {
             Log.w(
                 TAG,
                 "Retrying Stalker ${contentType.name} page $page after auth refresh for category $categoryId"
             )
             api.invalidateAuthentication()
-            fetchStalkerSummaryPage(api, contentType, categoryId, page)
+            fetch()
         } else {
             initial
         }
@@ -2978,9 +3353,6 @@ class SyncManager @Inject constructor(
                 return "Portal repeated the same page payload for page $requestedPage."
             }
         }
-        if (pagedResult.items.isEmpty() && pagedResult.totalPages > requestedPage) {
-            return "Portal returned an empty mid-catalog page for page $requestedPage."
-        }
         return null
     }
 
@@ -2989,6 +3361,9 @@ class SyncManager @Inject constructor(
         contentType: ContentType
     ): String? {
         if (items.isEmpty()) return "empty"
+        val classifiedSeeds = items.filterIsInstance<StalkerVodCatalogItem>()
+            .map { entry -> "${entry.rawItemId}:${entry.item.stableId}" }
+        if (classifiedSeeds.isNotEmpty()) return sha1Hex(classifiedSeeds.joinToString("|"))
         val seeds = when (contentType) {
             ContentType.MOVIE -> items.filterIsInstance<Movie>().map { movie ->
                 "${movie.streamId}:${movie.categoryId}:${movie.addedAt}"
@@ -3005,10 +3380,14 @@ class SyncManager @Inject constructor(
     private fun dedupeStalkerPageItems(
         items: List<out Any>,
         contentType: ContentType
-    ): List<out Any> = when (contentType) {
-        ContentType.MOVIE -> items.filterIsInstance<Movie>().distinctBy(Movie::streamId)
-        ContentType.SERIES -> items.filterIsInstance<Series>().distinctBy { it.providerSeriesId ?: it.seriesId.toString() }
-        else -> items
+    ): List<out Any> {
+        val classified = items.filterIsInstance<StalkerVodCatalogItem>()
+        if (classified.isNotEmpty()) return classified.distinctBy(StalkerVodCatalogItem::rawItemId)
+        return when (contentType) {
+            ContentType.MOVIE -> items.filterIsInstance<Movie>().distinctBy(Movie::streamId)
+            ContentType.SERIES -> items.filterIsInstance<Series>().distinctBy { it.providerSeriesId ?: it.seriesId.toString() }
+            else -> items
+        }
     }
 
     private fun filterStalkerItemsToCategories(
@@ -3557,6 +3936,58 @@ class SyncManager @Inject constructor(
         return merged.size
     }
 
+    private suspend fun upsertVodDerivedSeriesSummaryBatch(
+        providerId: Long,
+        series: List<Series>,
+        indexedAt: Long
+    ): Int {
+        if (series.isEmpty()) return 0
+        val incoming = series.map { item ->
+            item.toEntity().copy(
+                catalogOrigin = com.streamvault.domain.model.SeriesCatalogOrigin.VOD_DERIVED,
+                cacheState = "SUMMARY_ONLY",
+                detailHydratedAt = 0L,
+                remoteStaleAt = 0L
+            )
+        }
+        var accepted = emptyList<SeriesEntity>()
+        transactionRunner.inTransaction {
+            val existing = seriesDao.getBySeriesIds(providerId, incoming.map { it.seriesId })
+                .associateBy { it.seriesId }
+            accepted = incoming.mapNotNull { summary ->
+                val current = existing[summary.seriesId]
+                if (current?.catalogOrigin == com.streamvault.domain.model.SeriesCatalogOrigin.NATIVE) {
+                    null
+                } else {
+                    mergeSeriesSummary(current, summary)
+                }
+            }
+            val projectedCategories = accepted.mapNotNull { item ->
+                val categoryId = item.categoryId ?: return@mapNotNull null
+                CategoryEntity(
+                    providerId = providerId,
+                    categoryId = categoryId,
+                    name = item.categoryName ?: "Category $categoryId",
+                    type = ContentType.SERIES,
+                    isAdult = item.isAdult,
+                    isUserProtected = item.isUserProtected
+                )
+            }.distinctBy { it.categoryId }
+            if (projectedCategories.isNotEmpty()) categoryDao.insertAll(projectedCategories)
+            if (accepted.isNotEmpty()) {
+                seriesDao.insertAll(accepted)
+                val persisted = seriesDao.getBySeriesIds(providerId, accepted.map { it.seriesId })
+                    .associateBy { it.seriesId }
+                xtreamContentIndexDao.upsertAll(
+                    accepted.map { item ->
+                        item.toXtreamIndexRow(providerId, persisted[item.seriesId]?.id ?: item.id, indexedAt)
+                    }
+                )
+            }
+        }
+        return accepted.size
+    }
+
     private suspend fun loadMoviesByStreamIds(
         providerId: Long,
         streamIds: List<Long>
@@ -3720,6 +4151,7 @@ class SyncManager @Inject constructor(
         ContentType.MOVIE -> "Movies"
         ContentType.SERIES -> "Series"
         ContentType.LIVE -> "Live TV"
+        ContentType.VOD -> "VOD"
         ContentType.SERIES_EPISODE -> "Episodes"
     }
 
@@ -4004,7 +4436,36 @@ class SyncManager @Inject constructor(
         emitCatalogSyncProgress(section = Section.LIVE)
         progress(provider.id, onProgress, "Connecting to portal...")
         val api = createStalkerSyncProvider(provider)
-        requireResult(api.authenticate(), "Failed to authenticate with portal")
+        val authenticatedProvider = requireResult(api.authenticate(), "Failed to authenticate with portal")
+        val effectiveCatalogLayout = authenticatedProvider.catalogLayout
+            .takeUnless { it == com.streamvault.domain.model.CatalogLayout.UNKNOWN }
+            ?: provider.catalogLayout
+        val catalogLayoutChanged =
+            authenticatedProvider.catalogLayout != com.streamvault.domain.model.CatalogLayout.UNKNOWN &&
+                authenticatedProvider.catalogLayout != provider.catalogLayout
+        if (
+            catalogLayoutChanged ||
+            authenticatedProvider.catalogLayoutDetectionVersion != provider.catalogLayoutDetectionVersion
+        ) {
+            transactionRunner.inTransaction {
+                if (authenticatedProvider.catalogLayout != com.streamvault.domain.model.CatalogLayout.UNKNOWN) {
+                    providerDao.updateCatalogLayout(
+                        provider.id,
+                        authenticatedProvider.catalogLayout,
+                        authenticatedProvider.catalogLayoutDetectionVersion
+                    )
+                }
+                if (catalogLayoutChanged) {
+                    categoryDao.deleteByProviderAndType(provider.id, ContentType.MOVIE.name)
+                    categoryDao.deleteByProviderAndType(provider.id, ContentType.SERIES.name)
+                    categoryDao.deleteByProviderAndType(provider.id, ContentType.VOD.name)
+                    movieCategoryHydrationDao.deleteByProvider(provider.id)
+                    seriesCategoryHydrationDao.deleteByProvider(provider.id)
+                    vodCategoryHydrationDao.deleteByProvider(provider.id)
+                    vodCatalogEntryDao.deleteByProvider(provider.id)
+                }
+            }
+        }
         stalkerReadinessTracker.authenticated(provider.id)
 
         var metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)
@@ -4036,9 +4497,13 @@ class SyncManager @Inject constructor(
         // committed or the previously committed live cache was accepted as fresh.
         stalkerReadinessTracker.liveReady(provider.id)
 
-        if (force || ContentCachePolicy.shouldRefresh(metadata.lastMovieSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
+        if (force || catalogLayoutChanged || ContentCachePolicy.shouldRefresh(metadata.lastMovieSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Movies...")
-            val categories = when (val categoriesResult = api.getVodCategories()) {
+            val categories = when (val categoriesResult = if (effectiveCatalogLayout == CatalogLayout.UNIFIED_VOD) {
+                api.getUnifiedVodCategories()
+            } else {
+                api.getVodCategories()
+            }) {
                 is com.streamvault.domain.model.Result.Success -> categoriesResult.data
                 is com.streamvault.domain.model.Result.Error -> {
                     val missingCatalogDiagnostic = if (
@@ -4070,22 +4535,33 @@ class SyncManager @Inject constructor(
             // front. Using replaceMovieCatalog with an empty sequence would run full stale
             // deletion and destroy any movies already hydrated via on-demand category loads.
             // replaceCategories updates/inserts category rows without touching movie rows.
+            val storedCategoryType = if (effectiveCatalogLayout == CatalogLayout.UNIFIED_VOD) ContentType.VOD else ContentType.MOVIE
             syncCatalogStore.replaceCategories(
                 providerId = provider.id,
-                type = "MOVIE",
-                categories = categories.map { category ->
+                type = storedCategoryType.name,
+                categories = categories.mapIndexed { index, category ->
                     CategoryEntity(
                         providerId = provider.id,
                         categoryId = category.id,
                         name = category.name,
                         parentId = category.parentId,
-                        type = ContentType.MOVIE,
+                        type = storedCategoryType,
+                        providerOrder = index,
                         isAdult = category.isAdult
                     )
                 }
             )
+            if (effectiveCatalogLayout == CatalogLayout.SPLIT) {
+                // Raw VOD pages must be scanned again after a category refresh so derived
+                // Series can be restored after native-Series pruning.
+                movieCategoryHydrationDao.deleteByProvider(provider.id)
+            }
+            categoryDao.deleteByProviderAndType(
+                provider.id,
+                if (storedCategoryType == ContentType.VOD) ContentType.MOVIE.name else ContentType.VOD.name
+            )
             movieCategoryCount = categories.size
-            if (provider.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX) {
+            if (effectiveCatalogLayout != CatalogLayout.UNIFIED_VOD && provider.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX) {
                 queueStalkerIndexSection(
                     providerId = provider.id,
                     contentType = ContentType.MOVIE,
@@ -4105,7 +4581,10 @@ class SyncManager @Inject constructor(
             queuedMovieIndex = provider.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX
         }
 
-        if (force || ContentCachePolicy.shouldRefresh(metadata.lastSeriesSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
+        if (effectiveCatalogLayout == CatalogLayout.UNIFIED_VOD) {
+            categoryDao.deleteByProviderAndType(provider.id, ContentType.SERIES.name)
+            seriesCategoryHydrationDao.deleteByProvider(provider.id)
+        } else if (force || catalogLayoutChanged || ContentCachePolicy.shouldRefresh(metadata.lastSeriesSuccess, ContentCachePolicy.CATALOG_TTL_MILLIS, now)) {
             progress(provider.id, onProgress, "Preparing Series...")
             val categories = when (val categoriesResult = api.getSeriesCategories()) {
                 is com.streamvault.domain.model.Result.Success -> categoriesResult.data
@@ -4140,13 +4619,14 @@ class SyncManager @Inject constructor(
             syncCatalogStore.replaceCategories(
                 providerId = provider.id,
                 type = "SERIES",
-                categories = categories.map { category ->
+                categories = categories.mapIndexed { index, category ->
                     CategoryEntity(
                         providerId = provider.id,
                         categoryId = category.id,
                         name = category.name,
                         parentId = category.parentId,
                         type = ContentType.SERIES,
+                        providerOrder = index,
                         isAdult = category.isAdult
                     )
                 }
@@ -4259,7 +4739,7 @@ class SyncManager @Inject constructor(
                     val remoteId = seriesEntity.providerSeriesId
                     if (!remoteId.isNullOrBlank()) {
                         transactionRunner.inTransaction {
-                            seriesDao.insertAll(listOf(seriesEntity))
+                            seriesDao.upsertCategoryPage(provider.id, listOf(seriesEntity))
                         }
                     }
                 }
@@ -4638,6 +5118,7 @@ class SyncManager @Inject constructor(
         val replacedChannelKeys = linkedSetOf<String>()
         val bulkCoveredChannelKeys = linkedSetOf<String>()
         var importedProgramCount = 0
+        var providerRateLimited = false
 
         suspend fun flushPrograms() {
             if (insertBuffer.isEmpty()) return
@@ -4689,10 +5170,24 @@ class SyncManager @Inject constructor(
                 }
             }
         }.onFailure { error ->
+            providerRateLimited = error.hasStalkerRateLimit()
             Log.d(TAG, "Bulk Stalker portal EPG fetch unavailable for provider ${provider.id}", error)
         }
 
-        val fallbackGuideRequests = guideRequests.filterNot { request -> request.channelKey in bulkCoveredChannelKeys }
+        val uncoveredGuideRequests = guideRequests.filterNot { request -> request.channelKey in bulkCoveredChannelKeys }
+        val perChannelGuideWindowed = uncoveredGuideRequests.size > STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN
+        val fallbackGuideRequests = if (providerRateLimited) {
+            emptyList()
+        } else if (perChannelGuideWindowed) {
+            val windowCount = (uncoveredGuideRequests.size + STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN - 1) /
+                STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN
+            val windowIndex = ((now / MILLIS_PER_DAY) % windowCount).toInt()
+            uncoveredGuideRequests
+                .drop(windowIndex * STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN)
+                .take(STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN)
+        } else {
+            uncoveredGuideRequests
+        }
 
         // Some portals ignore `ch_id` and return the entire bulk EPG for every per-channel
         // request. After the first per-channel call we sample the response shape; if it
@@ -4740,7 +5235,14 @@ class SyncManager @Inject constructor(
                     throw streamResult.exception ?: IllegalStateException(streamResult.message)
                 }
             }.onFailure { error ->
-                if (error is StalkerBrokenPerChannelEpgException) {
+                if (error.hasStalkerRateLimit()) {
+                    providerRateLimited = true
+                    ignorePerChannelGuide = true
+                    Log.w(
+                        TAG,
+                        "Stalker provider ${provider.id} entered rate-limit cooldown; cancelling remaining per-channel EPG requests."
+                    )
+                } else if (error is StalkerBrokenPerChannelEpgException) {
                     ignorePerChannelGuide = true
                     Log.w(
                         TAG,
@@ -4782,6 +5284,15 @@ class SyncManager @Inject constructor(
         )
 
         val warnings = mutableListOf<String>()
+        if (providerRateLimited) {
+            warnings.add("Stalker portal rate limit reached; remaining guide requests were cancelled.")
+        }
+        if (perChannelGuideWindowed) {
+            warnings.add(
+                "Portal EPG fallback was limited to $STALKER_PER_CHANNEL_EPG_REQUESTS_PER_RUN channels this run; " +
+                    "later background runs rotate through the remaining channels."
+            )
+        }
         if (epgCount == 0) {
             warnings.add("Stalker portal guide import returned zero programs.")
         }
@@ -5278,6 +5789,10 @@ class SyncManager @Inject constructor(
         }
     }
 
+    private fun Throwable.hasStalkerRateLimit(): Boolean =
+        generateSequence(this as Throwable?) { it.cause }
+            .any { it is StalkerApiError.RateLimited }
+
     private fun shouldRememberSequentialPreference(error: Throwable): Boolean {
         return xtreamAdaptiveSyncPolicy.isProviderStress(error) ||
             error is XtreamAuthenticationException ||
@@ -5660,6 +6175,8 @@ class SyncManager @Inject constructor(
             transportGrant = provider.toStalkerTransportGrant(),
             requestedProfileId = provider.stalkerRequestedProfileId,
             learnedProfileId = provider.stalkerLearnedProfileId,
+            catalogLayoutHint = provider.catalogLayout,
+            catalogLayoutDetectionVersionHint = provider.catalogLayoutDetectionVersion,
             identityResolver = stalkerRemoteIdentityResolver,
             portalStateStore = stalkerPortalStateStore
         )
@@ -5997,11 +6514,10 @@ class SyncManager @Inject constructor(
     /**
      * Runs the bulk live stream with a stall watchdog instead of a fixed wall-clock
      * cap. Large portals stream tens of MB in one response, so the attempt is
-     * cancelled only when no items arrive for [STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS];
-     * [STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS] remains as a final bound so a response
-     * that never completes cannot block the per-category recovery path forever.
-     * Returns null when the attempt ended by stall/overall timeout, mirroring the
-     * previous withTimeoutOrNull contract.
+     * cancelled only when no items arrive for [STALKER_BULK_LIVE_STALL_TIMEOUT_MILLIS].
+     * There is intentionally no absolute wall-clock timeout: a large catalog may take
+     * longer than five minutes while still making healthy progress. Returns null when
+     * the attempt ended by a stall, while propagating cancellation of the worker itself.
      */
     private suspend fun <T> withStalkerBulkLiveStallTimeout(
         block: suspend (markProgress: () -> Unit) -> T
@@ -6021,15 +6537,13 @@ class SyncManager @Inject constructor(
             }
         }
         try {
-            withTimeoutOrNull(STALKER_BULK_LIVE_OVERALL_TIMEOUT_MILLIS) {
-                try {
-                    streamDeferred.await()
-                } catch (cancelled: CancellationException) {
-                    // Propagate cancellation of the outer scope (worker stopped or the
-                    // overall timeout fired); only the watchdog's stall-cancel maps to null.
-                    if (!isActive) throw cancelled
-                    null
-                }
+            try {
+                streamDeferred.await()
+            } catch (cancelled: CancellationException) {
+                // Propagate cancellation of the outer scope (worker stopped); only the
+                // watchdog's stall-cancel maps to null.
+                if (!isActive) throw cancelled
+                null
             }
         } finally {
             watchdog.cancel()

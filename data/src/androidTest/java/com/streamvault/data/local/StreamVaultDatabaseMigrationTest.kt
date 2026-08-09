@@ -1437,6 +1437,90 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
+    @Test
+    fun migrate65To66_addsProviderCatalogLayoutAndUnifiedHydration() {
+        migrationTestHelper.createDatabase("streamvault-65-66-test", 65).close()
+
+        val migratedDb = migrationTestHelper.runMigrationsAndValidate(
+            "streamvault-65-66-test",
+            66,
+            true,
+            StreamVaultDatabase.MIGRATION_65_66
+        )
+
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'catalog_layout' AND dflt_value = '''SPLIT'''"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'catalog_layout_detection_version' AND dflt_value = '0'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('categories') WHERE name = 'provider_order' AND dflt_value = '0'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('category_import_stage') WHERE name = 'provider_order' AND dflt_value = '0'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'vod_category_hydration'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'index_vod_category_hydration_provider_id'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('series') WHERE name = 'catalog_origin' AND dflt_value = '''NATIVE'''"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('series') WHERE name = 'episode_playback_template_url' AND type = 'TEXT'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'vod_catalog_entries'"
+            )
+        )
+        assertEquals(
+            1,
+            countRows(
+                migratedDb,
+                "SELECT COUNT(*) FROM pragma_table_info('vod_category_hydration') WHERE name = 'last_successful_page'"
+            )
+        )
+        migratedDb.close()
+    }
+
     private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0

@@ -556,8 +556,11 @@
     <string name="settings_vod_view_mode_classic">Classic</string>
     <string name="settings_vod_view_mode_classic_desc">Category list on the left with a stacked poster grid on the right.</string>
     <string name="settings_vod_infinite_scroll">Infinite scroll</string>
-    <string name="settings_vod_infinite_scroll_on">Auto-load more category rows as you scroll near the end.</string>
-    <string name="settings_vod_infinite_scroll_off">Show a Load more button to fetch the next batch of category rows.</string>
+    <string name="settings_vod_infinite_scroll_on">Load the next page as you scroll near the end.</string>
+    <string name="settings_vod_infinite_scroll_off">Show a Load more button for the next page.</string>
+    <string name="settings_vod_complete_on_open">Load entire VOD category on open</string>
+    <string name="settings_vod_complete_on_open_on">Fetch every Stalker page before finishing the initial load.</string>
+    <string name="settings_vod_complete_on_open_off">Show the first Stalker page immediately, then load more as needed.</string>
     <string name="settings_vod_duplicate_handling_mode">VOD duplicate handling</string>
     <string name="settings_vod_duplicate_handling_mode_subtitle">Choose whether movie versions stay separate or appear as grouped title variants.</string>
     <string name="settings_vod_duplicate_handling_show_all">Show All Versions</string>
@@ -1799,4 +1802,7 @@
     <string name="stalker_verification_inconclusive_body" translatable="false">The provider accepted your login, but the Live TV check did not finish. You can save it with verification pending; it will remain inactive until a sync confirms playable Live TV.</string>
     <string name="stalker_save_without_verification" translatable="false">Save without verification</string>
     <string name="stalker_repair_connection" translatable="false">Repair connection</string>
+    <string name="nav_vod">VOD</string>
+    <string name="vod_unavailable_title">VOD is unavailable</string>
+    <string name="vod_unavailable_subtitle">This provider exposes separate Movies and Series catalogs.</string>
 </resources>

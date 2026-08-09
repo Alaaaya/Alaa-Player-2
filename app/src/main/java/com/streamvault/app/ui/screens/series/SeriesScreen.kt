@@ -744,7 +744,8 @@ private fun SeriesVodContent(
         gridState = modernGridState,
         enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
         canLoadMore = uiState.canLoadMoreSelectedCategory,
-        isLoading = uiState.isLoadingSelectedCategory,
+        isLoading = uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory,
+        prefetchDistance = uiState.selectedCategoryRawPageSize.coerceAtLeast(6),
         onLoadMore = onLoadMore
     )
     LazyVerticalGrid(
@@ -902,7 +903,7 @@ private fun SeriesVodContent(
                 )
             }
         }
-        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&
             !uiState.vodInfiniteScroll && !uiState.isReorderMode
         ) {
             item(key = "load_next_series_batch", span = { GridItemSpan(maxLineSpan) }) {
@@ -1181,7 +1182,8 @@ private fun SeriesVodClassicContent(
                 gridState = classicGridState,
                 enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
                 canLoadMore = uiState.canLoadMoreSelectedCategory,
-                isLoading = uiState.isLoadingSelectedCategory,
+                isLoading = uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory,
+                prefetchDistance = uiState.selectedCategoryRawPageSize.coerceAtLeast(6),
                 onLoadMore = onLoadMore
             )
             LazyVerticalGrid(
@@ -1249,7 +1251,7 @@ private fun SeriesVodClassicContent(
                         )
                     }
                 }
-                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&
                     !uiState.vodInfiniteScroll && !uiState.isReorderMode
                 ) {
                     item(key = "load_next_series_batch_classic", span = { GridItemSpan(maxLineSpan) }) {

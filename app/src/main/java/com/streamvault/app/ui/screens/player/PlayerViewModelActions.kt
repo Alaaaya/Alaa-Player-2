@@ -211,7 +211,8 @@ internal suspend fun PlayerViewModel.buildCastRequestResult(): PlayerCastRequest
             )
         }
 
-        ContentType.MOVIE -> {
+        ContentType.MOVIE,
+        ContentType.VOD -> {
             val movie = movieRepository.getMovie(currentContentId)
             val repositoryStreamInfo = movie?.let { movieRepository.getStreamInfo(it).getOrNull() }
             val streamInfo = selectPreferredVodCastStreamInfo(

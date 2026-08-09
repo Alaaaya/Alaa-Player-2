@@ -45,6 +45,8 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.model.VodDuplicateConfidence
 import com.streamvault.domain.model.VodDuplicateHandlingMode
+import com.streamvault.domain.model.VodCategoryHydrationRequest
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.model.VodMovieVariant
 import com.streamvault.domain.model.VodSyncMode
 import com.streamvault.domain.model.VodVariantObservation
@@ -673,8 +675,9 @@ class MovieRepositoryImplTest {
     }
 
     @Test
-    fun `browsing stalker movie category hydrates every advertised page before returning`() = runTest {
+    fun `complete request hydrates every advertised stalker movie page before returning`() = runTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(preferencesRepository.vodCategoryLoadMode).thenReturn(flowOf(VodCategoryLoadMode.PAGED))
         whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(
             flowOf(0),
             flowOf(14),
@@ -695,9 +698,11 @@ class MovieRepositoryImplTest {
         whenever(movieDao.getFreshByCategoryCursorPage(7L, 42L, 40)).thenReturn(emptyList())
         whenever(favoriteDao.getAllByType(7L, ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
 
-        createRepository().browseMovies(
-            LibraryBrowseQuery(providerId = 7L, categoryId = 42L, limit = 60)
-        ).first()
+        createRepository().requestCategoryHydration(
+            7L,
+            42L,
+            VodCategoryHydrationRequest.COMPLETE
+        )
 
         (1..3).forEach { page ->
             verify(stalkerApiService).getVodStreamsPage(any(), any(), anyOrNull(), eq(page))

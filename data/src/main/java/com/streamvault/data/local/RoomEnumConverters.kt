@@ -2,6 +2,8 @@ package com.streamvault.data.local
 
 import androidx.room.TypeConverter
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.CatalogLayout
+import com.streamvault.domain.model.SeriesCatalogOrigin
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -167,6 +169,20 @@ class RoomEnumConverters {
     fun toContentType(value: String?): ContentType? =
         enumValueOrDefault(value, ContentType.LIVE, contentTypeAliases())
 
+    @TypeConverter
+    fun fromCatalogLayout(value: CatalogLayout?): String? = value?.name
+
+    @TypeConverter
+    fun toCatalogLayout(value: String?): CatalogLayout? =
+        enumValueOrDefault(value, CatalogLayout.SPLIT)
+
+    @TypeConverter
+    fun fromSeriesCatalogOrigin(value: SeriesCatalogOrigin?): String? = value?.name
+
+    @TypeConverter
+    fun toSeriesCatalogOrigin(value: String?): SeriesCatalogOrigin? =
+        enumValueOrDefault(value, SeriesCatalogOrigin.NATIVE)
+
     private inline fun <reified T : Enum<T>> enumValueOrDefault(
         value: String?,
         defaultValue: T,
@@ -223,7 +239,6 @@ class RoomEnumConverters {
     private fun contentTypeAliases(): Map<String, ContentType> = mapOf(
         "EPISODE" to ContentType.SERIES_EPISODE,
         "SHOW" to ContentType.SERIES,
-        "VOD" to ContentType.MOVIE,
         "CHANNEL" to ContentType.LIVE
     )
 }

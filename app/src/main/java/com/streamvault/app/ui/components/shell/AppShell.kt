@@ -86,6 +86,7 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.domain.model.AppTopLevelDestination
+import com.streamvault.domain.model.CatalogLayout
 
 enum class AppNavigationChrome {
     Rail,
@@ -843,6 +844,26 @@ private fun findActiveDestinationItem(
 private fun buildDestinationItems(): List<DestinationItem> =
     AppTopLevelDestination.defaultOrder.map { it.toDestinationItem() }
 
+private fun buildDestinationItems(
+    configured: List<AppTopLevelDestination>,
+    layout: CatalogLayout
+): List<DestinationItem> {
+    if (layout == CatalogLayout.SPLIT) return configured.map { it.toDestinationItem() }
+    var insertedVod = false
+    return buildList {
+        configured.forEach { destination ->
+            when (destination) {
+                AppTopLevelDestination.MOVIES,
+                AppTopLevelDestination.SERIES -> if (!insertedVod) {
+                    add(DestinationItem(Routes.VOD, R.string.nav_vod, Icons.Default.Star))
+                    insertedVod = true
+                }
+                else -> add(destination.toDestinationItem())
+            }
+        }
+    }
+}
+
 @Composable
 private fun rememberDestinationItems(): List<DestinationItem> {
     val context = LocalContext.current
@@ -851,8 +872,13 @@ private fun rememberDestinationItems(): List<DestinationItem> {
         ?.collectAsStateWithLifecycle(initialValue = AppTopLevelDestination.defaultOrder)
         ?.value
         ?: AppTopLevelDestination.defaultOrder
-    return remember(configuredDestinations) {
-        configuredDestinations.map { it.toDestinationItem() }
+    val catalogLayout = mainActivity?.providerRepository?.getActiveProvider()
+        ?.collectAsStateWithLifecycle(initialValue = null)
+        ?.value
+        ?.catalogLayout
+        ?: CatalogLayout.SPLIT
+    return remember(configuredDestinations, catalogLayout) {
+        buildDestinationItems(configuredDestinations, catalogLayout)
     }
 }
 

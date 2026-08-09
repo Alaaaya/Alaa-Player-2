@@ -135,6 +135,7 @@ class PreferencesRepository @Inject constructor(
         val LIVE_VARIANT_OBSERVATIONS = stringPreferencesKey("live_variant_observations")
         val VOD_VIEW_MODE = stringPreferencesKey("vod_view_mode")
         val VOD_INFINITE_SCROLL = booleanPreferencesKey("vod_infinite_scroll")
+        val VOD_CATEGORY_LOAD_MODE = stringPreferencesKey("vod_category_load_mode")
         val VOD_DUPLICATE_HANDLING_MODE = stringPreferencesKey("vod_duplicate_handling_mode")
         val VOD_VARIANT_PREFERENCE_MODE = stringPreferencesKey("vod_variant_preference_mode")
         val VOD_VARIANT_SELECTIONS = stringPreferencesKey("vod_variant_selections")
@@ -1319,6 +1320,24 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
+    fun getLastSplitCatalogType(providerId: Long): Flow<ContentType> {
+        val key = stringPreferencesKey("last_split_catalog_type_$providerId")
+        return context.dataStore.data.map { preferences ->
+            when (preferences[key]) {
+                ContentType.SERIES.name -> ContentType.SERIES
+                else -> ContentType.MOVIE
+            }
+        }
+    }
+
+    suspend fun setLastSplitCatalogType(providerId: Long, type: ContentType) {
+        require(type == ContentType.MOVIE || type == ContentType.SERIES)
+        val key = stringPreferencesKey("last_split_catalog_type_$providerId")
+        context.dataStore.edit { preferences ->
+            preferences[key] = type.name
+        }
+    }
+
     val appLanguage: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.APP_LANGUAGE] ?: "system"
     }
@@ -1657,6 +1676,19 @@ class PreferencesRepository @Inject constructor(
     suspend fun setVodInfiniteScroll(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.VOD_INFINITE_SCROLL] = enabled
+        }
+    }
+
+    val vodCategoryLoadMode: Flow<com.streamvault.domain.model.VodCategoryLoadMode> =
+        context.dataStore.data.map { preferences ->
+            com.streamvault.domain.model.VodCategoryLoadMode.fromStorage(
+                preferences[PreferencesKeys.VOD_CATEGORY_LOAD_MODE]
+            )
+        }
+
+    suspend fun setVodCategoryLoadMode(mode: com.streamvault.domain.model.VodCategoryLoadMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.VOD_CATEGORY_LOAD_MODE] = mode.storageValue
         }
     }
 

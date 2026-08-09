@@ -17,6 +17,7 @@ import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.VodCategoryHydrationRequest
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
@@ -58,6 +59,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -103,6 +105,8 @@ class MoviesViewModel @Inject constructor(
     private val _selectedLibrarySortBy = MutableStateFlow(LibrarySortBy.LIBRARY)
     private val _previewBatchSize = MutableStateFlow(INITIAL_PREVIEW_BATCH_SIZE)
     private var activeProviderId: Long? = null
+    private var remotePageRequestInFlight = false
+    private var initialRemoteRequestInFlight = false
 
     private data class PreviewLoadResult(
         val snapshot: MovieCatalogSnapshot,
@@ -405,7 +409,7 @@ class MoviesViewModel @Inject constructor(
                             selectedCategoryLoadedCount = snapshot.loadedCount,
                             selectedCategoryTotalCount = snapshot.totalCount,
                             canLoadMoreSelectedCategory = snapshot.canLoadMore,
-                            isLoadingSelectedCategory = false
+                            isLoadingSelectedCategory = initialRemoteRequestInFlight && snapshot.items.isEmpty()
                         )
                     }
                 }
@@ -553,6 +557,45 @@ class MoviesViewModel @Inject constructor(
                 isLoadingSelectedCategory = isLoadingSelectedCategory
             )
         }
+        val providerId = activeProviderId ?: return
+        val categoryId = resolveProviderCategoryId(categoryName) ?: return
+        initialRemoteRequestInFlight = true
+        _uiState.update { it.copy(isLoadingSelectedCategory = true) }
+        viewModelScope.launch {
+            try {
+                movieRepository.requestCategoryHydration(
+                    providerId,
+                    categoryId,
+                    VodCategoryHydrationRequest.OPEN
+                )
+            } finally {
+                initialRemoteRequestInFlight = false
+                _uiState.update { it.copy(isLoadingSelectedCategory = false) }
+            }
+        }
+
+        viewModelScope.launch {
+            combine(
+                providerRepository.getActiveProvider(),
+                _uiState.map { state ->
+                    state.providerCategories.firstOrNull { it.name == state.selectedCategory }?.id
+                }.distinctUntilChanged()
+            ) { provider, categoryId -> provider?.id to categoryId }
+                .flatMapLatest { (providerId, categoryId) ->
+                    if (providerId == null || categoryId == null) flowOf(null)
+                    else movieRepository.observeCategoryHydration(providerId, categoryId)
+                }
+                .collectLatest { hydration ->
+                    hydration ?: return@collectLatest
+                    _uiState.update {
+                        it.copy(
+                            isLoadingSelectedCategory = hydration.isInitialLoading || initialRemoteRequestInFlight,
+                            isLoadingMoreSelectedCategory = hydration.isAppending || remotePageRequestInFlight,
+                            selectedCategoryRawPageSize = hydration.pageSize
+                        )
+                    }
+                }
+        }
     }
 
     fun selectFullLibraryBrowse() {
@@ -560,10 +603,30 @@ class MoviesViewModel @Inject constructor(
     }
 
     fun loadMoreSelectedCategory() {
+        val needsRemotePage = _uiState.value.selectedCategoryLoadedCount >=
+            _uiState.value.selectedCategoryTotalCount
         incrementVodSelectedCategoryLoadLimit(
             canLoadMore = _uiState.value.canLoadMoreSelectedCategory,
             selectedCategoryLoadLimit = _selectedCategoryLoadLimit
         )
+        if (!needsRemotePage) return
+        val providerId = activeProviderId ?: return
+        val categoryId = resolveProviderCategoryId(_uiState.value.selectedCategory) ?: return
+        if (remotePageRequestInFlight) return
+        remotePageRequestInFlight = true
+        _uiState.update { it.copy(isLoadingMoreSelectedCategory = true) }
+        viewModelScope.launch {
+            try {
+                movieRepository.requestCategoryHydration(
+                    providerId,
+                    categoryId,
+                    VodCategoryHydrationRequest.NEXT_PAGE
+                )
+            } finally {
+                remotePageRequestInFlight = false
+                _uiState.update { it.copy(isLoadingMoreSelectedCategory = false) }
+            }
+        }
     }
 
     fun loadMorePreviewRows() {
@@ -897,6 +960,15 @@ class MoviesViewModel @Inject constructor(
     fun enterCategoryReorderMode(category: Category) {
         dismissCategoryOptions()
         viewModelScope.launch {
+            if (_uiState.value.providerCategories.any { it.id == category.id }) {
+                activeProviderId?.let { providerId ->
+                    movieRepository.requestCategoryHydration(
+                        providerId,
+                        category.id,
+                        VodCategoryHydrationRequest.COMPLETE
+                    )
+                }
+            }
             val moviesInView = loadReorderMovies(category)
             _uiState.update {
                 it.copy(
@@ -1320,6 +1392,8 @@ data class MoviesUiState(
     val selectedCategoryTotalCount: Int = 0,
     val canLoadMoreSelectedCategory: Boolean = false,
     val isLoadingSelectedCategory: Boolean = false,
+    val isLoadingMoreSelectedCategory: Boolean = false,
+    val selectedCategoryRawPageSize: Int = 0,
     val searchQuery: String = "",
     val selectedLibraryFilterType: LibraryFilterType = LibraryFilterType.ALL,
     val selectedLibrarySortBy: LibrarySortBy = LibrarySortBy.LIBRARY,

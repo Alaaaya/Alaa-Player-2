@@ -340,7 +340,8 @@ class LauncherRecommendationsManager @Inject constructor(
     }
 
     private fun previewProgramType(contentType: ContentType): Int = when (contentType) {
-        ContentType.MOVIE -> TvContract.PreviewPrograms.TYPE_MOVIE
+        ContentType.MOVIE,
+        ContentType.VOD -> TvContract.PreviewPrograms.TYPE_MOVIE
         ContentType.SERIES,
         ContentType.SERIES_EPISODE -> TvContract.PreviewPrograms.TYPE_TV_EPISODE
         ContentType.LIVE -> TvContract.PreviewPrograms.TYPE_CLIP

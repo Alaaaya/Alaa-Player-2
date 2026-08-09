@@ -9,6 +9,20 @@ import org.junit.Test
 
 class StalkerPortalStateStoreTest {
     @Test
+    fun `rate limit cooldown is persisted independently and can be cleared`() = runTest {
+        val dao = FakePortalStateDao()
+        val store = StalkerPortalStateStore(dao)
+
+        store.recordRateLimitCooldown(9L, cooldownUntil = 61_000L, now = 1_000L)
+        val limited = requireNotNull(store.get(9L))
+        assertThat(store.rateLimitCooldownUntil(limited)).isEqualTo(61_000L)
+        assertThat(limited.stressCooldownUntil).isEqualTo(0L)
+
+        store.clearRateLimitCooldown(9L)
+        assertThat(store.rateLimitCooldownUntil(requireNotNull(store.get(9L)))).isEqualTo(0L)
+    }
+
+    @Test
     fun `capabilities are validated for seven days and selectively invalidated`() = runTest {
         val dao = FakePortalStateDao()
         val store = StalkerPortalStateStore(dao)

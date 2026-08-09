@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -34,6 +35,7 @@ import com.streamvault.app.ui.screens.player.PlayerScreen
 import com.streamvault.app.ui.screens.plugins.PluginsScreen
 import com.streamvault.app.ui.screens.provider.ProviderSetupScreen
 import com.streamvault.app.ui.screens.series.SeriesScreen
+import com.streamvault.app.ui.screens.vod.VodScreen
 import com.streamvault.app.ui.screens.settings.SettingsScreen
 import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.ui.screens.downloads.DownloadsScreen
@@ -41,6 +43,7 @@ import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.MovieDetailPresentationHint
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.Series
@@ -49,6 +52,7 @@ import com.streamvault.domain.model.VirtualCategoryIds
 import java.io.Serializable
 import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 
@@ -60,6 +64,18 @@ private const val TAG = "AppNavigation"
 private fun requiresResolvedStartupTarget(landingDestination: AppLandingDestination): Boolean =
     landingDestination == AppLandingDestination.FIRST_FAVORITE_LIVE ||
         landingDestination == AppLandingDestination.LAST_WATCHED_LIVE
+
+internal fun resolveCatalogRoute(
+    layout: CatalogLayout?,
+    requestedRoute: String,
+    lastSplitCatalogType: ContentType,
+    splitPreferenceReady: Boolean
+): String = when {
+    layout != CatalogLayout.SPLIT && requestedRoute in setOf(Routes.MOVIES, Routes.SERIES) -> Routes.VOD
+    layout == CatalogLayout.SPLIT && requestedRoute == Routes.VOD && splitPreferenceReady ->
+        if (lastSplitCatalogType == ContentType.SERIES) Routes.SERIES else Routes.MOVIES
+    else -> requestedRoute
+}
 
 data class PlayerNavigationRequest(
     val streamUrl: String,
@@ -90,6 +106,7 @@ object Routes {
     const val LIVE_TV_DESTINATION = "live_tv?categoryId={categoryId}"
     const val MOVIES = "movies"
     const val SERIES = "series"
+    const val VOD = "vod"
     const val DOWNLOADS = "downloads"
     const val EPG = "epg"
     const val EPG_DESTINATION = "epg?categoryId={categoryId}&anchorTime={anchorTime}&favoritesOnly={favoritesOnly}"
@@ -342,6 +359,20 @@ internal fun AppTopLevelDestination.toAppRoute(): String = when (this) {
 fun AppNavigation(mainActivity: MainActivity) {
     val navController = rememberNavController()
     val currentBackStackEntry = navController.currentBackStackEntryAsState().value
+    val activeProvider = mainActivity.providerRepository.getActiveProvider()
+        .collectAsStateWithLifecycle(initialValue = null)
+        .value
+    var lastSplitCatalogType by remember(activeProvider?.id) { mutableStateOf(ContentType.MOVIE) }
+    var loadedSplitPreferenceProviderId by remember { mutableStateOf<Long?>(null) }
+    val navigationScope = rememberCoroutineScope()
+    LaunchedEffect(activeProvider?.id) {
+        val providerId = activeProvider?.id ?: return@LaunchedEffect
+        loadedSplitPreferenceProviderId = null
+        lastSplitCatalogType = mainActivity.preferencesRepository
+            .getLastSplitCatalogType(providerId)
+            .first()
+        loadedSplitPreferenceProviderId = providerId
+    }
     val externalNavigationRequest = mainActivity.externalNavigationRequestFlow.collectAsStateWithLifecycle().value
     val topLevelDestinations = mainActivity.preferencesRepository.appTopLevelDestinations
         .collectAsStateWithLifecycle(initialValue = AppTopLevelDestination.defaultOrder)
@@ -444,14 +475,45 @@ fun AppNavigation(mainActivity: MainActivity) {
         val entry = navController.currentBackStackEntry ?: return
         if (!entry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
         val currentRoute = entry.destination?.route
-        if (currentRoute == route || currentRoute?.startsWith("$route?") == true) return
+        val provider = activeProvider
+        if (
+            provider?.catalogLayout == com.streamvault.domain.model.CatalogLayout.SPLIT &&
+            route in setOf(Routes.MOVIES, Routes.SERIES)
+        ) {
+            val selectedType = if (route == Routes.SERIES) ContentType.SERIES else ContentType.MOVIE
+            lastSplitCatalogType = selectedType
+            navigationScope.launch {
+                mainActivity.preferencesRepository.setLastSplitCatalogType(provider.id, selectedType)
+            }
+        }
+        val resolvedRoute = resolveCatalogRoute(
+            layout = provider?.catalogLayout,
+            requestedRoute = route,
+            lastSplitCatalogType = lastSplitCatalogType,
+            splitPreferenceReady = provider == null || loadedSplitPreferenceProviderId == provider.id
+        )
+        if (currentRoute == resolvedRoute || currentRoute?.startsWith("$resolvedRoute?") == true) return
 
-        navController.navigate(route) {
+        navController.navigate(resolvedRoute) {
             popUpTo(navController.graph.startDestinationId) {
                 saveState = true
             }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    LaunchedEffect(activeProvider?.id, activeProvider?.catalogLayout, currentBackStackEntry?.destination?.route) {
+        val provider = activeProvider ?: return@LaunchedEffect
+        val route = currentBackStackEntry?.destination?.route ?: return@LaunchedEffect
+        val resolvedRoute = resolveCatalogRoute(
+            layout = provider.catalogLayout,
+            requestedRoute = route,
+            lastSplitCatalogType = lastSplitCatalogType,
+            splitPreferenceReady = loadedSplitPreferenceProviderId == provider.id
+        )
+        if (resolvedRoute != route) {
+            tabNavigate(resolvedRoute)
         }
     }
 
@@ -542,7 +604,8 @@ fun AppNavigation(mainActivity: MainActivity) {
                                 returnRoute = Routes.HOME
                             )
                         }
-                        com.streamvault.domain.model.ContentType.MOVIE -> {
+                        com.streamvault.domain.model.ContentType.MOVIE,
+                        com.streamvault.domain.model.ContentType.VOD -> {
                             Routes.player(
                                 streamUrl = history.streamUrl,
                                 title = history.title,
@@ -632,6 +695,19 @@ fun AppNavigation(mainActivity: MainActivity) {
                 },
                 onNavigate = { route -> tabNavigate(route) },
                 currentRoute = Routes.SERIES
+            )
+        }
+
+        composable(Routes.VOD) {
+            VodScreen(
+                onMovieClick = { movie ->
+                    navController.navigateToMovieDetail(movie, Routes.VOD)
+                },
+                onSeriesClick = { series ->
+                    navController.navigateToSeriesDetail(series, Routes.VOD)
+                },
+                onNavigate = { route -> tabNavigate(route) },
+                currentRoute = Routes.VOD
             )
         }
 

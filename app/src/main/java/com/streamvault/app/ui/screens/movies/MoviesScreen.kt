@@ -737,7 +737,8 @@ private fun MoviesVodContent(
         gridState = modernGridState,
         enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
         canLoadMore = uiState.canLoadMoreSelectedCategory,
-        isLoading = uiState.isLoadingSelectedCategory,
+        isLoading = uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory,
+        prefetchDistance = uiState.selectedCategoryRawPageSize.coerceAtLeast(6),
         onLoadMore = onLoadMore
     )
     LazyVerticalGrid(
@@ -895,7 +896,7 @@ private fun MoviesVodContent(
                 )
             }
         }
-        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+        if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&
             !uiState.vodInfiniteScroll && !uiState.isReorderMode
         ) {
             item(key = "load_next_movie_batch", span = { GridItemSpan(maxLineSpan) }) {
@@ -1173,7 +1174,8 @@ private fun MoviesVodClassicContent(
                 gridState = classicGridState,
                 enabled = uiState.vodInfiniteScroll && !uiState.isReorderMode,
                 canLoadMore = uiState.canLoadMoreSelectedCategory,
-                isLoading = uiState.isLoadingSelectedCategory,
+                isLoading = uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory,
+                prefetchDistance = uiState.selectedCategoryRawPageSize.coerceAtLeast(6),
                 onLoadMore = onLoadMore
             )
             LazyVerticalGrid(
@@ -1241,7 +1243,7 @@ private fun MoviesVodClassicContent(
                         )
                     }
                 }
-                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory &&
+                if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&
                     !uiState.vodInfiniteScroll && !uiState.isReorderMode
                 ) {
                     item(key = "load_next_movie_batch_classic", span = { GridItemSpan(maxLineSpan) }) {

@@ -7,9 +7,11 @@ import androidx.room.Fts4
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.SeriesCatalogOrigin
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
@@ -94,6 +96,8 @@ data class ProviderEntity(
     @ColumnInfo(name = "xtream_fast_sync_enabled") val xtreamFastSyncEnabled: Boolean = false,
     @ColumnInfo(name = "xtream_live_sync_mode") val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
     @ColumnInfo(name = "m3u_vod_classification_enabled") val m3uVodClassificationEnabled: Boolean = false,
+    @ColumnInfo(name = "catalog_layout") val catalogLayout: CatalogLayout = CatalogLayout.SPLIT,
+    @ColumnInfo(name = "catalog_layout_detection_version") val catalogLayoutDetectionVersion: Int = 0,
     val status: ProviderStatus = ProviderStatus.UNKNOWN,
     @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
@@ -350,7 +354,9 @@ data class SeriesEntity(
     @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = "",
     @ColumnInfo(name = "cache_state") val cacheState: String = "DETAIL_HYDRATED",
     @ColumnInfo(name = "detail_hydrated_at") val detailHydratedAt: Long = 0L,
-    @ColumnInfo(name = "remote_stale_at") val remoteStaleAt: Long = 0L
+    @ColumnInfo(name = "remote_stale_at") val remoteStaleAt: Long = 0L,
+    @ColumnInfo(name = "catalog_origin") val catalogOrigin: SeriesCatalogOrigin = SeriesCatalogOrigin.NATIVE,
+    @ColumnInfo(name = "episode_playback_template_url") val episodePlaybackTemplateUrl: String? = null
 )
 
 data class SeriesBrowseEntity(
@@ -368,7 +374,9 @@ data class SeriesBrowseEntity(
     @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
-    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
+    @ColumnInfo(name = "catalog_origin") val catalogOrigin: SeriesCatalogOrigin = SeriesCatalogOrigin.NATIVE,
+    @ColumnInfo(name = "episode_playback_template_url") val episodePlaybackTemplateUrl: String? = null
 )
 
 @Fts4(contentEntity = ChannelEntity::class)
@@ -478,6 +486,7 @@ data class CategoryEntity(
     @ColumnInfo(name = "parent_id") val parentId: Long? = null,
     val type: ContentType = ContentType.LIVE,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "provider_order", defaultValue = "0") val providerOrder: Int = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
     @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
     @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
@@ -620,6 +629,7 @@ data class CategoryImportStageEntity(
     val name: String,
     @ColumnInfo(name = "parent_id") val parentId: Long? = null,
     val type: ContentType = ContentType.LIVE,
+    @ColumnInfo(name = "provider_order", defaultValue = "0") val providerOrder: Int = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
     @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
 )
@@ -925,6 +935,63 @@ data class SeriesCategoryHydrationEntity(
     @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
     @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
     @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
+)
+
+@Entity(
+    tableName = "vod_category_hydration",
+    primaryKeys = ["provider_id", "category_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id"])]
+)
+data class VodCategoryHydrationEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "category_id") val categoryId: Long,
+    @ColumnInfo(name = "last_loaded_page") val lastLoadedPage: Int = 0,
+    @ColumnInfo(name = "last_attempted_page") val lastAttemptedPage: Int = 0,
+    @ColumnInfo(name = "last_successful_page") val lastSuccessfulPage: Int = 0,
+    @ColumnInfo(name = "total_pages") val totalPages: Int = 0,
+    @ColumnInfo(name = "page_size") val pageSize: Int = 0,
+    @ColumnInfo(name = "item_count") val itemCount: Int = 0,
+    @ColumnInfo(name = "is_complete") val isComplete: Boolean = false,
+    @ColumnInfo(name = "has_movies") val hasMovies: Boolean = false,
+    @ColumnInfo(name = "has_series") val hasSeries: Boolean = false,
+    @ColumnInfo(name = "last_hydrated_at") val lastHydratedAt: Long = 0L,
+    @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
+    @ColumnInfo(name = "retry_after_ms") val retryAfterMs: Long = 0L,
+    @ColumnInfo(name = "failure_count") val failureCount: Int = 0,
+    @ColumnInfo(name = "retry_budget_remaining") val retryBudgetRemaining: Int = 3,
+    @ColumnInfo(name = "last_page_fingerprint") val lastPageFingerprint: String? = null
+)
+
+@Entity(
+    tableName = "vod_catalog_entries",
+    primaryKeys = ["provider_id", "category_id", "raw_item_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"]),
+        Index(value = ["provider_id", "category_id", "raw_page", "raw_index"]),
+        Index(value = ["provider_id", "item_type", "target_id"])
+    ]
+)
+data class VodCatalogEntryEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "category_id") val categoryId: Long,
+    @ColumnInfo(name = "raw_item_id") val rawItemId: String,
+    @ColumnInfo(name = "item_type") val itemType: ContentType,
+    @ColumnInfo(name = "target_id") val targetId: Long,
+    @ColumnInfo(name = "raw_page") val rawPage: Int,
+    @ColumnInfo(name = "raw_index") val rawIndex: Int
 )
 
 // ── External EPG Source ────────────────────────────────────────────

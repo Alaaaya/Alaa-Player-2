@@ -248,6 +248,11 @@ class PlayerViewModel @Inject constructor(
     val playerPreferencesUiState: StateFlow<PlayerPreferencesUiState> = _playerPreferencesUiState.asStateFlow()
     private val _externalPlaybackUrl = MutableStateFlow("")
     val externalPlaybackUrl: StateFlow<String> = _externalPlaybackUrl.asStateFlow()
+    private val _playbackResolutionUiState = MutableStateFlow<PlaybackResolutionUiState>(
+        PlaybackResolutionUiState.Idle
+    )
+    val playbackResolutionUiState: StateFlow<PlaybackResolutionUiState> =
+        _playbackResolutionUiState.asStateFlow()
 
     internal var channelInfoHideJob: Job? = null
     internal var liveOverlayHideJob: Job? = null
@@ -1449,6 +1454,13 @@ class PlayerViewModel @Inject constructor(
             archiveStartMs = archiveStartMs,
             archiveEndMs = archiveEndMs
         )
+        _playbackResolutionUiState.value = if (
+            hasArchiveRequest || contentType.equals(ContentType.LIVE.name, ignoreCase = true)
+        ) {
+            PlaybackResolutionUiState.Idle
+        } else {
+            PlaybackResolutionUiState.Resolving
+        }
         val requestVersion = beginPlaybackSession()
         val shouldReloadPlaylist = applyPrepareSessionState(
             streamUrl = streamUrl,
@@ -1519,13 +1531,13 @@ class PlayerViewModel @Inject constructor(
                 if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
                 if (streamInfo == null) {
                     if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
-                    showPlayerNotice(
-                        message = lastResolutionFailureMessage?.takeIf { it.isNotBlank() }
-                            ?: "No playable stream URL was available.",
-                        recoveryType = PlayerRecoveryType.SOURCE
+                    _playbackResolutionUiState.value = PlaybackResolutionUiState.Failure(
+                        lastResolutionFailureMessage?.takeIf { it.isNotBlank() }
+                            ?: "No playable stream URL was available."
                     )
                     return@launch
                 }
+                _playbackResolutionUiState.value = PlaybackResolutionUiState.Idle
                 currentStreamUrl = playbackLogicalUrl
                 currentContentId = playbackContentId
                 if (!isActivePlaybackSession(requestVersion, playbackLogicalUrl)) return@launch

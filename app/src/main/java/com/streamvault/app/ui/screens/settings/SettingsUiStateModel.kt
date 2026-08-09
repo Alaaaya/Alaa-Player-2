@@ -10,6 +10,7 @@ import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
@@ -146,6 +147,7 @@ data class SettingsUiState(
     val groupedChannelLabelMode: GroupedChannelLabelMode = GroupedChannelLabelMode.HYBRID,
     val liveVariantPreferenceMode: LiveVariantPreferenceMode = LiveVariantPreferenceMode.BALANCED,
     val vodViewMode: VodViewMode = VodViewMode.MODERN,
+    val vodCategoryLoadMode: VodCategoryLoadMode = VodCategoryLoadMode.PAGED,
     val vodInfiniteScroll: Boolean = true,
     val vodDuplicateHandlingMode: VodDuplicateHandlingMode = VodDuplicateHandlingMode.SHOW_ALL,
     val vodVariantPreferenceMode: VodVariantPreferenceMode = VodVariantPreferenceMode.BALANCED,

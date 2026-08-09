@@ -61,6 +61,8 @@ data class Provider(
     val xtreamFastSyncEnabled: Boolean = true,
     val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
     val m3uVodClassificationEnabled: Boolean = false,
+    val catalogLayout: CatalogLayout = CatalogLayout.SPLIT,
+    val catalogLayoutDetectionVersion: Int = 0,
     val status: ProviderStatus = ProviderStatus.UNKNOWN,
     val lastSyncedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
@@ -73,6 +75,13 @@ data class Provider(
 
     override fun toString(): String =
         "Provider(id=$id, name=$name, type=$type, status=$status, isActive=$isActive)"
+}
+
+/** Provider-scoped presentation of the VOD catalog. */
+enum class CatalogLayout {
+    UNKNOWN,
+    SPLIT,
+    UNIFIED_VOD
 }
 
 enum class ProviderType {

@@ -4,6 +4,7 @@ import android.util.Log
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Episode
@@ -17,6 +18,8 @@ import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.SeriesCatalogOrigin
+import com.streamvault.domain.model.VodCatalogItem
 import com.streamvault.domain.model.StalkerAuthMode
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCookieMode
@@ -72,6 +75,11 @@ data class StalkerPagedResult<T>(
     val isComplete: Boolean get() = !isTruncated && page >= totalPages
 }
 
+data class StalkerVodCatalogItem(
+    val rawItemId: String,
+    val item: VodCatalogItem
+)
+
 class StalkerProvider(
     override val providerId: Long,
     private val api: StalkerApiService,
@@ -103,6 +111,8 @@ class StalkerProvider(
     private val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
     private val learnedProfileId: String = "",
     private val requireCatalogValidation: Boolean = true,
+    private val catalogLayoutHint: CatalogLayout = CatalogLayout.UNKNOWN,
+    private val catalogLayoutDetectionVersionHint: Int = 0,
     private val identityResolver: StalkerRemoteIdentityResolver? = null,
     private val portalStateStore: StalkerPortalStateStore? = null,
     private val discoveryCoordinator: StalkerDiscoveryCoordinator =
@@ -116,11 +126,18 @@ internal companion object {
         private const val RESOLVED_URL_CACHE_SOFT_TTL_MILLIS = 60_000L
         private const val RESOLVED_URL_CACHE_MIN_TTL_MILLIS = 5_000L
         private const val RESOLVED_URL_CACHE_MAX_TTL_MILLIS = 300_000L
+        private const val AUTH_FAILURE_COOLDOWN_MILLIS = 2_000L
+        const val CATALOG_LAYOUT_DETECTION_VERSION = 1
         private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
+        private val sharedAuthFailureCache = ConcurrentHashMap<String, CachedAuthFailure>()
+        private val sharedAuthMutexes = ConcurrentHashMap<String, Mutex>()
         private val resolvedStreamUrlCache = ConcurrentHashMap<String, CachedResolvedUrl>()
+        private val missingVodClassificationLogged = ConcurrentHashMap.newKeySet<Long>()
 
         fun clearSharedAuthCacheForTests() {
             sharedAuthCache.clear()
+            sharedAuthFailureCache.clear()
+            sharedAuthMutexes.clear()
         }
 
         fun clearResolvedStreamUrlCacheForTests() {
@@ -131,6 +148,12 @@ internal companion object {
     private data class CachedAuth(
         val session: StalkerSession,
         val profile: StalkerProviderProfile
+)
+
+    private data class CachedAuthFailure(
+        val expiresAt: Long,
+        val message: String,
+        val exception: Throwable?
     )
 
     private data class CachedResolvedUrl(
@@ -144,9 +167,10 @@ internal companion object {
         val name: String
     )
 
-    private val authMutex = Mutex()
+    private val authMutex = sharedAuthMutexes.computeIfAbsent(authCacheKey()) { Mutex() }
     private var sessionCache: StalkerSession? = null
     private var accountProfileCache: StalkerProviderProfile? = null
+    private var authFailureCache: CachedAuthFailure? = null
     private val categoryCache = mutableMapOf<ContentType, List<CategorySeed>>()
     private val remoteIdentityCache = ConcurrentHashMap<Pair<ContentType, String>, Long>()
 
@@ -154,8 +178,10 @@ internal companion object {
         authMutex.withLock {
             sessionCache = null
             accountProfileCache = null
+            authFailureCache = null
             categoryCache.clear()
             sharedAuthCache.remove(authCacheKey())
+            sharedAuthFailureCache.remove(authCacheKey())
             clearResolvedStreamUrlCache()
         }
     }
@@ -192,6 +218,8 @@ internal companion object {
         return when (val authResult = ensureAuthenticated()) {
             is Result.Success -> {
                 val profile = authResult.data.second
+                val catalogDetection = detectCatalogLayout(authResult.data.first, profile)
+                val catalogLayout = catalogDetection.layout
                 val learnedDeviceProfile = buildLearnedDeviceProfile(profile)
                 val hostLabel = portalUrl.substringAfter("://").substringBefore('/').ifBlank { "portal" }
                 val providerName = profile.accountName?.takeUnless { it.isBlank() || it == "0" }
@@ -239,6 +267,12 @@ internal companion object {
                         maxConnections = profile.maxConnections ?: 1,
                         expirationDate = profile.expirationDate,
                         apiVersion = "Stalker/MAG Portal",
+                        catalogLayout = catalogLayout,
+                        catalogLayoutDetectionVersion = if (catalogDetection.conclusive) {
+                            CATALOG_LAYOUT_DETECTION_VERSION
+                        } else {
+                            catalogLayoutDetectionVersionHint
+                        },
                         status = resolveProviderStatus(profile)
                     )
                 )
@@ -246,6 +280,63 @@ internal companion object {
             is Result.Error -> Result.error(authResult.message, authResult.exception)
             is Result.Loading -> Result.error("Unexpected loading state")
         }
+    }
+
+    private data class CatalogLayoutDetection(
+        val layout: CatalogLayout,
+        val conclusive: Boolean
+    )
+
+    private suspend fun detectCatalogLayout(
+        session: StalkerSession,
+        profile: StalkerProviderProfile
+    ): CatalogLayoutDetection {
+        if (
+            catalogLayoutDetectionVersionHint >= CATALOG_LAYOUT_DETECTION_VERSION &&
+            catalogLayoutHint != CatalogLayout.UNKNOWN
+        ) {
+            return CatalogLayoutDetection(catalogLayoutHint, conclusive = false)
+        }
+
+        val device = buildLearnedDeviceProfile(profile)
+        val seriesResult = api.getSeriesCategories(session, device)
+        if (seriesResult is Result.Success && seriesResult.data.isNotEmpty()) {
+            StalkerTelemetry.catalogLayoutDetected(
+                providerId,
+                CatalogLayout.SPLIT.name,
+                seriesResult.data.size,
+                0,
+                "native_series_categories"
+            )
+            return CatalogLayoutDetection(CatalogLayout.SPLIT, conclusive = true)
+        }
+        val seriesEndpointIsDefinitivelyEmpty = seriesResult is Result.Success ||
+            (seriesResult as? Result.Error)?.isEmptyHttpBodyResponse() == true
+        if (!seriesEndpointIsDefinitivelyEmpty) {
+            return CatalogLayoutDetection(catalogLayoutHint, conclusive = false)
+        }
+
+        return when (val vodResult = api.getVodCategories(session, device)) {
+            is Result.Success -> if (vodResult.data.isNotEmpty()) {
+                StalkerTelemetry.catalogLayoutDetected(
+                    providerId,
+                    CatalogLayout.UNIFIED_VOD.name,
+                    0,
+                    vodResult.data.size,
+                    "series_empty_vod_present"
+                )
+                CatalogLayoutDetection(CatalogLayout.UNIFIED_VOD, conclusive = true)
+            } else {
+                CatalogLayoutDetection(catalogLayoutHint, conclusive = false)
+            }
+            is Result.Error,
+            is Result.Loading -> CatalogLayoutDetection(catalogLayoutHint, conclusive = false)
+        }
+    }
+
+    private fun Result.Error.isEmptyHttpBodyResponse(): Boolean {
+        return generateSequence(exception) { it.cause }
+            .any { it is StalkerApiError.EmptyBody }
     }
 
     suspend fun getAccountProfile(): Result<StalkerProviderProfile> {
@@ -308,6 +399,11 @@ internal companion object {
             api.getVodCategories(session, profile)
         }
 
+    suspend fun getUnifiedVodCategories(): Result<List<Category>> =
+        mapCategories(ContentType.VOD) { session, profile ->
+            api.getVodCategories(session, profile)
+        }
+
     override suspend fun getVodStreams(categoryId: Long?): Result<List<Movie>> {
         val result = mapItems(ContentType.MOVIE, categoryId) { session, profile, rawCategoryId ->
             api.getVodStreams(session, profile, rawCategoryId)
@@ -331,6 +427,102 @@ internal companion object {
             toMovie(item, requestedCategoryId = null)
         } }
 
+    suspend fun getUnifiedVodPage(categoryId: Long, page: Int): Result<StalkerPagedResult<StalkerVodCatalogItem>> =
+        getClassifiedVodPage(ContentType.VOD, categoryId, page)
+
+    suspend fun getSplitVodPage(
+        categoryId: Long,
+        seriesCategoryId: Long,
+        page: Int
+    ): Result<StalkerPagedResult<StalkerVodCatalogItem>> =
+        getClassifiedVodPage(ContentType.MOVIE, categoryId, page, seriesCategoryId)
+
+    suspend fun projectVodCategoryToSeries(categoryId: Long): Long? {
+        val rawId = resolveRawCategoryId(ContentType.MOVIE, categoryId) ?: return null
+        val name = categoryCache[ContentType.MOVIE]
+            ?.firstOrNull { it.id == categoryId || it.rawId == rawId }
+            ?.name
+            ?: "Category $categoryId"
+        val projectedId = identityResolver?.resolveCategories(
+            providerId,
+            ContentType.SERIES,
+            listOf(rawId to name)
+        )?.get(rawId) ?: legacyStableId(ContentType.SERIES, rawId)
+        categoryCache[ContentType.SERIES] = categoryCache[ContentType.SERIES]
+            .orEmpty()
+            .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
+        remoteIdentityCache[ContentType.SERIES to rawId] = projectedId
+        return projectedId
+    }
+
+    suspend fun projectSeriesCategoryToVod(categoryId: Long): Long? {
+        val rawId = resolveRawCategoryId(ContentType.SERIES, categoryId) ?: return null
+        val name = categoryCache[ContentType.SERIES]
+            ?.firstOrNull { it.id == categoryId || it.rawId == rawId }
+            ?.name
+            ?: "Category $categoryId"
+        val projectedId = identityResolver?.resolveCategories(
+            providerId,
+            ContentType.MOVIE,
+            listOf(rawId to name)
+        )?.get(rawId) ?: legacyStableId(ContentType.MOVIE, rawId)
+        categoryCache[ContentType.MOVIE] = categoryCache[ContentType.MOVIE]
+            .orEmpty()
+            .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
+        remoteIdentityCache[ContentType.MOVIE to rawId] = projectedId
+        return projectedId
+    }
+
+    private suspend fun getClassifiedVodPage(
+        categoryType: ContentType,
+        categoryId: Long,
+        page: Int,
+        seriesCategoryId: Long = categoryId
+    ): Result<StalkerPagedResult<StalkerVodCatalogItem>> {
+        val rawResult = mapPagedItems(categoryType, categoryId) { session, profile, rawCategoryId ->
+            api.getVodStreamsPage(session, profile, rawCategoryId, page)
+        }
+        return when (rawResult) {
+            is Result.Success -> {
+                val raw = rawResult.data
+                val movieRecords = raw.items.filterNot(StalkerItemRecord::isSeries)
+                val seriesRecords = raw.items.filter(StalkerItemRecord::isSeries)
+                bindRemoteIds(ContentType.MOVIE, movieRecords.map(StalkerItemRecord::id))
+                bindRemoteIds(ContentType.SERIES, seriesRecords.map(StalkerItemRecord::id))
+                val items = raw.items.mapNotNull { record ->
+                    if (record.isSeries) {
+                        toSeries(
+                            item = record,
+                            requestedCategoryId = seriesCategoryId,
+                            categoryType = if (categoryType == ContentType.VOD) ContentType.VOD else ContentType.SERIES,
+                            origin = SeriesCatalogOrigin.VOD_DERIVED
+                        )?.let { StalkerVodCatalogItem(record.id, VodCatalogItem.SeriesItem(it)) }
+                    } else {
+                        toMovie(
+                            item = record,
+                            requestedCategoryId = categoryId,
+                            categoryType = categoryType
+                        )?.let { StalkerVodCatalogItem(record.id, VodCatalogItem.MovieItem(it)) }
+                    }
+                }
+                Result.success(
+                    StalkerPagedResult(
+                        items = items,
+                        page = raw.page,
+                        totalPages = raw.totalPages,
+                        pageSize = raw.pageSize,
+                        advertisedTotalItems = raw.advertisedTotalItems,
+                        advertisedTotalPages = raw.advertisedTotalPages,
+                        isTruncated = raw.isTruncated,
+                        terminationReason = raw.terminationReason
+                    )
+                )
+            }
+            is Result.Error -> Result.error(rawResult.message, rawResult.exception)
+            is Result.Loading -> Result.error("Unexpected loading state")
+        }
+    }
+
     override suspend fun getVodInfo(vodId: Long): Result<Movie> {
         return when (val moviesResult = getVodStreamsPage(categoryId = null, page = 1)) {
             is Result.Success -> moviesResult.data.items
@@ -350,7 +542,7 @@ internal companion object {
         // Many Ministra portals serve series inside VOD (is_series=1) with the separate
         // type=series endpoint returning false/empty. Fall back to VOD categories so the
         // Series tab is populated — adds no overhead for portals that do use type=series.
-        if (primary is Result.Success && primary.data.size <= 1) {
+        if (primary is Result.Success && primary.data.isEmpty()) {
             return mapCategories(ContentType.SERIES) { session, profile ->
                 api.getVodCategories(session, profile)
             }
@@ -378,11 +570,7 @@ internal companion object {
     }
 
     suspend fun getSeriesListPage(categoryId: Long?, page: Int): Result<StalkerPagedResult<Series>> {
-        val primary = mapPagedItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
-            api.getSeriesPage(session, profile, rawCategoryId, page)
-        }.let { result -> mapResolvedPage(ContentType.SERIES, result) { item ->
-            toSeries(item, requestedCategoryId = categoryId)
-        } }
+        val primary = getNativeSeriesListPage(categoryId, page)
         // Fall back to VOD items with is_series=1 when the type=series endpoint returns
         // empty (providers that serve series inside VOD). Only triggers when the primary
         // path produces zero items, so portals using type=series are unaffected.
@@ -397,6 +585,13 @@ internal companion object {
         return primary
     }
 
+    suspend fun getNativeSeriesListPage(categoryId: Long?, page: Int): Result<StalkerPagedResult<Series>> =
+        mapPagedItems(ContentType.SERIES, categoryId) { session, profile, rawCategoryId ->
+            api.getSeriesPage(session, profile, rawCategoryId, page)
+        }.let { result -> mapResolvedPage(ContentType.SERIES, result) { item ->
+            toSeries(item, requestedCategoryId = categoryId)
+        } }
+
     suspend fun isWildcardCategory(type: ContentType, categoryId: Long): Boolean {
         val normalizedType = when (type) {
             ContentType.SERIES_EPISODE -> ContentType.SERIES
@@ -409,9 +604,35 @@ internal companion object {
     override suspend fun getSeriesInfo(seriesId: Long): Result<Series> =
         getSeriesInfo(identityResolver?.reverse(providerId, ContentType.SERIES, seriesId) ?: seriesId.toString())
 
-    suspend fun getSeriesInfo(providerSeriesId: String): Result<Series> {
+    suspend fun getSeriesInfo(
+        providerSeriesId: String,
+        catalogOrigin: SeriesCatalogOrigin = SeriesCatalogOrigin.NATIVE,
+        episodePlaybackTemplateUrl: String? = null,
+        learnedDialect: StalkerSeriesDetailDialect = StalkerSeriesDetailDialect.UNKNOWN
+    ): Result<Series> {
         return runWithAuthorizedSession { session, _ ->
-            when (val detailsResult = api.getSeriesDetails(session, currentDeviceProfile(), providerSeriesId)) {
+            val profile = currentDeviceProfile()
+            var usedVodDialect = if (
+                catalogOrigin == SeriesCatalogOrigin.VOD_DERIVED ||
+                learnedDialect == StalkerSeriesDetailDialect.VOD_SEASON_SHELLS
+            ) true else false
+            val primary = if (usedVodDialect) {
+                api.getVodSeriesDetails(session, profile, providerSeriesId)
+            } else {
+                api.getSeriesDetails(session, profile, providerSeriesId)
+            }
+            val detailsResult = if (
+                primary is Result.Success &&
+                primary.data.seasons.isEmpty() &&
+                catalogOrigin == SeriesCatalogOrigin.NATIVE &&
+                learnedDialect == StalkerSeriesDetailDialect.UNKNOWN
+            ) {
+                usedVodDialect = true
+                api.getVodSeriesDetails(session, profile, providerSeriesId)
+            } else {
+                primary
+            }
+            when (detailsResult) {
                 is Result.Success -> {
                     val details = detailsResult.data
                     bindRemoteIds(ContentType.SERIES, listOf(details.series.id))
@@ -419,7 +640,19 @@ internal companion object {
                         ContentType.SERIES_EPISODE,
                         details.seasons.flatMap { season -> season.episodes.map(StalkerEpisodeRecord::id) }
                     )
-                    Result.success(details.toSeries())
+                    Result.success(
+                        details.toSeries(
+                            // VOD_DERIVED is also an internal signal to the repository when
+                            // a native row needed the bounded semantic VOD fallback. The
+                            // repository's native-wins merge keeps the persisted origin native.
+                            catalogOrigin = if (usedVodDialect) {
+                                SeriesCatalogOrigin.VOD_DERIVED
+                            } else {
+                                catalogOrigin
+                            },
+                            episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
+                        )
+                    )
                 }
                 is Result.Error -> Result.error(detailsResult.message, detailsResult.exception)
                 is Result.Loading -> Result.error("Unexpected loading state")
@@ -651,7 +884,31 @@ is Result.Success -> {
                                 )
                             )
                         }
-                        is Result.Error -> lastError = linkResult
+                        is Result.Error -> {
+                            lastError = linkResult
+                            if (generateSequence(linkResult.exception) { it.cause }
+                                    .any { it is StalkerApiError.ContentUnavailable }
+                            ) {
+                                val message = linkResult.message.takeIf(String::isNotBlank)
+                                    ?: "The provider reported that this item is currently unavailable."
+                                return Result.error(
+                                    message,
+                                    StalkerPlaybackResolutionException(
+                                        message = message,
+                                        cause = linkResult.exception,
+                                        streamKind = kind,
+                                        portalFingerprint = accountProfile.portalFingerprint,
+                                        magPreset = accountProfile.magPreset,
+                                        bootstrapRecipe = accountProfile.bootstrapRecipe,
+                                        endpointPreference = accountProfile.fingerprintEvidence.endpointPreference,
+                                        cookieMode = accountProfile.fingerprintEvidence.cookieMode,
+                                        playbackBackendHint = accountProfile.fingerprintEvidence.playbackBackendHint,
+                                        fallbackRecipeUsed = accountProfile.fallbackRecipeUsed,
+                                        rediscoveryAttempted = accountProfile.rediscoveryAttempted
+                                    )
+                                )
+                            }
+                        }
                         is Result.Loading -> {
                             lastError = Result.error("Unexpected loading state")
                         }
@@ -689,6 +946,15 @@ is Result.Success -> {
                 }
 
                 val message = when {
+                    generateSequence(lastError?.exception) { it.cause }
+                        .any { it is StalkerApiError.ContentUnavailable } ->
+                        "The provider reported that this item is currently unavailable."
+
+                    generateSequence(lastError?.exception) { it.cause }
+                        .any { it is StalkerApiError } ->
+                        lastError?.message?.takeIf { it.isNotBlank() }
+                            ?: "The provider could not resolve this item for playback."
+
                     accountProfile.strictFingerprintRequired && lastError?.message.isNullOrBlank() ->
                         "Portal requires stricter MAG emulation."
 
@@ -718,6 +984,7 @@ is Result.Success -> {
                         "recipe=${accountProfile.bootstrapRecipe.name} endpoint=${accountProfile.fingerprintEvidence.endpointPreference.name} " +
                         "cookie=${accountProfile.fingerprintEvidence.cookieMode.name} backend=${accountProfile.fingerprintEvidence.playbackBackendHint.name} " +
                         "fallback=${accountProfile.fallbackRecipeUsed} rediscovery=${accountProfile.rediscoveryAttempted} " +
+                        "errorType=${lastError?.exception?.javaClass?.simpleName ?: "none"} " +
                         "reason=$message"
                 )
                 Result.error(
@@ -875,7 +1142,7 @@ is Result.Success -> {
 
     private suspend fun <T> mapResolvedItems(
         type: ContentType,
-        result: Result<List<StalkerItemRecord>>,
+        result: Result<List<StalkerItemRecord>>?,
         mapper: (StalkerItemRecord) -> T?
     ): Result<List<T>> = when (result) {
         is Result.Success -> {
@@ -884,11 +1151,12 @@ is Result.Success -> {
         }
         is Result.Error -> Result.error(result.message, result.exception)
         is Result.Loading -> Result.error("Unexpected loading state")
+        null -> Result.error("Portal returned no item response")
     }
 
     private suspend fun <T> mapResolvedPage(
         type: ContentType,
-        result: Result<StalkerPagedItems>,
+        result: Result<StalkerPagedItems>?,
         mapper: (StalkerItemRecord) -> T?
     ): Result<StalkerPagedResult<T>> = when (result) {
         is Result.Success -> {
@@ -909,6 +1177,7 @@ is Result.Success -> {
         }
         is Result.Error -> Result.error(result.message, result.exception)
         is Result.Loading -> Result.error("Unexpected loading state")
+        null -> Result.error("Portal returned no page response")
     }
 
     private suspend fun bindRemoteIds(type: ContentType, rawIds: Iterable<String>) {
@@ -969,6 +1238,13 @@ is Result.Success -> {
             if (cachedSession != null && cachedProfile != null) {
                 return@withLock Result.success(cachedSession to cachedProfile)
             }
+            (authFailureCache ?: sharedAuthFailureCache[authCacheKey()])?.let { failure ->
+                if (failure.expiresAt > System.currentTimeMillis()) {
+                    return@withLock Result.error(failure.message, failure.exception)
+                }
+                authFailureCache = null
+                sharedAuthFailureCache.remove(authCacheKey(), failure)
+            }
             sharedAuthCache[authCacheKey()]?.let { cachedAuth ->
                 sessionCache = cachedAuth.session
                 accountProfileCache = cachedAuth.profile
@@ -976,6 +1252,9 @@ is Result.Success -> {
             }
 
             val persistedState = portalStateStore?.getValidated(providerId)
+            val hasPersistedAuthentication = persistedState?.let { state ->
+                !state.workingEndpoint.isNullOrBlank() || !state.bootstrapRecipe.isNullOrBlank()
+            } == true
             val rawPersistedRecipe = persistedState?.bootstrapRecipe
                 ?.let { value -> runCatching { StalkerBootstrapRecipe.valueOf(value) }.getOrNull() }
             val persistedRecipe = rawPersistedRecipe?.takeIf { recipe ->
@@ -1034,28 +1313,45 @@ is Result.Success -> {
                 onProgress = onProgress
             ).copy(providerId = providerId)
             val initialAuthResult = discoveryCoordinator.authenticate(profile)
-            val finalAuthResult = if (
-                initialAuthResult is Result.Error &&
-                persistedEndpointUrl != null
-            ) {
-                portalStateStore?.markEndpointUnhealthy(providerId, persistedEndpointUrl)
-                StalkerTelemetry.strategySelected(providerId, "AUTH_ENDPOINT_AUTO", "CACHED_ENDPOINT_FAILED")
-                discoveryCoordinator.authenticate(
-                    profile.copy(
-                        portalUrl = portalUrl,
-                        endpointPreference = StalkerEndpointPreference.AUTO,
-                        // Endpoint repair must retain the learned identity. Broad profile rotation
-                        // is reserved for an explicit foreground Repair connection action.
-                        allowCompatibilityDiscovery = false
+            val finalAuthResult = when {
+                initialAuthResult !is Result.Error -> initialAuthResult
+                persistedEndpointUrl != null -> {
+                    portalStateStore?.markEndpointUnhealthy(providerId, persistedEndpointUrl)
+                    StalkerTelemetry.strategySelected(providerId, "AUTH_ENDPOINT_AUTO", "CACHED_ENDPOINT_FAILED")
+                    discoveryCoordinator.authenticate(
+                        profile.copy(
+                            portalUrl = portalUrl,
+                            endpointPreference = StalkerEndpointPreference.AUTO,
+                            // Endpoint repair retains the learned identity. Broad profile rotation
+                            // remains reserved for an explicit foreground Repair connection action.
+                            allowCompatibilityDiscovery = false
+                        )
                     )
-                )
-            } else {
-                initialAuthResult
+                }
+                hasPersistedAuthentication -> {
+                    // If the persisted endpoint/recipe is already cooling down, the old path
+                    // rebuilt the same generic profile with discovery disabled. That made a
+                    // recoverable provider fail every catalog request until the cooldown expired.
+                    // Give one bounded recovery attempt the original portal base and the normal
+                    // compatibility candidate set, then persist whichever recipe succeeds.
+                    StalkerTelemetry.strategySelected(providerId, "AUTH_RECIPE_DISCOVERY", "CACHED_AUTH_RECOVERY")
+                    discoveryCoordinator.authenticate(
+                        profile.copy(
+                            portalUrl = portalUrl,
+                            bootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
+                            endpointPreference = StalkerEndpointPreference.AUTO,
+                            allowCompatibilityDiscovery = true
+                        )
+                    )
+                }
+                else -> initialAuthResult
             }
             when (val authResult = finalAuthResult) {
                 is Result.Success -> {
                     sessionCache = authResult.data.first
                     accountProfileCache = authResult.data.second
+                    authFailureCache = null
+                    sharedAuthFailureCache.remove(authCacheKey())
                     sharedAuthCache[authCacheKey()] = CachedAuth(
                         session = authResult.data.first,
                         profile = authResult.data.second
@@ -1071,6 +1367,12 @@ is Result.Success -> {
                     rawPersistedRecipe?.let { failedRecipe ->
                         portalStateStore?.markRecipeUnhealthy(providerId, failedRecipe.name)
                     }
+                    authFailureCache = CachedAuthFailure(
+                        expiresAt = System.currentTimeMillis() + AUTH_FAILURE_COOLDOWN_MILLIS,
+                        message = authResult.message,
+                        exception = authResult.exception
+                    )
+                    sharedAuthFailureCache[authCacheKey()] = authFailureCache!!
                     Result.error(authResult.message, authResult.exception)
                 }
                 is Result.Loading -> Result.error("Unexpected loading state")
@@ -1237,7 +1539,8 @@ is Result.Success -> {
             StalkerTransportMode.USER_ACCEPTED_HTTP ->
                 PlaybackTransportPolicy(
                     mode = PlaybackTransportMode.USER_ACCEPTED_HTTP,
-                    origin = grant.origin
+                    origin = grant.origin,
+                    allowCrossOriginHttpRedirects = true
                 )
             StalkerTransportMode.AUTO_STRICT,
             StalkerTransportMode.VERIFIED_HTTPS -> null
@@ -1601,6 +1904,7 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         identityResolver?.reverse(providerId, normalizedType, targetId)?.let { return it }
         when (val categoriesResult = when (normalizedType) {
             ContentType.LIVE -> getLiveCategories()
+            ContentType.VOD -> getVodCategories()
             ContentType.MOVIE -> getVodCategories()
             ContentType.SERIES -> getSeriesCategories()
             ContentType.SERIES_EPISODE -> Result.success(emptyList())
@@ -1672,14 +1976,22 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         )
     }
 
-    private fun toMovie(item: StalkerItemRecord, requestedCategoryId: Long? = null): Movie? {
+    private fun toMovie(
+        item: StalkerItemRecord,
+        requestedCategoryId: Long? = null,
+        categoryType: ContentType = ContentType.MOVIE
+    ): Movie? {
+        if (item.isSeries) return null
+        if (!item.hasSeriesMarker && missingVodClassificationLogged.add(providerId)) {
+            StalkerTelemetry.missingVodClassification(providerId)
+        }
         val numericId = stableItemId(ContentType.MOVIE, item.id)
         val category = requestedCategorySeed(
-            type = ContentType.MOVIE,
+            type = categoryType,
             categoryId = requestedCategoryId,
             fallbackName = item.categoryName
         )
-            ?: resolveCategory(ContentType.MOVIE, item.categoryId, item.categoryName)
+            ?: resolveCategory(categoryType, item.categoryId, item.categoryName)
         val directStreamUrl = item.streamUrl
             ?.substringAfter(' ', missingDelimiterValue = item.streamUrl)
             ?.trim()
@@ -1739,13 +2051,18 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
         )
     }
 
-    private fun toSeries(item: StalkerItemRecord, requestedCategoryId: Long? = null): Series? {
+    private fun toSeries(
+        item: StalkerItemRecord,
+        requestedCategoryId: Long? = null,
+        categoryType: ContentType = ContentType.SERIES,
+        origin: SeriesCatalogOrigin = SeriesCatalogOrigin.NATIVE
+    ): Series? {
         val numericId = stableItemId(ContentType.SERIES, item.id)
         val category = requestedCategorySeed(
-            type = ContentType.SERIES,
+            type = categoryType,
             categoryId = requestedCategoryId,
             fallbackName = item.categoryName
-        ) ?: resolveCategory(ContentType.SERIES, item.categoryId, item.categoryName)
+        ) ?: resolveCategory(categoryType, item.categoryId, item.categoryName)
         return Series(
             id = 0L,
             name = item.name.ifBlank { "Series $numericId" },
@@ -1766,31 +2083,61 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
             isUserProtected = false,
             lastModified = item.addedAt,
             seriesId = item.id.toLongOrNull() ?: numericId,
-            providerSeriesId = item.id
+            providerSeriesId = item.id,
+            catalogOrigin = origin,
+            episodePlaybackTemplateUrl = buildEpisodePlaybackTemplate(item, numericId)
         )
     }
 
-    private fun StalkerSeriesDetails.toSeries(): Series {
-        val mappedSeries = toSeries(series)
+    private fun buildEpisodePlaybackTemplate(item: StalkerItemRecord, numericId: Long): String? {
+        val command = item.cmd?.takeIf(String::isNotBlank)
+            ?: item.streamUrl?.takeIf(String::isNotBlank)
+            ?: return null
+        return StalkerUrlFactory.buildInternalStreamUrl(
+            providerId = providerId,
+            kind = StalkerStreamKind.EPISODE,
+            itemId = numericId,
+            cmd = command,
+            containerExtension = item.containerExtension,
+            playbackDescriptor = item.playbackDescriptor
+                ?: buildStalkerPlaybackDescriptor(
+                    primaryCmd = command,
+                    alternateCommands = item.commandVariants.map { it.sourceKey to it.cmd },
+                    capabilities = item.portalCapabilities
+                )
+        )
+    }
+
+    private fun StalkerSeriesDetails.toSeries(
+        catalogOrigin: SeriesCatalogOrigin,
+        episodePlaybackTemplateUrl: String?
+    ): Series {
+        val mappedSeries = toSeries(series, origin = catalogOrigin)
         val baseSeries = if (mappedSeries != null) {
-            mappedSeries.copy(name = series.name)
+            mappedSeries.copy(
+                name = series.name,
+                episodePlaybackTemplateUrl = mappedSeries.episodePlaybackTemplateUrl
+                    ?: episodePlaybackTemplateUrl
+            )
         } else {
             Series(
                 id = 0L,
                 name = series.name,
                 providerId = providerId,
                 seriesId = series.id.toLongOrNull() ?: stableItemId(ContentType.SERIES, series.id),
-                providerSeriesId = series.id
+                providerSeriesId = series.id,
+                catalogOrigin = catalogOrigin,
+                episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
             )
         }
-        val mappedSeasons = seasons
-            .sortedBy { it.seasonNumber }
-            .map { season ->
+        val mappedSeasons = seasons.map { season ->
                 val episodes = season.episodes.mapIndexed { index, episode ->
                     episode.toEpisode(
                         fallbackSeriesId = baseSeries.seriesId,
                         fallbackSeasonNumber = season.seasonNumber,
-                        fallbackEpisodeNumber = index + 1
+                        fallbackEpisodeNumber = index + 1,
+                        seasonCmd = season.cmd,
+                        parentTemplateUrl = baseSeries.episodePlaybackTemplateUrl
                     )
                 }
                 Season(
@@ -1807,27 +2154,44 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
     private fun StalkerEpisodeRecord.toEpisode(
         fallbackSeriesId: Long,
         fallbackSeasonNumber: Int,
-        fallbackEpisodeNumber: Int
+        fallbackEpisodeNumber: Int,
+        seasonCmd: String?,
+        parentTemplateUrl: String?
     ): Episode {
         val numericId = stableItemId(ContentType.SERIES_EPISODE, id)
-        val directStreamUrl = cmd
-            ?.substringAfter(' ', missingDelimiterValue = cmd)
+        val effectiveCmd = cmd?.takeIf(String::isNotBlank) ?: seasonCmd?.takeIf(String::isNotBlank)
+        val directStreamUrl = effectiveCmd
+            ?.substringAfter(' ', missingDelimiterValue = effectiveCmd)
             ?.trim()
             ?.takeIf(UrlSecurityPolicy::isAllowedStreamEntryUrl)
-        val resolvedStreamUrl = cmd?.takeIf { it.isNotBlank() }?.let { resolvedCmd ->
+        val resolvedStreamUrl = effectiveCmd?.let { resolvedCmd ->
             StalkerUrlFactory.buildInternalStreamUrl(
                 providerId = providerId,
                 kind = StalkerStreamKind.EPISODE,
                 itemId = numericId,
                 cmd = resolvedCmd,
                 containerExtension = containerExtension,
-                seriesNumber = seasonShellEpisodeSelector(resolvedCmd, episodeNumber),
+                seriesNumber = playbackSelector
+                    ?: seasonShellEpisodeSelector(resolvedCmd, episodeNumber),
                 playbackDescriptor = buildStalkerPlaybackDescriptor(
                     primaryCmd = resolvedCmd,
                     capabilities = StalkerPortalCapabilities()
                 )
             )
-        } ?: directStreamUrl.orEmpty()
+        } ?: parentTemplateUrl
+            ?.let(StalkerUrlFactory::parseInternalStreamUrl)
+            ?.let { template ->
+                StalkerUrlFactory.buildInternalStreamUrl(
+                    providerId = providerId,
+                    kind = StalkerStreamKind.EPISODE,
+                    itemId = numericId,
+                    cmd = template.cmd,
+                    containerExtension = containerExtension ?: template.containerExtension,
+                    seriesNumber = playbackSelector ?: episodeNumber.takeIf { it > 0 },
+                    playbackDescriptor = template.playbackDescriptor
+                )
+            }
+            ?: directStreamUrl.orEmpty()
         return Episode(
             id = numericId,
             title = title.ifBlank { "Episode $fallbackEpisodeNumber" },
