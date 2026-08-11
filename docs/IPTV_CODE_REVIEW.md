@@ -631,7 +631,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 | STALKER-001 | All Stalker providers share and globally clear one cookie jar | Implemented; provider-deletion/device matrix pending (2026-08-10) | High |
 | STALKER-002 | Expired sessions reauthenticate only for one error phrase | Implemented; concurrent-refresh/retry-ceiling matrix pending (2026-08-10) | High |
 | STALKER-003 | Cancellation can continue through the Stalker recipe search | Resolved; discovery-stage, stream-body, cookie, and fallback matrix passes (2026-08-09) | High |
-| STALKER-004 | Catalog pagination silently declares page 200 complete | Confirmed defect | High |
+| STALKER-004 | Catalog pagination silently declares page 200 complete | Resolved; aggregate-limit, resume, cycle, metadata, and persistence coverage passes (2026-08-11) | High |
 | STALKER-005 | Portal-local dates are parsed as UTC | Implemented; full DST/archive matrix pending (2026-08-10) | High |
 | STALKER-006 | Non-numeric remote IDs collapse to a 31-bit Java hash | Implemented; migration/stress matrix pending (2026-08-10) | Medium |
 | XTREAM-001 | Most Xtream provider operations swallow cancellation | Resolved; complete public-facade and compatibility matrix passes (2026-08-09) | High |
@@ -689,15 +689,15 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### STALKER-004 — Catalog pagination silently declares page 200 complete
 
-- **Classification:** Confirmed defect
+- **Classification:** Resolved; aggregate-limit, resume, cycle, metadata, and persistence coverage passes (2026-08-11)
 - **Severity:** High
-- **Where:** `OkHttpStalkerApiService.fetchPagedItems:845-871`, `fetchPagedItemPage:873-894`, `JsonElement.totalPages:1588-1601`, `MAX_PAGE_COUNT = 200` at `2455`; persisted index page state in `SyncManager`/Stalker index jobs.
-- **Current behavior:** Computed `totalPages` is coerced to at most 200, requested pages are coerced to 200, and `StalkerPagedResult.isComplete` treats `page >= totalPages` as complete. No partial/truncated flag or warning is returned when server `total_items` requires more pages.
-- **Why this is wrong/fragile:** A safety ceiling becomes false completeness. The sync/index layer cannot distinguish a fully indexed catalog from a truncated one and will persist success, leaving items beyond the cap permanently undiscoverable.
-- **Concrete failure scenario:** A portal exposes 25 items per page and 7,500 VOD items (300 pages). Page 200 is marked complete; the final 2,500 titles never enter Room and no retry/diagnostic indicates why.
-- **Recommended correction:** Return an explicit `truncated/limitReached` outcome with server totals, fail or mark partial rather than complete, and make the configured item/page budget product-visible. Prefer item-count/byte/time budgets and resumable epochs over a hidden hard page number.
-- **Fix scope:** Stalker API plus index state/status.
-- **Required tests:** 199, 200, and 201+ page catalogs; inconsistent `total_items/max_page_items`; empty/repeated pages; partial state persists and resumes; UI/status reports truncation.
+- **Where:** `OkHttpStalkerApiService.fetchPagedItems` and `fetchPagedItemPage`; `StalkerPagedItems`/`StalkerPagedResult`; Stalker movie, series, unified-VOD, split-VOD, and index hydration state; Room schema version 75.
+- **Previous failure mode:** The aggregate safety ceiling was also used as a semantic total. Page 200 could be marked complete, requested pages could be clamped to 200, and the sync/index layer could persist success while titles after the cap remained undiscoverable.
+- **Implemented behavior:** Bulk `getVodStreams`/`getSeries`/live aggregation now either reaches a verified end or returns typed `CatalogTruncated`; it never returns a partial success. Single-page requests preserve the requested cursor, including page 201+, and retain advertised item/page totals. Missing totals are not treated as complete when a non-empty page is returned. Empty-before-end pages, changing totals, and repeated page payloads become typed/anomaly failures.
+- **Resume and persistence:** Native, unified-VOD, and split-VOD hydration enforce a 200-page work budget, persist `TRUNCATED` plus advertised totals and the last successful page, and resume from the next page on a later request. Repeated-page detection prevents cycles. Index hydration records truncation and exposes it through catalog/search status instead of reporting success; Room migration 74→75 preserves the new totals.
+- **Why this matters:** A safety budget remains a safety budget rather than silently becoming catalog completeness. Users can see that a catalog is partial, and a later bounded run can continue from the durable cursor without reloading the first 200 pages or losing the already indexed rows.
+- **Fix scope:** Stalker API, hydration/index state, persistence, resume orchestration, and status reporting.
+- **Verification:** Focused boundary/resume/metadata tests pass, including 201-page bulk truncation, page-201 cursor preservation, missing totals, empty-before-end rejection, provider completion semantics, and SyncManager continuation. The full `:data:testDebugUnitTest` suite passes (2026-08-11); both data and app debug Kotlin compilation pass.
 
 ### STALKER-005 — Portal-local dates are parsed as UTC
 

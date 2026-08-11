@@ -69,10 +69,12 @@ data class StalkerPagedResult<T>(
     val pageSize: Int,
     val advertisedTotalItems: Int? = null,
     val advertisedTotalPages: Int? = null,
+    val hasAdvertisedTotal: Boolean = true,
     val isTruncated: Boolean = false,
     val terminationReason: String? = null
 ) {
-    val isComplete: Boolean get() = !isTruncated && page >= totalPages
+    val isComplete: Boolean
+        get() = !isTruncated && if (hasAdvertisedTotal) page >= totalPages else items.isEmpty()
 }
 
 data class StalkerVodCatalogItem(
@@ -522,6 +524,7 @@ internal companion object {
                         pageSize = raw.pageSize,
                         advertisedTotalItems = raw.advertisedTotalItems,
                         advertisedTotalPages = raw.advertisedTotalPages,
+                        hasAdvertisedTotal = raw.hasAdvertisedTotal,
                         isTruncated = raw.isTruncated,
                         terminationReason = raw.terminationReason
                     )
@@ -1288,6 +1291,7 @@ is Result.Success -> {
                     pageSize = paged.pageSize,
                     advertisedTotalItems = paged.advertisedTotalItems,
                     advertisedTotalPages = paged.advertisedTotalPages,
+                    hasAdvertisedTotal = paged.hasAdvertisedTotal,
                     isTruncated = paged.isTruncated,
                     terminationReason = paged.terminationReason
                 )

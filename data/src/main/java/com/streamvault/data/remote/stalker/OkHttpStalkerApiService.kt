@@ -848,6 +848,12 @@ class OkHttpStalkerApiService @Inject constructor(
                 seedEntries.joinToString("|") { it.findString("id").orEmpty() }
             )
             val seedTotalPages = seriesPayload.totalPages()
+            if (seedTotalPages > MAX_PAGE_COUNT) {
+                throw StalkerApiError.CatalogTruncated(
+                    advertisedTotalPages = seedTotalPages,
+                    pageLimit = MAX_PAGE_COUNT
+                )
+            }
             for (page in 2..seedTotalPages) {
                 val pagePayload = requestJson(
                     url = session.loadUrl,
@@ -866,9 +872,17 @@ class OkHttpStalkerApiService @Inject constructor(
                 )
                 val pageEntries = pagePayload.extractItemEntries()
                 val fingerprint = pageEntries.joinToString("|") { it.findString("id").orEmpty() }
-                if (fingerprint.isNotEmpty() && !seedFingerprints.add(fingerprint)) break
+                if (fingerprint.isNotEmpty() && !seedFingerprints.add(fingerprint)) {
+                    throw StalkerApiError.Malformed(
+                        "Portal repeated a series-detail page while loading page $page."
+                    )
+                }
+                if (pageEntries.isEmpty() && page < seedTotalPages) {
+                    throw StalkerApiError.Malformed(
+                        "Portal returned an empty series-detail page before its advertised end."
+                    )
+                }
                 seedEntries += pageEntries
-                if (pageEntries.isEmpty()) break
             }
         }
         val seriesItems = seriesPayload.toItemRecords(profile.timezone.toPortalZoneId())
@@ -902,6 +916,17 @@ class OkHttpStalkerApiService @Inject constructor(
                     seriesId = seriesId,
                     seasonSelector = seasonId
                 )
+                if (pages.evidence.pageLimitReached) {
+                    throw StalkerApiError.CatalogTruncated(
+                        advertisedTotalPages = pages.evidence.advertisedTotalPages ?: (MAX_PAGE_COUNT + 1),
+                        pageLimit = MAX_PAGE_COUNT
+                    )
+                }
+                if (pages.evidence.repeatedPageDetected || pages.evidence.malformedPagination) {
+                    throw StalkerApiError.Malformed(
+                        "Portal returned non-progressing or inconsistent episode pagination for season $seasonId."
+                    )
+                }
                 paginationEvidence += pages.evidence
                 entry.toSeasonRecord(
                     episodeEntries = pages.entries,
@@ -969,7 +994,8 @@ class OkHttpStalkerApiService @Inject constructor(
         var advertisedPages: Int? = null
         var repeated = false
         var malformed = false
-        while (page <= (advertisedPages ?: 1).coerceAtMost(MAX_PAGE_COUNT)) {
+        var pageLimitReached = false
+        while (page <= MAX_PAGE_COUNT) {
             val payload = requestJson(
                 url = session.loadUrl,
                 profile = profile,
@@ -1009,9 +1035,14 @@ class OkHttpStalkerApiService @Inject constructor(
                 if (page < (advertisedPages ?: 1)) malformed = true
                 break
             }
-            if (page >= (advertisedPages ?: 1)) break
+            if (advertisedPages != null && page >= advertisedPages!!) break
+            if (page == MAX_PAGE_COUNT) {
+                pageLimitReached = true
+                break
+            }
             page += 1
         }
+        if (page > MAX_PAGE_COUNT) pageLimitReached = true
         return EpisodePages(
             entries = entries,
             evidence = StalkerEpisodePaginationEvidence(
@@ -1020,7 +1051,8 @@ class OkHttpStalkerApiService @Inject constructor(
                 successfulPages = successfulPages,
                 advertisedTotalPages = advertisedPages,
                 repeatedPageDetected = repeated,
-                malformedPagination = malformed
+                malformedPagination = malformed,
+                pageLimitReached = pageLimitReached
             )
         )
     }
@@ -1252,23 +1284,14 @@ class OkHttpStalkerApiService @Inject constructor(
         profile: StalkerDeviceProfile,
         baseQuery: Map<String, String>
     ): List<StalkerItemRecord> {
-        val firstPage = requestJson(
-            url = session.loadUrl,
-            profile = profile,
-            referer = session.portalReferer,
-            token = session.token,
-            query = baseQuery + ("p" to "1")
-        )
         val items = mutableListOf<StalkerItemRecord>()
         val zoneId = profile.timezone.toPortalZoneId()
-        items += firstPage.toItemRecords(zoneId)
-        val advertisedTotalPages = firstPage.advertisedTotalPages()
-        // Huge catalogs (e.g. 218k items at 14/page = 15,600 pages) are common on
-        // Flussonic/NFS-backed Stalker portals. Instead of aborting the entire
-        // catalog with CatalogTruncated, load the first MAX_PAGE_COUNT pages and
-        // let the on-demand paged API serve the rest as the user scrolls.
-        val totalPages = (advertisedTotalPages ?: 1).coerceAtMost(MAX_PAGE_COUNT)
-        for (page in 2..totalPages) {
+        val fingerprints = mutableSetOf<String>()
+        var page = 1
+        var advertisedTotalPages: Int? = null
+        var reachedEnd = false
+
+        while (page <= MAX_PAGE_COUNT) {
             val pagePayload = requestJson(
                 url = session.loadUrl,
                 profile = profile,
@@ -1276,7 +1299,52 @@ class OkHttpStalkerApiService @Inject constructor(
                 token = session.token,
                 query = baseQuery + ("p" to page.toString())
             )
-            items += pagePayload.toItemRecords(zoneId)
+            val pageEntries = pagePayload.extractItemEntries()
+            val fingerprint = pageEntries.joinToString("|") { entry ->
+                listOf(
+                    entry.findString("id").orEmpty(),
+                    entry.findString("ch_id").orEmpty(),
+                    entry.findString("video_id").orEmpty(),
+                    entry.findString("name").orEmpty()
+                ).joinToString(":")
+            }
+            if (page > 1 && fingerprint.isNotEmpty() && !fingerprints.add(fingerprint)) {
+                throw StalkerApiError.Malformed(
+                    "Portal repeated a catalog page while loading page $page."
+                )
+            }
+            if (fingerprint.isNotEmpty()) fingerprints += fingerprint
+
+            val reportedTotalPages = pagePayload.advertisedTotalPages()
+            if (advertisedTotalPages != null && reportedTotalPages != null &&
+                advertisedTotalPages != reportedTotalPages
+            ) {
+                throw StalkerApiError.Malformed(
+                    "Portal changed its advertised catalog page count while loading page $page."
+                )
+            }
+            advertisedTotalPages = advertisedTotalPages ?: reportedTotalPages
+            if (pageEntries.isEmpty() && reportedTotalPages != null && page < reportedTotalPages) {
+                throw StalkerApiError.Malformed(
+                    "Portal returned an empty catalog page before its advertised end."
+                )
+            }
+
+            items += pageEntries.mapNotNull { it.toItemRecord(zoneId) }
+            reachedEnd = when {
+                pageEntries.isEmpty() -> true
+                reportedTotalPages != null -> page >= reportedTotalPages
+                else -> false
+            }
+            if (reachedEnd) break
+            page += 1
+        }
+
+        if (!reachedEnd) {
+            throw StalkerApiError.CatalogTruncated(
+                advertisedTotalPages = (advertisedTotalPages ?: page).coerceAtLeast(page),
+                pageLimit = MAX_PAGE_COUNT
+            )
         }
         return items
     }
@@ -1287,7 +1355,9 @@ class OkHttpStalkerApiService @Inject constructor(
         baseQuery: Map<String, String>,
         page: Int
     ): StalkerPagedItems {
-        val safePage = page.coerceAtLeast(1).coerceAtMost(MAX_PAGE_COUNT)
+        // The aggregate safety limit belongs to bulk loads. A single-page request must preserve
+        // the requested cursor so a resumed catalog can move past the historical page-200 cap.
+        val safePage = page.coerceAtLeast(1)
         val payload = requestJson(
             url = session.loadUrl,
             profile = profile,
@@ -1299,15 +1369,19 @@ class OkHttpStalkerApiService @Inject constructor(
         val pageSize = payload.pageSize(items.size)
         val advertisedTotalItems = payload.advertisedTotalItems()
         val advertisedTotalPages = payload.advertisedTotalPages()
+        if (items.isEmpty() && advertisedTotalPages != null && safePage < advertisedTotalPages) {
+            throw StalkerApiError.Malformed(
+                "Portal returned an empty catalog page before its advertised end."
+            )
+        }
         return StalkerPagedItems(
             items = items,
             page = safePage,
-            totalPages = payload.totalPages(),
+            totalPages = payload.totalPages(safePage),
             pageSize = pageSize,
             advertisedTotalItems = advertisedTotalItems,
             advertisedTotalPages = advertisedTotalPages,
-            isTruncated = advertisedTotalPages?.let { it > MAX_PAGE_COUNT } == true,
-            terminationReason = "page_limit".takeIf { advertisedTotalPages?.let { it > MAX_PAGE_COUNT } == true }
+            hasAdvertisedTotal = advertisedTotalPages != null
         )
     }
 
@@ -2884,8 +2958,8 @@ class OkHttpStalkerApiService @Inject constructor(
             .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
-    private fun JsonElement.totalPages(): Int {
-        return (advertisedTotalPages() ?: 1).coerceAtMost(MAX_PAGE_COUNT)
+    private fun JsonElement.totalPages(fallbackPage: Int = 1): Int {
+        return (advertisedTotalPages() ?: fallbackPage).coerceAtLeast(1)
     }
 
     private fun JsonElement.advertisedTotalPages(): Int? {

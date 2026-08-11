@@ -79,9 +79,12 @@ class VodRepositoryImpl @Inject constructor(
             VodCategoryHydration(
                 lastSuccessfulPage = it.lastSuccessfulPage,
                 totalPages = it.totalPages,
+                advertisedTotalItems = it.advertisedTotalItems,
+                advertisedTotalPages = it.advertisedTotalPages,
                 pageSize = it.pageSize,
                 itemCount = it.itemCount,
                 isComplete = it.isComplete,
+                isTruncated = it.lastStatus == "TRUNCATED",
                 hasMovies = it.hasMovies,
                 hasSeries = it.hasSeries,
                 isLoading = it.lastStatus == "RUNNING",

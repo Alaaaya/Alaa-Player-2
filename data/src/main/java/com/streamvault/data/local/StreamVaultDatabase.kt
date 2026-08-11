@@ -67,7 +67,7 @@ import java.security.MessageDigest
         ProviderWorkflowEntity::class,
         ProviderWorkflowPhaseEntity::class
     ],
-    version = 74,
+    version = 75,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -3329,6 +3329,20 @@ abstract class StreamVaultDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_providers_is_active ON providers(is_active)")
                 restoreProviderDependentTables(database, providerDependents)
                 validateAllForeignKeys(database)
+            }
+        }
+
+        /** Migration 74 -> 75: retain Stalker server pagination totals for resumable catalogs. */
+        val MIGRATION_74_75 = object : Migration(74, 75) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                listOf(
+                    "movie_category_hydration",
+                    "series_category_hydration",
+                    "vod_category_hydration"
+                ).forEach { tableName ->
+                    addColumnIfMissing(database, tableName, "advertised_total_items", "INTEGER")
+                    addColumnIfMissing(database, tableName, "advertised_total_pages", "INTEGER")
+                }
             }
         }
 

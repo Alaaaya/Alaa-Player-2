@@ -33,9 +33,12 @@ data class VodCatalogEntry(
 data class VodCategoryHydration(
     val lastSuccessfulPage: Int = 0,
     val totalPages: Int = 0,
+    val advertisedTotalItems: Int? = null,
+    val advertisedTotalPages: Int? = null,
     val pageSize: Int = 0,
     val itemCount: Int = 0,
     val isComplete: Boolean = false,
+    val isTruncated: Boolean = false,
     val hasMovies: Boolean = false,
     val hasSeries: Boolean = false,
     val isLoading: Boolean = false,

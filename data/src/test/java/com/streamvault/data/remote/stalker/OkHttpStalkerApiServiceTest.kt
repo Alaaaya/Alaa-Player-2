@@ -1857,7 +1857,7 @@ class OkHttpStalkerApiServiceTest {
     }
 
     @Test
-    fun getVodStreams_truncates_huge_catalogs_at_page_limit_instead_of_failing() = runTest {
+    fun getVodStreams_reports_huge_catalogs_as_truncated_instead_of_returning_partial_success() = runTest {
         var requestCount = 0
         val service = OkHttpStalkerApiService(
             okHttpClient = OkHttpClient.Builder()
@@ -1880,13 +1880,142 @@ class OkHttpStalkerApiServiceTest {
 
         val result = service.getVodStreams(stalkerSession(), stalkerProfile(), categoryId = "42")
 
-        // Huge catalogs (advertised 201 pages) no longer throw CatalogTruncated —
-        // instead the first MAX_PAGE_COUNT (200) pages load so a partial catalog
-        // reaches the user, and the on-demand paged API serves the rest.
-        assertThat(result).isInstanceOf(Result.Success::class.java)
-        val success = result as Result.Success
-        assertThat(success.data).hasSize(200)
+        // Bulk APIs cannot carry a resume cursor, so a partial aggregate must be
+        // reported explicitly. The paged API is responsible for resumable loads.
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(StalkerApiError.CatalogTruncated::class.java)
+        val truncation = error.exception as StalkerApiError.CatalogTruncated
+        assertThat(truncation.advertisedTotalPages).isEqualTo(201)
+        assertThat(truncation.pageLimit).isEqualTo(200)
         assertThat(requestCount).isEqualTo(200)
+    }
+
+    @Test
+    fun getVodStreamsPage_preserves_page_201_for_resume_after_aggregate_limit() = runTest {
+        var requestedPage: String? = null
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    requestedPage = chain.request().url.queryParameter("p")
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"total_items":300,"max_page_items":1,"data":[{"id":"201","name":"Movie 201","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 201)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val page = (result as Result.Success).data
+        assertThat(requestedPage).isEqualTo("201")
+        assertThat(page.page).isEqualTo(201)
+        assertThat(page.totalPages).isEqualTo(300)
+        assertThat(page.advertisedTotalItems).isEqualTo(300)
+        assertThat(page.isComplete).isFalse()
+        assertThat(page.isTruncated).isFalse()
+    }
+
+    @Test
+    fun getVodStreamsPage_treats_199_as_incomplete_and_200_as_complete_when_total_is_200() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """{"js":{"total_items":200,"max_page_items":1,"data":[{"id":"item","name":"Movie","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val beforeLimit = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 199)
+        val atLimit = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 200)
+
+        assertThat((beforeLimit as Result.Success).data.isComplete).isFalse()
+        assertThat((atLimit as Result.Success).data.isComplete).isTrue()
+    }
+
+    @Test
+    fun getVodStreamsPage_does_not_claim_completion_when_totals_are_missing() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """{"js":{"data":[{"id":"1","name":"Movie","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 1)
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val page = (result as Result.Success).data
+        assertThat(page.hasAdvertisedTotal).isFalse()
+        assertThat(page.advertisedTotalPages).isNull()
+        assertThat(page.isComplete).isFalse()
+    }
+
+    @Test
+    fun getVodStreamsPage_rejects_empty_page_before_advertised_end() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """{"js":{"total_items":3,"max_page_items":1,"data":[]}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreamsPage(stalkerSession(), stalkerProfile(), "42", page = 1)
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).exception).isInstanceOf(StalkerApiError.Malformed::class.java)
+    }
+
+    @Test
+    fun getVodStreams_rejects_changing_advertised_page_totals() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val page = chain.request().url.queryParameter("p")?.toIntOrNull() ?: 1
+                    val totalItems = if (page == 1) 4 else 6
+                    val id = page.toString()
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(
+                            """{"js":{"total_items":$totalItems,"max_page_items":2,"data":[{"id":"$id","name":"Movie $id","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+                                .toResponseBody("application/json".toMediaType())
+                        )
+                        .build()
+                }
+                .build(),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreams(stalkerSession(), stalkerProfile(), categoryId = "42")
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).exception).isInstanceOf(StalkerApiError.Malformed::class.java)
+    }
+
+    @Test
+    fun getVodStreams_rejects_repeated_page_payloads() = runTest {
+        val service = OkHttpStalkerApiService(
+            okHttpClient = fakeClient(
+                "get_ordered_list" to """{"js":{"total_items":3,"max_page_items":1,"data":[{"id":"same","name":"Repeated","category_id":"42","cmd":"ffmpeg http://example.com/movie.mp4"}]}}"""
+            ),
+            json = Json { ignoreUnknownKeys = true }
+        )
+
+        val result = service.getVodStreams(stalkerSession(), stalkerProfile(), categoryId = "42")
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        assertThat((result as Result.Error).exception).isInstanceOf(StalkerApiError.Malformed::class.java)
     }
 
     @Test

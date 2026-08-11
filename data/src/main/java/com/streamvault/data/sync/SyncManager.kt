@@ -141,6 +141,7 @@ private const val TAG = "SyncManager"
 private const val XTREAM_FALLBACK_STAGE_BATCH_SIZE = 500
 private const val STALKER_INDEX_CATEGORY_SLICE_SIZE = 32
 private const val STALKER_WILDCARD_PAGE_SLICE_SIZE = 192
+private const val STALKER_COMPLETE_PAGE_BATCH_SIZE = 200
 private const val STALKER_MAX_PARALLEL_CATEGORY_FETCHES = 2
 private const val STALKER_MAX_SECTION_RUN_MILLIS = 240_000L
 private const val STALKER_CATEGORY_RETRY_BUDGET = 3
@@ -499,8 +500,16 @@ class SyncManager @Inject constructor(
             val api = createStalkerSyncProvider(providerEntity)
             var hydration = current
             var nextPage = ((current?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+            var remotePagesRequested = 0
+            val seenPageFingerprints = mutableSetOf<String>()
             while (true) {
                 val attemptAt = System.currentTimeMillis()
+                if (request == com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
+                    remotePagesRequested >= STALKER_COMPLETE_PAGE_BATCH_SIZE
+                ) {
+                    break
+                }
+                remotePagesRequested += 1
                 vodCategoryHydrationDao.upsert(
                     (hydration ?: VodCategoryHydrationEntity(providerId, categoryId)).copy(
                         lastAttemptedPage = nextPage,
@@ -511,6 +520,34 @@ class SyncManager @Inject constructor(
                 when (val pageResult = api.getUnifiedVodPage(categoryId, nextPage)) {
                     is Result.Success -> {
                         val page = pageResult.data
+                        if (
+                            hydration?.advertisedTotalPages != null &&
+                            page.advertisedTotalPages != null &&
+                            hydration?.advertisedTotalPages != page.advertisedTotalPages
+                        ) {
+                            val prior = hydration ?: VodCategoryHydrationEntity(providerId, categoryId)
+                            hydration = prior.copy(
+                                lastAttemptedPage = page.page,
+                                lastStatus = "ANOMALY",
+                                lastError = "Portal changed its advertised catalog page count while loading.",
+                                retryAfterMs = 0L
+                            )
+                            vodCategoryHydrationDao.upsert(hydration!!)
+                            return@withLock Result.error(hydration!!.lastError ?: "Portal changed its advertised page count")
+                        }
+                        val pageFingerprint = page.items.joinToString("|") { it.rawItemId }
+                            .takeIf(String::isNotEmpty)
+                        if (pageFingerprint != null && !seenPageFingerprints.add(pageFingerprint)) {
+                            val prior = hydration ?: VodCategoryHydrationEntity(providerId, categoryId)
+                            hydration = prior.copy(
+                                lastAttemptedPage = page.page,
+                                lastStatus = "ANOMALY",
+                                lastError = "Portal repeated a catalog page while loading page ${page.page}.",
+                                retryAfterMs = 0L
+                            )
+                            vodCategoryHydrationDao.upsert(hydration!!)
+                            return@withLock Result.error(hydration!!.lastError ?: "Portal repeated a catalog page")
+                        }
                         val category = categoryDao.getByProviderAndTypeSync(providerId, ContentType.VOD.name)
                             .firstOrNull { it.categoryId == categoryId }
                         val protected = category?.isUserProtected == true
@@ -546,6 +583,13 @@ class SyncManager @Inject constructor(
                                 )
                             }
                         }
+                        val pageLimitReached = request == com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
+                            remotePagesRequested >= STALKER_COMPLETE_PAGE_BATCH_SIZE &&
+                            !page.isComplete
+                        val truncated = page.isTruncated || pageLimitReached
+                        val pageComplete = page.isComplete && !truncated
+                        val terminationReason = page.terminationReason
+                            ?: "page_limit".takeIf { pageLimitReached }
                         transactionRunner.inTransaction {
                             movieDao.upsertCategoryPage(providerId, movies)
                             seriesDao.upsertCategoryPage(providerId, series)
@@ -558,23 +602,25 @@ class SyncManager @Inject constructor(
                                 lastAttemptedPage = page.page,
                                 lastSuccessfulPage = page.page,
                                 totalPages = page.totalPages,
+                                advertisedTotalItems = page.advertisedTotalItems,
+                                advertisedTotalPages = page.advertisedTotalPages,
                                 pageSize = page.pageSize,
                                 itemCount = persistedCount,
-                                isComplete = page.isComplete,
+                                isComplete = pageComplete,
                                 hasMovies = (hydration?.hasMovies == true) || movies.isNotEmpty(),
                                 hasSeries = (hydration?.hasSeries == true) || series.isNotEmpty(),
                                 lastHydratedAt = attemptAt,
-                                lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
-                                lastError = page.terminationReason,
+                                lastStatus = if (truncated) "TRUNCATED" else "SUCCESS",
+                                lastError = terminationReason,
                                 retryAfterMs = 0L,
                                 failureCount = 0,
                                 retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
-                                lastPageFingerprint = entries.joinToString("|") { it.rawItemId }.takeIf(String::isNotEmpty)
+                                lastPageFingerprint = pageFingerprint
                             )
                             vodCategoryHydrationDao.upsert(hydration!!)
                         }
-                        if (page.isTruncated) return@withLock Result.error(page.terminationReason ?: "VOD response was truncated")
-                        if (page.isComplete) return@withLock Result.success(Unit)
+                        if (truncated) return@withLock Result.error(terminationReason ?: "VOD response was truncated")
+                        if (pageComplete) return@withLock Result.success(Unit)
                         if (request != com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE) {
                             return@withLock Result.success(Unit)
                         }
@@ -641,8 +687,16 @@ class SyncManager @Inject constructor(
                 else -> movieCount
             }
             var nextPage = ((hydration?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
+            var remotePagesRequested = 0
+            val seenPageFingerprints = mutableSetOf<String>()
             while (true) {
                 val attemptAt = System.currentTimeMillis()
+                if (request == com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
+                    remotePagesRequested >= STALKER_COMPLETE_PAGE_BATCH_SIZE
+                ) {
+                    break
+                }
+                remotePagesRequested += 1
                 movieCategoryHydrationDao.upsert(
                     (hydration ?: com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
                         providerId,
@@ -665,6 +719,40 @@ class SyncManager @Inject constructor(
                 when (val pageResult = api.getSplitVodPage(movieCategoryId, seriesCategoryId, nextPage)) {
                     is Result.Success -> {
                         val page = pageResult.data
+                        if (
+                            hydration?.advertisedTotalPages != null &&
+                            page.advertisedTotalPages != null &&
+                            hydration?.advertisedTotalPages != page.advertisedTotalPages
+                        ) {
+                            val prior = hydration ?: com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                                providerId,
+                                movieCategoryId
+                            )
+                            hydration = prior.copy(
+                                lastAttemptedPage = page.page,
+                                lastStatus = "ANOMALY",
+                                lastError = "Portal changed its advertised catalog page count while loading.",
+                                retryAfterMs = 0L
+                            )
+                            movieCategoryHydrationDao.upsert(hydration!!)
+                            return@withLock Result.error(hydration!!.lastError ?: "Portal changed its advertised page count")
+                        }
+                        val pageFingerprint = page.items.joinToString("|") { it.rawItemId }
+                            .takeIf(String::isNotEmpty)
+                        if (pageFingerprint != null && !seenPageFingerprints.add(pageFingerprint)) {
+                            val prior = hydration ?: com.streamvault.data.local.entity.MovieCategoryHydrationEntity(
+                                providerId,
+                                movieCategoryId
+                            )
+                            hydration = prior.copy(
+                                lastAttemptedPage = page.page,
+                                lastStatus = "ANOMALY",
+                                lastError = "Portal repeated a catalog page while loading page ${page.page}.",
+                                retryAfterMs = 0L
+                            )
+                            movieCategoryHydrationDao.upsert(hydration!!)
+                            return@withLock Result.error(hydration!!.lastError ?: "Portal repeated a catalog page")
+                        }
                         val movies = page.items.mapNotNull { (it.item as? VodCatalogItem.MovieItem)?.movie?.toEntity() }
                         val incomingSeries = page.items.mapNotNull {
                             (it.item as? VodCatalogItem.SeriesItem)?.series
@@ -672,6 +760,13 @@ class SyncManager @Inject constructor(
                                 ?.toEntity()
                         }
                         val now = attemptAt
+                        val pageLimitReached = request == com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
+                            remotePagesRequested >= STALKER_COMPLETE_PAGE_BATCH_SIZE &&
+                            !page.isComplete
+                        val truncated = page.isTruncated || pageLimitReached
+                        val pageComplete = page.isComplete && !truncated
+                        val terminationReason = page.terminationReason
+                            ?: "page_limit".takeIf { pageLimitReached }
                         val existingSeriesHydration = seriesCategoryHydrationDao.get(providerId, seriesCategoryId)
                         transactionRunner.inTransaction {
                             movieDao.upsertCategoryPage(providerId, movies)
@@ -709,17 +804,18 @@ class SyncManager @Inject constructor(
                                 categoryId = movieCategoryId,
                                 lastHydratedAt = now,
                                 itemCount = movieCount,
-                                lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
-                                lastError = page.terminationReason,
+                                lastStatus = if (truncated) "TRUNCATED" else "SUCCESS",
+                                lastError = terminationReason,
                                 lastLoadedPage = page.page,
                                 lastAttemptedPage = page.page,
                                 lastSuccessfulPage = page.page,
                                 totalPages = page.totalPages,
-                                isComplete = page.isComplete,
+                                advertisedTotalItems = page.advertisedTotalItems,
+                                advertisedTotalPages = page.advertisedTotalPages,
+                                isComplete = pageComplete,
                                 pageSize = page.pageSize,
                                 retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
-                                lastPageFingerprint = page.items.joinToString("|") { it.rawItemId }
-                                    .takeIf(String::isNotEmpty)
+                                lastPageFingerprint = pageFingerprint
                             )
                             movieCategoryHydrationDao.upsert(hydration!!)
                             if (incomingSeries.isNotEmpty() || existingSeriesHydration != null) {
@@ -729,27 +825,28 @@ class SyncManager @Inject constructor(
                                         categoryId = seriesCategoryId,
                                         lastHydratedAt = now,
                                         itemCount = seriesCount,
-                                        lastStatus = if (page.isTruncated) "TRUNCATED" else "SUCCESS",
-                                        lastError = page.terminationReason,
+                                        lastStatus = if (truncated) "TRUNCATED" else "SUCCESS",
+                                        lastError = terminationReason,
                                         lastLoadedPage = page.page,
                                         lastAttemptedPage = page.page,
                                         lastSuccessfulPage = page.page,
                                         totalPages = page.totalPages,
-                                        isComplete = page.isComplete,
+                                        advertisedTotalItems = page.advertisedTotalItems,
+                                        advertisedTotalPages = page.advertisedTotalPages,
+                                        isComplete = pageComplete,
                                         pageSize = page.pageSize,
                                         retryBudgetRemaining = STALKER_CATEGORY_RETRY_BUDGET,
-                                        lastPageFingerprint = page.items.joinToString("|") { it.rawItemId }
-                                            .takeIf(String::isNotEmpty)
+                                        lastPageFingerprint = pageFingerprint
                                     )
                                 )
                             }
                         }
-                        if (page.isTruncated) return@withLock Result.error(page.terminationReason ?: "VOD response was truncated")
+                        if (truncated) return@withLock Result.error(terminationReason ?: "VOD response was truncated")
                         val projectionCount = when (requestedProjection) {
                             ContentType.SERIES -> seriesDao.getCountByCategory(providerId, seriesCategoryId).first()
                             else -> movieCount
                         }
-                        if (page.isComplete ||
+                        if (pageComplete ||
                             (request != com.streamvault.domain.model.VodCategoryHydrationRequest.COMPLETE &&
                                 projectionCount > initialProjectionCount)
                         ) {
@@ -2651,6 +2748,8 @@ class SyncManager @Inject constructor(
             val items: List<Any>,
             val totalPages: Int,
             val pageSize: Int,
+            val advertisedTotalItems: Int?,
+            val advertisedTotalPages: Int?,
             val isComplete: Boolean,
             val isTruncated: Boolean,
             val terminationReason: String?,
@@ -2795,6 +2894,8 @@ class SyncManager @Inject constructor(
                         items = dedupedItems,
                         totalPages = result.data.totalPages,
                         pageSize = result.data.pageSize,
+                        advertisedTotalItems = result.data.advertisedTotalItems,
+                        advertisedTotalPages = result.data.advertisedTotalPages,
                         isComplete = result.data.isComplete,
                         isTruncated = result.data.isTruncated,
                         terminationReason = result.data.terminationReason,
@@ -2889,6 +2990,8 @@ class SyncManager @Inject constructor(
                         itemCount = categoryCount,
                         totalPages = page.totalPages,
                         pageSize = page.pageSize,
+                        advertisedTotalItems = page.advertisedTotalItems,
+                        advertisedTotalPages = page.advertisedTotalPages,
                         pageComplete = pageComplete,
                         truncated = page.isTruncated,
                         terminationReason = page.terminationReason,
@@ -3097,6 +3200,7 @@ class SyncManager @Inject constructor(
                             pageSize = result.data.pageSize,
                             advertisedTotalItems = result.data.advertisedTotalItems,
                             advertisedTotalPages = result.data.advertisedTotalPages,
+                            hasAdvertisedTotal = result.data.hasAdvertisedTotal,
                             isTruncated = result.data.isTruncated,
                             terminationReason = result.data.terminationReason
                         ),
@@ -3152,6 +3256,8 @@ class SyncManager @Inject constructor(
                         itemCount = indexedRowsEstimate,
                         totalPages = result.data.totalPages,
                         pageSize = result.data.pageSize,
+                        advertisedTotalItems = result.data.advertisedTotalItems,
+                        advertisedTotalPages = result.data.advertisedTotalPages,
                         pageComplete = pageComplete,
                         truncated = result.data.isTruncated,
                         terminationReason = result.data.terminationReason,
@@ -3237,6 +3343,8 @@ class SyncManager @Inject constructor(
         val lastAttemptedPage: Int,
         val lastSuccessfulPage: Int,
         val totalPages: Int,
+        val advertisedTotalItems: Int?,
+        val advertisedTotalPages: Int?,
         val isComplete: Boolean,
         val pageSize: Int,
         val retryAfterMs: Long,
@@ -3269,6 +3377,8 @@ class SyncManager @Inject constructor(
                 lastAttemptedPage = hydration.lastAttemptedPage,
                 lastSuccessfulPage = hydration.lastSuccessfulPage,
                 totalPages = hydration.totalPages,
+                advertisedTotalItems = hydration.advertisedTotalItems,
+                advertisedTotalPages = hydration.advertisedTotalPages,
                 isComplete = hydration.isComplete,
                 pageSize = hydration.pageSize,
                 retryAfterMs = hydration.retryAfterMs,
@@ -3287,6 +3397,8 @@ class SyncManager @Inject constructor(
                 lastAttemptedPage = hydration.lastAttemptedPage,
                 lastSuccessfulPage = hydration.lastSuccessfulPage,
                 totalPages = hydration.totalPages,
+                advertisedTotalItems = hydration.advertisedTotalItems,
+                advertisedTotalPages = hydration.advertisedTotalPages,
                 isComplete = hydration.isComplete,
                 pageSize = hydration.pageSize,
                 retryAfterMs = hydration.retryAfterMs,
@@ -3340,6 +3452,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
                     totalPages = hydration?.totalPages ?: 0,
+                    advertisedTotalItems = hydration?.advertisedTotalItems,
+                    advertisedTotalPages = hydration?.advertisedTotalPages,
                     isComplete = hydration?.isComplete ?: false,
                     pageSize = hydration?.pageSize ?: 0,
                     retryAfterMs = 0L,
@@ -3360,6 +3474,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
                     totalPages = hydration?.totalPages ?: 0,
+                    advertisedTotalItems = hydration?.advertisedTotalItems,
+                    advertisedTotalPages = hydration?.advertisedTotalPages,
                     isComplete = hydration?.isComplete ?: false,
                     pageSize = hydration?.pageSize ?: 0,
                     retryAfterMs = 0L,
@@ -3382,6 +3498,8 @@ class SyncManager @Inject constructor(
         itemCount: Int,
         totalPages: Int,
         pageSize: Int,
+        advertisedTotalItems: Int? = null,
+        advertisedTotalPages: Int? = null,
         pageComplete: Boolean,
         truncated: Boolean = false,
         terminationReason: String? = null,
@@ -3401,6 +3519,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = attemptedPage,
                     totalPages = totalPages,
+                    advertisedTotalItems = advertisedTotalItems,
+                    advertisedTotalPages = advertisedTotalPages,
                     isComplete = pageComplete && !truncated,
                     pageSize = pageSize,
                     retryAfterMs = 0L,
@@ -3421,6 +3541,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = attemptedPage,
                     totalPages = totalPages,
+                    advertisedTotalItems = advertisedTotalItems,
+                    advertisedTotalPages = advertisedTotalPages,
                     isComplete = pageComplete && !truncated,
                     pageSize = pageSize,
                     retryAfterMs = 0L,
@@ -3473,6 +3595,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
                     totalPages = hydration?.totalPages ?: 0,
+                    advertisedTotalItems = hydration?.advertisedTotalItems,
+                    advertisedTotalPages = hydration?.advertisedTotalPages,
                     isComplete = hydration?.isComplete ?: false,
                     pageSize = hydration?.pageSize ?: 0,
                     retryAfterMs = retryAfterMs,
@@ -3493,6 +3617,8 @@ class SyncManager @Inject constructor(
                     lastAttemptedPage = attemptedPage,
                     lastSuccessfulPage = hydration?.lastSuccessfulPage ?: 0,
                     totalPages = hydration?.totalPages ?: 0,
+                    advertisedTotalItems = hydration?.advertisedTotalItems,
+                    advertisedTotalPages = hydration?.advertisedTotalPages,
                     isComplete = hydration?.isComplete ?: false,
                     pageSize = hydration?.pageSize ?: 0,
                     retryAfterMs = retryAfterMs,
@@ -3549,6 +3675,7 @@ class SyncManager @Inject constructor(
                     page = 1,
                     totalPages = truncation.pageLimit,
                     pageSize = 0,
+                    hasAdvertisedTotal = true,
                     advertisedTotalPages = truncation.advertisedTotalPages,
                     isTruncated = true,
                     terminationReason = "page_limit"
@@ -3621,6 +3748,13 @@ class SyncManager @Inject constructor(
         if (hydration != null && hydration.totalPages > 0 && pagedResult.totalPages > 0) {
             if (pagedResult.totalPages < hydration.lastSuccessfulPage) {
                 return "Portal page count regressed below the last successful page."
+            }
+            if (
+                hydration.advertisedTotalPages != null &&
+                pagedResult.advertisedTotalPages != null &&
+                hydration.advertisedTotalPages != pagedResult.advertisedTotalPages
+            ) {
+                return "Portal changed its advertised catalog page count while indexing."
             }
             if (
                 hydration.lastAttemptedPage == requestedPage &&
