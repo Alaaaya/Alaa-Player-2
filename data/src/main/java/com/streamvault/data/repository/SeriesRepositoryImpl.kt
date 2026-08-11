@@ -90,6 +90,7 @@ class SeriesRepositoryImpl @Inject constructor(
         const val STALKER_PREVIEW_MAX_REMOTE_PAGES = 2
         const val STALKER_INITIAL_CATEGORY_FILL_COUNT = 40
         const val STALKER_INITIAL_CATEGORY_MAX_REMOTE_PAGES = 4
+        const val STALKER_COMPLETE_PAGE_BATCH_SIZE = 200
         const val DETAIL_REFRESH_TTL_MILLIS = 14L * 24L * 60L * 60L * 1000L
         const val XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS = 8_000L
         const val CACHE_STATE_SUMMARY_ONLY = "SUMMARY_ONLY"
@@ -361,8 +362,11 @@ class SeriesRepositoryImpl @Inject constructor(
             VodCategoryHydration(
                 lastSuccessfulPage = it.lastSuccessfulPage,
                 totalPages = it.totalPages,
+                advertisedTotalItems = it.advertisedTotalItems,
+                advertisedTotalPages = it.advertisedTotalPages,
                 itemCount = it.itemCount,
                 isComplete = it.isComplete,
+                isTruncated = it.lastStatus == "TRUNCATED",
                 hasSeries = it.itemCount > 0,
                 isLoading = it.lastStatus == "RUNNING",
                 error = it.lastError
@@ -1626,7 +1630,6 @@ class SeriesRepositoryImpl @Inject constructor(
             (hydration?.lastSuccessfulPage ?: hydration?.lastLoadedPage ?: 0) > 0
         if (hasEmptySuccessfulCheckpoint) return true
         if (hydration?.isComplete == true) return false
-        if (hydration?.lastStatus == "TRUNCATED" && !loadCompletely) return false
         if (loadCompletely) return true
         if (localCount >= requiredCount) return false
         if (hydration?.lastStatus in setOf("FAILED_PERMANENT", "FAILED_BUDGET_EXHAUSTED")) return true
@@ -1667,7 +1670,7 @@ class SeriesRepositoryImpl @Inject constructor(
                 else -> requiredCount
             }
             val maxRemotePages = when {
-                loadCompletely -> Int.MAX_VALUE
+                loadCompletely -> STALKER_COMPLETE_PAGE_BATCH_SIZE
                 isPreviewLoad -> STALKER_PREVIEW_MAX_REMOTE_PAGES
                 isInitialCategoryFill -> STALKER_INITIAL_CATEGORY_MAX_REMOTE_PAGES
                 else -> 1
@@ -1686,11 +1689,12 @@ class SeriesRepositoryImpl @Inject constructor(
             // totalPages; subsequent iterations use the in-loop updated value.
             var firstIteration = true
             var remotePagesRequested = 0
+            val seenPageFingerprints = mutableSetOf<String>()
             while (currentCount < targetCount) {
                 val attemptStartedAt = System.currentTimeMillis()
                 if (isPreviewLoad && nextPage > STALKER_PREVIEW_MAX_REMOTE_PAGES) break
                 if (remotePagesRequested >= maxRemotePages) break
-                val totalPages = currentHydration?.totalPages ?: 0
+                val totalPages = currentHydration?.advertisedTotalPages ?: 0
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
                 firstIteration = false
                 remotePagesRequested += 1
@@ -1737,8 +1741,43 @@ class SeriesRepositoryImpl @Inject constructor(
                 }
                 when (val result = coordinatedResult) {
                     is Success -> {
+                        if (
+                            currentHydration?.advertisedTotalPages != null &&
+                            result.data.advertisedTotalPages != null &&
+                            currentHydration?.advertisedTotalPages != result.data.advertisedTotalPages
+                        ) {
+                            seriesCategoryHydrationDao.upsert(
+                                (currentHydration ?: SeriesCategoryHydrationEntity(providerId, categoryId)).copy(
+                                    lastAttemptedPage = result.data.page,
+                                    lastStatus = "ANOMALY",
+                                    lastError = "Portal changed its advertised catalog page count while loading.",
+                                    retryAfterMs = 0L
+                                )
+                            )
+                            break
+                        }
+                        val pageFingerprint = result.data.items.joinToString("|") {
+                            (it.providerSeriesId ?: it.seriesId).toString()
+                        }.takeIf(String::isNotEmpty)
+                        if (pageFingerprint != null && !seenPageFingerprints.add(pageFingerprint)) {
+                            seriesCategoryHydrationDao.upsert(
+                                (currentHydration ?: SeriesCategoryHydrationEntity(providerId, categoryId)).copy(
+                                    lastAttemptedPage = result.data.page,
+                                    lastStatus = "ANOMALY",
+                                    lastError = "Portal repeated a catalog page while loading page ${result.data.page}.",
+                                    retryAfterMs = 0L
+                                )
+                            )
+                            break
+                        }
                         val entities = result.data.items.map { series -> series.toEntity() }
                         val pageComplete = result.data.isComplete
+                        val pageLimitReached = loadCompletely &&
+                            remotePagesRequested >= STALKER_COMPLETE_PAGE_BATCH_SIZE &&
+                            !pageComplete
+                        val truncated = result.data.isTruncated || pageLimitReached
+                        val terminationReason = result.data.terminationReason
+                            ?: "page_limit".takeIf { pageLimitReached }
                         seriesDao.upsertCategoryPage(providerId, entities)
                         currentCount = seriesDao.getCountByCategory(providerId, categoryId).first()
                         currentHydration = SeriesCategoryHydrationEntity(
@@ -1746,22 +1785,23 @@ class SeriesRepositoryImpl @Inject constructor(
                             categoryId = categoryId,
                             lastHydratedAt = attemptStartedAt,
                             itemCount = currentCount,
-                            lastStatus = if (result.data.isTruncated) "TRUNCATED" else "SUCCESS",
-                            lastError = null,
+                            lastStatus = if (truncated) "TRUNCATED" else "SUCCESS",
+                            lastError = terminationReason,
                             lastLoadedPage = result.data.page,
                             lastAttemptedPage = result.data.page,
                             lastSuccessfulPage = result.data.page,
                             totalPages = result.data.totalPages,
-                            isComplete = pageComplete,
+                            advertisedTotalItems = result.data.advertisedTotalItems,
+                            advertisedTotalPages = result.data.advertisedTotalPages,
+                            isComplete = pageComplete && !truncated,
                             pageSize = result.data.pageSize,
                             retryAfterMs = 0L,
                             failureCount = 0,
                             retryBudgetRemaining = 3,
-                            lastPageFingerprint = result.data.items.joinToString("|") { it.seriesId.toString() }
-                                .takeIf(String::isNotEmpty)
+                            lastPageFingerprint = pageFingerprint
                         )
                         seriesCategoryHydrationDao.upsert(currentHydration!!)
-                        if (pageComplete) break
+                        if (pageComplete || truncated) break
                         nextPage = result.data.page + 1
                     }
                     is Result.Error -> {
@@ -1783,6 +1823,8 @@ class SeriesRepositoryImpl @Inject constructor(
                                 lastAttemptedPage = nextPage,
                                 lastSuccessfulPage = currentHydration?.lastSuccessfulPage ?: currentHydration?.lastLoadedPage ?: 0,
                                 totalPages = currentHydration?.totalPages ?: 0,
+                                advertisedTotalItems = currentHydration?.advertisedTotalItems,
+                                advertisedTotalPages = currentHydration?.advertisedTotalPages,
                                 isComplete = currentHydration?.isComplete ?: false,
                                 pageSize = currentHydration?.pageSize ?: 0,
                                 retryAfterMs = if (nextStatus == "FAILED_RETRYABLE") {

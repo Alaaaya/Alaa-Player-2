@@ -229,10 +229,17 @@ data class StalkerPagedItems(
     val pageSize: Int,
     val advertisedTotalItems: Int? = null,
     val advertisedTotalPages: Int? = null,
+    /** True when the portal supplied a reliable total-page hint for this response. */
+    val hasAdvertisedTotal: Boolean = true,
     val isTruncated: Boolean = false,
     val terminationReason: String? = null
 ) {
-    val isComplete: Boolean get() = !isTruncated && page >= totalPages
+    /**
+     * A response without totals is complete only when it is empty. A non-empty page with
+     * missing pagination metadata must be continued until an empty page or a safety boundary.
+     */
+    val isComplete: Boolean
+        get() = !isTruncated && if (hasAdvertisedTotal) page >= totalPages else items.isEmpty()
 }
 
 data class StalkerSeriesDetails(
@@ -247,7 +254,8 @@ data class StalkerEpisodePaginationEvidence(
     val successfulPages: Int,
     val advertisedTotalPages: Int?,
     val repeatedPageDetected: Boolean = false,
-    val malformedPagination: Boolean = false
+    val malformedPagination: Boolean = false,
+    val pageLimitReached: Boolean = false
 )
 
 data class StalkerSeasonRecord(
