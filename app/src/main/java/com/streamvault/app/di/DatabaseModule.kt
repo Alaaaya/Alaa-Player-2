@@ -112,7 +112,9 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_68_69,
                 StreamVaultDatabase.MIGRATION_69_70,
                 StreamVaultDatabase.MIGRATION_70_71,
-                StreamVaultDatabase.MIGRATION_71_72
+                StreamVaultDatabase.MIGRATION_71_72,
+                StreamVaultDatabase.MIGRATION_72_73,
+                StreamVaultDatabase.MIGRATION_73_74
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -122,6 +124,7 @@ object DatabaseModule {
     fun provideJellyfinProvider(okHttpClient: OkHttpClient, gson: Gson): JellyfinProvider = JellyfinProvider(okHttpClient, gson)
 
     @Provides fun provideProviderDao(db: StreamVaultDatabase): ProviderDao = db.providerDao()
+    @Provides fun provideProviderSnapshotDao(db: StreamVaultDatabase): ProviderSnapshotDao = db.providerSnapshotDao()
     @Provides fun provideChannelDao(db: StreamVaultDatabase): ChannelDao = db.channelDao()
     @Provides fun provideChannelPreferenceDao(db: StreamVaultDatabase): ChannelPreferenceDao = db.channelPreferenceDao()
     @Provides fun provideMovieDao(db: StreamVaultDatabase): MovieDao = db.movieDao()

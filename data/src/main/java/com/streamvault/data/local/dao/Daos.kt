@@ -30,13 +30,6 @@ abstract class ProviderDao {
     @Query("SELECT * FROM providers WHERE is_active = 1 LIMIT 1")
     abstract fun getActive(): Flow<ProviderEntity?>
 
-    @Query("SELECT * FROM providers WHERE server_url = :serverUrl AND username = :username AND stalker_mac_address = :stalkerMacAddress")
-    abstract suspend fun getByUrlAndUser(
-        serverUrl: String,
-        username: String,
-        stalkerMacAddress: String = ""
-    ): ProviderEntity?
-
     @Query("SELECT * FROM providers WHERE id = :id")
     abstract suspend fun getById(id: Long): ProviderEntity?
 
@@ -66,19 +59,6 @@ abstract class ProviderDao {
 
     @Query("UPDATE providers SET last_synced_at = :timestamp WHERE id = :id")
     abstract suspend fun updateSyncTime(id: Long, timestamp: Long)
-
-    @Query("UPDATE providers SET epg_url = :epgUrl WHERE id = :id")
-    abstract suspend fun updateEpgUrl(id: Long, epgUrl: String)
-
-    @Query("UPDATE providers SET catalog_layout_detection_version = 0 WHERE id = :id")
-    abstract suspend fun invalidateCatalogLayoutDetection(id: Long)
-
-    @Query("UPDATE providers SET catalog_layout = :layout, catalog_layout_detection_version = :version WHERE id = :id")
-    abstract suspend fun updateCatalogLayout(
-        id: Long,
-        layout: com.streamvault.domain.model.CatalogLayout,
-        version: Int
-    )
 
     @Transaction
     open suspend fun insert(provider: ProviderEntity): Long {
@@ -110,7 +90,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -126,7 +109,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -142,7 +128,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -159,7 +148,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -176,7 +168,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -196,7 +191,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -212,7 +210,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -228,7 +229,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -249,7 +253,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -266,7 +273,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -283,7 +293,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -300,7 +313,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -320,7 +336,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -339,7 +358,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -361,7 +383,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -381,7 +406,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -407,7 +435,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -473,7 +504,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -488,7 +522,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id
@@ -504,7 +541,10 @@ abstract class ChannelDao {
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
                c.epg_channel_id, c.number, c.catch_up_supported, c.catch_up_days, c.catchUpSource,
-               c.provider_id, p.guide_source_policy, p.channel_logo_source_policy, ec.icon_url AS epg_icon_url,
+               c.provider_id,
+               (SELECT guide_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS guide_source_policy,
+               (SELECT channel_logo_source_policy FROM provider_configs WHERE provider_id = c.provider_id) AS channel_logo_source_policy,
+               ec.icon_url AS epg_icon_url,
                c.is_adult, c.is_user_protected, c.logical_group_id, c.error_count
         FROM channels c
         JOIN providers p ON p.id = c.provider_id

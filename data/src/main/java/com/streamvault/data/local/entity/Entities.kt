@@ -33,75 +33,69 @@ import com.streamvault.domain.model.XmltvTimezonePolicy
 
 @Entity(
     tableName = "providers",
-    indices = [Index(value = ["server_url", "username", "stalker_mac_address"], unique = true)]
+    indices = [Index(value = ["type"]), Index(value = ["is_active"])]
 )
 data class ProviderEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val name: String,
     val type: ProviderType,
-    @ColumnInfo(name = "server_url") val serverUrl: String,
-    val username: String = "",
-    val password: String = "",
-    @ColumnInfo(name = "m3u_url") val m3uUrl: String = "",
-    @ColumnInfo(name = "epg_url") val epgUrl: String = "",
-    @ColumnInfo(name = "http_user_agent") val httpUserAgent: String = "",
-    @ColumnInfo(name = "http_headers") val httpHeaders: String = "",
-    @ColumnInfo(name = "stalker_mac_address") val stalkerMacAddress: String = "",
-    @ColumnInfo(name = "stalker_device_profile") val stalkerDeviceProfile: String = "",
-    @ColumnInfo(name = "stalker_device_timezone") val stalkerDeviceTimezone: String = "",
-    @ColumnInfo(name = "stalker_device_locale") val stalkerDeviceLocale: String = "",
-    @ColumnInfo(name = "stalker_serial_number") val stalkerSerialNumber: String = "",
-    @ColumnInfo(name = "stalker_device_id") val stalkerDeviceId: String = "",
-    @ColumnInfo(name = "stalker_device_id2") val stalkerDeviceId2: String = "",
-    @ColumnInfo(name = "stalker_signature") val stalkerSignature: String = "",
-    @ColumnInfo(name = "stalker_advanced_options_json") val stalkerAdvancedOptionsJson: String = "",
-    @ColumnInfo(name = "stalker_auth_mode") val stalkerAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
-    @ColumnInfo(name = "stalker_portal_profile") val stalkerPortalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
-    @ColumnInfo(name = "stalker_portal_fingerprint") val stalkerPortalFingerprint: StalkerPortalFingerprint = StalkerPortalFingerprint.BASIC_MAC,
-    @ColumnInfo(name = "stalker_mag_preset") val stalkerMagPreset: StalkerMagPreset = StalkerMagPreset.GENERIC_SAFE,
-    @ColumnInfo(name = "stalker_protocol_preference") val stalkerProtocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
-    @ColumnInfo(name = "stalker_transport_mode") val stalkerTransportMode: StalkerTransportMode = StalkerTransportMode.AUTO_STRICT,
-    @ColumnInfo(name = "stalker_transport_origin") val stalkerTransportOrigin: String = "",
-    @ColumnInfo(name = "stalker_tls_spki_sha256") val stalkerTlsSpkiSha256: String = "",
-    @ColumnInfo(name = "stalker_transport_consent_at") val stalkerTransportConsentAt: Long = 0L,
-    @ColumnInfo(name = "stalker_configuration_generation") val stalkerConfigurationGeneration: Long = 0L,
-    @ColumnInfo(name = "stalker_discovery_summary") val stalkerDiscoverySummary: String = "",
-    @ColumnInfo(name = "stalker_capabilities_json") val stalkerCapabilitiesJson: String = "",
-    @ColumnInfo(name = "stalker_requested_profile_id") val stalkerRequestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
-    @ColumnInfo(name = "stalker_learned_profile_id") val stalkerLearnedProfileId: String = "",
-    @ColumnInfo(name = "stalker_profile_revision") val stalkerProfileRevision: Int = 0,
-    @ColumnInfo(name = "stalker_profile_verification") val stalkerProfileVerification: StalkerProfileVerification = StalkerProfileVerification.UNVERIFIED,
-    @ColumnInfo(name = "stalker_protocol_family") val stalkerProtocolFamily: StalkerProtocolFamily = StalkerProtocolFamily.CLASSIC_MAG,
-    @ColumnInfo(name = "stalker_last_bootstrap_recipe") val stalkerLastBootstrapRecipe: StalkerBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
-    @ColumnInfo(name = "stalker_endpoint_preference") val stalkerEndpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
-    @ColumnInfo(name = "stalker_cookie_mode") val stalkerCookieMode: StalkerCookieMode = StalkerCookieMode.NONE,
-    @ColumnInfo(name = "stalker_playback_backend_hint") val stalkerPlaybackBackendHint: StalkerPlaybackBackendHint = StalkerPlaybackBackendHint.AUTO,
-    @ColumnInfo(name = "stalker_last_playback_mode") val stalkerLastPlaybackMode: String? = null,
-    @ColumnInfo(name = "stalker_credentials_required") val stalkerCredentialsRequired: Boolean = false,
-    @ColumnInfo(name = "stalker_mac_required") val stalkerMacRequired: Boolean = true,
-    @ColumnInfo(name = "stalker_uses_temp_links") val stalkerUsesTemporaryLinks: Boolean = false,
-    @ColumnInfo(name = "stalker_module_restricted") val stalkerModuleRestricted: Boolean = false,
-    @ColumnInfo(name = "stalker_strict_fingerprint_required") val stalkerStrictFingerprintRequired: Boolean = false,
-    @ColumnInfo(name = "stalker_recipe_fallback_used") val stalkerRecipeFallbackUsed: Boolean = false,
-    @ColumnInfo(name = "stalker_recipe_rediscovery_attempts") val stalkerRecipeRediscoveryAttempts: Int = 0,
     @ColumnInfo(name = "is_active") val isActive: Boolean = true,
+    val status: ProviderStatus = ProviderStatus.UNKNOWN,
+    @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long = 0,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
+)
+
+/** Authoritative typed configuration payload introduced in schema 73. */
+@Entity(
+    tableName = "provider_configs",
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"], unique = true),
+        Index(value = ["identity_key"], unique = true),
+        Index(value = ["type"])
+    ]
+)
+data class ProviderConfigEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    val type: ProviderType,
+    @ColumnInfo(name = "schema_version") val schemaVersion: Int,
+    @ColumnInfo(name = "configuration_generation") val configurationGeneration: Long,
+    @ColumnInfo(name = "identity_key") val identityKey: String,
+    /** JSON with credential values encrypted before serialization. */
+    @ColumnInfo(name = "encrypted_config_json") val encryptedConfigJson: String,
+    @ColumnInfo(name = "guide_source_policy") val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
+    @ColumnInfo(name = "channel_logo_source_policy") val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long
+)
+
+/** Account and catalog observations, intentionally separate from user configuration. */
+@Entity(
+    tableName = "provider_account_runtime",
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id"], unique = true)]
+)
+data class ProviderAccountRuntimeEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "provider_id") val providerId: Long,
     @ColumnInfo(name = "max_connections") val maxConnections: Int = 1,
     @ColumnInfo(name = "expiration_date") val expirationDate: Long? = null,
     @ColumnInfo(name = "api_version") val apiVersion: String? = null,
     @ColumnInfo(name = "allowed_output_formats_json") val allowedOutputFormatsJson: String = "[]",
-    @ColumnInfo(name = "epg_sync_mode") val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.UPFRONT,
-    @ColumnInfo(name = "stalker_catalog_mode") val stalkerCatalogMode: StalkerCatalogMode = StalkerCatalogMode.ON_DEMAND,
-    @ColumnInfo(name = "guide_source_policy") val guideSourcePolicy: GuideSourcePolicy = GuideSourcePolicy.AUTO,
-    @ColumnInfo(name = "channel_logo_source_policy") val channelLogoSourcePolicy: ChannelLogoSourcePolicy = ChannelLogoSourcePolicy.SUPPLIER_PREFERRED,
-    @ColumnInfo(name = "xtream_fast_sync_enabled") val xtreamFastSyncEnabled: Boolean = false,
-    @ColumnInfo(name = "xtream_live_sync_mode") val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,
-    @ColumnInfo(name = "m3u_vod_classification_enabled") val m3uVodClassificationEnabled: Boolean = false,
     @ColumnInfo(name = "catalog_layout") val catalogLayout: CatalogLayout = CatalogLayout.SPLIT,
     @ColumnInfo(name = "catalog_layout_detection_version") val catalogLayoutDetectionVersion: Int = 0,
-    val status: ProviderStatus = ProviderStatus.UNKNOWN,
-    @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long = 0,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
+    @ColumnInfo(name = "observed_at") val observedAt: Long = 0L
 )
 
 /** Lifecycle of a provider configuration which has not yet replaced the committed row. */

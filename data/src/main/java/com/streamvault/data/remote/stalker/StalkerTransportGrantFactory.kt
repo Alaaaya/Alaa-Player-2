@@ -1,13 +1,13 @@
 package com.streamvault.data.remote.stalker
 
-import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.StalkerTransportOrigin
 import java.net.URI
 
 /** Rebuilds the persisted user-approved transport policy for lazy Stalker requests. */
-internal fun ProviderEntity.stalkerTransportGrantOrNull(): StalkerTransportGrant? {
+internal fun Provider.stalkerTransportGrantOrNull(): StalkerTransportGrant? {
     if (stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_HTTP &&
         stalkerTransportMode != StalkerTransportMode.USER_ACCEPTED_UNVERIFIED_HTTPS &&
         stalkerTransportMode != StalkerTransportMode.VERIFIED_HTTPS

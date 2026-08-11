@@ -19,6 +19,7 @@ import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.DiscoveryBudget
 import com.streamvault.domain.util.StreamEntryUrlPolicy
+import com.streamvault.data.util.runSuspendCatching
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -44,6 +45,7 @@ import java.util.Base64
 import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -99,14 +101,21 @@ class OkHttpStalkerApiService @Inject constructor(
     private val sessionScopes = ConcurrentHashMap<String, SessionScope>()
     private val stalkerHttpClients = ConcurrentHashMap<String, OkHttpClient>()
     private val resolvedLoadUrls = ConcurrentHashMap<String, String>()
+    private val scopeAliases = ConcurrentHashMap<String, String>()
+    private val nextAuthEpoch = AtomicLong(System.currentTimeMillis())
 
     override suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>> {
         profile.discoveryRuntime.begin()
+        val authProfile = profile.copy(authEpoch = nextAuthEpoch.incrementAndGet())
         return try {
             // Each network call is capped by the remaining wall-time and consumeRequest checks
             // elapsed time before dispatch. Avoid a second coroutine timer here: virtual-time
             // dispatchers can otherwise race an already-completed OkHttp callback.
-            authenticateWithinBudget(profile)
+            authenticateWithinBudget(authProfile).also { result ->
+                if (result is Result.Success) {
+                    scopeAliases[sessionScopeAliasKey(profile)] = result.data.first.sessionScopeKey
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: StalkerApiError) {
@@ -253,6 +262,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         loadUrl = loadUrl,
                         portalReferer = referer,
                         token = token,
+                        authEpoch = attemptProfile.authEpoch,
                         sessionScopeKey = sessionScopeKey(attemptProfile)
                     )
                     if (recipe.preferLocalizationBeforeProfile) {
@@ -582,6 +592,11 @@ class OkHttpStalkerApiService @Inject constructor(
                     )
                     session = session.copy(
                         serverCookieHeader = cookieJar.cookieHeaderFor(loadUrl),
+                        authenticatedAtMillis = System.currentTimeMillis(),
+                        expiresAtMillis = listOfNotNull(
+                            System.currentTimeMillis() + STALKER_SESSION_MAX_AGE_MILLIS,
+                            providerProfile.expirationDate?.takeIf { it > System.currentTimeMillis() }
+                        ).minOrNull(),
                         effectiveAuthMode = effectiveAuthMode,
                         portalProfile = portalProfile,
                         portalFingerprint = fingerprint,
@@ -856,7 +871,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 if (pageEntries.isEmpty()) break
             }
         }
-        val seriesItems = seriesPayload.toItemRecords()
+        val seriesItems = seriesPayload.toItemRecords(profile.timezone.toPortalZoneId())
         val series = seriesItems.firstOrNull { item -> !item.looksLikeSeasonShell() }
             ?: StalkerItemRecord(
                 id = seriesId,
@@ -1222,6 +1237,16 @@ class OkHttpStalkerApiService @Inject constructor(
             .orEmpty()
             .ifBlank { session.serverCookieHeader }
 
+    override fun invalidateSessionScopes(providerId: Long) {
+        val prefix = "provider:$providerId|"
+        sessionScopes.keys.filter { it.startsWith(prefix) }.forEach { key ->
+            sessionScopes.remove(key)
+            stalkerHttpClients.keys.removeIf { clientKey -> clientKey.startsWith("$key|") }
+            resolvedLoadUrls.keys.removeIf { resolvedKey -> resolvedKey.startsWith("$key|") }
+        }
+        scopeAliases.keys.filter { it.startsWith(prefix) }.forEach(scopeAliases::remove)
+    }
+
     private suspend fun fetchPagedItems(
         session: StalkerSession,
         profile: StalkerDeviceProfile,
@@ -1235,7 +1260,8 @@ class OkHttpStalkerApiService @Inject constructor(
             query = baseQuery + ("p" to "1")
         )
         val items = mutableListOf<StalkerItemRecord>()
-        items += firstPage.toItemRecords()
+        val zoneId = profile.timezone.toPortalZoneId()
+        items += firstPage.toItemRecords(zoneId)
         val advertisedTotalPages = firstPage.advertisedTotalPages()
         // Huge catalogs (e.g. 218k items at 14/page = 15,600 pages) are common on
         // Flussonic/NFS-backed Stalker portals. Instead of aborting the entire
@@ -1250,7 +1276,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 token = session.token,
                 query = baseQuery + ("p" to page.toString())
             )
-            items += pagePayload.toItemRecords()
+            items += pagePayload.toItemRecords(zoneId)
         }
         return items
     }
@@ -1269,7 +1295,7 @@ class OkHttpStalkerApiService @Inject constructor(
             token = session.token,
             query = baseQuery + ("p" to safePage.toString())
         )
-        val items = payload.toItemRecords()
+        val items = payload.toItemRecords(profile.timezone.toPortalZoneId())
         val pageSize = payload.pageSize(items.size)
         val advertisedTotalItems = payload.advertisedTotalItems()
         val advertisedTotalPages = payload.advertisedTotalPages()
@@ -1300,7 +1326,7 @@ class OkHttpStalkerApiService @Inject constructor(
                     "action" to "get_all_channels",
                     "JsHttpRequest" to "1-xml"
                 )
-            ).toItemRecords()
+            ).toItemRecords(profile.timezone.toPortalZoneId())
         }.onFailure { error ->
             if (error is CancellationException) throw error
             Log.w(TAG, "Stalker get_all_channels failed; falling back to paged live catalog", error)
@@ -1418,8 +1444,6 @@ class OkHttpStalkerApiService @Inject constructor(
         profile.discoveryRuntime.consumeRequest()
         val startedAt = System.currentTimeMillis()
         return withTransportAwareStalkerCall(request, profile) { response ->
-            recordResolvedLoadUrl(request, response, profile)
-            captureResponseCookies(response, profile)
             if (!response.isSuccessful) {
                 StalkerTelemetry.httpResponse(
                     providerId = profile.providerId,
@@ -1433,11 +1457,12 @@ class OkHttpStalkerApiService @Inject constructor(
                 // A 401/403 served as an HTML page comes from an edge/WAF (e.g. Cloudflare)
                 // or a misconfigured endpoint, not from the portal's JSON auth layer; do not
                 // classify it as a portal authorization verdict.
-                val htmlErrorPage = runCatching {
-                    looksLikeHtml(response.peekBody(HTML_ERROR_SNIFF_BYTES).string())
-                }.getOrDefault(false)
+                val errorBody = runCatching {
+                    response.peekBody(HTML_ERROR_SNIFF_BYTES).string()
+                }.getOrDefault("")
+                val htmlErrorPage = looksLikeHtml(errorBody)
                 response.body?.close()
-                throw response.toStalkerHttpError(htmlErrorPage)
+                throw response.toStalkerHttpError(htmlErrorPage, errorBody)
             }
             val responseBody = response.body
                 ?: throw StalkerApiError.EmptyBody("Portal returned an empty response${actionSuffix(action)}.")
@@ -1463,6 +1488,8 @@ class OkHttpStalkerApiService @Inject constructor(
                 // the trailing diagnostic text is not part of the playback contract.
                 val parsed = parseCreateLinkEnvelope(responseBody.byteStream(), charset.name(), action)
                 parsed.ensureNoPortalError()
+                recordResolvedLoadUrl(request, response, profile)
+                captureResponseCookies(response, profile)
                 StalkerTelemetry.httpResponse(
                     providerId = profile.providerId,
                     endpointFamily = endpointFamily(request),
@@ -1485,6 +1512,8 @@ class OkHttpStalkerApiService @Inject constructor(
             }
             val parsed = parsePortalJson(raw, action)
             parsed.ensureNoPortalError()
+            recordResolvedLoadUrl(request, response, profile)
+            captureResponseCookies(response, profile)
             StalkerTelemetry.httpResponse(
                 providerId = profile.providerId,
                 endpointFamily = endpointFamily(request),
@@ -1633,7 +1662,6 @@ class OkHttpStalkerApiService @Inject constructor(
         profile.discoveryRuntime.consumeRequest()
         val startedAt = System.currentTimeMillis()
         return withTransportAwareStalkerCall(request, profile) { response ->
-            captureResponseCookies(response, profile)
             if (!response.isSuccessful) {
                 throw response.toStalkerHttpError()
             }
@@ -1642,7 +1670,9 @@ class OkHttpStalkerApiService @Inject constructor(
             val reader = JsonReader(InputStreamReader(body.byteStream(), charset))
             reader.isLenient = true
             try {
-                streamStalkerItems(reader, onItem).also { itemCount ->
+                streamStalkerItems(reader, profile.timezone.toPortalZoneId(), onItem).also { itemCount ->
+                    recordResolvedLoadUrl(request, response, profile)
+                    captureResponseCookies(response, profile)
                     StalkerTelemetry.httpResponse(
                         providerId = profile.providerId,
                         endpointFamily = endpointFamily(request),
@@ -1661,11 +1691,12 @@ class OkHttpStalkerApiService @Inject constructor(
 
     private suspend fun streamStalkerItems(
         reader: JsonReader,
+        zoneId: ZoneId,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int {
         return when (reader.peek()) {
-            JsonToken.BEGIN_ARRAY -> streamItemArray(reader, onItem)
-            JsonToken.BEGIN_OBJECT -> streamItemObject(reader, onItem)
+            JsonToken.BEGIN_ARRAY -> streamItemArray(reader, zoneId, onItem)
+            JsonToken.BEGIN_OBJECT -> streamItemObject(reader, zoneId, onItem)
             JsonToken.NULL -> {
                 reader.nextNull()
                 0
@@ -1679,6 +1710,7 @@ class OkHttpStalkerApiService @Inject constructor(
 
     private suspend fun streamItemObject(
         reader: JsonReader,
+        zoneId: ZoneId,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int {
         var count = 0
@@ -1695,7 +1727,7 @@ class OkHttpStalkerApiService @Inject constructor(
                         throw invalidTokenError()
                     }
                 }
-                "js", "data", "items" -> count += streamStalkerItems(reader, onItem)
+                "js", "data", "items" -> count += streamStalkerItems(reader, zoneId, onItem)
                 else -> {
                     // Object-keyed catalogs (e.g. `{"data":{"100":{...},"200":{...}}}`) use
                     // numeric string keys for each item. Attempt to parse any object value as
@@ -1703,7 +1735,7 @@ class OkHttpStalkerApiService @Inject constructor(
                     // silently dropped on the streaming path.
                     if (reader.peek() == JsonToken.BEGIN_OBJECT) {
                         val element = JsonParser.parseReader(reader)
-                        val item = element.asJsonObjectOrNull()?.toItemRecord()
+                        val item = element.asJsonObjectOrNull()?.toItemRecord(zoneId)
                         if (item != null) {
                             onItem(item)
                             count++
@@ -1720,6 +1752,7 @@ class OkHttpStalkerApiService @Inject constructor(
 
     private suspend fun streamItemArray(
         reader: JsonReader,
+        zoneId: ZoneId,
         onItem: suspend (StalkerItemRecord) -> Unit
     ): Int {
         var count = 0
@@ -1727,13 +1760,13 @@ class OkHttpStalkerApiService @Inject constructor(
         while (reader.hasNext()) {
             if (reader.peek() == JsonToken.BEGIN_OBJECT) {
                 val element = JsonParser.parseReader(reader)
-                val item = element.asJsonObjectOrNull()?.toItemRecord()
+                val item = element.asJsonObjectOrNull()?.toItemRecord(zoneId)
                 if (item != null) {
                     onItem(item)
                     count++
                 }
             } else {
-                count += streamStalkerItems(reader, onItem)
+                count += streamStalkerItems(reader, zoneId, onItem)
             }
         }
         reader.endArray()
@@ -1784,7 +1817,6 @@ class OkHttpStalkerApiService @Inject constructor(
     ): Int {
         profile.discoveryRuntime.consumeRequest()
         return withTransportAwareStalkerCall(request, profile) { response ->
-            captureResponseCookies(response, profile)
             if (!response.isSuccessful) {
                 throw response.toStalkerHttpError()
             }
@@ -1800,7 +1832,10 @@ class OkHttpStalkerApiService @Inject constructor(
             val reader = JsonReader(InputStreamReader(limited, charset))
             reader.isLenient = true
             try {
-                streamStalkerPrograms(reader, channelIdOverride, profile.timezone.toPortalZoneId(), onProgram)
+                streamStalkerPrograms(reader, channelIdOverride, profile.timezone.toPortalZoneId(), onProgram).also {
+                    recordResolvedLoadUrl(request, response, profile)
+                    captureResponseCookies(response, profile)
+                }
             } catch (error: IllegalStateException) {
                 throw IOException("Portal returned unreadable JSON${actionSuffix(action)}.", error)
             }
@@ -2141,7 +2176,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 lastPageFailure = error
                 continue
             }
-            channels = pagePayload.toItemRecords()
+            channels = pagePayload.toItemRecords(profile.timezone.toPortalZoneId())
             if (channels.isNotEmpty()) break
         }
         if (channels.isEmpty()) {
@@ -2637,7 +2672,7 @@ class OkHttpStalkerApiService @Inject constructor(
             "action" to "do_auth",
             "JsHttpRequest" to "1-xml"
         )
-        return runCatching {
+        return runSuspendCatching {
             requestJson(
                 url = url,
                 profile = profile,
@@ -2700,7 +2735,10 @@ class OkHttpStalkerApiService @Inject constructor(
     private fun resolvedLoadUrlKey(loadUrl: String, profile: StalkerDeviceProfile): String =
         "${sessionScopeKey(profile)}|${StalkerUrlFactory.normalizePortalUrl(loadUrl)}"
 
-    private fun Response.toStalkerHttpError(htmlErrorPage: Boolean = false): StalkerApiError {
+    private fun Response.toStalkerHttpError(
+        htmlErrorPage: Boolean = false,
+        bodySnippet: String = ""
+    ): StalkerApiError {
         val retryAfterMillis = header("Retry-After")
             ?.trim()
             ?.let { raw ->
@@ -2714,14 +2752,19 @@ class OkHttpStalkerApiService @Inject constructor(
                     }.getOrNull()
             }
         return when (code) {
-            401, 403 -> if (htmlErrorPage) {
+            401 -> StalkerApiError.SessionExpired(
+                message = "Portal session expired with HTTP 401.",
+                httpStatus = 401,
+                reason = "http_401"
+            )
+            403 -> if (htmlErrorPage || !bodySnippet.isSessionAuthorizationBody()) {
                 StalkerApiError.BlockedOrConfiguration(
                     message = "Portal request was blocked with HTTP $code.",
-                    portalReason = "html_error_page"
+                    portalReason = if (htmlErrorPage) "html_error_page" else "http_403_forbidden"
                 )
             } else {
-                StalkerApiError.Authorization(
-                    message = "Portal authorization failed with HTTP $code.",
+                StalkerApiError.SessionExpired(
+                    message = "Portal session expired with HTTP 403.",
                     httpStatus = code
                 )
             }
@@ -2739,9 +2782,25 @@ class OkHttpStalkerApiService @Inject constructor(
         }
     }
 
+    private fun String.isSessionAuthorizationBody(): Boolean {
+        val normalized = lowercase(Locale.ROOT)
+        return listOf(
+            "not_valid_token",
+            "invalid token",
+            "token expired",
+            "session expired",
+            "authorization failed",
+            "unauthorized"
+        ).any(normalized::contains)
+    }
+
     private fun sessionScopeFor(profile: StalkerDeviceProfile): SessionScope {
         val now = System.currentTimeMillis()
-        val key = sessionScopeKey(profile)
+        val key = if (profile.authEpoch > 0L) {
+            sessionScopeKey(profile)
+        } else {
+            scopeAliases[sessionScopeAliasKey(profile)] ?: sessionScopeKey(profile)
+        }
         val scope = sessionScopes.computeIfAbsent(key) { SessionScope(lastAccessAt = now) }
         scope.lastAccessAt = now
         if (sessionScopes.size > MAX_SESSION_SCOPES) {
@@ -2779,9 +2838,30 @@ class OkHttpStalkerApiService @Inject constructor(
             profile.compatibilityProfileId,
             profile.advancedOptions.proxy?.let { "${it.host}:${it.port}" }.orEmpty()
         ).joinToString("\u001f")
-        return MessageDigest.getInstance("SHA-256")
+        val digest = MessageDigest.getInstance("SHA-256")
             .digest(normalized.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "provider:${profile.providerId}|epoch:${profile.authEpoch}|$digest"
+    }
+
+    private fun sessionScopeAliasKey(profile: StalkerDeviceProfile): String {
+        val normalized = listOf(
+            profile.providerId,
+            StalkerUrlFactory.normalizePortalUrl(profile.portalUrl),
+            profile.macAddress.trim().uppercase(Locale.ROOT),
+            profile.username.trim(),
+            profile.password,
+            profile.deviceProfile.trim(),
+            profile.deviceId.trim(),
+            profile.deviceId2.trim(),
+            profile.serialNumber.trim(),
+            profile.compatibilityProfileId,
+            profile.advancedOptions.proxy?.let { "${it.host}:${it.port}" }.orEmpty()
+        ).joinToString("\u001f")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(normalized.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "provider:${profile.providerId}|alias|$digest"
     }
 
     private fun hashDiscoveryHeaderPolicy(profile: StalkerDeviceProfile): String {
@@ -2954,13 +3034,13 @@ class OkHttpStalkerApiService @Inject constructor(
         }
     }
 
-    private fun JsonElement.toItemRecords(): List<StalkerItemRecord> =
-        extractItemEntries().mapNotNull { entry -> entry.toItemRecord() }
+    private fun JsonElement.toItemRecords(zoneId: ZoneId): List<StalkerItemRecord> =
+        extractItemEntries().mapNotNull { entry -> entry.toItemRecord(zoneId) }
 
     private fun JsonElement.extractItemEntries(): List<JsonObject> =
         extractListElements().mapNotNull { it.jsonObjectOrNull() }
 
-    private fun JsonObject.toItemRecord(): StalkerItemRecord? {
+    private fun JsonObject.toItemRecord(zoneId: ZoneId): StalkerItemRecord? {
         val id = findString("id")
             ?: findString("ch_id")
             ?: findString("video_id")
@@ -3030,7 +3110,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 findString("cmd"),
                 findString("container_extension")
             ),
-            addedAt = parseDateTime(findString("added")) ?: 0L,
+            addedAt = parseDateTime(findString("added"), zoneId) ?: 0L,
             isAdult = findBoolean("censored") == true,
             isSeries = findBoolean("is_series") == true || findString("is_series") == "1",
             hasSeriesMarker = findString("is_series")?.trim()?.lowercase() in
@@ -3038,7 +3118,7 @@ class OkHttpStalkerApiService @Inject constructor(
         )
     }
 
-    private fun GsonJsonObject.toItemRecord(): StalkerItemRecord? {
+    private fun GsonJsonObject.toItemRecord(zoneId: ZoneId): StalkerItemRecord? {
         val id = findString("id")
             ?: findString("ch_id")
             ?: findString("video_id")
@@ -3108,7 +3188,7 @@ class OkHttpStalkerApiService @Inject constructor(
                 findString("cmd"),
                 findString("container_extension")
             ),
-            addedAt = parseDateTime(findString("added")) ?: 0L,
+            addedAt = parseDateTime(findString("added"), zoneId) ?: 0L,
             isAdult = findBoolean("censored") == true,
             isSeries = findBoolean("is_series") == true || findString("is_series") == "1",
             hasSeriesMarker = findString("is_series")?.trim()?.lowercase() in
@@ -4137,6 +4217,9 @@ private fun StalkerDeviceProfile.withRecipe(
         discoveryBudget = discoveryBudget,
         discoveryRuntime = discoveryRuntime,
         onProgress = onProgress
+    ).copy(
+        providerId = providerId,
+        authEpoch = authEpoch
     )
 }
 

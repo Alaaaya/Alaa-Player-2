@@ -6,6 +6,8 @@ import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.CategoryEntity
+import com.streamvault.data.local.entity.ProviderConfigRevisionEntity
+import com.streamvault.data.local.entity.ProviderConfigRevisionState
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.local.entity.XtreamLiveOnboardingStateEntity
@@ -39,6 +41,34 @@ class ProviderSyncWorkerTest {
         runBlocking {
             whenever(categoryDao.getByProviderAndTypeSync(any(), any())).thenReturn(emptyList())
         }
+    }
+
+    @Test
+    fun `stale config work is a no-op after revision supersession or provider deletion`() {
+        val base = ProviderConfigRevisionEntity(
+            providerId = 7L,
+            revision = 1L,
+            configJson = "{}",
+            state = ProviderConfigRevisionState.SYNCING,
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+
+        assertThat(isObsoleteProviderConfigRevision(null, providerExists = false)).isTrue()
+        assertThat(isObsoleteProviderConfigRevision(base, providerExists = false)).isTrue()
+        assertThat(
+            isObsoleteProviderConfigRevision(
+                base.copy(state = ProviderConfigRevisionState.SUPERSEDED),
+                providerExists = true
+            )
+        ).isTrue()
+        assertThat(
+            isObsoleteProviderConfigRevision(
+                base.copy(state = ProviderConfigRevisionState.COMMITTED),
+                providerExists = true
+            )
+        ).isTrue()
+        assertThat(isObsoleteProviderConfigRevision(base, providerExists = true)).isFalse()
     }
 
     @Test

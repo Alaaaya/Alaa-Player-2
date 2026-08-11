@@ -12,7 +12,7 @@ import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackTransportMode
 import com.streamvault.domain.model.PlaybackTransportPolicy
 import com.streamvault.domain.model.Program
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
@@ -35,7 +35,7 @@ import com.streamvault.domain.model.StalkerTransportChallengeReason
 import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.StalkerTransportOrigin
-import com.streamvault.domain.provider.IptvProvider
+import com.streamvault.domain.provider.*
 import com.streamvault.domain.util.ChannelNormalizer
 import com.streamvault.data.remote.xtream.extractStreamExpirationTime
 import java.io.IOException
@@ -81,7 +81,7 @@ data class StalkerVodCatalogItem(
 )
 
 class StalkerProvider(
-    override val providerId: Long,
+    val providerId: Long,
     private val api: StalkerApiService,
     private val portalUrl: String,
     private val macAddress: String,
@@ -110,6 +110,7 @@ class StalkerProvider(
     private val transportGrant: StalkerTransportGrant? = null,
     private val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
     private val learnedProfileId: String = "",
+    private val configurationGeneration: Long = 0L,
     private val requireCatalogValidation: Boolean = true,
     private val catalogLayoutHint: CatalogLayout = CatalogLayout.UNKNOWN,
     private val catalogLayoutDetectionVersionHint: Int = 0,
@@ -118,7 +119,13 @@ class StalkerProvider(
     private val discoveryCoordinator: StalkerDiscoveryCoordinator =
         StalkerDiscoveryCoordinator(api),
     private val onProgress: ((String) -> Unit)? = null
-) : IptvProvider {
+) : ProviderAuthenticator,
+    LiveCatalogSource,
+    VodCatalogSource,
+    SeriesCatalogSource,
+    GuideSource,
+    PlaybackResolver,
+    CatchUpSource {
 internal companion object {
         private const val TAG = "StalkerProvider"
         private const val DEFAULT_PLAYER_USER_AGENT = "Lavf53.32.100"
@@ -127,6 +134,7 @@ internal companion object {
         private const val RESOLVED_URL_CACHE_MIN_TTL_MILLIS = 5_000L
         private const val RESOLVED_URL_CACHE_MAX_TTL_MILLIS = 300_000L
         private const val AUTH_FAILURE_COOLDOWN_MILLIS = 2_000L
+        private const val FALLBACK_SURROGATE_FLOOR = 4_000_000_000L
         const val CATALOG_LAYOUT_DETECTION_VERSION = 1
         private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
         private val sharedAuthFailureCache = ConcurrentHashMap<String, CachedAuthFailure>()
@@ -183,6 +191,7 @@ internal companion object {
             sharedAuthCache.remove(authCacheKey())
             sharedAuthFailureCache.remove(authCacheKey())
             clearResolvedStreamUrlCache()
+            api.invalidateSessionScopes(providerId)
         }
     }
 
@@ -447,7 +456,7 @@ internal companion object {
             providerId,
             ContentType.SERIES,
             listOf(rawId to name)
-        )?.get(rawId) ?: legacyStableId(ContentType.SERIES, rawId)
+        )?.get(rawId) ?: fallbackStableId(ContentType.SERIES, rawId)
         categoryCache[ContentType.SERIES] = categoryCache[ContentType.SERIES]
             .orEmpty()
             .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
@@ -465,7 +474,7 @@ internal companion object {
             providerId,
             ContentType.MOVIE,
             listOf(rawId to name)
-        )?.get(rawId) ?: legacyStableId(ContentType.MOVIE, rawId)
+        )?.get(rawId) ?: fallbackStableId(ContentType.MOVIE, rawId)
         categoryCache[ContentType.MOVIE] = categoryCache[ContentType.MOVIE]
             .orEmpty()
             .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
@@ -603,6 +612,18 @@ internal companion object {
 
     override suspend fun getSeriesInfo(seriesId: Long): Result<Series> =
         getSeriesInfo(identityResolver?.reverse(providerId, ContentType.SERIES, seriesId) ?: seriesId.toString())
+
+    override suspend fun hydrateSeries(
+        reference: com.streamvault.domain.provider.ProviderContentReference,
+        current: Series
+    ): Result<Series> = getSeriesInfo(
+        providerSeriesId = reference.remoteId?.takeIf(String::isNotBlank)
+            ?: identityResolver?.reverse(providerId, ContentType.SERIES, reference.streamId ?: current.seriesId)
+            ?: (reference.streamId ?: current.seriesId).toString(),
+        catalogOrigin = reference.seriesCatalogOrigin ?: current.catalogOrigin,
+        episodePlaybackTemplateUrl = reference.episodePlaybackTemplateUrl
+            ?: current.episodePlaybackTemplateUrl
+    )
 
     suspend fun getSeriesInfo(
         providerSeriesId: String,
@@ -1028,11 +1049,108 @@ is Result.Success -> {
         throw UnsupportedOperationException("Stalker stream URLs require a command token context.")
     }
 
+    override suspend fun resolve(
+        request: com.streamvault.domain.provider.PlaybackRequest
+    ): Result<com.streamvault.domain.provider.ResolvedPlayback> {
+        val token = StalkerUrlFactory.parseInternalStreamUrl(request.sourceUrl)
+        val directKind = when (request.contentType) {
+            ContentType.LIVE -> StalkerStreamKind.LIVE
+            ContentType.VOD,
+            ContentType.MOVIE -> StalkerStreamKind.MOVIE
+            ContentType.SERIES_EPISODE,
+            ContentType.SERIES -> StalkerStreamKind.EPISODE
+        }
+        val directUrl = token?.let { request.sourceUrl } ?: repairDirectPlaybackUrl(
+            request.sourceUrl,
+            directKind,
+            request.content.streamId
+        )
+        if (token == null && !UrlSecurityPolicy.isAllowedStreamEntryUrl(directUrl)) {
+            return Result.error("Stalker playback URL is not allowed")
+        }
+        val descriptor = token?.playbackDescriptor
+            ?: buildStalkerPlaybackDescriptor(
+                primaryCmd = directUrl,
+                capabilities = StalkerPortalCapabilities()
+            )
+        return when (val result = resolvePlaybackInfo(
+            kind = token?.kind ?: directKind,
+            descriptor = descriptor,
+            seriesNumber = token?.seriesNumber,
+            archiveStartSeconds = token?.archiveStartSeconds,
+            archiveEndSeconds = token?.archiveEndSeconds
+        )) {
+            is Result.Success -> {
+                val info = result.data
+                portalStateStore?.recordPlayback(
+                    providerId = providerId,
+                    playbackMode = info.playbackMode.name,
+                    endpointPreference = info.endpointPreference,
+                    cookieMode = info.cookieMode,
+                    backendHint = info.backendHint,
+                    configurationGeneration = configurationGeneration
+                )
+                Result.success(
+                    com.streamvault.domain.provider.ResolvedPlayback(
+                        url = info.url,
+                        containerExtension = token?.containerExtension ?: request.containerExtension,
+                        headers = info.headers,
+                        userAgent = info.userAgent,
+                        playbackTransportPolicy = info.transportPolicy,
+                        allowInvalidSsl = info.allowInvalidSsl,
+                        proxyHost = info.proxyHost,
+                        proxyPort = info.proxyPort
+                    )
+                )
+            }
+            is Result.Error -> Result.error(result.message, result.exception)
+            is Result.Loading -> Result.error("Unexpected loading state")
+        }
+    }
+
+    private fun repairDirectPlaybackUrl(
+        url: String,
+        kind: StalkerStreamKind,
+        fallbackStreamId: Long?
+    ): String {
+        if (kind != StalkerStreamKind.LIVE || fallbackStreamId == null || fallbackStreamId <= 0L) return url
+        val uri = runCatching { URI(url) }.getOrNull() ?: return url
+        if (!uri.path.orEmpty().lowercase().endsWith("/play/live.php")) return url
+        val rawQuery = uri.rawQuery ?: return url
+        val parts = rawQuery.split('&').filter(String::isNotBlank)
+        if (parts.isEmpty()) return url
+        var hasStream = false
+        var changed = false
+        val repaired = parts.map { part ->
+            if (part.substringBefore('=', "").lowercase() != "stream") return@map part
+            hasStream = true
+            if (part.substringAfter('=', "").isNotBlank()) return@map part
+            changed = true
+            "stream=$fallbackStreamId"
+        }.toMutableList()
+        if (!hasStream && rawQuery.contains("play_token=")) {
+            repaired += "stream=$fallbackStreamId"
+            changed = true
+        }
+        if (!changed) return url
+        return URI(uri.scheme, uri.authority, uri.path, repaired.joinToString("&"), uri.fragment).toString()
+    }
+
     override suspend fun buildCatchUpUrl(streamId: Long, start: Long, end: Long): String? =
         buildCatchUpUrls(streamId, start, end).firstOrNull()
 
     override suspend fun buildCatchUpUrls(streamId: Long, start: Long, end: Long): List<String> =
         buildCatchUpUrls(streamId, start, end, sourceStreamUrl = null, sourceCatchUpSource = null)
+
+    override suspend fun buildCatchUpUrls(
+        request: com.streamvault.domain.provider.CatchUpRequest
+    ): List<String> = buildCatchUpUrls(
+        streamId = request.streamId,
+        start = request.start,
+        end = request.end,
+        sourceStreamUrl = request.sourceStreamUrl,
+        sourceCatchUpSource = request.sourceCatchUpTemplate
+    )
 
     suspend fun buildCatchUpUrls(
         streamId: Long,
@@ -1185,7 +1303,7 @@ is Result.Success -> {
         if (ids.isEmpty()) return
         val resolved = identityResolver?.resolveAll(providerId, type, ids)
             ?: ids.associateWith { rawId ->
-                rawId.toLongOrNull()?.takeIf { it > 0L } ?: legacyStableId(type, rawId)
+                rawId.toLongOrNull()?.takeIf { it > 0L } ?: fallbackStableId(type, rawId)
             }
         resolved.forEach { (rawId, surrogateId) ->
             remoteIdentityCache[type to rawId] = surrogateId
@@ -1201,7 +1319,7 @@ is Result.Success -> {
         if (resolved == null) {
             records.forEach { record ->
                 val rawId = record.id.ifBlank { record.name }.trim()
-                remoteIdentityCache[type to rawId] = legacyStableId(type, rawId)
+                remoteIdentityCache[type to rawId] = fallbackStableId(type, rawId)
             }
         } else {
             resolved.forEach { (rawId, surrogateId) -> remoteIdentityCache[type to rawId] = surrogateId }
@@ -1235,8 +1353,17 @@ is Result.Success -> {
         authMutex.withLock {
             val cachedSession = sessionCache
             val cachedProfile = accountProfileCache
-            if (cachedSession != null && cachedProfile != null) {
+            if (cachedSession != null && cachedProfile != null &&
+                !cachedSession.isExpired() &&
+                cachedProfile.expirationDate?.let { it > System.currentTimeMillis() } != false
+            ) {
                 return@withLock Result.success(cachedSession to cachedProfile)
+            }
+            if (cachedSession != null || cachedProfile != null) {
+                sessionCache = null
+                accountProfileCache = null
+                sharedAuthCache.remove(authCacheKey())
+                api.invalidateSessionScopes(providerId)
             }
             (authFailureCache ?: sharedAuthFailureCache[authCacheKey()])?.let { failure ->
                 if (failure.expiresAt > System.currentTimeMillis()) {
@@ -1246,9 +1373,15 @@ is Result.Success -> {
                 sharedAuthFailureCache.remove(authCacheKey(), failure)
             }
             sharedAuthCache[authCacheKey()]?.let { cachedAuth ->
-                sessionCache = cachedAuth.session
-                accountProfileCache = cachedAuth.profile
-                return@withLock Result.success(cachedAuth.session to cachedAuth.profile)
+                if (!cachedAuth.session.isExpired() &&
+                    cachedAuth.profile.expirationDate?.let { it > System.currentTimeMillis() } != false
+                ) {
+                    sessionCache = cachedAuth.session
+                    accountProfileCache = cachedAuth.profile
+                    return@withLock Result.success(cachedAuth.session to cachedAuth.profile)
+                }
+                sharedAuthCache.remove(authCacheKey(), cachedAuth)
+                api.invalidateSessionScopes(providerId)
             }
 
             val persistedState = portalStateStore?.getValidated(providerId)
@@ -1316,7 +1449,11 @@ is Result.Success -> {
             val finalAuthResult = when {
                 initialAuthResult !is Result.Error -> initialAuthResult
                 persistedEndpointUrl != null -> {
-                    portalStateStore?.markEndpointUnhealthy(providerId, persistedEndpointUrl)
+                    portalStateStore?.markEndpointUnhealthy(
+                        providerId,
+                        persistedEndpointUrl,
+                        configurationGeneration = configurationGeneration
+                    )
                     StalkerTelemetry.strategySelected(providerId, "AUTH_ENDPOINT_AUTO", "CACHED_ENDPOINT_FAILED")
                     discoveryCoordinator.authenticate(
                         profile.copy(
@@ -1359,13 +1496,18 @@ is Result.Success -> {
                     portalStateStore?.recordAuthentication(
                         providerId = providerId,
                         session = authResult.data.first,
-                        profile = authResult.data.second
+                        profile = authResult.data.second,
+                        configurationGeneration = configurationGeneration
                     )
                     Result.success(authResult.data)
                 }
                 is Result.Error -> {
                     rawPersistedRecipe?.let { failedRecipe ->
-                        portalStateStore?.markRecipeUnhealthy(providerId, failedRecipe.name)
+                        portalStateStore?.markRecipeUnhealthy(
+                            providerId,
+                            failedRecipe.name,
+                            configurationGeneration = configurationGeneration
+                        )
                     }
                     authFailureCache = CachedAuthFailure(
                         expiresAt = System.currentTimeMillis() + AUTH_FAILURE_COOLDOWN_MILLIS,
@@ -1383,19 +1525,35 @@ is Result.Success -> {
         portalStateStore?.getValidated(providerId)
 
     suspend fun recordBulkLiveCapability(supported: Boolean, categoryFidelity: Boolean? = null) {
-        portalStateStore?.recordBulkLive(providerId, supported, categoryFidelity)
+        portalStateStore?.recordBulkLive(
+            providerId,
+            supported,
+            categoryFidelity,
+            configurationGeneration = configurationGeneration
+        )
     }
 
     suspend fun recordWildcardCapability(contentType: ContentType, supported: Boolean) {
-        portalStateStore?.recordWildcard(providerId, contentType, supported)
+        portalStateStore?.recordWildcard(
+            providerId,
+            contentType,
+            supported,
+            configurationGeneration = configurationGeneration
+        )
     }
 
     suspend fun recordEpgCapability(supported: Boolean) {
-        portalStateStore?.recordEpg(providerId, supported)
+        portalStateStore?.recordEpg(
+            providerId,
+            supported,
+            configurationGeneration = configurationGeneration
+        )
     }
 
     private fun currentDeviceProfile(): StalkerDeviceProfile {
-        accountProfileCache?.let { learned -> return buildLearnedDeviceProfile(learned) }
+        accountProfileCache?.let { learned ->
+            return buildLearnedDeviceProfile(learned).copy(authEpoch = sessionCache?.authEpoch ?: 0L)
+        }
         return buildStalkerDeviceProfile(
             portalUrl = portalUrl,
             macAddress = normalizedMacAddress(),
@@ -1425,7 +1583,10 @@ is Result.Success -> {
             requireCatalogValidation = requireCatalogValidation,
             allowCompatibilityDiscovery = providerId <= 0L,
             onProgress = onProgress
-        ).copy(providerId = providerId)
+        ).copy(
+            providerId = providerId,
+            authEpoch = sessionCache?.authEpoch ?: 0L
+        )
     }
 
     private fun buildLearnedDeviceProfile(profile: StalkerProviderProfile): StalkerDeviceProfile {
@@ -1459,7 +1620,10 @@ is Result.Success -> {
             requireCatalogValidation = requireCatalogValidation,
             allowCompatibilityDiscovery = providerId <= 0L,
             onProgress = onProgress
-        ).copy(providerId = providerId)
+        ).copy(
+            providerId = providerId,
+            authEpoch = sessionCache?.authEpoch ?: 0L
+        )
     }
 
     private fun learnedCompatibilityProfileId(profile: StalkerProviderProfile): String =
@@ -2267,16 +2431,38 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
     private fun stableItemId(type: ContentType, rawId: String): Long =
         remoteIdentityCache[type to rawId.trim()]
             ?: rawId.trim().toLongOrNull()?.takeIf { it > 0L }
-            ?: legacyStableId(type, rawId)
+            ?: fallbackStableId(type, rawId)
 
     private fun syntheticCategoryId(type: ContentType, seed: String): Long {
         remoteIdentityCache[type to seed.trim()]?.let { return it }
-        return legacyStableId(type, seed)
+        return fallbackStableId(type, seed)
     }
 
-    private fun legacyStableId(type: ContentType, seed: String): Long {
-        val normalized = "$providerId/${type.name}/${seed.trim().lowercase(Locale.ROOT)}"
-        return (normalized.hashCode().toLong() and 0x7fff_ffffL).coerceAtLeast(1L)
+    /**
+     * Test/fallback path used when a provider is created without the persistent resolver.
+     * Keep the SHA-derived value for stability, but resolve collisions in this provider
+     * instance instead of allowing two remote records to share a local Long ID.
+     */
+    private fun fallbackStableId(type: ContentType, rawId: String): Long {
+        val normalized = rawId.trim()
+        val key = type to normalized
+        return synchronized(remoteIdentityCache) {
+            remoteIdentityCache[key] ?: run {
+                val preferred = stalkerStableHashId(providerId, type, normalized)
+                val used = remoteIdentityCache
+                    .filterKeys { (existingType, _) -> existingType == type }
+                    .values
+                    .toSet()
+                val candidate = if (preferred !in used) {
+                    preferred
+                } else {
+                    generateSequence(FALLBACK_SURROGATE_FLOOR) { it + 1L }
+                        .first { it !in used }
+                }
+                remoteIdentityCache[key] = candidate
+                candidate
+            }
+        }
     }
 
     private fun normalizedMacAddress(): String =

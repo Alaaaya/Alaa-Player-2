@@ -23,13 +23,15 @@ import com.streamvault.data.remote.http.useCancellableResponse
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.DrmInfo
 import com.streamvault.domain.model.DrmScheme
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.M3uConfig
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.ProviderSetupRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.net.URI
@@ -586,11 +588,15 @@ class StreamVaultPluginManager @Inject constructor(
             }
             updatedProvider
         } else {
-            when (val createResult = providerRepository.validateM3u(
-                url = providerUrl,
-                name = providerName,
-                epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
-                m3uVodClassificationEnabled = false,
+            when (val createResult = providerRepository.setupProvider(
+                request = ProviderSetupRequest.Configured(
+                    name = providerName,
+                    configuration = M3uConfig(
+                        playlistUrl = providerUrl,
+                        epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+                        vodClassificationEnabled = false
+                    )
+                ),
                 onProgress = onProgress
             )) {
                 is Result.Error -> return PluginActionResult(false, createResult.message)

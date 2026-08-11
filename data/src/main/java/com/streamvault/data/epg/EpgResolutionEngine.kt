@@ -6,7 +6,7 @@ import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.EpgChannelDao
 import com.streamvault.data.local.dao.EpgProgrammeDao
 import com.streamvault.data.local.dao.ProgramDao
-import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.ProviderEpgSourceDao
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
 import com.streamvault.data.mapper.toDomain
@@ -41,7 +41,7 @@ class EpgResolutionEngine @Inject constructor(
     private val epgChannelDao: EpgChannelDao,
     private val epgProgrammeDao: EpgProgrammeDao,
     private val programDao: ProgramDao,
-    private val providerDao: ProviderDao
+    private val providerSnapshotDao: ProviderSnapshotDao
 ) {
     companion object {
         private const val TAG = "EpgResolutionEngine"
@@ -64,7 +64,7 @@ class EpgResolutionEngine @Inject constructor(
     ): EpgResolutionSummary = withContext(Dispatchers.Default) {
         val channels = channelDao.getByProviderSync(providerId)
             .filterNot { channel -> channel.categoryId != null && channel.categoryId in hiddenLiveCategoryIds }
-        val guideSourcePolicy = providerDao.getById(providerId)?.guideSourcePolicy ?: GuideSourcePolicy.AUTO
+        val guideSourcePolicy = providerSnapshotDao.getConfig(providerId)?.guideSourcePolicy ?: GuideSourcePolicy.AUTO
         if (channels.isEmpty()) {
             channelEpgMappingDao.deleteByProvider(providerId)
             return@withContext EpgResolutionSummary()
@@ -266,7 +266,7 @@ class EpgResolutionEngine @Inject constructor(
         endTime: Long
     ): Map<String, List<Program>> = withContext(Dispatchers.IO) {
         if (channelIds.isEmpty()) return@withContext emptyMap()
-        val guideSourcePolicy = providerDao.getById(providerId)?.guideSourcePolicy ?: GuideSourcePolicy.AUTO
+        val guideSourcePolicy = providerSnapshotDao.getConfig(providerId)?.guideSourcePolicy ?: GuideSourcePolicy.AUTO
         if (guideSourcePolicy == GuideSourcePolicy.DISABLED) return@withContext emptyMap()
 
         val mappings = if (channelIds.size <= 500) {

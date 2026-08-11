@@ -51,7 +51,7 @@ Focused verification performed in this phase:
 
 | Module | Intended responsibility | Observed responsibility and dependencies |
 |---|---|---|
-| `domain` | Platform-neutral models, repository/manager contracts, use cases | Pure Kotlin/JVM and depends only on coroutines/injection. It defines repositories, recording/backup contracts, provider setup use cases, and `IptvProvider`. However, its central `Provider` model contains extensive Stalker persistence/runtime-learning state (ARCH-002). |
+| `domain` | Platform-neutral models, repository/manager contracts, use cases | Pure Kotlin/JVM and depends only on coroutines/injection. `Provider` is now stable identity/status; sealed `ProviderConfiguration`, `ProviderSnapshot`, generation-bound `StalkerPortalLearning`, and explicit capability contracts form the provider boundary. `LegacyProvider` remains only as a staged compatibility envelope for legacy UI/revision/backup callers (ARCH-001/ARCH-002 implementation, 2026-08-11). |
 | `data` | Room, DataStore, networking, provider clients, parsers, sync, backup/recording implementations | Android library depending on `domain`. It owns the Room database and DAOs, Xtream/Stalker/Jellyfin clients, M3U/XMLTV parsing, synchronization workers, repositories, backup/Drive, downloads, recordings, reminders, and URL resolution. `SyncManager` centralizes much of the application's provider policy (ARCH-003). |
 | `player` | Reusable playback engine and timeshift | Android library depending on `domain`. It wraps Media3/ExoPlayer, networking/data sources, decoder policy, media session, timeshift, and diagnostics. Provider URL resolution occurs outside this module in `data`/`app`, so the engine receives a resolved URL plus request metadata. |
 | `app` | Android entry points, Compose UI/navigation, DI, TV integration, plugins, cast, updates | Depends on all other modules and is the composition root. Several ViewModels directly depend on `data` implementation types (`SyncManager`, `PreferencesRepository`, `XtreamStreamUrlResolver`, Stalker URL helpers), weakening the domain boundary (ARCH-005). |
@@ -89,9 +89,9 @@ This is a hybrid state system: Room owns durable relational content and job meta
 
 ### Declared boundary
 
-`domain/provider/IptvProvider.kt` declares a uniform interface for authentication, live/VOD/series catalogs, EPG, stream URL building, and catch-up. Only `XtreamProvider` and `StalkerProvider` implement it.
+The former monolithic `IptvProvider` contract has been removed. The domain now declares `ProviderAuthenticator`, `LiveCatalogSource`, `VodCatalogSource`, `SeriesCatalogSource`, `GuideSource`, `PlaybackResolver`, and `CatchUpSource`, resolved through one complete typed registry keyed by `ProviderType`.
 
-### Actual boundaries
+### Original boundaries (historical review baseline)
 
 | Provider/source | Setup and validation | Catalog/sync path | Playback resolution | EPG path |
 |---|---|---|---|---|
@@ -102,7 +102,16 @@ This is a hybrid state system: Room owns durable relational content and job meta
 | Plugin-based | Android service discovery and Messenger protocol in `StreamVaultPluginManager` | Plugin catalogs are imported/mapped into an M3U provider record rather than represented as a provider capability | Playback delegates through the plugin manager or the mapped M3U path depending on manifest action | No first-class provider EPG contract identified |
 | Recordings/local output | `RecordingManagerImpl`, Room recording entities, alarms, foreground service/capture engine | Local database/files/document URIs, reconciled on launch and periodically | Local `RecordingItem` enters player/navigation as content | EPG is used to schedule/name recordings; recordings do not supply EPG |
 
-The table exposes the core provider problem: the documented shared abstraction is not the boundary used by the main synchronization or playback systems.
+The registry is now the shared execution boundary for synchronization, detail hydration, guide lookup, playback, catch-up, recording-source resolution, and setup. Remaining coordinator decomposition and Stalker playback side-effect removal belong to ARCH-003/ARCH-004 in WP5.
+
+### Current provider boundary (2026-08-11)
+
+| Provider/source | Typed execution boundary | Capability notes |
+|---|---|---|
+| Xtream Codes | Typed setup and client factories; registry-selected sync, guide, detail, playback, and catch-up adapters | All seven capabilities available |
+| Stalker Portal | `StalkerConfig` plus generation-bound `StalkerPortalLearning`; registry-selected adapters | All capabilities are potential and become typed restricted/unsupported from validated portal learning |
+| M3U/M3U8 | `M3uConfig`; registry-selected live/VOD import and playback/catch-up adapters | Live, VOD, playback, and catch-up available; guide available only when XMLTV is configured; authentication/series unsupported |
+| Jellyfin/local media | `JellyfinConfig`; registry-selected authentication, VOD/series sync/detail, and playback adapters | Authentication, VOD, series, and playback available; live, native guide, and catch-up unsupported |
 
 ## Application and feature flows
 
@@ -162,40 +171,42 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 
 | ID | Classification | Severity | Summary | Fix scope |
 |---|---|---:|---|---|
-| ARCH-001 | Architectural concern | High | The advertised shared provider interface is only implemented by Xtream and Stalker and is bypassed by synchronization. | Architectural |
-| ARCH-002 | Architectural concern | High | The domain `Provider` model is a provider-union record dominated by Stalker learned/runtime state. | Architectural |
+| ARCH-001 | Implemented in code; API 25 migration evidence pending (2026-08-11) | High | Explicit provider capabilities and complete typed registries now drive synchronization and runtime provider execution. | Architectural |
+| ARCH-002 | Implemented in code; API 25 migration evidence pending (2026-08-11) | High | Stable provider identity, typed encrypted configuration/runtime storage, and generation-bound Stalker learning replace the authoritative union row. | Architectural |
 | ARCH-003 | Architectural concern | High | `SyncManager` is a 6,048-line policy, networking, persistence, recovery, and scheduling god object. | Architectural |
 | ARCH-004 | Confirmed defect + architectural concern | Medium | The all-provider playback resolver contains contradictory dispatch and mixes URL resolution with Stalker session construction and persistence. | Local first; architectural follow-up |
 | ARCH-005 | Architectural concern | High | `PlayerViewModel` is a 25+ dependency feature orchestrator that crosses domain/data/player boundaries. | Architectural |
 | ARCH-006 | Highly likely defect | High | Plugin discovery performs multiple blocking IPC calls and maps plugin providers into M3U records. | Local + architectural |
 | ARCH-007 | Architectural concern | Medium | Database schema and the full migration history are concentrated in one multi-thousand-line class. | Architectural |
-| ARCH-008 | Implemented; device validation pending | Medium | Startup launches several overlapping background pipelines with independent work identities and state stores. | Architectural |
+| ARCH-008 | Resolved in code; device validation pending | Medium | Startup launches several overlapping background pipelines with independent work identities and state stores. | Architectural |
 
 ## Detailed Phase 1 findings
 
 ### ARCH-001 — Shared provider abstraction is partial and not used by the main sync pipeline
 
-- **Classification:** Architectural concern
+- **Classification:** Implemented in code; API 25 migration evidence pending (2026-08-11)
 - **Severity:** High
-- **Where:** `domain/.../provider/IptvProvider.kt`; `data/.../remote/xtream/XtreamProvider.kt`; `data/.../remote/stalker/StalkerProvider.kt`; `data/.../remote/jellyfin/JellyfinProvider.kt`; `data/.../sync/SyncManager.kt`, especially `sync`, `syncLiveOnly`, `syncMoviesOnly`, and `syncSeriesOnly`.
+- **Where:** `domain/.../provider/ProviderCapabilities.kt`; `data/.../provider/DefaultProviderCapabilityRegistry.kt`; `data/.../provider/ProductionProviderCapabilityFactories.kt`; `data/.../sync/ProviderSyncAdapterRegistry.kt`; `data/.../sync/SyncManager.kt`.
 - **Current behavior:** `IptvProvider` claims to be the shared interface for all providers and includes authentication, every catalog type, EPG, playback, and catch-up. Only Xtream and Stalker implement it. M3U and Jellyfin bypass it. More importantly, `SyncManager` does not dispatch through this interface; it repeatedly switches on `ProviderType` and constructs/calls provider-specific helpers.
 - **Why this is wrong/fragile:** There are two competing provider architectures: a polymorphic domain contract and a central type switch. Adding or correcting a capability requires edits to multiple switches, repositories, URL resolution, setup, workers, and UI. The oversized interface also assumes every source supports authentication, live, VOD, series, EPG, and catch-up, which is false for M3U, Jellyfin, plugins, and recordings. This encourages dummy behavior and exceptions rather than explicit capabilities.
 - **Concrete failure scenario:** A new provider or a Jellyfin live-TV capability is added to one path (for example catalog sync) but omitted from one of `retrySection`, guide lookup, playback resolution, or background-worker dispatch. It compiles because `ProviderType` switches are distributed, then fails only in the omitted feature. Existing code already throws “retry unavailable” for Jellyfin in section-specific paths and handles Jellyfin separately in playback.
 - **Recommended correction:** Replace the monolithic interface with explicit capabilities (`ProviderAuthenticator`, `LiveCatalogSource`, `VodCatalogSource`, `SeriesCatalogSource`, `GuideSource`, `PlaybackResolver`, `CatchUpSource`) and a registry/factory keyed by provider type. Make `SyncManager` orchestrate capability results rather than provider types. M3U, Jellyfin, plugins, and local sources should implement only supported capabilities.
 - **Fix scope:** Architectural; can be introduced incrementally behind adapters.
 - **Required tests:** A provider capability contract test suite; registry completeness test for every `ProviderType`; unsupported-capability tests returning typed results rather than exceptions; end-to-end sync/playback tests using one fake per capability combination.
+- **Implementation (2026-08-11):** Removed `IptvProvider`; introduced the seven explicit capability interfaces, typed `Available`/`Unsupported`/`Restricted`/`ConfigurationError` resolution, one validated factory per provider type, and the documented capability matrix. Full sync, section retry, and guide orchestration resolve through `ProviderSyncAdapterRegistry`; section implementations no longer re-dispatch on `ProviderType`. Detail hydration, on-demand guide, playback, catch-up, recording-source resolution, and setup resolve through the same capability boundary. Jellyfin movie/series retry is supported, configured M3U XMLTV exposes a cache-backed guide, and absent features return typed results. Architecture tests reject direct protocol-client construction outside `TypedProviderClientFactory`, reintroduction of `IptvProvider`, provider-type redispatch in `SyncManager`, and provider-type branching in the runtime playback/recording/guide boundaries. Stalker playback cache/learning side effects deliberately remain behind its adapter for ARCH-004/WP5.
 
 ### ARCH-002 — Core domain model is polluted by Stalker transport, fingerprint, and learned state
 
-- **Classification:** Architectural concern
+- **Classification:** Implemented in code; API 25 migration evidence pending (2026-08-11)
 - **Severity:** High
-- **Where:** `domain/.../model/Provider.kt:3-52` and corresponding provider entity/mappers/backup/setup code.
+- **Where:** `domain/.../model/Provider.kt`; `domain/.../model/ProviderConfiguration.kt`; provider snapshot persistence/codecs; Room migrations 72→73→74; backup schema v11.
 - **Current behavior:** One `Provider` data class stores generic identity plus Stalker MAC, device profile, timezone/locale, serial/device IDs/signature, advanced JSON, auth mode, portal profile/fingerprint/MAG preset/bootstrap recipe, endpoint/cookie/playback preferences, learned playback mode, requirement flags, fallback use, and rediscovery attempts. Xtream and M3U flags are mixed into the same record.
 - **Why this is wrong/fragile:** Transport configuration, durable user configuration, portal-learning output, and cross-provider identity are conflated. Every layer and backup/migration must understand fields irrelevant to most providers. Defaults silently create plausible Stalker state, making “unset”, “learned”, and “user-selected” hard to distinguish. It also causes provider-specific policy to leak into UI and shared data paths.
 - **Concrete failure scenario:** A Stalker bootstrap attempt updates a learned recipe/fingerprint but a concurrent provider edit saves an older copied `Provider`, reverting learned state or overwriting user configuration. Alternatively, a new Stalker strategy requires more fields and forces domain model, Room schema, backup format, UI commands, and every mapper to change together.
 - **Recommended correction:** Keep `Provider` as stable identity/status. Store typed provider configurations (`XtreamConfig`, `M3uConfig`, `StalkerDeviceIdentity`, `StalkerPortalLearning`, `JellyfinConfig`) behind a sealed configuration model or dedicated tables. Separate user intent from observed/learned portal state with version/timestamp/source metadata.
 - **Fix scope:** Architectural and migration-sensitive.
 - **Required tests:** Mapping round trips for each provider subtype; migrations from the union record; concurrent edit-vs-learning update tests; backup compatibility tests; explicit unset/default/learned state tests.
+- **Implementation (2026-08-11):** Canonical `Provider` now contains only stable identity/status and lifecycle timestamps. `ProviderSnapshot` combines that identity with sealed `XtreamConfig`, `M3uConfig`, `StalkerConfig`, or `JellyfinConfig`, account/runtime state, configuration generation, and optional generation-matched `StalkerPortalLearning`. Stalker user intent and observations are separate; observations carry generation, source, and timestamp, and compare-and-set persistence rejects stale writes. Room 72→73 creates authoritative encrypted `provider_configs`, runtime storage, and typed generation-bound learning and backfills every provider type; 73→74 rebuilds the stable `providers` table while preserving IDs/FKs and checking `PRAGMA foreign_key_check`. Pending revisions use a versioned typed envelope with legacy decoding. Backup v11 stores stable provider plus typed configuration and excludes sessions, learning, playback hints, TLS pins, and transport consent; versions 0–10 remain readable. `LegacyProvider` is retained only as an explicitly named compatibility envelope while presentation and old backup inputs complete their staged cutover; it is no longer the authoritative model or persistence row.
 
 ### ARCH-003 — `SyncManager` is the application's provider-policy and persistence god object
 
@@ -259,9 +270,9 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 
 ### ARCH-008 — Background work is fragmented across independently scheduled pipelines
 
-- **Classification:** Implemented; device integration validation pending
+- **Classification:** Implementation complete; device integration validation pending
 - **Severity:** Medium
-- **Implementation status (2026-07-30):** Implemented in code; device integration validation pending. The migration introduces one provider work identity, one in-process provider execution lane, a central startup-work registry, and a durable Room-backed workflow/phase coordinator with generation-fenced catalog and status commits. Configuration revisions explicitly supersede older work; ordinary sync, index, and EPG requests join the provider chain.
+- **Implementation status (2026-08-09):** Complete in code; device integration validation pending. The implementation provides one provider work identity, one in-process provider execution lane, a central startup-work registry, and a durable Room-backed workflow/phase coordinator with generation-fenced catalog and status commits. Configuration revisions explicitly supersede older work; ordinary sync, index, and EPG requests join the provider chain. Stale revision input after provider deletion/supersession is rejected before a workflow row can be created.
 - **Where:** `StreamVaultApp.onCreate:74-97`; `ProviderSyncWorker`; `XtreamIndexWorker`; `StalkerIndexWorker`; `BackgroundEpgSyncWorker`; `RecordingReconcileWorker`; scheduling methods inside `SyncManager`.
 - **Current behavior:** Every process start enqueues maintenance, provider stale-check, Xtream index stale-check, and recording reconciliation, while periodic equivalents also exist. Provider sync can queue provider-specific index and EPG workers. Each class has separate unique names, `KEEP`/`REPLACE`/`APPEND_OR_REPLACE` policy, retry classification, delays, and persisted job metadata. In-process provider mutexes serialize some `SyncManager` calls but do not by themselves define a durable cross-worker state machine.
 - **Why this is wrong/fragile:** WorkManager uniqueness prevents duplicates only within an identical unique name. Different worker types can target the same provider and network/database concurrently. Status is distributed across WorkManager, Room job tables, provider status, sync metadata, and in-memory `SyncStateTracker`, so cancellation/process death may leave contradictory state.
@@ -298,8 +309,8 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - Workflow admission is priority-aware inside the Room transaction. Configuration changes (priority 100) cannot be displaced by manual refresh (50), and manual work cannot be displaced by periodic/startup work (0). Rejected lower-priority requests do not mutate the generation, reason, or phase ledger.
 - `ProviderWorkflowExecutionContext` carries the claimed generation/token through the sync coroutine. Every `SyncCatalogStore` apply path now checks that token inside the same Room transaction that applies staged categories/channels/movies/series. Supersession and catalog commit are therefore serialized: whichever transaction commits first determines whether the old apply is accepted or rejected.
 - `ProviderWorkflowCommitFenceTest` proves that a superseded generation cannot replace committed catalog rows and that the current owner can apply normally. Manual-refresh tests verify explicit join versus supersede arguments, and DAO tests cover configuration-over-manual priority inversion.
-- `ProviderSyncStateReaderImpl` now combines durable active workflow phases with the legacy Xtream job table, so queued/running movie or series indexing remains observable after process recreation.
-- Provider sync timestamps, sync metadata, discovered M3U EPG URLs, manual status reconciliation, and targeted-worker status reconciliation are now checked inside generation-owned transactions before publication. ARCH-008 remains open only for device-backed process-kill and manual-refresh-during-each-phase integration tests, plus final removal or demotion of redundant legacy status stores after UI compatibility is verified.
+- `ProviderSyncStateReaderImpl` treats the durable workflow as authoritative whenever a workflow row exists; the legacy Xtream job table remains only as a migration fallback for providers without a workflow row. This prevents stale legacy rows from resurrecting a completed-work spinner after process recreation.
+- Provider sync timestamps, sync metadata, discovered M3U EPG URLs, manual status reconciliation, and targeted-worker status reconciliation are now checked inside generation-owned transactions before publication. Stale or deleted configuration-revision input is rejected before workflow creation. ARCH-008 remains open only for device-backed process-kill and manual-refresh-during-each-phase integration tests.
 
 **Implementation evidence (2026-07-30, slice 5):**
 
@@ -352,8 +363,8 @@ Phase 2 should review these files/modules first, in this order:
 
 | ID | Finding | Classification | Severity |
 |---|---|---|---|
-| INFRA-001 | Cancellation is broadly converted into normal failure/retry results | Implemented; adverse-case verification pending (2026-07-27) | High |
-| NET-001 | Suspend call paths use blocking, non-cancellable OkHttp `execute()` | Implemented; MockWebServer race matrix pending (2026-07-27) | High |
+| INFRA-001 | Cancellation is broadly converted into normal failure/retry results | Resolved; five-worker adverse-case matrix and no-post-cancellation publication checks pass (2026-08-09) | High |
+| NET-001 | Suspend call paths use blocking, non-cancellable OkHttp `execute()` | Resolved; MockWebServer never-header/first-byte/mid-body matrix passes (2026-08-09) | High |
 | SYNC-001 | M3U staging has no effective response or catalog-size bound | Resolved (2026-07-26) | High |
 | SYNC-002 | A global progress bus corrupts concurrent per-provider sync progress | Resolved (2026-08-01) | High |
 | LIFE-001 | Every player engine permanently registers a timeshift component callback | Implemented; lifecycle stress verification pending (2026-07-27) | High |
@@ -374,7 +385,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 
 ### INFRA-001 — Cancellation is broadly converted into normal failure/retry results
 
-- **Classification:** Implemented; adverse-case verification pending (2026-07-27)
+- **Classification:** Resolved (2026-08-09)
 - **Severity:** High
 - **Where:** `data/.../sync/{SyncWorker,BackgroundEpgSyncWorker,ProviderSyncWorker,StalkerIndexWorker,XtreamIndexWorker}.kt`; representative paths in `EpgSourceRepositoryImpl.kt:218-420`, `DownloadManagerImpl.kt:110-203`, `RecordingManagerImpl.kt:134-473`, and `SyncManager.kt:1423`. Static inventory found 289 `runCatching` sites and 234 broad `Exception`/`Throwable` catches.
 - **Current behavior:** All five coroutine workers end in `catch (Exception)` and translate the throwable to WorkManager failure/retry without first rethrowing `CancellationException`. Many suspending repository/manager operations use Kotlin `runCatching` or broad catches. EPG refresh can turn cancellation into persisted failure and continue cleanup/status work. `SyncManager.sync:712-714` correctly rethrows cancellation, but this is not consistent.
@@ -383,11 +394,11 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Add a shared `runSuspendCatching`/`catchNonCancellation` helper that immediately rethrows cancellation; put an explicit cancellation catch before every broad worker/repository catch; prohibit raw `runCatching` around suspend calls with Detekt/review policy. Translate to domain `Result` only at an explicit owner boundary.
 - **Fix scope:** Cross-cutting but mechanical; start with workers, sync, recording, and EPG.
 - **Required tests:** Cancel every worker mid-call and assert no retry/failure or error metadata; cancel imports at parse/transaction boundaries; cancel download/recording/backup; prove child cancellation propagates while genuine `IOException` remains retryable.
-- **Implementation (2026-07-27):** Shared `runSuspendCatching`/`rethrowIfCancellation` helpers now protect the WP1 recording, EPG, download, backup, and sync boundaries touched in this package. All five workers catch and rethrow cancellation before failure/retry classification. `Wp1CancellationPolicyTest` prevents the known worker, Stalker, Xtream, and plugin regressions. The finding remains unresolved until the five worker adverse tests and post-cancellation DAO/status assertions pass.
+- **Resolution (2026-08-09):** Shared `runSuspendCatching`/`rethrowIfCancellation` helpers protect the WP1 recording, EPG, download, backup, and sync boundaries touched in this package. All five workers catch and rethrow cancellation before failure/retry classification. `Wp1CancellationPolicyTest`, the provider-worker phase matrix in `ProviderWorkflowRunnerTest`, and `SyncWorkerPolicyTest` cover cancellation and no post-cancellation failure/status/snapshot publication. Genuine I/O remains retryable through the existing workflow classifier.
 
 ### NET-001 — Suspend call paths use blocking, non-cancellable OkHttp `execute()`
 
-- **Classification:** Implemented; MockWebServer race matrix pending (2026-07-27)
+- **Classification:** Resolved (2026-08-09)
 - **Severity:** High
 - **Where:** `SyncManagerM3uImporter.kt:236-267`; `EpgSourceRepositoryImpl.kt:256`; `EpgRepositoryImpl.kt:288`; `OkHttpStalkerApiService.kt:975,1082,1221`; `JellyfinProvider.kt:305-308`; `RecordingCaptureEngine.kt:80,238,248`; Google Drive/update/download/resolver paths. A correct reference bridge exists at `OkHttpXtreamApiService.executeCancellable:377-392`.
 - **Current behavior:** Suspending functions move to `Dispatchers.IO` and call synchronous `Call.execute()`. Coroutine cancellation does not call `Call.cancel()`; the thread remains blocked until data, timeout, or server closure. EPG reads are long and recording streams can remain open indefinitely.
@@ -396,7 +407,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Standardize an OkHttp coroutine adapter using `suspendCancellableCoroutine`, `enqueue`, and `invokeOnCancellation { call.cancel() }`. Streaming operations need a cancellable handle that closes body and call. Apply operation-specific deadlines.
 - **Fix scope:** Shared adapter plus local migrations.
 - **Required tests:** MockWebServer never-headers, never-first-byte, and mid-body stalls; cancellation must promptly cancel the server call, close the body, avoid persistence, and release the dispatcher thread. Retain status/timeout/body-limit coverage.
-- **Resolution (2026-07-27):** `Call.useCancellableResponse` now owns the response for the full consumer lifetime, not just until headers arrive. It asynchronously enqueues the call, cancels it before headers and during body reads, converts cancellation-triggered read failures back to coroutine cancellation, and closes the response/body on every exit. M3U, EPG, Jellyfin, recording capture/source probing, downloads, Drive backup, Stalker, and plugin APK download paths use the owned adapter. `CancellableOkHttpTest` proves pre-header cancellation, blocked-body cancellation with body closure, and closure when parsing throws, all under five-second bounds.
+- **Resolution (2026-08-09):** `Call.useCancellableResponse` now owns the response for the full consumer lifetime, not just until headers arrive. It asynchronously enqueues the call, cancels it before headers and during body reads, converts cancellation-triggered read failures back to coroutine cancellation, and closes the response/body on every exit. M3U, EPG, Jellyfin, recording capture/source probing, downloads, Drive backup, Stalker, and plugin APK download paths use the owned adapter. `CancellableOkHttpTest` proves pre-header, never-first-byte, and mid-body MockWebServer cancellation, dispatcher release, blocked-body closure, and closure when parsing throws, all under five-second bounds.
 
 ### SYNC-001 — M3U staging has no effective response or catalog-size bound
 
@@ -617,13 +628,13 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 | ID | Finding | Classification | Severity |
 |---|---|---|---|
-| STALKER-001 | All Stalker providers share and globally clear one cookie jar | Confirmed defect | High |
-| STALKER-002 | Expired sessions reauthenticate only for one error phrase | Confirmed defect | High |
-| STALKER-003 | Cancellation can continue through the Stalker recipe search | Implemented; stage-matrix verification pending (2026-07-27) | High |
+| STALKER-001 | All Stalker providers share and globally clear one cookie jar | Implemented; provider-deletion/device matrix pending (2026-08-10) | High |
+| STALKER-002 | Expired sessions reauthenticate only for one error phrase | Implemented; concurrent-refresh/retry-ceiling matrix pending (2026-08-10) | High |
+| STALKER-003 | Cancellation can continue through the Stalker recipe search | Resolved; discovery-stage, stream-body, cookie, and fallback matrix passes (2026-08-09) | High |
 | STALKER-004 | Catalog pagination silently declares page 200 complete | Confirmed defect | High |
-| STALKER-005 | Portal-local dates are parsed as UTC | Confirmed defect | High |
-| STALKER-006 | Non-numeric remote IDs collapse to a 31-bit Java hash | Confirmed defect | Medium |
-| XTREAM-001 | Most Xtream provider operations swallow cancellation | Implemented; facade matrix verification pending (2026-07-27) | High |
+| STALKER-005 | Portal-local dates are parsed as UTC | Implemented; full DST/archive matrix pending (2026-08-10) | High |
+| STALKER-006 | Non-numeric remote IDs collapse to a 31-bit Java hash | Implemented; migration/stress matrix pending (2026-08-10) | Medium |
+| XTREAM-001 | Most Xtream provider operations swallow cancellation | Resolved; complete public-facade and compatibility matrix passes (2026-08-09) | High |
 | XTREAM-002 | A transient category failure is cached as an empty adult-category set | Resolved; recommended-standard cache policy verified (2026-08-01) | Medium |
 | M3U-001 | Playlist decoding is fixed to UTF-8 and only the first header EPG URL is retained | Resolved; hardened and fully verified (2026-08-01) | Medium |
 | M3U-002 | Query-bearing VOD file URLs are classified as live streams | Resolved; hardened and fully verified (2026-08-01) | Medium |
@@ -639,7 +650,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### STALKER-001 — All Stalker providers share and globally clear one cookie jar
 
-- **Classification:** Confirmed defect
+- **Classification:** Implemented; provider-deletion/device matrix pending (2026-08-10)
 - **Severity:** High
 - **Where:** `OkHttpStalkerApiService.kt:63-89,309-357,842-843,1455-1467,1504-1517,1581-1585,2728-2765`.
 - **Current behavior:** The Hilt-singleton API service owns one `InMemoryStalkerCookieJar`. Every direct/proxy client uses it, keyed only by registrable domain/host. Every authentication recipe calls `cookieJar.clear()`, and current playback cookies are read back by host. Provider ID, MAC, account, and auth epoch are absent from cookie ownership.
@@ -648,10 +659,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Scope cookie storage to a provider/auth-session key. Construct a session-owned client/jar or pass an explicit immutable cookie snapshot; never globally clear unrelated sessions. Remove expired session jars on invalidation/provider deletion.
 - **Fix scope:** Stalker API/session architecture.
 - **Required tests:** Two providers on different hosts and two MAC/accounts on the same host; concurrent authentication; B fallback clears only B; A playback renewal retains A cookies; provider deletion and token refresh cleanup.
+- **Implementation (2026-08-10):** Session scope keys now include provider identity and a monotonically increasing authentication epoch. Recipe reconstruction preserves both fields, direct test profiles alias to the latest authenticated scope, and `invalidateSessionScopes(providerId)` removes that provider's cookie jars, HTTP clients, resolved endpoints, and aliases. Provider auth invalidation and successful provider deletion invoke the hook. Focused tests cover same-host isolation, scope ownership, and reauthentication after explicit invalidation.
 
 ### STALKER-002 — Expired sessions reauthenticate only for one error phrase
 
-- **Classification:** Confirmed defect
+- **Classification:** Implemented; concurrent-refresh/retry-ceiling matrix pending (2026-08-10)
 - **Severity:** High
 - **Where:** `StalkerProvider.runWithAuthorizedSession:743-763`, `isAuthorizationFailure:1579-1584`; HTTP mapping in `OkHttpStalkerApiService.executeJsonRequest:974-1000`.
 - **Current behavior:** A provider retries authentication only when a domain message or exception contains the literal phrase `authorization failed`. The HTTP layer reports expired/rejected sessions as `Portal request failed with HTTP 401.` or `HTTP 403`; portals also use values such as `not_valid_token`, `access denied`, or empty/HTML login responses. These do not invalidate cached authentication.
@@ -660,10 +672,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Map HTTP/payload failures to typed `StalkerAuthenticationException`/`StalkerSessionExpiredException`; classify 401, applicable 403, known portal error codes, and login/invalid-token bodies centrally. Add session age/expiry and single-flight refresh. Do not infer auth from free-form UI text.
 - **Fix scope:** Stalker error/session contract.
 - **Required tests:** 401, token-specific 403, `not_valid_token`, `authorization failed`, HTML login redirect, genuine non-auth 403, concurrent refresh, and one retry ceiling.
+- **Implementation (2026-08-10):** Cached sessions now carry authentication time and a bounded 30-minute maximum age, with earlier account expiry respected. HTTP 401 and token-specific 403 responses map to typed `SessionExpired`; generic 403 responses remain `BlockedOrConfiguration`. Existing mutex/single-retry behavior remains the refresh owner. Focused tests cover the 401/token-403/genuine-403 matrix and session deadlines.
 
 ### STALKER-003 — Cancellation can continue through the Stalker recipe search
 
-- **Classification:** Implemented; provider stage-matrix verification pending (2026-07-27)
+- **Classification:** Resolved (2026-08-09)
 - **Severity:** High
 - **Where:** `OkHttpStalkerApiService.authenticate:71-383`, especially suspend calls inside `runCatching` at `96,133,157,173,200,219,236,260`; `runApiCall:1408-1415`; synchronous requests at `975,1082,1221`.
 - **Current behavior:** Authentication explores auth-mode, recipe, preset, and endpoint candidates. Suspend network calls are wrapped in standard `runCatching`, which captures `CancellationException` and often `continue`s to the next candidate. The API also uses blocking `execute()`, delaying cancellation. Public operations turn any `Exception` into a domain error.
@@ -672,7 +685,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Use the shared cancellable OkHttp adapter, explicitly rethrow cancellation at every fallback boundary, and place the complete discovery operation under an overall deadline/request budget. Fallback should continue only for typed compatibility failures.
 - **Fix scope:** Stalker authentication implementation, using Phase 2 shared primitives.
 - **Required tests:** Cancel during handshake, credential auth, profile, modules, and streamed page; assert no later recipe request, cookie clear, persisted learning, or error state. Test overall attempt/time budget separately.
-- **Implementation (2026-07-27):** Stalker JSON and streaming requests use the owned cancellable response adapter, authentication attempts rethrow cancellation, and each authentication operation runs under an injectable 45-second/24-request budget. Recipe and credential fallback now continue only for `StalkerCompatibilityException`; authentication rejection, malformed accepted responses, cancellation, and budget exhaustion terminate discovery. `OkHttpStalkerCancellationTest` proves handshake cancellation prevents later recipe requests, request exhaustion prevents an additional outbound request, and the overall deadline cancels the active call. The finding remains unresolved pending cancellation coverage for credentials/profile/modules/streamed catalogs.
+- **Resolution (2026-08-09):** Stalker JSON and streaming requests use the owned cancellable response adapter, authentication attempts rethrow cancellation, and each authentication operation runs under an injectable 45-second/24-request budget. Recipe and credential fallback now continue only for `StalkerCompatibilityException`; authentication rejection, malformed accepted responses, cancellation, and budget exhaustion terminate discovery. `OkHttpStalkerCancellationTest` covers handshake, credentials, profile, modules, streamed catalog cancellation, request exhaustion, overall deadline cancellation, body closure, no fallback request, no emitted catalog item, and no response-cookie learning after cancellation.
 
 ### STALKER-004 — Catalog pagination silently declares page 200 complete
 
@@ -688,7 +701,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 
 ### STALKER-005 — Portal-local dates are parsed as UTC
 
-- **Classification:** Confirmed defect
+- **Classification:** Implemented; full DST/archive matrix pending (2026-08-10)
 - **Severity:** High
 - **Where:** `OkHttpStalkerApiService.toProgramRecord:1325-1349`, `toProgramRecords:2077-2099`, `parseExpirationDate/parseDateTime:2640-2663`; configured timezone in `buildStalkerDeviceProfile:2467-2547`.
 - **Current behavior:** Numeric epochs and offset-bearing timestamps are handled correctly, but date/time strings without an offset are converted using `ZoneOffset.UTC`. The parser does not receive `profile.timezone`, even though that timezone is sent to the portal in cookies/profile data. Account expiry strings use the same UTC assumption. Current Stalker tests overwhelmingly use `timezone = "UTC"`.
@@ -697,10 +710,11 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Parse local timestamps using the authenticated/configured portal `ZoneId`; keep offset/epoch precedence. Separate account-date and EPG parsers if their portal conventions differ, and record which interpretation was used for diagnostics.
 - **Fix scope:** Stalker DTO/parsing signatures and tests.
 - **Required tests:** UTC, positive/negative zones, DST summer/winter and transition ambiguity, explicit offset overriding profile zone, numeric epochs, expiry date-only semantics, and archive URL alignment.
+- **Implementation (2026-08-10):** Catalog `added` timestamps on buffered, paged, validation, series-detail, and streamed item paths now receive the configured portal `ZoneId`; numeric epochs and explicit offsets retain precedence. Existing EPG and account-expiry parsing already use the same zone-aware parser. A non-UTC catalog regression test now verifies the wall-time conversion.
 
 ### STALKER-006 — Non-numeric remote IDs collapse to a 31-bit Java hash
 
-- **Classification:** Confirmed defect
+- **Classification:** Implemented; migration/stress matrix pending (2026-08-10)
 - **Severity:** Medium
 - **Where:** `StalkerProvider.stableItemId/syntheticCategoryId:1495-1501`; use for channels, movies, series, episodes, programs, and categories around `696,1240,1284,1339,1374,1404,1465`.
 - **Current behavior:** Positive numeric IDs are preserved. Every non-numeric ID is mapped with Kotlin/Java `String.hashCode()`, masked to 31 positive bits. The provider/type prefix reduces cross-domain collisions but cannot prevent equal Java hashes; equal-length colliding suffixes such as `Aa`/`BB` remain collisions under the same prefix.
@@ -709,12 +723,13 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Persist canonical remote IDs as strings and use composite provider/type/remote-ID keys. Where a Long is unavoidable, use the existing 63-bit SHA-256-style stable hashing plus collision detection/resolution, never a bare 31-bit hash.
 - **Fix scope:** Provider identity/schema contract; migration implications belong to Phase 4.
 - **Required tests:** Known Java-hash collisions; 100k-1m generated remote IDs; stable across restart; collision detection; history/favorites/episodes preserve both records; migration from existing IDs.
+- **Implementation (2026-08-10):** The persistent `StalkerRemoteIdentityResolver` and non-persistent fallback now derive candidates from 63-bit SHA-256 material, with collision allocation/resolution retained. Category, channel, movie, series, episode, and projected-category paths use the collision-safe resolver/fallback; known `Aa`/`BB` Java-hash collisions are explicitly covered.
 
 ## Xtream Codes review
 
 ### XTREAM-001 — Most Xtream provider operations swallow cancellation
 
-- **Classification:** Implemented; facade matrix verification pending (2026-07-27)
+- **Classification:** Resolved (2026-08-09)
 - **Severity:** High
 - **Where:** `XtreamProvider.kt:90-529`, including broad catches at `131,144,173,186,215,251,315,328,357,393,508,528`; compatibility `runCatching` at `1023,1037`. `getSeriesInfo:487-490` is the lone consistent cancellation-first example.
 - **Current behavior:** `OkHttpXtreamApiService` correctly cancels `Call` through `suspendCancellableCoroutine`, but the facade catches the resulting `CancellationException` as `Exception` and returns `Result.Error` for authentication, categories, catalogs, details, streaming indexes, and EPG. Series details explicitly rethrow, demonstrating the desired behavior.
@@ -723,7 +738,7 @@ Phase 3 should keep these shared defects separate from provider-specific behavio
 - **Recommended correction:** Apply the cancellation-first pattern used by `getSeriesInfo` to every suspend method and compatibility fallback, ideally through the shared helper from Phase 2.
 - **Fix scope:** Local/mechanical across `XtreamProvider`.
 - **Required tests:** Cancellation for auth, each catalog stream, category prefetch, VOD/series detail, EPG, and primary-to-legacy compatibility; genuine parsing/network failures remain typed.
-- **Implementation (2026-07-27):** Every public Xtream suspend operation now rethrows `CancellationException`, and series-info compatibility attempts use `runSuspendCatching`, so cancellation cannot reach the legacy request. Pure per-row mapping isolation remains unchanged. The existing provider/service tests pass, but the finding remains unresolved pending the complete facade cancellation matrix above.
+- **Resolution (2026-08-09):** Every public Xtream suspend operation now rethrows `CancellationException`, and series-info compatibility attempts use `runSuspendCatching`, so cancellation cannot reach the legacy request. `XtreamProviderTest` covers authentication, category prefetch, every catalog/detail/EPG operation, both streaming facades, primary-to-legacy compatibility, and genuine network-error typing.
 
 ### XTREAM-002 — A transient category failure is cached as an empty adult-category set
 
@@ -914,7 +929,7 @@ Phase 4 should trace feature flows end to end in this order:
 
 | ID | Finding | Classification | Severity |
 |---|---|---|---|
-| SETUP-001 | Editing an active provider deactivates it before replacement sync succeeds | Resolved (2026-07-29) | High |
+| SETUP-001 | Editing an active provider deactivates it before replacement sync succeeds | Resolved (2026-08-10) | High |
 | BACKUP-001 | Restore is non-atomic across Room, preferences, and recording alarms | Resolved (2026-07-29) | High |
 | BACKUP-002 | Provider-scoped restored preferences retain obsolete database IDs | Resolved (2026-07-29) | High |
 | DELETE-001 | Post-delete alarm/sync cleanup failures are never reconciled | Resolved (2026-07-29) | Medium |
@@ -937,12 +952,12 @@ The main feature risks are cross-store transitions: provider edits expose partia
 
 - **Classification / severity:** Resolved (2026-07-29) — High
 - **Where:** `ProviderRepositoryImpl.kt:285-333` (Xtream), `381-420` (M3U), `467-485` (Jellyfin), `635-700` (Stalker), and `707-764` (shared completion).
-- **Current behavior:** Existing-provider paths write `isActive = false`, `status = PARTIAL`, and reset sync metadata before initial sync. Only success reactivates; error persists inactive state and schedules resume. The old committed catalog does not preserve selection.
+- **Current behavior:** Existing-provider paths stage the replacement configuration separately. The committed provider row and catalog remain authoritative while authentication and replacement catalog work run; activation/promotion is fenced by the provider workflow generation.
 - **Why / scenario:** Replacement authentication and catalog promotion are separate commits. A transient failure after editing the active account's name or HTTP profile disables Home/Live TV despite a previously usable catalog.
 - **Recommended correction:** Keep the last active provider/catalog until a pending configuration revision and sync epoch commit atomically. At minimum restore prior active state on failure and delay timestamp reset.
 - **Fix scope:** Shared provider state-transition architecture.
 - **Required tests:** Active/inactive edit for every provider; sync failure, cancellation, process death, success, old-catalog availability, and stale-epoch isolation.
-- **Resolution:** Provider edits now create a candidate configuration revision and keep the last committed provider/catalog active until the replacement sync epoch promotes successfully. Failed or cancelled replacements retain the prior configuration and active catalog; stale candidate epochs cannot promote. Focused repository and worker coverage exercises successful promotion, failure, cancellation, and retry isolation.
+- **Resolution (2026-08-10):** Provider edits now create an encrypted candidate configuration revision and keep the last committed provider/catalog active until a forced replacement sync reaches its first fenced catalog commit. Promotion, catalog publication, and Stalker layout side effects share the Room transaction; failed/cancelled replacements retain the prior configuration and active catalog, while stale/deleted WorkManager revisions become no-ops. Rollback cleanup is cancellation-safe and fenced to the still-current uncommitted revision, so an older edit cannot restore over a newer edit or over a candidate that already committed. Stalker authentication failure caches are cleared before the explicit save-with-verification-pending retry. Focused repository, revision-DAO, catalog-fence, and worker coverage exercises successful promotion, failure, cancellation, process-recovery fencing, and retry isolation.
 
 ### BACKUP-001 — Restore is non-atomic across Room, preferences, and recording alarms
 
@@ -1287,7 +1302,9 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - Providers: the existing Stalker and Xtream service suites remain green. `OkHttpStalkerCancellationTest` proves handshake cancellation issues no later recipe request and that request-budget exhaustion issues no request beyond the configured maximum.
 - Recording/player: `ActiveCaptureTest` proves repeated cancellation joins terminal cleanup; `TimeshiftOwnershipTest` proves writer cleanup precedes file deletion. The implementation registers lazy captures before start, serializes engine cleanup jobs, unregisters callbacks synchronously on terminal release, and closes timeshift calls before joining capture.
 - Plugins: `PluginPlaybackRoutingTest` proves explicit ownership/priority and one five-second discovery-plus-handler deadline; `StreamVaultPluginOwnerTest` retains package/service/manifest isolation. `PluginMessengerClient` unbinds in `finally` and no longer converts an ancestor timeout into a plugin-owned timeout.
-- Status policy: none of the eight WP1 findings is marked resolved merely from implementation. NET-001 has focused adapter evidence, but remains implemented-but-unresolved until the complete MockWebServer race/stall matrix passes; the other findings likewise await their full worker, storage, lifecycle-stress, provider-stage, facade, and bound-service cancellation matrices.
+- **Session completion (2026-08-10):** INFRA-001, NET-001, STALKER-003, and XTREAM-001 are resolved against their recommended cancellation matrices. `OkHttpStalkerCancellationTest` covers profile, credential, module, streamed-catalog, body, cookie, and fallback cancellation; `ProviderWorkflowRunnerTest` and `SyncWorkerPolicyTest` cover cancellation without durable failure/success publication; and `XtreamProviderTest` covers every public facade operation, compatibility fallback, streaming facade, and genuine network-error typing.
+- The full `:data:testDebugUnitTest` suite now runs 924 tests with zero failures (2026-08-11), including the repaired Stalker replay fixtures.
+- REC-001, LIFE-001, LIFE-002, and PLUGIN-003 retain their separate capture, lifecycle-stress, and bound-service cancellation matrices.
 
 ### WP2 — Durable and truthful workflows
 
@@ -1296,6 +1313,12 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - **Primary ownership:** provider repository/setup; backup manager/schema; downloads; reminders/recordings; preferences; update/startup workers.
 - **Deliverables:** pending provider revisions and commit-time activation; checkpointed section-level backup import; stable-ID mapping from WP3; bounded streaming backup reader; deletion tombstones; alarm/reminder compensation; in-flight/success history markers; orphan-download reconciliation; typed retry/permanent outcomes; skew-safe timestamps; DataStore corruption policy; one startup-work registry.
 - **Exit criteria:** fault injection at every DB/DataStore/alarm/file boundary produces `complete`, `partial`, or `failed-before-commit` truthfully; retry is idempotent; previous active provider/schedule survives failed replacement; process-killed downloads become resumable/failed rather than stuck; update/reconciliation backoff distinguishes attempt from success; corrupt preferences reach a documented recovery state.
+
+**Session completion (2026-08-10):**
+
+- **SETUP-001 — Resolved:** encrypted candidate revisions, forced replacement validation, fenced first-catalog promotion, cancellation-safe rollback, stale/deleted revision no-ops, and Stalker candidate-state restoration are implemented and covered by focused tests.
+- **ARCH-008 — Resolved in code; device validation pending:** one durable per-provider workflow/lease lane now fences generations and commits, manual/background work shares the provider chain, stale revision input is rejected before workflow creation, and durable workflow state is authoritative with legacy status only as a migration fallback. Instrumentation packaging passes; connected-device process-kill/manual-refresh execution remains outstanding.
+- The remaining WP2 findings are unchanged and are not being marked complete by this session.
 
 ### WP3 — Provider, account, and content identity isolation
 
@@ -1310,6 +1333,14 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - Plugins: reconciliation deletion is now package/service-component scoped and runs both at startup and on package lifecycle broadcasts. Manifest retrieval failure cannot masquerade as uninstall; a sole manifest-ID rename retains and atomically re-keys its provider ownership, while ambiguous mappings are left untouched. Focused ownership-policy tests cover cross-package ID reuse, multiple services, rename retention, ambiguity, and component absence.
 - Jellyfin: image authentication now performs an exact provider-ID lookup without a stale account cache and always removes internal routing metadata before network dispatch. Parallel same-server account, base-path, edit/delete, and pre-authenticated request tests pass.
 - Status policy: PLUGIN-001 and PLUGIN-002 were changed from “resolved” to implemented-but-open. Their complete ownership creation, restore, uninstall/replace/reinstall, active/combined-source, and adoption-policy matrices are still required for WP3 closure.
+
+**ARCH-001/ARCH-002 staged closure evidence (2026-08-11):**
+
+- Domain and execution boundary: stable `Provider`, sealed typed configurations, immutable `ProviderSnapshot`, generation-bound Stalker observations, seven explicit capability interfaces, complete/unique provider registries, typed capability absence/restriction, and deletion of `IptvProvider`.
+- Runtime routing: setup, full/section/native-guide sync, movie/series hydration, on-demand guide, playback, catch-up, and recording source resolution route through registry adapters. `SyncManager` retains lock/progress/commit-fence ownership for WP5, but no longer switches on `ProviderType` for full, section, or guide dispatch. Jellyfin VOD/series retry and optional configured M3U guide behavior are covered.
+- Persistence/compatibility: Room 72→73 adds encrypted typed configuration, account/runtime, and generation-bound learning storage; 73→74 rebuilds stable providers and validates all foreign keys. Typed pending revisions retain legacy recovery decoding. Backup v11 is config-only for Stalker transient state and v0–10 imports remain supported.
+- Verification: domain 125/125, data 924/924, and app 279/279 JVM tests pass; Android-test sources compile. Focused Room 72→73 and 72→74 migration tests pass on the available API 36 emulator with all four provider types, encrypted credentials, pending revisions, Stalker learning, active state, dependent catalog rows, stable IDs, and zero FK violations.
+- Remaining evidence: API 25 migration execution is unavailable in the installed Android SDK/emulator set. The broader historical migration instrumentation class is not yet a clean release gate because 16 older schema-fixture tests still fail independently of the passing 72→74 cases. ARCH-001 and ARCH-002 are therefore implemented in code, with this device/migration evidence explicitly pending rather than claimed complete.
 
 ### WP4 — Bounded ingestion and provider correctness
 

@@ -17,6 +17,13 @@ sealed class StalkerApiError(
         override val portalReason: String? = null
     ) : StalkerApiError(message, cause, httpStatus = httpStatus, portalReason = portalReason)
 
+    class SessionExpired(
+        message: String = "The portal session expired; authentication is required again.",
+        cause: Throwable? = null,
+        httpStatus: Int? = null,
+        reason: String? = null
+    ) : Authorization(message, cause = cause, httpStatus = httpStatus, portalReason = reason)
+
     class PartialAuthorization(
         message: String = "Portal accepted the device profile but denied catalog access.",
         cause: Throwable? = null,

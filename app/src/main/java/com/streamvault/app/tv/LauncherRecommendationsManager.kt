@@ -19,7 +19,7 @@ import com.streamvault.app.navigation.toPlayerNavigationRequest
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackHistory
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository

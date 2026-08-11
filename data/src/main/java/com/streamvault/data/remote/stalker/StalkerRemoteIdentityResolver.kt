@@ -121,8 +121,7 @@ class StalkerRemoteIdentityResolver private constructor(
             ?: (HIGH_SURROGATE_FLOOR - 1L)) + 1L).coerceAtMost(Long.MAX_VALUE - 1L)
 
     private fun legacyId(providerId: Long, contentType: ContentType, rawId: String): Long {
-        val normalized = "$providerId/${contentType.name}/${rawId.trim().lowercase(Locale.ROOT)}"
-        return (normalized.hashCode().toLong() and 0x7fff_ffffL).coerceAtLeast(1L)
+        return stalkerStableHashId(providerId, contentType, rawId)
     }
 
     private companion object {

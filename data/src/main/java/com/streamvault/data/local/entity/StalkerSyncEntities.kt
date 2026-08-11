@@ -65,7 +65,12 @@ data class StalkerPortalStateEntity(
     @ColumnInfo(name = "endpoint_health_json") val endpointHealthJson: String = "{}",
     @ColumnInfo(name = "endpoint_failed_until") val endpointFailedUntil: Long = 0L,
     @ColumnInfo(name = "validated_at") val validatedAt: Long = 0L,
-    @ColumnInfo(name = "schema_version") val schemaVersion: Int = 1
+    @ColumnInfo(name = "schema_version") val schemaVersion: Int = 1,
+    /** Learning is accepted only while this matches provider_configs.configuration_generation. */
+    @ColumnInfo(name = "configuration_generation") val configurationGeneration: Long = 0L,
+    @ColumnInfo(name = "learning_json") val learningJson: String = "{}",
+    @ColumnInfo(name = "observation_source") val observationSource: String = "DISCOVERY",
+    @ColumnInfo(name = "observed_at") val observedAt: Long = 0L
 )
 
 @Entity(

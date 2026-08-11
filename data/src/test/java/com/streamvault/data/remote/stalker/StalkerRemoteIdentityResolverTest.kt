@@ -10,6 +10,12 @@ import org.junit.Test
 
 class StalkerRemoteIdentityResolverTest {
     @Test
+    fun stableHashDoesNotCollapseKnownJavaHashCollision() {
+        assertThat(stalkerStableHashId(7L, ContentType.MOVIE, "Aa"))
+            .isNotEqualTo(stalkerStableHashId(7L, ContentType.MOVIE, "BB"))
+    }
+
+    @Test
     fun collidingLegacyHashesRemainDistinctAndReversible() = runTest {
         val dao = FakeIdentityDao()
         val resolver = StalkerRemoteIdentityResolver(dao, DirectTransactionRunner)

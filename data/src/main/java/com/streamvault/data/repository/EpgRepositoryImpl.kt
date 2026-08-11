@@ -18,6 +18,9 @@ import com.streamvault.data.remote.http.withRequestProfile
 import com.streamvault.data.util.rankSearchResults
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.StalkerConfig
+import com.streamvault.data.provider.ProviderCapabilityResolver
+import com.streamvault.data.provider.toLegacyProvider
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import kotlinx.coroutines.CoroutineScope
@@ -60,6 +63,7 @@ class EpgRepositoryImpl @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val epgSourceRepository: EpgSourceRepository,
     private val preferencesRepository: PreferencesRepository,
+    private val providerCapabilityResolver: ProviderCapabilityResolver? = null,
     private val externalScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : EpgRepository {
 
@@ -265,8 +269,9 @@ class EpgRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             providerRefreshMutex(providerId).withLock {
                 val stagingProviderId = -providerId
-                val providerTimezoneId = providerDao.getById(providerId)
-                    ?.stalkerDeviceTimezone
+                val providerTimezoneId = (providerCapabilityResolver?.snapshot(providerId)?.configuration as? StalkerConfig)
+                    ?.device
+                    ?.timezone
                     ?.trim()
                     ?.takeIf(String::isNotEmpty)
                 val batch = ArrayList<ProgramEntity>(EPG_PROGRAM_BATCH_SIZE)
@@ -280,7 +285,9 @@ class EpgRepositoryImpl @Inject constructor(
                     yield()
                 }
                 try {
-                    val providerRequestProfile = providerDao.getById(providerId)
+                    val providerRequestProfile = providerCapabilityResolver
+                        ?.snapshot(providerId)
+                        ?.toLegacyProvider()
                         ?.toGenericRequestProfile(ownerTag = "provider:$providerId/epg")
                         ?: HttpRequestProfile(ownerTag = "provider:$providerId/epg")
                     val request = Request.Builder()

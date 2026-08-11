@@ -5,32 +5,23 @@ import android.util.Log
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.*
 import com.streamvault.data.mapper.*
-import com.streamvault.data.remote.jellyfin.JellyfinProvider
-import com.streamvault.data.remote.http.toGenericRequestProfile
-import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerContentCapabilitiesCodec
 import com.streamvault.data.remote.stalker.StalkerEpisodeSelectorDialect
-import com.streamvault.data.remote.stalker.StalkerPlaybackMode
 import com.streamvault.data.remote.stalker.StalkerProvider
-import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
 import com.streamvault.data.remote.stalker.StalkerRequestCoordinator
 import com.streamvault.data.remote.stalker.StalkerRequestDescriptor
 import com.streamvault.data.remote.stalker.StalkerResponseMetrics
-import com.streamvault.data.remote.stalker.StalkerPortalStateStore
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.stalker.StalkerSeriesDetailDialect
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.stalker.StalkerVodPlaybackDialect
-import com.streamvault.data.remote.stalker.stalkerTransportGrantOrNull
-import com.streamvault.data.remote.xtream.XtreamApiService
-import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
-import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.ContentCachePolicy
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.util.SeriesPresentationSettings
 import com.streamvault.data.util.buildPresentedSeries
 import com.streamvault.domain.model.*
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.Result.Success
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.SeriesRepository
@@ -56,6 +47,12 @@ import com.streamvault.data.util.rankSearchResults
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.provider.ProviderCapabilityResolver
+import com.streamvault.data.provider.TypedProviderClientFactory
+import com.streamvault.data.provider.toLegacyProvider
+import com.streamvault.data.provider.ProviderCapabilityTimeoutException
+import com.streamvault.domain.provider.CapabilityResolution
+import com.streamvault.domain.provider.ProviderContentReference
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Singleton
@@ -70,19 +67,15 @@ class SeriesRepositoryImpl @Inject constructor(
     private val playbackHistoryDao: PlaybackHistoryDao,
     private val playbackHistoryRepository: PlaybackHistoryRepository,
     private val providerDao: ProviderDao,
-    private val stalkerApiService: StalkerApiService,
-    private val xtreamApiService: XtreamApiService,
-    private val credentialCrypto: CredentialCrypto,
     private val preferencesRepository: PreferencesRepository,
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
-    private val jellyfinProvider: JellyfinProvider,
-    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
-    private val stalkerPortalStateStore: StalkerPortalStateStore
+    private val providerCapabilityResolver: ProviderCapabilityResolver,
+    private val typedProviderClientFactory: TypedProviderClientFactory
 ) : SeriesRepository {
     private companion object {
         const val TAG = "SeriesRepository"
@@ -104,11 +97,6 @@ class SeriesRepositoryImpl @Inject constructor(
         val DETAIL_YEAR_REGEX = Regex("""(19|20)\d{2}""")
     }
 
-    private data class CachedXtreamProvider(
-        val signature: String,
-        val provider: XtreamProvider
-    )
-
     private data class NameCursor(
         val name: String,
         val id: Long
@@ -126,7 +114,6 @@ class SeriesRepositoryImpl @Inject constructor(
         val id: Long
     )
 
-    private val xtreamProviderCache = ConcurrentHashMap<Long, CachedXtreamProvider>()
     private val xtreamCategoryLoadLocks = ConcurrentHashMap<String, Mutex>()
     private val loadedXtreamCategories = ConcurrentHashMap.newKeySet<String>()
     private val backgroundRefreshes = ConcurrentHashMap.newKeySet<String>()
@@ -238,9 +225,9 @@ class SeriesRepositoryImpl @Inject constructor(
             if (filteredCategories.isEmpty()) {
                 flowOf(emptyMap())
             } else channelFlow {
-                val provider = providerDao.getById(providerId)
+                val provider = loadCompatibilityProvider(providerId)
                 val previewCategories = if (provider?.type == ProviderType.STALKER_PORTAL) {
-                    val stalkerProvider = createStalkerProvider(providerId, provider)
+                    val stalkerProvider = createStalkerProvider(providerId)
                     filteredCategories.filterNot { category ->
                         stalkerProvider.isWildcardCategory(ContentType.SERIES, category.categoryId)
                     }
@@ -353,7 +340,7 @@ class SeriesRepositoryImpl @Inject constructor(
             query.categoryId
                 ?.takeIf { normalizedSearch.length < MIN_SEARCH_QUERY_LENGTH }
                 ?.let {
-                    val provider = providerDao.getById(query.providerId)
+                    val provider = loadCompatibilityProvider(query.providerId)
                     if (provider?.type == ProviderType.XTREAM_CODES) {
                         ensureXtreamCategoryLoaded(
                             providerId = query.providerId,
@@ -388,7 +375,7 @@ class SeriesRepositoryImpl @Inject constructor(
         categoryId: Long,
         request: VodCategoryHydrationRequest
     ): Result<Unit> {
-        val provider = providerDao.getById(providerId) ?: return Result.error("Provider not found")
+        val provider = loadCompatibilityProvider(providerId) ?: return Result.error("Provider not found")
         if (provider.type != ProviderType.STALKER_PORTAL) return Result.success(Unit)
         val mode = preferencesRepository.vodCategoryLoadMode.first()
         val effectiveRequest = if (
@@ -478,7 +465,7 @@ class SeriesRepositoryImpl @Inject constructor(
             ?: seriesDao.getBySeriesId(providerId, seriesId)
             ?: return Result.error("Series not found")
 
-        val provider = providerDao.getById(providerId)
+        val provider = loadCompatibilityProvider(providerId)
             ?: return Result.error("Provider not found")
 
         if (seriesEntity.seriesId <= 0L) {
@@ -502,57 +489,33 @@ class SeriesRepositoryImpl @Inject constructor(
         }
 
         val remoteResult = try {
-            when (provider.type) {
-                ProviderType.XTREAM_CODES -> withTimeoutOrNull(XTREAM_DETAIL_HYDRATION_TIMEOUT_MILLIS) {
-                    getOrCreateXtreamProvider(providerId, provider).getSeriesInfo(seriesEntity.seriesId)
-                } ?: run {
-                    xtreamContentIndexDao.markDetailHydrationError(
-                        providerId = providerId,
-                        contentType = ContentType.SERIES.name,
-                        remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
-                        errorState = "DETAIL_FAILED_TIMEOUT"
-                    )
-                    return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                }
-                ProviderType.STALKER_PORTAL -> createStalkerProvider(providerId, provider).getSeriesInfo(
-                    providerSeriesId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() }
-                        ?: seriesEntity.seriesId.toString(),
-                    catalogOrigin = seriesEntity.catalogOrigin,
-                    episodePlaybackTemplateUrl = seriesEntity.episodePlaybackTemplateUrl,
-                    learnedDialect = StalkerContentCapabilitiesCodec.decode(
-                        provider.stalkerCapabilitiesJson,
-                        provider.contentCapabilityGeneration()
-                    ).seriesDetailDialect
+            val capabilitySet = when (val resolution = providerCapabilityResolver.resolve(providerId)) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError,
+                is CapabilityResolution.Restricted,
+                is CapabilityResolution.Unsupported -> return Result.success(
+                    attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
                 )
-                ProviderType.M3U -> return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                ProviderType.JELLYFIN -> {
-                    val remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() }
-                        ?: return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                    val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
-                    when (val episodesResult = jellyfinProvider.fetchEpisodes(
-                        provider = com.streamvault.domain.model.Provider(
-                            id = providerId, name = "Jellyfin", type = ProviderType.JELLYFIN,
-                            serverUrl = provider.serverUrl, username = provider.username,
-                            password = decryptedPassword
-                        ),
-                        seriesRemoteId = remoteId,
-                        seriesLocalId = seriesEntity.id
-                    )) {
-                        is com.streamvault.domain.model.Result.Success -> {
-                            if (episodesResult.data.isNotEmpty()) {
-                                episodeDao.replaceAll(seriesEntity.id, providerId, episodesResult.data)
-                            }
-                            return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                        }
-                        is com.streamvault.domain.model.Result.Error -> {
-                            Log.w(TAG, "Failed to fetch Jellyfin episodes: ${episodesResult.message}")
-                            return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                        }
-                        is com.streamvault.domain.model.Result.Loading -> {}
-                    }
-                    return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
-                }
             }
+            val seriesSource = when (val resolution = capabilitySet.seriesCatalog()) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError,
+                is CapabilityResolution.Restricted,
+                is CapabilityResolution.Unsupported -> return Result.success(
+                    attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
+                )
+            }
+            seriesSource.hydrateSeries(
+                reference = ProviderContentReference(
+                    providerId = providerId,
+                    localId = seriesEntity.id,
+                    streamId = seriesEntity.seriesId,
+                    remoteId = seriesEntity.providerSeriesId,
+                    seriesCatalogOrigin = seriesEntity.catalogOrigin,
+                    episodePlaybackTemplateUrl = seriesEntity.episodePlaybackTemplateUrl
+                ),
+                current = buildSeriesWithPersistedEpisodes(seriesEntity)
+            )
         } catch (e: Exception) {
             if (provider.type == ProviderType.XTREAM_CODES) {
                 xtreamContentIndexDao.markDetailHydrationError(
@@ -608,48 +571,6 @@ class SeriesRepositoryImpl @Inject constructor(
                     }
                 )
                 seriesDao.update(updatedSeries)
-                if (provider.type == ProviderType.STALKER_PORTAL && remoteSeries.seasons.any { it.episodes.isNotEmpty() }) {
-                    val currentCapabilities = StalkerContentCapabilitiesCodec.decode(
-                        provider.stalkerCapabilitiesJson,
-                        provider.contentCapabilityGeneration()
-                    )
-                    val learnedCapabilities = currentCapabilities.copy(
-                        seriesDetailDialect = when (remoteSeries.catalogOrigin) {
-                            SeriesCatalogOrigin.VOD_DERIVED -> StalkerSeriesDetailDialect.VOD_SEASON_SHELLS
-                            SeriesCatalogOrigin.NATIVE -> StalkerSeriesDetailDialect.NATIVE_SERIES
-                        },
-                        episodeSelectorDialect = if (
-                            remoteSeries.seasons.flatMap(Season::episodes).any { episode ->
-                                StalkerUrlFactory.parseInternalStreamUrl(episode.streamUrl)?.seriesNumber != null
-                            }
-                        ) {
-                            StalkerEpisodeSelectorDialect.PARENT_COMMAND_WITH_SERIES_NUMBER
-                        } else {
-                            StalkerEpisodeSelectorDialect.EPISODE_COMMAND
-                        },
-                        vodPlaybackDialect = updatedSeries.episodePlaybackTemplateUrl
-                            ?.let(StalkerUrlFactory::parseInternalStreamUrl)
-                            ?.let { token ->
-                                if (token.cmd.trim().startsWith("http", ignoreCase = true)) {
-                                    StalkerVodPlaybackDialect.DIRECT
-                                } else {
-                                    StalkerVodPlaybackDialect.CREATE_LINK
-                                }
-                            } ?: currentCapabilities.vodPlaybackDialect,
-                        validationEvidence = (
-                            currentCapabilities.validationEvidence +
-                                "series_details_non_empty:${seriesEntity.catalogOrigin.name.lowercase()}"
-                            ).distinct().takeLast(8)
-                    )
-                    providerDao.update(
-                        provider.copy(
-                            stalkerCapabilitiesJson = StalkerContentCapabilitiesCodec.encode(
-                            provider.stalkerCapabilitiesJson,
-                            learnedCapabilities
-                            )
-                        )
-                    )
-                }
                 if (provider.type == ProviderType.XTREAM_CODES) {
                     xtreamContentIndexDao.markDetailHydrated(
                         providerId = providerId,
@@ -761,7 +682,11 @@ class SeriesRepositoryImpl @Inject constructor(
                         providerId = providerId,
                         contentType = ContentType.SERIES.name,
                         remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
-                        errorState = "DETAIL_FAILED_RETRYABLE"
+                        errorState = if (remoteResult.exception is ProviderCapabilityTimeoutException) {
+                            "DETAIL_FAILED_TIMEOUT"
+                        } else {
+                            "DETAIL_FAILED_RETRYABLE"
+                        }
                     )
                 }
                 val localSeries = attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
@@ -1314,7 +1239,7 @@ class SeriesRepositoryImpl @Inject constructor(
         }
 
         val hasMoreRemote = query.categoryId?.let { categoryId ->
-            val provider = providerDao.getById(query.providerId)
+            val provider = loadCompatibilityProvider(query.providerId)
             if (provider?.type == ProviderType.STALKER_PORTAL) {
                 seriesCategoryHydrationDao.get(query.providerId, categoryId)?.let { !it.isComplete } ?: false
             } else {
@@ -1616,7 +1541,7 @@ class SeriesRepositoryImpl @Inject constructor(
         loadStalkerCategoryCompletely: Boolean = false
     ) {
         val key = "$providerId:$categoryId"
-        val provider = providerDao.getById(providerId) ?: return
+        val provider = loadCompatibilityProvider(providerId) ?: return
         if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return
 
         val localCount = seriesDao.getCountByCategory(providerId, categoryId).first()
@@ -1656,7 +1581,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private fun triggerSeriesCategoryHydration(
         providerId: Long,
         categoryId: Long,
-        provider: ProviderEntity,
+        provider: Provider,
         requiredCount: Int = SEARCH_RESULT_LIMIT,
         allowStalkerWildcard: Boolean = true
     ) {
@@ -1712,7 +1637,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private suspend fun hydrateStalkerSeriesCategoryToCount(
         providerId: Long,
         categoryId: Long,
-        provider: ProviderEntity,
+        provider: Provider,
         requiredCount: Int,
         localCount: Int? = null,
         hydration: SeriesCategoryHydrationEntity? = null,
@@ -1725,7 +1650,7 @@ class SeriesRepositoryImpl @Inject constructor(
         lock.withLock {
             val persistedHydration = seriesCategoryHydrationDao.get(providerId, categoryId)
             if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return
-            val stalkerProvider = createStalkerProvider(providerId, provider)
+            val stalkerProvider = createStalkerProvider(providerId)
             if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.SERIES, categoryId)) return
             var currentCount = localCount ?: seriesDao.getCountByCategory(providerId, categoryId).first()
             var currentHydration = persistedHydration ?: hydration
@@ -1906,76 +1831,15 @@ class SeriesRepositoryImpl @Inject constructor(
     private fun seriesUpdatedScore(series: Series): Long =
         series.lastModified.takeIf { it > 0L } ?: 0L
 
-    private suspend fun getOrCreateXtreamProvider(providerId: Long, provider: ProviderEntity): XtreamProvider {
-        val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
-        val signature = listOf(
-            provider.serverUrl,
-            provider.username,
-            provider.password,
-            provider.httpUserAgent,
-            provider.httpHeaders,
-            provider.allowedOutputFormatsJson,
-            enableBase64TextCompatibility.toString()
-        ).joinToString("\u0000")
-        return requireNotNull(
-            xtreamProviderCache.compute(providerId) { _, cached ->
-                if (cached != null && cached.signature == signature) {
-                    cached
-                } else {
-                    val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
-                    CachedXtreamProvider(
-                        signature = signature,
-                        provider = XtreamProvider(
-                            providerId = providerId,
-                            api = xtreamApiService,
-                            serverUrl = provider.serverUrl,
-                            username = provider.username,
-                            password = decryptedPassword,
-                            allowedOutputFormats = provider.toDomain().allowedOutputFormats,
-                            enableBase64TextCompatibility = enableBase64TextCompatibility,
-                            requestProfile = provider.toGenericRequestProfile(ownerTag = "provider:$providerId/xtream")
-                        )
-                    )
-                }
-            }
-        ) { "Provider cache compute returned null for providerId=$providerId" }.provider
-    }
-
-    private fun createStalkerProvider(providerId: Long, provider: ProviderEntity): StalkerProvider {
-        return StalkerProvider(
-            providerId = providerId,
-            api = stalkerApiService,
-            portalUrl = provider.serverUrl,
-            macAddress = provider.stalkerMacAddress,
-            authMode = provider.stalkerAuthMode,
-            username = provider.username,
-            password = credentialCrypto.decryptIfNeeded(provider.password),
-            httpUserAgent = provider.httpUserAgent,
-            httpHeaders = provider.httpHeaders,
-            portalFingerprintHint = provider.stalkerPortalFingerprint,
-            magPresetHint = provider.stalkerMagPreset,
-            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
-            endpointPreferenceHint = provider.stalkerEndpointPreference,
-            cookieModeHint = provider.stalkerCookieMode,
-            playbackBackendHint = provider.stalkerPlaybackBackendHint,
-            portalProfileHint = provider.stalkerPortalProfile,
-            preferredPlaybackMode = provider.stalkerLastPlaybackMode
-                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
-            deviceProfile = provider.stalkerDeviceProfile,
-            timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale,
-            serialNumber = provider.stalkerSerialNumber,
-            deviceId = provider.stalkerDeviceId,
-            deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature,
-            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
-            protocolPreference = provider.stalkerProtocolPreference,
-            transportGrant = provider.stalkerTransportGrantOrNull(),
-            requestedProfileId = provider.stalkerRequestedProfileId,
-            learnedProfileId = provider.stalkerLearnedProfileId,
-            identityResolver = stalkerRemoteIdentityResolver,
-            portalStateStore = stalkerPortalStateStore
-        )
+    private suspend fun createStalkerProvider(providerId: Long): StalkerProvider {
+        val snapshot = providerCapabilityResolver.snapshot(providerId)
+            ?: throw IllegalStateException("Provider $providerId has no typed configuration")
+        return when (val resolution = typedProviderClientFactory.stalker(snapshot)) {
+            is CapabilityResolution.Available -> resolution.capability
+            is CapabilityResolution.ConfigurationError -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Restricted -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Unsupported -> throw IllegalStateException(resolution.reason)
+        }
     }
 
     private fun SeriesEntity.hasFreshStalkerDetails(now: Long = System.currentTimeMillis()): Boolean {
@@ -1985,7 +1849,7 @@ class SeriesRepositoryImpl @Inject constructor(
         return !ContentCachePolicy.shouldRefresh(detailHydratedAt, DETAIL_REFRESH_TTL_MILLIS, now)
     }
 
-    private fun ProviderEntity.contentCapabilityGeneration(): Int = listOf(
+    private fun Provider.contentCapabilityGeneration(): Int = listOf(
         serverUrl,
         stalkerMacAddress,
         stalkerAuthMode.name,
@@ -1995,4 +1859,7 @@ class SeriesRepositoryImpl @Inject constructor(
         catalogLayout.name,
         catalogLayoutDetectionVersion.toString()
     ).joinToString("\u0000").hashCode()
+
+    private suspend fun loadCompatibilityProvider(providerId: Long): Provider? =
+        providerCapabilityResolver.snapshot(providerId)?.toLegacyProvider()
 }

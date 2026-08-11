@@ -1717,14 +1717,14 @@ class OkHttpStalkerApiServiceTest {
             deviceProfile = "MAG250",
             timezone = "UTC",
             locale = "en"
-        )
+        ).copy(providerId = 101L)
         val profileB = buildStalkerDeviceProfile(
             portalUrl = "https://portal.example.com/c",
             macAddress = "00:1A:79:12:34:57",
             deviceProfile = "MAG250",
             timezone = "UTC",
             locale = "en"
-        )
+        ).copy(providerId = 202L)
         val sessionA = (service.authenticate(profileA) as Result.Success).data.first
         val sessionB = (service.authenticate(profileB) as Result.Success).data.first
 
@@ -1735,6 +1735,12 @@ class OkHttpStalkerApiServiceTest {
         assertThat(playbackCookies.getValue("a")).doesNotContain("session-b")
         assertThat(playbackCookies.getValue("b")).contains("PHPSESSID=session-b")
         assertThat(playbackCookies.getValue("b")).doesNotContain("session-a")
+        assertThat(sessionA.sessionScopeKey).contains("provider:101|epoch:")
+        assertThat(sessionB.sessionScopeKey).contains("provider:202|epoch:")
+
+        service.invalidateSessionScopes(101L)
+        val sessionA2 = (service.authenticate(profileA) as Result.Success).data.first
+        assertThat(sessionA2.sessionScopeKey).isNotEqualTo(sessionA.sessionScopeKey)
     }
 
     @Test
@@ -1818,6 +1824,36 @@ class OkHttpStalkerApiServiceTest {
         assertThat(error.exception).isInstanceOf(StalkerApiError.Authorization::class.java)
         assertThat(error.message).isEqualTo("Portal denied the request for get_genres.")
         assertThat(requestCount).isEqualTo(1)
+    }
+
+    @Test
+    fun http_authentication_error_matrix_distinguishes_expired_session_and_forbidden_request() = runTest {
+        suspend fun requestResult(code: Int, body: String): Result<List<StalkerCategoryRecord>> {
+            val service = OkHttpStalkerApiService(
+                okHttpClient = OkHttpClient.Builder()
+                    .addInterceptor { chain ->
+                        Response.Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(code)
+                            .message("HTTP $code")
+                            .body(body.toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }
+                    .build(),
+                json = Json { ignoreUnknownKeys = true }
+            )
+            return service.getLiveCategories(stalkerSession(), stalkerProfile())
+        }
+
+        val unauthorized = requestResult(401, "{\"error\":\"expired\"}") as Result.Error
+        val tokenRejected = requestResult(403, "{\"error\":\"not_valid_token\"}") as Result.Error
+        val forbidden = requestResult(403, "{\"error\":\"forbidden\"}") as Result.Error
+
+        assertThat(unauthorized.exception).isInstanceOf(StalkerApiError.SessionExpired::class.java)
+        assertThat(tokenRejected.exception).isInstanceOf(StalkerApiError.SessionExpired::class.java)
+        assertThat(forbidden.exception).isInstanceOf(StalkerApiError.BlockedOrConfiguration::class.java)
+        assertThat(forbidden.exception).isNotInstanceOf(StalkerApiError.Authorization::class.java)
     }
 
     @Test
@@ -2273,7 +2309,7 @@ class OkHttpStalkerApiServiceTest {
                 portalUrl = "https://portal.example.com/c",
                 macAddress = "00:1A:79:12:34:56",
                 deviceProfile = "MAG250",
-                timezone = "UTC",
+                timezone = "Europe/Amsterdam",
                 locale = "en"
             ),
             categoryId = "147",
@@ -2284,7 +2320,8 @@ class OkHttpStalkerApiServiceTest {
         val success = result as Result.Success
         val item = success.data.items.single()
         val expectedAddedAt = LocalDateTime.of(2026, 5, 18, 13, 2, 23)
-            .toInstant(ZoneOffset.UTC)
+            .atZone(ZoneId.of("Europe/Amsterdam"))
+            .toInstant()
             .toEpochMilli()
         assertThat(item.addedAt).isEqualTo(expectedAddedAt)
     }

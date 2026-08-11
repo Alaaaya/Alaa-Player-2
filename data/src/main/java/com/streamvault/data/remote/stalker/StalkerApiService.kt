@@ -45,6 +45,8 @@ data class StalkerDeviceProfile(
     val headerOverrides: Map<String, String?> = emptyMap(),
     val advancedOptions: StalkerAdvancedOptions = StalkerAdvancedOptions(),
     val providerId: Long = 0L,
+    /** Authentication generation used to isolate cookies and learned endpoint state. */
+    val authEpoch: Long = 0L,
     val protocolPreference: StalkerProtocolPreference = StalkerProtocolPreference.AUTO,
     val transportGrant: StalkerTransportGrant? = null,
     val requestedProfileId: String = StalkerCompatibilityProfileIds.AUTO,
@@ -79,13 +81,13 @@ class StalkerDiscoveryRuntime(
         val request = requests.incrementAndGet()
         if (request > budget.maxRequests) {
             throw StalkerApiError.DiscoveryBudgetExceeded(
-                "Portal discovery stopped after ${budget.maxRequests} network requests."
+                "Portal discovery exceeded its ${budget.maxRequests}-request budget."
             )
         }
         val elapsedMillis = (System.nanoTime() - startedAtNanos) / 1_000_000L
         if (elapsedMillis > budget.maxElapsedMillis) {
             throw StalkerApiError.DiscoveryBudgetExceeded(
-                "Portal discovery stopped after ${budget.maxElapsedMillis / 1_000L} seconds."
+                "Portal discovery exceeded its ${budget.maxElapsedMillis}ms time budget."
             )
         }
     }
@@ -105,6 +107,9 @@ data class StalkerSession(
     val portalReferer: String,
     val token: String,
     val sessionScopeKey: String = "",
+    val authEpoch: Long = 0L,
+    val authenticatedAtMillis: Long = System.currentTimeMillis(),
+    val expiresAtMillis: Long? = null,
     val serverCookieHeader: String = "",
     val effectiveAuthMode: StalkerAuthMode = StalkerAuthMode.AUTO,
     val portalProfile: StalkerPortalProfile = StalkerPortalProfile.MAG_BASIC,
@@ -116,7 +121,12 @@ data class StalkerSession(
     val recipeEvidence: List<String> = emptyList(),
     val rediscoveryAttempted: Boolean = false,
     val compatibilityProfileId: String = StalkerCompatibilityProfileIds.CLASSIC_MAG250_GENERIC
-)
+) {
+    fun isExpired(nowMillis: Long = System.currentTimeMillis()): Boolean =
+        nowMillis >= (expiresAtMillis ?: (authenticatedAtMillis + STALKER_SESSION_MAX_AGE_MILLIS))
+}
+
+internal const val STALKER_SESSION_MAX_AGE_MILLIS = 30L * 60L * 1000L
 
 data class StalkerFingerprintEvidence(
     val endpointPreference: StalkerEndpointPreference = StalkerEndpointPreference.AUTO,
@@ -276,6 +286,9 @@ data class StalkerProgramRecord(
 
 interface StalkerApiService {
     suspend fun authenticate(profile: StalkerDeviceProfile): Result<Pair<StalkerSession, StalkerProviderProfile>>
+
+    /** Removes all in-memory transport/session state owned by one provider. */
+    fun invalidateSessionScopes(providerId: Long) = Unit
 
     suspend fun getLiveCategories(
         session: StalkerSession,

@@ -11,8 +11,10 @@ import com.streamvault.domain.manager.ValidatedStalkerProviderInput
 import com.streamvault.domain.manager.ValidatedXtreamProviderInput
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.GuideSourcePolicy
+import com.streamvault.domain.model.JellyfinConfig
+import com.streamvault.domain.model.M3uConfig
 import com.streamvault.domain.model.ProviderEpgSyncMode
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderSavedWithSyncErrorException
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
@@ -29,8 +31,11 @@ import com.streamvault.domain.model.StalkerTransportConsentRequiredException
 import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.StalkerTransportOrigin
+import com.streamvault.domain.model.StalkerConfig
+import com.streamvault.domain.model.XtreamConfig
 import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.ProviderSetupRequest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -767,7 +772,45 @@ private class FakeProviderRepository : ProviderRepository {
 
     override suspend fun setActiveProvider(id: Long): Result<Unit> = error("Not used in test")
 
-    override suspend fun loginXtream(
+    override suspend fun setupProvider(
+        request: ProviderSetupRequest,
+        onProgress: ((String) -> Unit)?,
+        onCode: ((String) -> Unit)?
+    ): Result<Provider> = when (request) {
+        is ProviderSetupRequest.Configured -> when (val config = request.configuration) {
+            is XtreamConfig -> loginXtream(
+                config.serverUrl, config.username, config.password, request.name,
+                config.httpUserAgent, config.httpHeaders, config.fastSyncEnabled,
+                config.epgSyncMode, config.liveSyncMode, config.guideSourcePolicy,
+                config.channelLogoSourcePolicy, onProgress, request.existingProviderId
+            )
+            is M3uConfig -> validateM3u(
+                config.playlistUrl, request.name, config.httpUserAgent, config.httpHeaders,
+                config.epgSyncMode, config.vodClassificationEnabled, config.guideSourcePolicy,
+                config.channelLogoSourcePolicy, onProgress, request.existingProviderId
+            )
+            is StalkerConfig -> loginStalker(
+                config.portalUrl, config.device.macAddress, request.name, config.authMode,
+                config.username, config.password, config.httpUserAgent, config.httpHeaders,
+                config.device.deviceProfile, config.device.timezone, config.device.locale,
+                config.device.serialNumber, config.device.deviceId, config.device.deviceId2,
+                config.device.signature, config.advancedOptionsJson, config.protocolPreference,
+                config.transportGrant, request.saveWithoutVerification, request.repairConnection,
+                config.requestedProfileId, config.epgSyncMode, config.catalogMode,
+                config.guideSourcePolicy, config.channelLogoSourcePolicy, onProgress,
+                request.existingProviderId
+            )
+            is JellyfinConfig -> loginJellyfin(
+                config.serverUrl, config.username, config.credential, request.name,
+                onProgress, request.existingProviderId
+            )
+        }
+        is ProviderSetupRequest.JellyfinQuickConnect -> loginJellyfinQuickConnect(
+            request.serverUrl, request.name, onCode, onProgress, request.existingProviderId
+        )
+    }
+
+    suspend fun loginXtream(
         serverUrl: String,
         username: String,
         password: String,
@@ -786,7 +829,7 @@ private class FakeProviderRepository : ProviderRepository {
         return xtreamResult ?: Result.success(provider(id = id ?: 1L, name = name, type = ProviderType.XTREAM_CODES))
     }
 
-    override suspend fun validateM3u(
+    suspend fun validateM3u(
         url: String,
         name: String,
         httpUserAgent: String,
@@ -802,7 +845,7 @@ private class FakeProviderRepository : ProviderRepository {
         return m3uResult ?: Result.success(provider(id = id ?: 2L, name = name, type = ProviderType.M3U, m3uUrl = url))
     }
 
-    override suspend fun loginStalker(
+    suspend fun loginStalker(
         portalUrl: String,
         macAddress: String,
         name: String,
@@ -876,7 +919,7 @@ private class FakeProviderRepository : ProviderRepository {
         )
     }
 
-    override suspend fun loginJellyfin(
+    suspend fun loginJellyfin(
         serverUrl: String,
         username: String,
         password: String,
@@ -893,7 +936,7 @@ private class FakeProviderRepository : ProviderRepository {
         )
     }
 
-    override suspend fun loginJellyfinQuickConnect(
+    suspend fun loginJellyfinQuickConnect(
         serverUrl: String,
         name: String,
         onCode: ((String) -> Unit)?,

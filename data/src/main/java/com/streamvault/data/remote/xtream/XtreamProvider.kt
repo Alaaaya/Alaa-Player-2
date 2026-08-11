@@ -6,7 +6,8 @@ import com.streamvault.data.remote.dto.*
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.domain.model.*
-import com.streamvault.domain.provider.IptvProvider
+import com.streamvault.domain.model.LegacyProvider as Provider
+import com.streamvault.domain.provider.*
 import com.streamvault.domain.util.ChannelNormalizer
 import java.time.Instant
 import java.time.LocalDate
@@ -27,7 +28,7 @@ import kotlinx.coroutines.sync.withLock
  * Converts Xtream API responses to domain models.
  */
 class XtreamProvider(
-    override val providerId: Long,
+    val providerId: Long,
     private val api: XtreamApiService,
     private val serverUrl: String,
     private val username: String,
@@ -36,7 +37,13 @@ class XtreamProvider(
     private val useTextClassification: Boolean = true,
     private val enableBase64TextCompatibility: Boolean = false,
     private val requestProfile: HttpRequestProfile = HttpRequestProfile(ownerTag = "provider:$providerId/xtream")
-) : IptvProvider {
+) : ProviderAuthenticator,
+    LiveCatalogSource,
+    VodCatalogSource,
+    SeriesCatalogSource,
+    GuideSource,
+    PlaybackResolver,
+    CatchUpSource {
     companion object {
         private const val TAG = "XtreamProvider"
         private const val STREAM_SUMMARY_BATCH_SIZE = 500

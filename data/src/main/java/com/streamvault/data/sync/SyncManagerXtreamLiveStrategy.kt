@@ -11,7 +11,7 @@ import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress

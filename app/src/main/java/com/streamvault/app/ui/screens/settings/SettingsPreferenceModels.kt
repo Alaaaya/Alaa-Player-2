@@ -23,7 +23,7 @@ import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.TimeshiftBackendPreference
 

@@ -1074,7 +1074,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private suspend fun observeSingleProviderGuide(provider: com.streamvault.domain.model.Provider) {
+    private suspend fun observeSingleProviderGuide(provider: com.streamvault.domain.model.LegacyProvider) {
         combine(
             channelRepository.getCategories(provider.id),
             getCustomCategories(provider.id, ContentType.LIVE),
@@ -1533,7 +1533,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private fun buildProviderSourceLabel(provider: com.streamvault.domain.model.Provider): String {
+    private fun buildProviderSourceLabel(provider: com.streamvault.domain.model.LegacyProvider): String {
         return when (provider.type) {
             com.streamvault.domain.model.ProviderType.XTREAM_CODES -> "Xtream Codes"
             com.streamvault.domain.model.ProviderType.M3U -> "M3U Playlist"
@@ -1542,7 +1542,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private fun buildProviderArchiveSummary(provider: com.streamvault.domain.model.Provider): String {
+    private fun buildProviderArchiveSummary(provider: com.streamvault.domain.model.LegacyProvider): String {
         return when (provider.type) {
             com.streamvault.domain.model.ProviderType.XTREAM_CODES ->
                 "Xtream replay depends on archive-enabled channels and valid replay stream ids from the provider."
@@ -1805,7 +1805,7 @@ class EpgViewModel @Inject constructor(
     }
 
     private suspend fun fetchXtreamGuideFallback(
-        provider: com.streamvault.domain.model.Provider,
+        provider: com.streamvault.domain.model.LegacyProvider,
         providerId: Long,
         channels: List<Channel>,
         existingProgramsByChannel: Map<String, List<Program>>,

@@ -9,6 +9,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.RecordingRunDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.RecordingStorageDao
@@ -121,7 +122,8 @@ class RecordingManagerImpl @Inject constructor(
     private val hlsLiveCaptureEngine: HlsLiveCaptureEngine,
     private val alarmScheduler: RecordingAlarmScheduler,
     private val preferencesRepository: PreferencesRepository,
-    private val recordingServiceLauncher: RecordingServiceLauncher
+    private val recordingServiceLauncher: RecordingServiceLauncher,
+    private val providerSnapshotDao: ProviderSnapshotDao? = null
 ) : RecordingManager {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1198,7 +1200,7 @@ class RecordingManagerImpl @Inject constructor(
         }
         val provider = providerDao.getById(providerId)
             ?: return "Recording provider no longer exists."
-        val providerMaxConnections = provider.maxConnections
+        val providerMaxConnections = providerSnapshotDao?.getRuntime(providerId)?.maxConnections ?: 1
         if (overlapping.count { it.providerId == providerId } >= providerMaxConnections) {
             return "Recording exceeds the provider connection limit for this account."
         }

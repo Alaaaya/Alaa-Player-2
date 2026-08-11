@@ -1,6 +1,7 @@
 package com.streamvault.data.local
 
 import androidx.room.testing.MigrationTestHelper
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -1562,7 +1563,145 @@ class StreamVaultDatabaseMigrationTest {
         migratedDb.close()
     }
 
-    private fun countRows(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int {
+    @Test
+    fun migrate72To73_backfillsTypedSnapshotsForEveryProviderTypeWithoutIdOrFkLoss() {
+        val name = "streamvault-72-73-provider-snapshots"
+        migrationTestHelper.createDatabase(name, 72).apply {
+            insertProvider72(1, "Xtream", "XTREAM_CODES")
+            insertProvider72(2, "M3U", "M3U")
+            insertProvider72(3, "Stalker", "STALKER_PORTAL")
+            insertProvider72(4, "Jellyfin", "JELLYFIN")
+            execSQL("UPDATE providers SET server_url='https://x.test',username='alice',password='enc:v1:xtream',is_active=1 WHERE id=1")
+            execSQL("UPDATE providers SET server_url='https://m.test/list.m3u',m3u_url='https://m.test/list.m3u',epg_url='https://m.test/epg.xml' WHERE id=2")
+            execSQL("UPDATE providers SET server_url='https://s.test',username='bob',password='enc:v1:stalker',stalker_mac_address='00:11:22:33:44:55',stalker_configuration_generation=4 WHERE id=3")
+            execSQL("UPDATE providers SET server_url='https://j.test',username='carol',password='enc:v1:jellyfin' WHERE id=4")
+            insertChannel72(10, 100, "News", 1)
+            insertStalkerPortalState72(3)
+            close()
+        }
+
+        val migrated = migrationTestHelper.runMigrationsAndValidate(
+            name,
+            73,
+            true,
+            StreamVaultDatabase.MIGRATION_72_73
+        )
+
+        assertEquals(4, countRows(migrated, "SELECT COUNT(*) FROM provider_configs"))
+        assertEquals(4, countRows(migrated, "SELECT COUNT(*) FROM provider_account_runtime"))
+        assertEquals(4, countRows(migrated, "SELECT COUNT(*) FROM provider_configs WHERE length(identity_key)=64"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM provider_configs WHERE provider_id=3 AND configuration_generation=4 AND encrypted_config_json LIKE '%enc:v1:stalker%'"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM channels WHERE id=10 AND provider_id=1"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM stalker_portal_state WHERE provider_id=3 AND configuration_generation=4"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM stalker_portal_state WHERE provider_id=3 AND learning_json LIKE '%\"portalFingerprint\"%' AND learning_json LIKE '%\"configurationGeneration\":4%'"))
+        assertEquals(0, countRows(migrated, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+        migrated.close()
+    }
+
+    @Test
+    fun migrate72To74_rebuildsStableProvidersWithoutCatalogOrForeignKeyLoss() {
+        val name = "streamvault-72-74-stable-provider-identity"
+        migrationTestHelper.createDatabase(name, 72).apply {
+            insertProvider72(1, "Xtream", "XTREAM_CODES")
+            insertProvider72(2, "M3U", "M3U")
+            insertProvider72(3, "Stalker", "STALKER_PORTAL")
+            insertProvider72(4, "Jellyfin", "JELLYFIN")
+            execSQL("UPDATE providers SET server_url='https://x.test',username='alice',password='enc:v1:xtream',is_active=1,guide_source_policy='EXTERNAL_ONLY',channel_logo_source_policy='EPG_PREFERRED',status='ACTIVE',last_synced_at=123,created_at=456 WHERE id=1")
+            execSQL("UPDATE providers SET server_url='https://m.test/list.m3u',m3u_url='https://m.test/list.m3u',epg_url='https://m.test/epg.xml' WHERE id=2")
+            execSQL("UPDATE providers SET server_url='https://s.test',username='bob',password='enc:v1:stalker',stalker_mac_address='00:11:22:33:44:55',stalker_configuration_generation=4,status='PARTIAL' WHERE id=3")
+            execSQL("UPDATE providers SET server_url='https://j.test',username='carol',password='enc:v1:jellyfin' WHERE id=4")
+            insertChannel72(10, 100, "News", 1)
+            execSQL("INSERT INTO categories(id,category_id,name,type,provider_id,is_adult,is_user_protected,sync_fingerprint) VALUES(20,200,'Live','LIVE',1,0,0,'category-20')")
+            insertStalkerPortalState72(3)
+            execSQL("INSERT INTO provider_config_revisions(provider_id,revision,config_json,state,attempt_count,last_error,created_at,updated_at) VALUES(1,7,'{\"legacy\":true}','PENDING',2,NULL,700,701)")
+            close()
+        }
+
+        val migrated = migrationTestHelper.runMigrationsAndValidate(
+            name,
+            74,
+            true,
+            StreamVaultDatabase.MIGRATION_72_73,
+            StreamVaultDatabase.MIGRATION_73_74
+        )
+
+        assertEquals(4, countRows(migrated, "SELECT COUNT(*) FROM providers"))
+        assertEquals(4, countRows(migrated, "SELECT COUNT(*) FROM provider_configs"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM providers WHERE id=1 AND is_active=1 AND status='ACTIVE' AND last_synced_at=123 AND created_at=456"))
+        assertEquals(0, countRows(migrated, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name IN ('server_url','username','password','stalker_mac_address')"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM provider_configs WHERE provider_id=1 AND guide_source_policy='EXTERNAL_ONLY' AND channel_logo_source_policy='EPG_PREFERRED'"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM channels WHERE id=10 AND provider_id=1"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM categories WHERE id=20 AND provider_id=1"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM stalker_portal_state WHERE provider_id=3 AND configuration_generation=4"))
+        assertEquals(1, countRows(migrated, "SELECT COUNT(*) FROM provider_config_revisions WHERE provider_id=1 AND revision=7 AND state='PENDING' AND config_json='{\"legacy\":true}'"))
+        assertEquals(0, countRows(migrated, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+        migrated.close()
+    }
+
+    private fun SupportSQLiteDatabase.insertProvider72(id: Long, name: String, type: String) {
+        execSQL(
+            """
+            INSERT INTO providers (
+                id,name,type,server_url,username,password,m3u_url,epg_url,http_user_agent,http_headers,
+                stalker_mac_address,stalker_device_profile,stalker_device_timezone,stalker_device_locale,
+                stalker_serial_number,stalker_device_id,stalker_device_id2,stalker_signature,
+                stalker_advanced_options_json,stalker_auth_mode,stalker_portal_profile,
+                stalker_portal_fingerprint,stalker_mag_preset,stalker_protocol_preference,
+                stalker_transport_mode,stalker_transport_origin,stalker_tls_spki_sha256,
+                stalker_transport_consent_at,stalker_configuration_generation,stalker_discovery_summary,
+                stalker_capabilities_json,stalker_requested_profile_id,stalker_learned_profile_id,
+                stalker_profile_revision,stalker_profile_verification,stalker_protocol_family,
+                stalker_last_bootstrap_recipe,stalker_endpoint_preference,stalker_cookie_mode,
+                stalker_playback_backend_hint,stalker_last_playback_mode,stalker_credentials_required,
+                stalker_mac_required,stalker_uses_temp_links,stalker_module_restricted,
+                stalker_strict_fingerprint_required,stalker_recipe_fallback_used,
+                stalker_recipe_rediscovery_attempts,is_active,max_connections,expiration_date,api_version,
+                allowed_output_formats_json,epg_sync_mode,stalker_catalog_mode,guide_source_policy,
+                channel_logo_source_policy,xtream_fast_sync_enabled,xtream_live_sync_mode,
+                m3u_vod_classification_enabled,catalog_layout,catalog_layout_detection_version,status,
+                last_synced_at,created_at
+            ) VALUES (
+                ?,?,?,?,?,'','','','','',?,'','','','','','','','','AUTO','MAG_BASIC','BASIC_MAC',
+                'GENERIC_SAFE','AUTO','AUTO_STRICT','','',0,0,'','','auto','',0,'UNVERIFIED',
+                'CLASSIC_MAG','GENERIC_SAFE','AUTO','NONE','AUTO',NULL,0,1,0,0,0,0,0,0,1,NULL,NULL,
+                '[]','BACKGROUND','ON_DEMAND','AUTO','SUPPLIER_PREFERRED',1,'AUTO',0,'SPLIT',0,
+                'UNKNOWN',0,0
+            )
+            """.trimIndent(),
+            arrayOf(id, name, type, "seed://$id", "seed-$id", "seed-mac-$id")
+        )
+    }
+
+    private fun SupportSQLiteDatabase.insertChannel72(
+        id: Long,
+        streamId: Long,
+        name: String,
+        providerId: Long
+    ) {
+        execSQL(
+            """
+            INSERT INTO channels (
+                id,stream_id,name,stream_url,number,catch_up_supported,catch_up_days,provider_id,
+                is_adult,is_user_protected,logical_group_id,error_count,sync_fingerprint
+            ) VALUES (?,?,?,'https://stream.test/live',0,0,0,?,0,0,'',0,'channel-test')
+            """.trimIndent(),
+            arrayOf(id, streamId, name, providerId)
+        )
+    }
+
+    private fun SupportSQLiteDatabase.insertStalkerPortalState72(providerId: Long) {
+        execSQL(
+            """
+            INSERT INTO stalker_portal_state (
+                provider_id,working_endpoint,safe_metadata_concurrency,stress_cooldown_until,
+                endpoint_health_json,endpoint_failed_until,validated_at,schema_version
+            ) VALUES (?,'https://s.test/load.php',1,0,'{}',0,100,1)
+            """.trimIndent(),
+            arrayOf(providerId)
+        )
+    }
+
+    private fun countRows(db: SupportSQLiteDatabase, sql: String): Int {
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0
             return cursor.getInt(0)

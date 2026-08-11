@@ -11,6 +11,7 @@ import com.streamvault.data.local.entity.ProviderWorkflowReason
 import com.streamvault.domain.model.ProviderType
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -99,6 +100,41 @@ class ProviderWorkflowCommitFenceTest {
 
         assertThat(database.channelDao().getByProviderSync(PROVIDER_ID).single().name)
             .isEqualTo("Fresh")
+    }
+
+    @Test
+    fun `failed candidate promotion rolls back replacement and retains committed catalog`() = runTest {
+        insertProvider()
+        database.channelDao().insertAll(listOf(channel(name = "Committed", streamUrl = "old")))
+        val workflowDao = database.providerWorkflowDao()
+        val ticket = workflowDao.request(
+            PROVIDER_ID,
+            ProviderWorkflowPhase.PREPARE,
+            ProviderWorkflowReason.CONFIG_CHANGE,
+            now = 100L,
+            supersede = true,
+            priority = 100,
+            force = true
+        )
+        val lease = checkNotNull(
+            workflowDao.claim(ticket, "candidate-owner", 101L, 1_000L, staleHeartbeatBefore = 0L)
+        )
+
+        val error = runCatching {
+            withContext(ProviderWorkflowExecutionContext(lease)) {
+                store().replaceLiveCatalog(
+                    providerId = PROVIDER_ID,
+                    categories = null,
+                    channels = listOf(channel(name = "Candidate", streamUrl = "new")),
+                    afterCatalogApply = { throw CancellationException("candidate cancelled") }
+                )
+            }
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(CancellationException::class.java)
+        val retained = database.channelDao().getByProviderSync(PROVIDER_ID).single()
+        assertThat(retained.name).isEqualTo("Committed")
+        assertThat(retained.streamUrl).isEqualTo("old")
     }
 
     private fun store() = SyncCatalogStore(

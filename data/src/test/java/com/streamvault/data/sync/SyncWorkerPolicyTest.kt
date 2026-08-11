@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteFullException
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.preferences.DatabaseMaintenanceSnapshot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -39,6 +40,24 @@ class SyncWorkerPolicyTest {
         )
 
         assertThat(outcome).isEqualTo(MaintenanceWorkerOutcome.DeferredForActiveSync)
+        assertThat(snapshots).isEmpty()
+    }
+
+    @Test
+    fun `maintenance cancellation does not persist a failure or success snapshot`() = runTest {
+        val snapshots = mutableListOf<DatabaseMaintenanceSnapshot>()
+        var cancellation: CancellationException? = null
+
+        try {
+            completeMaintenanceRun(
+                runMaintenance = { throw CancellationException("maintenance cancelled") },
+                persistSnapshot = { snapshot -> snapshots += snapshot }
+            )
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+
+        assertThat(cancellation).isNotNull()
         assertThat(snapshots).isEmpty()
     }
 

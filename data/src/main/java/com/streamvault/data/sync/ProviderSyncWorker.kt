@@ -25,11 +25,21 @@ import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.ProviderConfigRevisionState
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderConfigRevisionEntity
 import com.streamvault.data.local.entity.ProviderWorkflowPhase
 import com.streamvault.data.local.entity.ProviderWorkflowReason
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.provider.ProviderConfigurationCodec
+import com.streamvault.data.provider.ProviderConfigRevisionCodec
+import com.streamvault.data.provider.toAccountRuntime
+import com.streamvault.data.provider.toTypedConfiguration
+import com.streamvault.data.provider.guidePolicy
+import com.streamvault.data.provider.logoPolicy
+import com.streamvault.data.local.dao.ProviderSnapshotDao
+import com.streamvault.data.local.entity.ProviderConfigEntity
+import com.streamvault.data.local.entity.ProviderAccountRuntimeEntity
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderEpgSyncMode
@@ -119,6 +129,14 @@ internal suspend fun shouldTrackInitialLiveOnboarding(
 ): Boolean = provider.type == ProviderType.XTREAM_CODES &&
     onboardingDao.getIncompleteByProvider(provider.id) != null
 
+internal fun isObsoleteProviderConfigRevision(
+    revision: ProviderConfigRevisionEntity?,
+    providerExists: Boolean
+): Boolean = revision == null ||
+    !providerExists ||
+    revision.state == ProviderConfigRevisionState.COMMITTED ||
+    revision.state == ProviderConfigRevisionState.SUPERSEDED
+
 class ProviderSyncWorker(
     appContext: Context,
     workerParams: WorkerParameters
@@ -134,6 +152,8 @@ class ProviderSyncWorker(
         fun syncMetadataRepository(): SyncMetadataRepository
         fun providerConfigRevisionDao(): ProviderConfigRevisionDao
         fun credentialCrypto(): CredentialCrypto
+        fun providerConfigurationCodec(): ProviderConfigurationCodec
+        fun providerSnapshotDao(): ProviderSnapshotDao
         fun gson(): Gson
         fun xtreamIndexJobDao(): XtreamIndexJobDao
         fun xtreamLiveOnboardingDao(): XtreamLiveOnboardingDao
@@ -284,6 +304,14 @@ class ProviderSyncWorker(
         if (providerId == INVALID_PROVIDER_ID) {
             return ProviderWorkflowDisposition.FAILED
         }
+        // WorkManager may deliver an old revision after the provider was deleted or after a
+        // newer edit superseded it. Do this check before creating a workflow row: the workflow
+        // tables are foreign-keyed to providers, so a deleted provider must be a successful
+        // no-op rather than a retrying database error.
+        val revision = entryPoint.providerConfigRevisionDao().get(providerId, revisionNumber)
+        if (isObsoleteProviderConfigRevision(revision, entryPoint.providerDao().getById(providerId) != null)) {
+            return ProviderWorkflowDisposition.SUCCEEDED
+        }
         return entryPoint.providerWorkflowRunner().execute(
             providerId = providerId,
             phase = ProviderWorkflowPhase.PREPARE,
@@ -345,33 +373,66 @@ class ProviderSyncWorker(
             return RevisionRecoveryOutcome.SUCCESS
         }
 
-        val secureCandidate = try {
-            entryPoint.gson().fromJson(revision.configJson, ProviderEntity::class.java)
-                ?: throw IllegalStateException("Saved provider edit was empty.")
+        val decodedRevision = try {
+            ProviderConfigRevisionCodec(
+                entryPoint.gson(),
+                entryPoint.providerConfigurationCodec(),
+                entryPoint.credentialCrypto()
+            ).decode(revision.configJson)
         } catch (error: Exception) {
             revisionDao.markFailed(providerId, revisionNumber, "Saved provider edit is invalid.", now)
             return RevisionRecoveryOutcome.FAILURE
         }
+        val secureCandidate = decodedRevision.secureEntity
         if (secureCandidate.id != providerId) {
             revisionDao.markFailed(providerId, revisionNumber, "Saved provider edit did not match its provider.", now)
             return RevisionRecoveryOutcome.FAILURE
         }
 
-        val candidate = try {
-            secureCandidate
-                .copy(password = entryPoint.credentialCrypto().decryptIfNeeded(secureCandidate.password))
-                .toDomain()
-        } catch (error: Exception) {
-            revisionDao.markFailed(providerId, revisionNumber, "Saved provider credentials could not be restored.", now)
-            return RevisionRecoveryOutcome.FAILURE
+        val candidate = decodedRevision.candidate
+        val currentConfigGeneration = entryPoint.providerSnapshotDao()
+            .getConfig(providerId)?.configurationGeneration ?: 0L
+        val commitGeneration = if (decodedRevision.wasLegacy) {
+            currentConfigGeneration + 1L
+        } else {
+            decodedRevision.configurationGeneration
         }
 
         val result = entryPoint.syncManager().syncWithProviderOverride(
             providerId = providerId,
-            force = false,
+            // Recovery must revalidate the staged configuration instead of accepting a fresh
+            // cache belonging to the previously committed configuration.
+            force = true,
             providerOverride = candidate,
             afterCatalogApply = {
                 val committedAt = System.currentTimeMillis()
+                val configuration = candidate.toTypedConfiguration()
+                check(entryPoint.providerSnapshotDao().commitConfiguration(
+                    ProviderConfigEntity(
+                        providerId = providerId,
+                        type = configuration.type,
+                        schemaVersion = configuration.schemaVersion,
+                        configurationGeneration = commitGeneration,
+                        identityKey = entryPoint.providerConfigurationCodec().identityKey(configuration),
+                        encryptedConfigJson = entryPoint.providerConfigurationCodec().encode(configuration),
+                        guideSourcePolicy = configuration.guidePolicy(),
+                        channelLogoSourcePolicy = configuration.logoPolicy(),
+                        updatedAt = committedAt
+                    )
+                )) { "Provider edit configuration was superseded before commit." }
+                val runtime = candidate.toAccountRuntime()
+                entryPoint.providerSnapshotDao().upsertRuntime(
+                    ProviderAccountRuntimeEntity(
+                        providerId = providerId,
+                        maxConnections = runtime.maxConnections,
+                        expirationDate = runtime.expirationDate,
+                        apiVersion = runtime.apiVersion,
+                        allowedOutputFormatsJson = entryPoint.gson().toJson(runtime.allowedOutputFormats),
+                        catalogLayout = runtime.catalogLayout,
+                        catalogLayoutDetectionVersion = runtime.catalogLayoutDetectionVersion,
+                        observedAt = runtime.observedAt
+                    )
+                )
                 check(revisionDao.markCommitted(providerId, revisionNumber, committedAt) == 1) {
                     "Provider edit was superseded before recovery could commit it."
                 }
@@ -579,7 +640,7 @@ class ProviderSyncWorker(
             ContentCachePolicy.CATALOG_TTL_MILLIS,
             now
         )
-        val epgStale = provider.epgSyncMode != ProviderEpgSyncMode.SKIP &&
+        val epgStale = providerEpgSyncMode(entryPoint, provider.id) != ProviderEpgSyncMode.SKIP &&
             ContentCachePolicy.shouldRefresh(
                 metadata?.lastEpgSuccess ?: 0L,
                 ContentCachePolicy.EPG_TTL_MILLIS,
@@ -642,7 +703,7 @@ class ProviderSyncWorker(
             ContentCachePolicy.CATALOG_TTL_MILLIS,
             now
         )
-        val epgStale = provider.epgSyncMode != ProviderEpgSyncMode.SKIP &&
+        val epgStale = providerEpgSyncMode(entryPoint, provider.id) != ProviderEpgSyncMode.SKIP &&
             ContentCachePolicy.shouldRefresh(
                 metadata?.lastEpgSuccess ?: 0L,
                 ContentCachePolicy.EPG_TTL_MILLIS,
@@ -671,6 +732,23 @@ class ProviderSyncWorker(
             entryPoint.syncManager().scheduleBackgroundEpgSync(provider.id)
         }
         return com.streamvault.domain.model.Result.success(Unit)
+    }
+
+    private suspend fun providerEpgSyncMode(
+        entryPoint: ProviderSyncWorkerEntryPoint,
+        providerId: Long
+    ): ProviderEpgSyncMode {
+        val stored = entryPoint.providerSnapshotDao().getConfig(providerId)
+            ?: return ProviderEpgSyncMode.SKIP
+        return when (val configuration = entryPoint.providerConfigurationCodec().decode(
+            stored.type,
+            stored.encryptedConfigJson
+        )) {
+            is com.streamvault.domain.model.XtreamConfig -> configuration.epgSyncMode
+            is com.streamvault.domain.model.M3uConfig -> configuration.epgSyncMode
+            is com.streamvault.domain.model.StalkerConfig -> configuration.epgSyncMode
+            is com.streamvault.domain.model.JellyfinConfig -> ProviderEpgSyncMode.SKIP
+        }
     }
 
     private suspend fun reconcileTargetedProviderStatus(

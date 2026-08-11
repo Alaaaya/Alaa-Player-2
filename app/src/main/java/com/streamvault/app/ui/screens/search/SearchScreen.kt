@@ -315,7 +315,7 @@ class SearchViewModel @Inject constructor(
 }
 
 private data class SearchFilterParams(
-    val provider: com.streamvault.domain.model.Provider?,
+    val provider: com.streamvault.domain.model.LegacyProvider?,
     val query: String,
     val tab: SearchTab,
     val level: Int,

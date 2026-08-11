@@ -5,7 +5,7 @@ import com.streamvault.app.pairing.ProviderQrPairingManager
 import com.streamvault.app.pairing.ProviderQrPairingState
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.CombinedM3uProfile
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.StalkerAuthMode

@@ -1,5 +1,7 @@
 package com.streamvault.data.manager
 
+import com.streamvault.domain.model.Provider as StableProvider
+
 import android.content.Context
 import android.net.Uri
 import com.google.gson.Gson
@@ -18,9 +20,12 @@ import com.streamvault.data.local.dao.FavoriteDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderAccountRuntimeEntity
+import com.streamvault.data.local.entity.ProviderConfigEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
 import com.streamvault.data.local.entity.RecordingScheduleEntity
 import com.streamvault.data.mapper.toDomain
@@ -28,6 +33,12 @@ import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.preferences.ParentalPinBackupData
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.provider.toTypedConfiguration
+import com.streamvault.data.provider.toLegacyProvider
+import com.streamvault.data.provider.ProviderConfigurationCodec
+import com.streamvault.data.provider.guidePolicy
+import com.streamvault.data.provider.logoPolicy
+import com.streamvault.data.provider.toAccountRuntime
 import com.streamvault.data.remote.stalker.StalkerCompatibilityRegistry
 import com.streamvault.domain.manager.BackupData
 import com.streamvault.domain.manager.BackupConflictStrategy
@@ -41,6 +52,7 @@ import com.streamvault.domain.manager.RecordingScheduleImportOutcome
 import com.streamvault.domain.manager.RecordingScheduleImportSummary
 import com.streamvault.domain.manager.ProtectedCategoryBackup
 import com.streamvault.domain.manager.BackupProviderReference
+import com.streamvault.domain.manager.ProviderBackupSnapshot
 import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableChannelReference
 import com.streamvault.domain.manager.PortableProviderPreferencesBackup
@@ -56,6 +68,9 @@ import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.ProviderAccountRuntime
+import com.streamvault.domain.model.LegacyProvider as Provider
+import com.streamvault.domain.repository.ProviderSnapshotRepository
 import com.streamvault.domain.model.StalkerBootstrapRecipe
 import com.streamvault.domain.model.StalkerCatalogMode
 import com.streamvault.domain.model.StalkerProfileVerification
@@ -101,6 +116,9 @@ class BackupManagerImpl @Inject constructor(
     private val recordingManager: RecordingManager,
     private val transactionRunner: DatabaseTransactionRunner,
     private val gson: Gson,
+    private val providerSnapshotRepository: ProviderSnapshotRepository? = null,
+    private val providerSnapshotDao: ProviderSnapshotDao? = null,
+    private val providerConfigurationCodec: ProviderConfigurationCodec? = null,
     private val backupRestoreCheckpointDao: BackupRestoreCheckpointDao? = null,
     private val channelDao: ChannelDao,
     private val epgSourceDao: EpgSourceDao? = null
@@ -168,10 +186,9 @@ class BackupManagerImpl @Inject constructor(
                 }
             }
 
-            val providers = providerEntities.map { entity ->
-                entity.toDomain().copy(
+            val providers = providerEntities.mapNotNull { entity ->
+                providerSnapshotRepository?.getSnapshot(entity.id)?.toLegacyProvider()?.copy(
                     password = "",  // Strip credentials from backup export
-                    username = entity.toDomain().username, // Keep username for provider identification
                     stalkerLastBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
                     stalkerLastPlaybackMode = null,
                     // Transport consent is device-local. A restore must verify or ask again.
@@ -179,6 +196,34 @@ class BackupManagerImpl @Inject constructor(
                     stalkerTransportOrigin = "",
                     stalkerTlsSpkiSha256 = "",
                     stalkerTransportConsentAt = 0L
+                )
+            }
+            if (providers.size != providerEntities.size) {
+                return@withContext com.streamvault.domain.model.Result.error(
+                    "Cannot export backup because one or more providers have no typed configuration snapshot"
+                )
+            }
+            val providerSnapshots = providers.map { provider ->
+                val configuration = when (val config = provider.toTypedConfiguration()) {
+                    is com.streamvault.domain.model.XtreamConfig -> config.copy(password = "")
+                    is com.streamvault.domain.model.M3uConfig -> config
+                    is com.streamvault.domain.model.StalkerConfig -> config.copy(
+                        password = "",
+                        transportGrant = null
+                    )
+                    is com.streamvault.domain.model.JellyfinConfig -> config.copy(credential = "")
+                }
+                configuration.toBackupSnapshot(
+                    StableProvider(
+                        id = provider.id,
+                        name = provider.name,
+                        type = provider.type,
+                        isActive = provider.isActive,
+                        status = provider.status,
+                        lastSyncedAt = provider.lastSyncedAt,
+                        createdAt = provider.createdAt
+                    ),
+                    accountRuntime = provider.toAccountRuntime()
                 )
             }
             val providerIds = providerEntities.map { it.id }
@@ -242,14 +287,15 @@ class BackupManagerImpl @Inject constructor(
             val backupData = BackupData(
                 version = CURRENT_BACKUP_VERSION,
                 preferences = prefs,
-                providers = providers,
+                providers = null,
+                providerSnapshots = providerSnapshots,
                 favorites = allFavorites,
                 virtualGroups = allGroups,
                 playbackHistory = playbackHistory,
                 multiViewPresets = multiViewPresets,
                 protectedCategories = protectedCategories,
                 scheduledRecordings = scheduledRecordings,
-                portableProviderPreferences = buildPortableProviderPreferences(providerEntities),
+                portableProviderPreferences = buildPortableProviderPreferences(providers),
                 epgSources = epgSourceDao?.getAllSync()?.map { it.toDomain() }
             )
 
@@ -271,19 +317,20 @@ class BackupManagerImpl @Inject constructor(
 
     override suspend fun inspectBackup(uriString: String): Result<BackupPreview> = withContext(Dispatchers.IO) {
         try {
-            val backupData = readBackupData(uriString)
+            val rawBackupData = readBackupData(uriString)
                 ?: return@withContext Result.error("Failed to open input stream")
-            if (backupData.version > CURRENT_BACKUP_VERSION) {
+            if (rawBackupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext Result.error("Unsupported backup version")
             }
-            if (backupData.isStructurallyEmpty()) {
+            if (rawBackupData.isStructurallyEmpty()) {
                 return@withContext Result.error("Backup file does not contain any importable data")
             }
-            if (!verifyChecksum(backupData)) {
+            if (!verifyChecksum(rawBackupData)) {
                 return@withContext Result.error("Backup file is corrupted (checksum mismatch)")
             }
+            val backupData = rawBackupData.withLegacyProviderProjection()
 
-            val existingProviders = providerDao.getAll().first()
+            val existingProviders = loadStoredProviders()
             val existingProviderIds = existingProviders.map { it.id }
             val existingGroups = buildList {
                 existingProviderIds.forEach { providerId ->
@@ -364,20 +411,21 @@ class BackupManagerImpl @Inject constructor(
         plan: BackupImportPlan
     ): com.streamvault.domain.model.Result<BackupImportResult> = withContext(Dispatchers.IO) {
         try {
-            val backupData = readBackupData(uriString)
+            val rawBackupData = readBackupData(uriString)
                 ?: return@withContext com.streamvault.domain.model.Result.error("Failed to open input stream")
 
-            if (backupData.version > CURRENT_BACKUP_VERSION) {
+            if (rawBackupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext com.streamvault.domain.model.Result.error("Unsupported backup version")
             }
-            if (backupData.isStructurallyEmpty()) {
+            if (rawBackupData.isStructurallyEmpty()) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file does not contain any importable data")
             }
-            if (!verifyChecksum(backupData)) {
+            if (!verifyChecksum(rawBackupData)) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file is corrupted (checksum mismatch)")
             }
+            val backupData = rawBackupData.withLegacyProviderProjection()
 
-            val restoreKey = buildRestoreKey(backupData, plan)
+            val restoreKey = buildRestoreKey(rawBackupData, plan)
             var checkpoint = loadOrCreateCheckpoint(restoreKey)
             if (checkpoint.state == RESTORE_STATE_COMPLETE) {
                 return@withContext com.streamvault.domain.model.Result.success(
@@ -385,7 +433,7 @@ class BackupManagerImpl @Inject constructor(
                 )
             }
 
-            var storedProviders = providerDao.getAllSync()
+            var storedProviders = loadStoredProviders()
             val importedSections = mutableListOf<String>()
             val skippedSections = mutableListOf<String>()
             val failedSections = mutableListOf<String>()
@@ -721,6 +769,7 @@ class BackupManagerImpl @Inject constructor(
             }
             writeNamedJsonField(jsonWriter, "preferences", backupData.preferences, MAP_STRING_STRING_TYPE)
             writeNamedJsonField(jsonWriter, "providers", backupData.providers, PROVIDER_LIST_TYPE)
+            writeNamedJsonField(jsonWriter, "providerSnapshots", backupData.providerSnapshots, PROVIDER_SNAPSHOT_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "favorites", backupData.favorites, FAVORITE_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "virtualGroups", backupData.virtualGroups, VIRTUAL_GROUP_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "playbackHistory", backupData.playbackHistory, PLAYBACK_HISTORY_LIST_TYPE)
@@ -806,7 +855,8 @@ class BackupManagerImpl @Inject constructor(
         var version = 0
         var checksum: String? = null
         var preferences: Map<String, String>? = null
-        var providers: List<com.streamvault.domain.model.Provider>? = null
+        var providers: List<com.streamvault.domain.model.LegacyProvider>? = null
+        var providerSnapshots: List<ProviderBackupSnapshot>? = null
         var favorites: List<com.streamvault.domain.model.Favorite>? = null
         var virtualGroups: List<com.streamvault.domain.model.VirtualGroup>? = null
         var playbackHistory: List<com.streamvault.domain.model.PlaybackHistory>? = null
@@ -847,6 +897,8 @@ class BackupManagerImpl @Inject constructor(
                 "checksum" -> checksum = reader.nextString()
                 "preferences" -> preferences = readStringMap(reader, MAX_PREFERENCES, "preferences")
                 "providers" -> providers = readLimitedArray(reader, PROVIDER_TYPE, MAX_PROVIDERS, "providers")
+                "providerSnapshots" -> providerSnapshots =
+                    readLimitedArray(reader, PROVIDER_SNAPSHOT_TYPE, MAX_PROVIDERS, "provider snapshots")
                 "favorites" -> favorites = readLimitedArray(reader, FAVORITE_TYPE, MAX_SECTION_ITEMS, "favorites")
                 "virtualGroups" -> virtualGroups =
                     readLimitedArray(reader, VIRTUAL_GROUP_TYPE, MAX_SECTION_ITEMS, "groups")
@@ -883,6 +935,7 @@ class BackupManagerImpl @Inject constructor(
             checksum = checksum,
             preferences = preferences,
             providers = providers,
+            providerSnapshots = providerSnapshots,
             favorites = favorites,
             virtualGroups = virtualGroups,
             playbackHistory = playbackHistory,
@@ -1087,6 +1140,8 @@ class BackupManagerImpl @Inject constructor(
     private fun validateBackupDataLimits(data: BackupData) {
         require(data.preferences.orEmpty().size <= MAX_PREFERENCES) { "Backup has too many preferences" }
         require(data.providers.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many providers" }
+        require(data.providerSnapshots.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many provider snapshots" }
+        data.providerSnapshots.orEmpty().forEach { it.configuration() }
         require(data.favorites.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many favorites" }
         require(data.virtualGroups.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many groups" }
         require(data.playbackHistory.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too much playback history" }
@@ -1140,7 +1195,7 @@ class BackupManagerImpl @Inject constructor(
             ?: Uri.parse(this).path?.let(::File)
 
     internal suspend fun buildPortableProviderPreferences(
-        providers: List<ProviderEntity>
+        providers: List<Provider>
     ): PortableProviderPreferencesBackup {
         val channels = channelDao
         val referencesById = providers.associate { it.id to it.toBackupProviderReference() }
@@ -1242,9 +1297,30 @@ class BackupManagerImpl @Inject constructor(
         )
     }
 
+    /**
+     * v11 stores typed snapshots as the authoritative provider section. Keep the legacy
+     * projection out of parsing/checksum verification, then materialize it only for the older
+     * restore code that still expects the compatibility envelope.
+     */
+    private fun BackupData.withLegacyProviderProjection(): BackupData {
+        val snapshots = providerSnapshots ?: return this
+        // Treat an explicitly empty legacy projection like an omitted one. This keeps v11's
+        // typed section authoritative while still honoring non-empty v0-10 provider payloads.
+        if (!providers.isNullOrEmpty()) return this
+        return copy(
+            providers = snapshots.map { snapshot ->
+                snapshot.configuration().toLegacyProvider(
+                    snapshot.provider,
+                    snapshot.accountRuntime ?: ProviderAccountRuntime()
+                )
+            }
+        )
+    }
+
     private fun BackupData.isStructurallyEmpty(): Boolean =
         preferences.isNullOrEmpty() &&
             providers.isNullOrEmpty() &&
+            providerSnapshots.isNullOrEmpty() &&
             favorites.isNullOrEmpty() &&
             virtualGroups.isNullOrEmpty() &&
             playbackHistory.isNullOrEmpty() &&
@@ -1334,7 +1410,7 @@ class BackupManagerImpl @Inject constructor(
 
     private suspend fun restorePortableProviderPreferences(
         portable: PortableProviderPreferencesBackup,
-        storedProviders: List<ProviderEntity>
+        storedProviders: List<Provider>
     ): List<String> {
         val unresolved = portable.unresolvedReferences.toMutableList()
         val channels = channelDao
@@ -1562,7 +1638,7 @@ class BackupManagerImpl @Inject constructor(
     private suspend fun restoreRoomBackedSections(
         backupData: BackupData,
         plan: BackupImportPlan,
-        initialStoredProviders: List<ProviderEntity>,
+        initialStoredProviders: List<Provider>,
         onRoomCommitted: suspend () -> Unit = {}
     ): RoomRestoreResult {
         if (!plan.importProviders && !plan.importSavedLibrary && !plan.importPlaybackHistory) {
@@ -1593,7 +1669,7 @@ class BackupManagerImpl @Inject constructor(
                         if (existing != null && plan.conflictStrategy == BackupConflictStrategy.KEEP_EXISTING) {
                             return@forEach
                         }
-                        val entity = provider.copy(
+                        val restoredProvider = provider.copy(
                             id = existing?.id ?: 0L,
                             stalkerCatalogMode = if (backupData.version < 9) {
                                 StalkerCatalogMode.ON_DEMAND
@@ -1640,10 +1716,13 @@ class BackupManagerImpl @Inject constructor(
                             } else {
                                 provider.status
                             }
-                        ).toSecureEntityForBackup(credentialCrypto)
-                        providerDao.insert(entity)
+                        )
+                        val restoredId = providerDao.insert(
+                            restoredProvider.toSecureEntityForBackup(credentialCrypto)
+                        )
+                        persistRestoredProvider(restoredId, restoredProvider.copy(id = restoredId))
                     }
-                    storedProviders = providerDao.getAllSync()
+                    storedProviders = loadStoredProviders()
                     backupData.preferences
                         ?.get("lastActiveProviderId")
                         ?.toLongOrNull()
@@ -1719,7 +1798,7 @@ class BackupManagerImpl @Inject constructor(
 
     private suspend fun restoreSavedLibrary(
         backupData: BackupData,
-        storedProviders: List<ProviderEntity>,
+        storedProviders: List<Provider>,
         conflictStrategy: BackupConflictStrategy
     ) {
         val providerIdMap = resolveProviderIdMap(storedProviders, backupData.providers.orEmpty())
@@ -1805,8 +1884,8 @@ class BackupManagerImpl @Inject constructor(
     }
 
     private fun resolveProviderIdMap(
-        storedProviders: List<ProviderEntity>,
-        backupProviders: List<com.streamvault.domain.model.Provider>
+        storedProviders: List<Provider>,
+        backupProviders: List<com.streamvault.domain.model.LegacyProvider>
     ): Map<Long, Long> = backupProviders.mapNotNull { provider ->
         storedProviders.findMatchingProvider(
             serverUrl = provider.serverUrl,
@@ -1819,8 +1898,8 @@ class BackupManagerImpl @Inject constructor(
 
     private suspend fun restorePlaybackHistory(
         history: List<com.streamvault.domain.model.PlaybackHistory>,
-        storedProviders: List<ProviderEntity>,
-        backupProviders: List<com.streamvault.domain.model.Provider>,
+        storedProviders: List<Provider>,
+        backupProviders: List<com.streamvault.domain.model.LegacyProvider>,
         conflictStrategy: BackupConflictStrategy
     ) {
         val providerIdMap = resolveProviderIdMap(storedProviders, backupProviders)
@@ -1861,10 +1940,50 @@ class BackupManagerImpl @Inject constructor(
     }
 
     private data class RoomRestoreResult(
-        val storedProviders: List<ProviderEntity>,
+        val storedProviders: List<Provider>,
         val importedSections: List<String>,
         val skippedSections: List<String>
     )
+
+    private suspend fun loadStoredProviders(): List<Provider> = providerDao.getAllSync().mapNotNull { entity ->
+        providerSnapshotRepository?.getSnapshot(entity.id)?.toLegacyProvider()
+    }
+
+    /** Backup restore deliberately writes configuration/runtime only; learned Stalker state stays absent. */
+    private suspend fun persistRestoredProvider(providerId: Long, provider: Provider) {
+        val configuration = provider.toTypedConfiguration()
+        val snapshotDao = requireNotNull(providerSnapshotDao) { "Typed provider snapshot DAO is required for restore" }
+        val configurationCodec = requireNotNull(providerConfigurationCodec) { "Typed provider configuration codec is required for restore" }
+        val nextGeneration = (snapshotDao.getConfig(providerId)?.configurationGeneration ?: 0L) + 1L
+        check(
+            snapshotDao.commitConfiguration(
+                ProviderConfigEntity(
+                    providerId = providerId,
+                    type = configuration.type,
+                    schemaVersion = configuration.schemaVersion,
+                    configurationGeneration = nextGeneration,
+                    identityKey = configurationCodec.identityKey(configuration),
+                    encryptedConfigJson = configurationCodec.encode(configuration),
+                    guideSourcePolicy = configuration.guidePolicy(),
+                    channelLogoSourcePolicy = configuration.logoPolicy(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        ) { "Restored provider configuration was superseded" }
+        val runtime = provider.toAccountRuntime()
+        snapshotDao.upsertRuntime(
+            ProviderAccountRuntimeEntity(
+                providerId = providerId,
+                maxConnections = runtime.maxConnections,
+                expirationDate = runtime.expirationDate,
+                apiVersion = runtime.apiVersion,
+                allowedOutputFormatsJson = gson.toJson(runtime.allowedOutputFormats),
+                catalogLayout = runtime.catalogLayout,
+                catalogLayoutDetectionVersion = runtime.catalogLayoutDetectionVersion,
+                observedAt = runtime.observedAt
+            )
+        )
+    }
 
 private data class RecordingChannelConflictKey(
     val providerId: Long,
@@ -1880,7 +1999,7 @@ private data class RecordingUrlConflictKey(
 
 internal fun countScheduledRecordingConflicts(
     incoming: List<ScheduledRecordingBackup>,
-    providersByIdentity: Map<Triple<String, String, String>, ProviderEntity>,
+    providersByIdentity: Map<Triple<String, String, String>, Provider>,
     existing: List<com.streamvault.domain.model.RecordingItem>
 ): Int {
     val channelKeys = existing.mapTo(hashSetOf()) {
@@ -2015,22 +2134,22 @@ internal class BackupAdmissionException(
     message: String
 ) : IOException(message)
 
-private fun ProviderEntity.backupIdentity(): Triple<String, String, String> =
+private fun Provider.backupIdentity(): Triple<String, String, String> =
     Triple(serverUrl, username, stalkerMacAddress)
 
-private fun ProviderEntity.toBackupProviderReference() = BackupProviderReference(
+private fun Provider.toBackupProviderReference() = BackupProviderReference(
     serverUrl = serverUrl,
     username = username,
     stalkerMacAddress = stalkerMacAddress.takeIf { it.isNotBlank() }
 )
 
-private fun Iterable<ProviderEntity>.findUnambiguousPortableProvider(
+private fun Iterable<Provider>.findUnambiguousPortableProvider(
     reference: BackupProviderReference
-): ProviderEntity? {
+): Provider? {
     val normalizedMac = reference.stalkerMacAddress.normalizedIdentity()
     return filter { provider ->
         provider.serverUrl == reference.serverUrl &&
-            provider.username == reference.username &&
+            (provider.type == ProviderType.M3U || provider.username == reference.username) &&
             provider.stalkerMacAddress.normalizedIdentity() == normalizedMac
     }.singleOrNull()
 }
@@ -2079,9 +2198,6 @@ private fun PortableChannelReference.unresolvedLabel(kind: String): String =
 
 private fun String?.normalizedIdentity(): String = orEmpty().trim().lowercase()
 
-private fun com.streamvault.domain.model.Provider.backupIdentity(): Triple<String, String, String> =
-    Triple(serverUrl, username, stalkerMacAddress)
-
 private fun ProtectedCategoryBackup.backupIdentity(): Triple<String, String, String> =
     Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
 
@@ -2089,7 +2205,7 @@ private fun ScheduledRecordingBackup.backupIdentity(): Triple<String, String, St
     Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
 
 internal fun com.streamvault.domain.model.RecordingItem.toScheduledRecordingBackup(
-    provider: com.streamvault.domain.model.Provider,
+    provider: com.streamvault.domain.model.LegacyProvider,
     schedule: RecordingScheduleEntity?
 ): ScheduledRecordingBackup {
     val requestedStart = schedule?.requestedStartMs ?: scheduledStartMs
@@ -2155,7 +2271,7 @@ internal fun List<ScheduledRecordingBackup>.normalizedRecurringBackups(): List<S
 
 internal suspend fun importScheduledRecordingBackups(
     recordings: List<ScheduledRecordingBackup>,
-    storedProviders: List<ProviderEntity>,
+    storedProviders: List<Provider>,
     existingSchedules: MutableList<com.streamvault.domain.model.RecordingItem>,
     conflictStrategy: BackupConflictStrategy,
     recordingManager: RecordingManager,
@@ -2263,18 +2379,18 @@ private fun ScheduledRecordingBackup.toImportOutcome(
 private fun ScheduledRecordingBackup.hasStableRecurringIdentity(): Boolean =
     recurrence != RecordingRecurrence.NONE && !recurringRuleId.isNullOrBlank()
 
-private fun com.streamvault.domain.model.Provider.toSecureEntityForBackup(
+private fun com.streamvault.domain.model.LegacyProvider.toSecureEntityForBackup(
     credentialCrypto: CredentialCrypto
 ) = copy(password = credentialCrypto.encryptIfNeeded(password)).toEntity()
 
-private fun Iterable<ProviderEntity>.findMatchingProvider(
+private fun Iterable<Provider>.findMatchingProvider(
     serverUrl: String,
     username: String,
     stalkerMacAddress: String?
-): ProviderEntity? {
+): Provider? {
     val candidates = filter {
         it.serverUrl == serverUrl &&
-            it.username == username
+            (it.type == ProviderType.M3U || it.username == username)
     }
     val normalizedMacAddress = stalkerMacAddress
         ?.trim()
@@ -2290,6 +2406,17 @@ private fun Iterable<ProviderEntity>.findMatchingProvider(
 }
 
 private const val SHA256_PREFIX = "sha256:"
+
+    private fun com.streamvault.domain.model.ProviderConfiguration.toBackupSnapshot(
+    provider: StableProvider,
+    accountRuntime: ProviderAccountRuntime
+): ProviderBackupSnapshot = when (this) {
+    is com.streamvault.domain.model.XtreamConfig -> ProviderBackupSnapshot(provider, accountRuntime, xtreamConfig = this)
+    is com.streamvault.domain.model.M3uConfig -> ProviderBackupSnapshot(provider, accountRuntime, m3uConfig = this)
+    is com.streamvault.domain.model.StalkerConfig -> ProviderBackupSnapshot(provider, accountRuntime, stalkerConfig = this)
+    is com.streamvault.domain.model.JellyfinConfig -> ProviderBackupSnapshot(provider, accountRuntime, jellyfinConfig = this)
+}
+
 private const val RESTORE_STATE_RUNNING = "RUNNING"
 private const val RESTORE_STATE_COMPLETE = "COMPLETE"
 private const val RESTORE_STATE_PARTIAL = "PARTIAL"
@@ -2297,11 +2424,12 @@ private const val RESTORE_STATE_FAILED_BEFORE_COMMIT = "FAILED_BEFORE_COMMIT"
 private const val RESTORE_SNAPSHOT_PRESET_1 = "__restore_snapshot_preset_1"
 private const val RESTORE_SNAPSHOT_PRESET_2 = "__restore_snapshot_preset_2"
 private const val RESTORE_SNAPSHOT_PRESET_3 = "__restore_snapshot_preset_3"
-private const val CURRENT_BACKUP_VERSION = 10
+private const val CURRENT_BACKUP_VERSION = 11
 private const val FILE_URI_SCHEME = "file"
 private val PORTABLE_VIRTUAL_CATEGORY_IDS = setOf(-998L, -999L)
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
-private val PROVIDER_TYPE: Type = com.streamvault.domain.model.Provider::class.java
+private val PROVIDER_TYPE: Type = com.streamvault.domain.model.LegacyProvider::class.java
+private val PROVIDER_SNAPSHOT_TYPE: Type = ProviderBackupSnapshot::class.java
 private val FAVORITE_TYPE: Type = com.streamvault.domain.model.Favorite::class.java
 private val VIRTUAL_GROUP_TYPE: Type = com.streamvault.domain.model.VirtualGroup::class.java
 private val PLAYBACK_HISTORY_TYPE: Type = com.streamvault.domain.model.PlaybackHistory::class.java
@@ -2313,7 +2441,8 @@ private val PORTABLE_GROUP_REFERENCE_TYPE: Type = PortableVirtualGroupReference:
 private val PORTABLE_CHANNEL_REFERENCE_TYPE: Type = PortableChannelReference::class.java
 private val LONG_TYPE: Type = java.lang.Long::class.java
 private val STRING_TYPE: Type = String::class.java
-private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Provider>>() {}.type
+private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.LegacyProvider>>() {}.type
+private val PROVIDER_SNAPSHOT_LIST_TYPE: Type = object : TypeToken<List<ProviderBackupSnapshot>>() {}.type
 private val EPG_SOURCE_TYPE: Type = com.streamvault.domain.model.EpgSource::class.java
 private val EPG_SOURCE_LIST_TYPE: Type =
     object : TypeToken<List<com.streamvault.domain.model.EpgSource>>() {}.type

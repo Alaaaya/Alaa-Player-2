@@ -9,7 +9,7 @@ import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.LibraryFilterType
 import com.streamvault.domain.model.LibrarySortBy
 import com.streamvault.domain.model.PlaybackHistory
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.VodCatalogItem
 import com.streamvault.domain.model.VodCategoryKind
 import com.streamvault.domain.model.VodCategoryHydration
