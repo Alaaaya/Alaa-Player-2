@@ -18,7 +18,12 @@ import com.streamvault.data.local.entity.SeriesBrowseEntity
 import com.streamvault.data.local.entity.SeriesCategoryHydrationEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
+import com.streamvault.data.mapper.toEntity
+import com.streamvault.data.provider.toProviderSnapshot
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.data.provider.ProviderCapabilityResolver
+import com.streamvault.data.provider.TypedProviderClientFactory
+import com.streamvault.data.provider.ProviderCapabilityTimeoutException
 import com.streamvault.data.remote.jellyfin.JellyfinProvider
 import com.streamvault.data.remote.dto.XtreamSeason
 import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
@@ -27,6 +32,8 @@ import com.streamvault.data.remote.stalker.StalkerEpisodeRecord
 import com.streamvault.data.remote.stalker.StalkerItemRecord
 import com.streamvault.data.remote.stalker.StalkerPagedItems
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
+import com.streamvault.data.remote.stalker.StalkerProvider
+import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
 import com.streamvault.data.remote.stalker.StalkerSeasonRecord
 import com.streamvault.data.remote.stalker.StalkerSeriesDetails
 import com.streamvault.data.remote.stalker.StalkerSession
@@ -46,19 +53,28 @@ import com.streamvault.domain.model.LibrarySortBy
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.SeriesDetailPresentationHint
+import com.streamvault.domain.model.Episode
+import com.streamvault.domain.model.Season
+import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.VodDuplicateConfidence
 import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodSeriesVariant
 import com.streamvault.domain.model.VodVariantObservation
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.repository.PlaybackHistoryRepository
+import com.streamvault.domain.provider.CapabilityResolution
+import com.streamvault.domain.provider.ProviderCapabilitySet
+import com.streamvault.domain.provider.ProviderContentReference
+import com.streamvault.domain.provider.SeriesCatalogSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -90,9 +106,26 @@ class SeriesRepositoryImplTest {
     private val xtreamContentIndexDao: XtreamContentIndexDao = mock()
     private val xtreamIndexJobDao: XtreamIndexJobDao = mock()
     private val syncManager: SyncManager = mock()
+    private val providerCapabilityResolver: ProviderCapabilityResolver = mock()
+    private val typedProviderClientFactory: TypedProviderClientFactory = mock()
+    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver = mock()
+    private val providerCapabilitySet: ProviderCapabilitySet = mock()
+    private val seriesCatalogSource: SeriesCatalogSource = mock()
     private val credentialCrypto = object : CredentialCrypto {
         override fun encryptIfNeeded(value: String): String = value
         override fun decryptIfNeeded(value: String): String = value
+    }
+
+    init {
+        whenever(providerCapabilitySet.seriesCatalog()).thenReturn(CapabilityResolution.Available(seriesCatalogSource))
+        runBlocking {
+            whenever(providerCapabilityResolver.resolve(any())).thenReturn(
+                CapabilityResolution.Available(providerCapabilitySet)
+            )
+            whenever(seriesCatalogSource.hydrateSeries(any(), any())).doSuspendableAnswer { invocation ->
+                Result.success(invocation.getArgument<Series>(1))
+            }
+        }
     }
 
     @Test
@@ -101,8 +134,8 @@ class SeriesRepositoryImplTest {
         whenever(preferencesRepository.xtreamBase64TextCompatibility).thenReturn(flowOf(false))
         whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0))
         whenever(seriesDao.getByCategory(7L, 77L)).thenReturn(flowOf(emptyList()))
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -135,8 +168,8 @@ class SeriesRepositoryImplTest {
         whenever(xtreamIndexJobDao.get(7L, ContentType.SERIES.name)).thenReturn(
             XtreamIndexJobEntity(providerId = 7L, section = ContentType.SERIES.name, state = "RUNNING")
         )
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Stalker",
                 type = ProviderType.STALKER_PORTAL,
@@ -177,8 +210,8 @@ class SeriesRepositoryImplTest {
             detailHydratedAt = hydratedAt
         )
         whenever(seriesDao.getById(99L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -221,8 +254,8 @@ class SeriesRepositoryImplTest {
         )
         whenever(seriesDao.getById(99L)).thenReturn(rawSeries)
         whenever(seriesDao.getByProviderAndTmdbIdSync(7L, 777L)).thenReturn(listOf(rawSeries, alternateSeries))
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -261,8 +294,8 @@ class SeriesRepositoryImplTest {
             detailHydratedAt = hydratedAt
         )
         whenever(seriesDao.getById(99L)).thenReturn(rawSeries)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -330,8 +363,8 @@ class SeriesRepositoryImplTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0))
         whenever(seriesDao.getByCategory(7L, 77L)).thenReturn(flowOf(emptyList()))
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Stalker",
                 type = ProviderType.STALKER_PORTAL,
@@ -391,8 +424,8 @@ class SeriesRepositoryImplTest {
         whenever(categoryDao.getByProviderAndType(7L, ContentType.SERIES.name)).thenReturn(
             flowOf(listOf(com.streamvault.data.local.entity.CategoryEntity(providerId = 7L, categoryId = 77L, name = "Drama", type = ContentType.SERIES)))
         )
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Stalker",
                 type = ProviderType.STALKER_PORTAL,
@@ -440,7 +473,7 @@ class SeriesRepositoryImplTest {
         whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0), flowOf(14), flowOf(28), flowOf(42))
         whenever(seriesDao.getByCategoryPage(7L, 77L, 60, 0)).thenReturn(flowOf(emptyList()))
         whenever(seriesCategoryHydrationDao.get(7L, 77L)).thenReturn(null)
-        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        stubProvider(stalkerProvider())
         whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
         whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
             Result.success(listOf(StalkerCategoryRecord(id = "77", name = "Drama")))
@@ -477,7 +510,7 @@ class SeriesRepositoryImplTest {
                 pageSize = 14
             )
         )
-        whenever(providerDao.getById(7L)).thenReturn(stalkerProviderEntity())
+        stubProvider(stalkerProvider())
         whenever(stalkerApiService.authenticate(any())).thenReturn(stalkerSessionResult())
         whenever(stalkerApiService.getSeriesCategories(any(), any())).thenReturn(
             Result.success(listOf(StalkerCategoryRecord(id = "77", name = "Drama")))
@@ -608,8 +641,8 @@ class SeriesRepositoryImplTest {
         whenever(seriesDao.getCountByCategory(7L, 77L)).thenReturn(flowOf(0))
         whenever(seriesDao.getByCategory(7L, 77L)).thenReturn(flowOf(emptyList()))
         whenever(seriesCategoryHydrationDao.get(7L, 77L)).thenReturn(null)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -641,8 +674,8 @@ class SeriesRepositoryImplTest {
         )
         whenever(seriesDao.getById(301L)).thenReturn(null)
         whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Playlist",
                 type = ProviderType.M3U,
@@ -676,8 +709,8 @@ class SeriesRepositoryImplTest {
         )
         whenever(seriesDao.getById(301L)).thenReturn(null)
         whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -713,8 +746,8 @@ class SeriesRepositoryImplTest {
         )
         whenever(seriesDao.getById(301L)).thenReturn(null)
         whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -725,10 +758,12 @@ class SeriesRepositoryImplTest {
             )
         )
         whenever(episodeDao.getBySeriesSync(15L)).thenReturn(emptyList())
-        whenever(xtreamApiService.getSeriesInfo(any(), any())).doSuspendableAnswer {
-            delay(30_000L)
-            XtreamSeriesInfoResponse()
-        }
+        whenever(seriesCatalogSource.hydrateSeries(any(), any())).thenReturn(
+            Result.error(
+                "Xtream series detail hydration timed out",
+                ProviderCapabilityTimeoutException("Xtream series detail hydration timed out")
+            )
+        )
 
         val result = createRepository().getSeriesDetails(7L, 301L)
 
@@ -756,8 +791,8 @@ class SeriesRepositoryImplTest {
         )
         whenever(seriesDao.getById(15L)).thenReturn(seriesEntity)
         whenever(seriesDao.getById(15L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Xtream",
                 type = ProviderType.XTREAM_CODES,
@@ -813,8 +848,8 @@ class SeriesRepositoryImplTest {
             providerId = 7L
         )
         whenever(seriesDao.getById(15L)).thenReturn(seriesEntity)
-        whenever(providerDao.getById(7L)).thenReturn(
-            ProviderEntity(
+        stubProvider(
+            Provider(
                 id = 7L,
                 name = "Stalker",
                 type = ProviderType.STALKER_PORTAL,
@@ -823,32 +858,29 @@ class SeriesRepositoryImplTest {
                 status = ProviderStatus.ACTIVE
             )
         )
-        whenever(stalkerApiService.authenticate(any())).thenReturn(
+        whenever(seriesCatalogSource.hydrateSeries(any(), any())).thenReturn(
             Result.success(
-                StalkerSession(
-                    loadUrl = "http://example.com/stalker_portal/server/load.php",
-                    portalReferer = "http://example.com/stalker_portal/c/",
-                    token = "token"
-                ) to StalkerProviderProfile(accountName = "Stalker")
-            )
-        )
-        whenever(stalkerApiService.getSeriesDetails(any(), any(), eq("55000:55000"))).thenReturn(
-            Result.success(
-                StalkerSeriesDetails(
-                    series = StalkerItemRecord(id = "55000:55000", name = "", isSeries = true),
+                Series(
+                    id = 15L,
+                    name = "",
+                    providerId = 7L,
+                    seriesId = 256103980L,
+                    providerSeriesId = "55000:55000",
                     seasons = listOf(
-                        StalkerSeasonRecord(
+                        Season(
                             seasonNumber = 1,
-                            name = "Season 1",
                             episodes = listOf(
-                                StalkerEpisodeRecord(
-                                    id = "55000:1:1",
+                                Episode(
+                                    id = 1L,
                                     title = "Episode 1",
                                     episodeNumber = 1,
                                     seasonNumber = 1,
-                                    cmd = "cmd"
+                                    streamUrl = "cmd",
+                                    seriesId = 15L,
+                                    providerId = 7L
                                 )
-                            )
+                            ),
+                            episodeCount = 1
                         )
                     )
                 )
@@ -863,7 +895,9 @@ class SeriesRepositoryImplTest {
         assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
         val series = (result as com.streamvault.domain.model.Result.Success).data
         assertThat(series.name).isEqualTo("Stored Series")
-        verify(stalkerApiService).getSeriesDetails(any(), any(), eq("55000:55000"))
+        val referenceCaptor = argumentCaptor<ProviderContentReference>()
+        verify(seriesCatalogSource).hydrateSeries(referenceCaptor.capture(), any())
+        assertThat(referenceCaptor.firstValue.remoteId).isEqualTo("55000:55000")
         verifyNoInteractions(xtreamApiService)
         verify(xtreamContentIndexDao, never()).markDetailHydrated(any(), any(), any(), any(), anyOrNull(), any())
     }
@@ -1072,23 +1106,42 @@ class SeriesRepositoryImplTest {
             playbackHistoryDao = playbackHistoryDao,
             playbackHistoryRepository = playbackHistoryRepository,
             providerDao = providerDao,
-            stalkerApiService = stalkerApiService,
-            xtreamApiService = xtreamApiService,
-            credentialCrypto = credentialCrypto,
             preferencesRepository = preferencesRepository,
             xtreamStreamUrlResolver = xtreamStreamUrlResolver,
             xtreamContentIndexDao = xtreamContentIndexDao,
             xtreamIndexJobDao = xtreamIndexJobDao,
             syncManager = syncManager,
             seriesCategoryHydrationDao = seriesCategoryHydrationDao,
-            jellyfinProvider = jellyfinProvider,
-            stalkerRemoteIdentityResolver = mock(),
             stalkerRequestCoordinator = com.streamvault.data.remote.stalker.StalkerRequestCoordinator(),
-            stalkerPortalStateStore = mock()
+            providerCapabilityResolver = providerCapabilityResolver,
+            typedProviderClientFactory = typedProviderClientFactory
         )
     }
 
-    private fun stalkerProviderEntity() = ProviderEntity(
+    private suspend fun stubProvider(provider: Provider) {
+        whenever(providerDao.getById(provider.id)).thenReturn(provider.toEntity())
+        val snapshot = provider.toProviderSnapshot()
+        whenever(providerCapabilityResolver.snapshot(provider.id)).thenReturn(snapshot)
+        if (provider.type == ProviderType.STALKER_PORTAL) {
+            whenever(typedProviderClientFactory.stalker(snapshot)).thenReturn(
+                CapabilityResolution.Available(
+                    StalkerProvider(
+                        providerId = provider.id,
+                        api = stalkerApiService,
+                        portalUrl = provider.serverUrl,
+                        macAddress = provider.stalkerMacAddress,
+                        deviceProfile = provider.stalkerDeviceProfile,
+                        timezone = provider.stalkerDeviceTimezone,
+                        locale = provider.stalkerDeviceLocale,
+                        identityResolver = stalkerRemoteIdentityResolver,
+                        portalStateStore = mock()
+                    )
+                )
+            )
+        }
+    }
+
+    private fun stalkerProvider() = Provider(
         id = 7L,
         name = "Stalker",
         type = ProviderType.STALKER_PORTAL,

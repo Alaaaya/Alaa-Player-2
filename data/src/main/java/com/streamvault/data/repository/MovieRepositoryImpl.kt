@@ -11,28 +11,21 @@ import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.XtreamContentIndexDao
 import com.streamvault.data.local.dao.XtreamIndexJobDao
-import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
 import com.streamvault.data.local.entity.MovieCategoryHydrationEntity
 import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.remote.http.toGenericRequestProfile
-import com.streamvault.data.remote.stalker.StalkerApiService
-import com.streamvault.data.remote.stalker.StalkerPlaybackMode
+import com.streamvault.data.provider.ProviderCapabilityResolver
+import com.streamvault.data.provider.TypedProviderClientFactory
+import com.streamvault.data.provider.toLegacyProvider
 import com.streamvault.data.remote.stalker.StalkerProvider
-import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
 import com.streamvault.data.remote.stalker.StalkerRequestCoordinator
 import com.streamvault.data.remote.stalker.StalkerRequestDescriptor
 import com.streamvault.data.remote.stalker.StalkerResponseMetrics
-import com.streamvault.data.remote.stalker.StalkerPortalStateStore
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
-import com.streamvault.data.remote.stalker.stalkerTransportGrantOrNull
-import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
-import com.streamvault.data.remote.xtream.XtreamProvider
-import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.ContentCachePolicy
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.util.MoviePresentationSettings
@@ -49,6 +42,7 @@ import com.streamvault.domain.model.MovieDetailPresentationHint
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PagedResult
 import com.streamvault.domain.model.PlaybackHistory
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Result.Success
@@ -64,6 +58,8 @@ import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.provider.CapabilityResolution
+import com.streamvault.domain.provider.ProviderContentReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -92,9 +88,6 @@ class MovieRepositoryImpl @Inject constructor(
     private val movieDao: MovieDao,
     private val categoryDao: CategoryDao,
     private val providerDao: ProviderDao,
-    private val stalkerApiService: StalkerApiService,
-    private val xtreamApiService: XtreamApiService,
-    private val credentialCrypto: CredentialCrypto,
     private val preferencesRepository: PreferencesRepository,
     private val favoriteDao: FavoriteDao,
     private val playbackHistoryDao: PlaybackHistoryDao,
@@ -106,9 +99,9 @@ class MovieRepositoryImpl @Inject constructor(
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val syncManager: SyncManager,
     private val transactionRunner: DatabaseTransactionRunner,
-    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
-    private val stalkerPortalStateStore: StalkerPortalStateStore
+    private val providerCapabilityResolver: ProviderCapabilityResolver,
+    private val typedProviderClientFactory: TypedProviderClientFactory
 ) : MovieRepository {
     private companion object {
         const val TAG = "MovieRepository"
@@ -129,11 +122,6 @@ class MovieRepositoryImpl @Inject constructor(
         val DETAIL_YEAR_REGEX = Regex("""(19|20)\\d{2}""")
     }
 
-    private data class CachedXtreamProvider(
-        val signature: String,
-        val provider: XtreamProvider
-    )
-
     private data class NameCursor(
         val name: String,
         val id: Long
@@ -151,7 +139,6 @@ class MovieRepositoryImpl @Inject constructor(
         val id: Long
     )
 
-    private val xtreamProviderCache = ConcurrentHashMap<Long, CachedXtreamProvider>()
     private val xtreamCategoryLoadLocks = ConcurrentHashMap<String, Mutex>()
     private val freshXtreamCategories = ConcurrentHashMap.newKeySet<String>()
     private val backgroundRefreshes = ConcurrentHashMap.newKeySet<String>()
@@ -261,9 +248,9 @@ class MovieRepositoryImpl @Inject constructor(
             if (filteredCategories.isEmpty()) {
                 flowOf(emptyMap())
             } else channelFlow {
-                val provider = providerDao.getById(providerId)
+                val provider = loadCompatibilityProvider(providerId)
                 val previewCategories = if (provider?.type == ProviderType.STALKER_PORTAL) {
-                    val stalkerProvider = createStalkerProvider(providerId, provider)
+                    val stalkerProvider = createStalkerProvider(providerId)
                     filteredCategories.filterNot { category ->
                         stalkerProvider.isWildcardCategory(ContentType.MOVIE, category.categoryId)
                     }
@@ -414,7 +401,7 @@ class MovieRepositoryImpl @Inject constructor(
                 }
             }
             query.categoryId?.takeIf { normalizedSearch.length < MIN_SEARCH_QUERY_LENGTH }?.let {
-                val provider = providerDao.getById(query.providerId)
+                val provider = loadCompatibilityProvider(query.providerId)
                 if (provider?.type == ProviderType.XTREAM_CODES) {
                     ensureXtreamCategoryLoaded(
                         query.providerId,
@@ -451,7 +438,7 @@ class MovieRepositoryImpl @Inject constructor(
         categoryId: Long,
         request: VodCategoryHydrationRequest
     ): Result<Unit> {
-        val provider = providerDao.getById(providerId) ?: return Result.error("Provider not found")
+        val provider = loadCompatibilityProvider(providerId) ?: return Result.error("Provider not found")
         if (provider.type != ProviderType.STALKER_PORTAL) return Result.success(Unit)
         val loadMode = preferencesRepository.vodCategoryLoadMode.first()
         val effectiveRequest = if (
@@ -490,7 +477,7 @@ class MovieRepositoryImpl @Inject constructor(
     private fun scheduleMoviePrefetch(providerId: Long, categoryId: Long, loadMode: VodCategoryLoadMode) {
         if (loadMode != VodCategoryLoadMode.PAGED) return
         repositoryScope.launch {
-            val provider = providerDao.getById(providerId) ?: return@launch
+            val provider = loadCompatibilityProvider(providerId) ?: return@launch
             val current = movieCategoryHydrationDao.get(providerId, categoryId)
             if (current?.isComplete == true) return@launch
             if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
@@ -562,7 +549,7 @@ class MovieRepositoryImpl @Inject constructor(
         val movieEntity = movieDao.getById(movieId)
             ?: return Result.error("Movie not found")
 
-        val provider = providerDao.getById(providerId)
+        val provider = loadCompatibilityProvider(providerId)
             ?: return Result.error("Provider not found")
 
         if (provider.type == ProviderType.XTREAM_CODES && movieEntity.hasFreshXtreamDetails()) {
@@ -570,12 +557,34 @@ class MovieRepositoryImpl @Inject constructor(
         }
 
         val remoteMovieResult = try {
-            when (provider.type) {
-                ProviderType.XTREAM_CODES -> getOrCreateXtreamProvider(providerId, provider).getVodInfo(movieEntity.streamId)
-                ProviderType.STALKER_PORTAL -> return Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
-                ProviderType.M3U -> return Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
-                ProviderType.JELLYFIN -> return Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
+            val capabilitySet = when (val resolution = providerCapabilityResolver.resolve(providerId)) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError -> return Result.success(
+                    attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
+                )
+                is CapabilityResolution.Restricted -> return Result.success(
+                    attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
+                )
+                is CapabilityResolution.Unsupported -> return Result.success(
+                    attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
+                )
             }
+            val vodSource = when (val resolution = capabilitySet.vodCatalog()) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError,
+                is CapabilityResolution.Restricted,
+                is CapabilityResolution.Unsupported -> return Result.success(
+                    attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
+                )
+            }
+            vodSource.hydrateVod(
+                reference = ProviderContentReference(
+                    providerId = providerId,
+                    localId = movieEntity.id,
+                    streamId = movieEntity.streamId
+                ),
+                current = movieEntity.toDomain()
+            )
         } catch (e: Exception) {
             if (provider.type == ProviderType.XTREAM_CODES) {
                 xtreamContentIndexDao.markDetailHydrationError(
@@ -1263,7 +1272,7 @@ class MovieRepositoryImpl @Inject constructor(
         }
 
         val hasMoreRemote = query.categoryId?.let { categoryId ->
-            val provider = providerDao.getById(query.providerId)
+                val provider = loadCompatibilityProvider(query.providerId)
             if (provider?.type == ProviderType.STALKER_PORTAL) {
                 movieCategoryHydrationDao.get(query.providerId, categoryId)?.let { !it.isComplete } ?: false
             } else {
@@ -1570,7 +1579,7 @@ class MovieRepositoryImpl @Inject constructor(
         loadStalkerCategoryCompletely: Boolean = false
     ) {
         val key = "$providerId:$categoryId"
-        val provider = providerDao.getById(providerId) ?: return
+        val provider = loadCompatibilityProvider(providerId) ?: return
         if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return
 
         val localCount = movieDao.getCountByCategory(providerId, categoryId).first()
@@ -1631,7 +1640,7 @@ class MovieRepositoryImpl @Inject constructor(
         if (!backgroundRefreshes.add(key)) return
         repositoryScope.launch {
             try {
-                val provider = providerDao.getById(providerId) ?: return@launch
+                val provider = loadCompatibilityProvider(providerId) ?: return@launch
                 if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) {
                     return@launch
                 }
@@ -1691,7 +1700,7 @@ class MovieRepositoryImpl @Inject constructor(
     private suspend fun hydrateStalkerMovieCategoryToCount(
         providerId: Long,
         categoryId: Long,
-        provider: ProviderEntity,
+        provider: Provider,
         requiredCount: Int,
         localCount: Int? = null,
         hydration: MovieCategoryHydrationEntity? = null,
@@ -1704,7 +1713,7 @@ class MovieRepositoryImpl @Inject constructor(
         lock.withLock {
             val persistedHydration = movieCategoryHydrationDao.get(providerId, categoryId)
             if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return
-            val stalkerProvider = createStalkerProvider(providerId, provider)
+            val stalkerProvider = createStalkerProvider(providerId)
             if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.MOVIE, categoryId)) return
             var currentCount = localCount ?: movieDao.getCountByCategory(providerId, categoryId).first()
             var currentHydration = persistedHydration ?: hydration
@@ -1887,81 +1896,23 @@ class MovieRepositoryImpl @Inject constructor(
     private fun movieAddedScore(movie: Movie): Long =
         movie.addedAt.takeIf { it > 0L } ?: 0L
 
-    private suspend fun getOrCreateXtreamProvider(providerId: Long, provider: ProviderEntity): XtreamProvider {
-        val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
-        val signature = listOf(
-            provider.serverUrl,
-            provider.username,
-            provider.password,
-            provider.httpUserAgent,
-            provider.httpHeaders,
-            provider.allowedOutputFormatsJson,
-            enableBase64TextCompatibility.toString()
-        ).joinToString("\u0000")
-        return requireNotNull(
-            xtreamProviderCache.compute(providerId) { _, cached ->
-                if (cached != null && cached.signature == signature) {
-                    cached
-                } else {
-                    val decryptedPassword = credentialCrypto.decryptIfNeeded(provider.password)
-                    CachedXtreamProvider(
-                        signature = signature,
-                        provider = XtreamProvider(
-                            providerId = providerId,
-                            api = xtreamApiService,
-                            serverUrl = provider.serverUrl,
-                            username = provider.username,
-                            password = decryptedPassword,
-                            allowedOutputFormats = provider.toDomain().allowedOutputFormats,
-                            enableBase64TextCompatibility = enableBase64TextCompatibility,
-                            requestProfile = provider.toGenericRequestProfile(ownerTag = "provider:$providerId/xtream")
-                        )
-                    )
-                }
-            }
-        ) { "Provider cache compute returned null for providerId=$providerId" }.provider
-    }
-
-    private fun createStalkerProvider(providerId: Long, provider: ProviderEntity): StalkerProvider {
-        return StalkerProvider(
-            providerId = providerId,
-            api = stalkerApiService,
-            portalUrl = provider.serverUrl,
-            macAddress = provider.stalkerMacAddress,
-            authMode = provider.stalkerAuthMode,
-            username = provider.username,
-            password = credentialCrypto.decryptIfNeeded(provider.password),
-            httpUserAgent = provider.httpUserAgent,
-            httpHeaders = provider.httpHeaders,
-            portalFingerprintHint = provider.stalkerPortalFingerprint,
-            magPresetHint = provider.stalkerMagPreset,
-            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
-            endpointPreferenceHint = provider.stalkerEndpointPreference,
-            cookieModeHint = provider.stalkerCookieMode,
-            playbackBackendHint = provider.stalkerPlaybackBackendHint,
-            portalProfileHint = provider.stalkerPortalProfile,
-            preferredPlaybackMode = provider.stalkerLastPlaybackMode
-                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
-            deviceProfile = provider.stalkerDeviceProfile,
-            timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale,
-            serialNumber = provider.stalkerSerialNumber,
-            deviceId = provider.stalkerDeviceId,
-            deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature,
-            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
-            protocolPreference = provider.stalkerProtocolPreference,
-            transportGrant = provider.stalkerTransportGrantOrNull(),
-            requestedProfileId = provider.stalkerRequestedProfileId,
-            learnedProfileId = provider.stalkerLearnedProfileId,
-            identityResolver = stalkerRemoteIdentityResolver,
-            portalStateStore = stalkerPortalStateStore
-        )
+    private suspend fun createStalkerProvider(providerId: Long): StalkerProvider {
+        val snapshot = providerCapabilityResolver.snapshot(providerId)
+            ?: throw IllegalStateException("Provider $providerId has no typed configuration")
+        return when (val resolution = typedProviderClientFactory.stalker(snapshot)) {
+            is CapabilityResolution.Available -> resolution.capability
+            is CapabilityResolution.ConfigurationError -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Restricted -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Unsupported -> throw IllegalStateException(resolution.reason)
+        }
     }
 
     private fun moviePlaybackComplete(progressMs: Long, totalDurationMs: Long): Boolean {
         if (progressMs <= 0L || totalDurationMs <= 0L) return false
         return progressMs >= (totalDurationMs * 0.95f).toLong()
     }
+
+    private suspend fun loadCompatibilityProvider(providerId: Long): Provider? =
+        providerCapabilityResolver.snapshot(providerId)?.toLegacyProvider()
 }
 

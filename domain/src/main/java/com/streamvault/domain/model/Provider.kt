@@ -1,6 +1,12 @@
 package com.streamvault.domain.model
 
-data class Provider(
+/**
+ * Compatibility envelope for legacy callers, revisions, and backup formats.
+ *
+ * New persistence and provider execution must use [ProviderSnapshot] so configuration and
+ * generation-bound observations cannot leak back into a flattened union model.
+ */
+data class LegacyProvider(
     val id: Long = 0,
     val name: String,
     val type: ProviderType,
@@ -74,7 +80,7 @@ data class Provider(
     }
 
     override fun toString(): String =
-        "Provider(id=$id, name=$name, type=$type, status=$status, isActive=$isActive)"
+        "LegacyProvider(id=$id, name=$name, type=$type, status=$status, isActive=$isActive)"
 }
 
 /** Provider-scoped presentation of the VOD catalog. */
@@ -420,7 +426,7 @@ enum class ProviderStatus {
 }
 
 class ProviderSavedWithSyncErrorException(
-    val provider: Provider,
+    val provider: LegacyProvider,
     message: String,
     cause: Throwable? = null
 ) : Exception(message, cause)

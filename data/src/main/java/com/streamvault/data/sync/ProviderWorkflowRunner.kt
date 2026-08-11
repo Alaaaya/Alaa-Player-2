@@ -14,7 +14,6 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -101,15 +100,9 @@ class ProviderWorkflowRunner @Inject constructor(
         } catch (lost: ProviderWorkflowLeaseLostException) {
             ProviderWorkflowDisposition.SUPERSEDED
         } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) {
-                workflowDao.fail(
-                    lease = lease,
-                    now = System.currentTimeMillis(),
-                    errorCode = "CANCELLED",
-                    errorMessage = "Worker cancelled before the phase completed.",
-                    retryable = true
-                )
-            }
+            // Cancellation is owner control flow, not a provider failure. Leave the durable
+            // lease running so the normal stale-lease recovery path can reclaim it without
+            // publishing a retry/error/status update after the worker has stopped.
             throw cancelled
         } catch (error: Exception) {
             publishOutcome(

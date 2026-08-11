@@ -14,7 +14,7 @@ import com.streamvault.data.remote.http.withRequestProfile
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.ContentType
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress
 import kotlinx.coroutines.NonCancellable

@@ -29,7 +29,7 @@ import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.Secondary
 import com.streamvault.app.ui.theme.SurfaceElevated
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderStatus
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.focus.FocusRequester

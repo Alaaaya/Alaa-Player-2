@@ -2,7 +2,7 @@ package com.streamvault.data.remote.jellyfin
 
 import com.google.common.truth.Truth.assertThat
 import com.google.gson.Gson
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import kotlinx.coroutines.test.runTest

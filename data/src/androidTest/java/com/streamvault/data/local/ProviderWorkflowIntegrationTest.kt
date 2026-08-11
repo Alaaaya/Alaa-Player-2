@@ -178,8 +178,7 @@ class ProviderWorkflowIntegrationTest {
     private fun provider(id: Long) = ProviderEntity(
         id = id,
         name = "Provider $id",
-        type = ProviderType.M3U,
-        serverUrl = "https://example.com/$id"
+        type = ProviderType.M3U
     )
 
     private companion object {

@@ -6,7 +6,7 @@ import com.streamvault.domain.manager.ProviderSyncStateReader
 import com.streamvault.domain.model.ChannelLogoSourcePolicy
 import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Program
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
@@ -19,6 +19,7 @@ import com.streamvault.domain.model.StalkerTransportGrant
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.repository.ProviderDeleteProgress
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.ProviderSetupRequest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -123,7 +124,13 @@ private class FakeSyncProviderRepository(
 
     override suspend fun setActiveProvider(id: Long): Result<Unit> = error("Not used in test")
 
-    override suspend fun loginXtream(
+    override suspend fun setupProvider(
+        request: ProviderSetupRequest,
+        onProgress: ((String) -> Unit)?,
+        onCode: ((String) -> Unit)?
+    ): Result<Provider> = error("Not used in test")
+
+    suspend fun loginXtream(
         serverUrl: String,
         username: String,
         password: String,
@@ -139,7 +146,7 @@ private class FakeSyncProviderRepository(
         id: Long?
     ): Result<Provider> = error("Not used in test")
 
-    override suspend fun validateM3u(
+    suspend fun validateM3u(
         url: String,
         name: String,
         httpUserAgent: String,
@@ -152,7 +159,7 @@ private class FakeSyncProviderRepository(
         id: Long?
     ): Result<Provider> = error("Not used in test")
 
-    override suspend fun loginStalker(
+    suspend fun loginStalker(
         portalUrl: String,
         macAddress: String,
         name: String,
@@ -182,7 +189,7 @@ private class FakeSyncProviderRepository(
         id: Long?
     ): Result<Provider> = error("Not used in test")
 
-    override suspend fun loginJellyfin(
+    suspend fun loginJellyfin(
         serverUrl: String,
         username: String,
         password: String,
@@ -191,7 +198,7 @@ private class FakeSyncProviderRepository(
         id: Long?
     ): Result<Provider> = error("Not used in test")
 
-    override suspend fun loginJellyfinQuickConnect(
+    suspend fun loginJellyfinQuickConnect(
         serverUrl: String,
         name: String,
         onCode: ((String) -> Unit)?,

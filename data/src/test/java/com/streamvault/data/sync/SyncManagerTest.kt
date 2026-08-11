@@ -18,6 +18,7 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesCategoryHydrationDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.StalkerIndexJobDao
+import com.streamvault.data.local.dao.StalkerRemoteIdentityDao
 import com.streamvault.data.local.dao.TmdbIdentityDao
 import com.streamvault.data.local.dao.VodCategoryHydrationDao
 import com.streamvault.data.local.dao.VodCatalogEntryDao
@@ -30,9 +31,14 @@ import com.streamvault.data.local.entity.ChannelGuideSyncEntity
 import com.streamvault.data.local.entity.MovieCategoryHydrationEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.mapper.toEntity
+import com.streamvault.data.provider.toProviderSnapshot
+import com.streamvault.data.provider.TypedProviderClientFactory
+import com.streamvault.data.remote.xtream.OkHttpXtreamApiService
 import com.streamvault.data.local.entity.SeriesCategoryHydrationEntity
 import com.streamvault.data.local.entity.StalkerIndexJobEntity
 import com.streamvault.data.local.entity.StalkerPortalStateEntity
+import com.streamvault.data.local.entity.StalkerRemoteIdentityEntity
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.local.entity.XtreamLiveOnboardingStateEntity
 import com.streamvault.data.parser.M3uParser
@@ -42,6 +48,10 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.ProviderEpgSyncMode
 import com.streamvault.domain.model.ProviderXtreamLiveSyncMode
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.model.LegacyProvider as Provider
+import com.streamvault.domain.model.CatalogLayout
+import com.streamvault.domain.model.StalkerPortalLearning
+import com.streamvault.domain.repository.ProviderSnapshotRepository
 import com.streamvault.domain.model.StalkerIndexState
 import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.SyncMetadata
@@ -52,6 +62,8 @@ import com.streamvault.data.remote.stalker.StalkerItemRecord
 import com.streamvault.data.remote.stalker.StalkerPagedItems
 import com.streamvault.data.remote.stalker.StalkerProgramRecord
 import com.streamvault.data.remote.stalker.StalkerProviderProfile
+import com.streamvault.data.remote.stalker.StalkerRemoteIdentityResolver
+import com.streamvault.data.remote.stalker.stalkerStableHashId
 import com.streamvault.data.remote.stalker.StalkerSession
 import com.streamvault.data.remote.stalker.StalkerApiService
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
@@ -95,7 +107,6 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.reset
 import org.mockito.kotlin.verify
 import java.io.IOException
-import java.util.Locale
 import java.util.zip.GZIPOutputStream
 
 /**
@@ -116,8 +127,9 @@ class SyncManagerTest {
     // ── In-memory fake ──────────────────────────────────────────────
 
     private class FakeProviderDao(
-        private val provider: ProviderEntity? = sampleProvider()
+        provider: Provider? = sampleProvider()
     ) : ProviderDao() {
+        private val provider = provider?.toEntity()
         override suspend fun getById(id: Long): ProviderEntity? = provider
         override fun getByIdSync(id: Long): ProviderEntity? = provider?.takeIf { it.id == id }
         override suspend fun getByIds(ids: List<Long>): List<ProviderEntity> =
@@ -136,22 +148,40 @@ class SyncManagerTest {
         override suspend fun deactivateAll() = Unit
         override suspend fun activate(id: Long) = Unit
         override suspend fun setActive(id: Long) = Unit
-        override suspend fun getByUrlAndUser(
-            serverUrl: String,
-            username: String,
-            stalkerMacAddress: String
-        ): ProviderEntity? = null
-        override suspend fun updateEpgUrl(id: Long, epgUrl: String) = Unit
-        override suspend fun invalidateCatalogLayoutDetection(id: Long) = Unit
-        override suspend fun updateCatalogLayout(
-            id: Long,
-            layout: com.streamvault.domain.model.CatalogLayout,
-            version: Int
-        ) = Unit
+    }
+
+    private class FakeStalkerRemoteIdentityDao : StalkerRemoteIdentityDao {
+        private val rows = mutableListOf<StalkerRemoteIdentityEntity>()
+
+        override suspend fun getByRawId(providerId: Long, contentType: String, rawId: String) =
+            rows.firstOrNull { row ->
+                row.providerId == providerId && row.contentType.name == contentType && row.rawId == rawId
+            }
+
+        override suspend fun getBySurrogateId(providerId: Long, contentType: String, surrogateId: Long) =
+            rows.firstOrNull { row ->
+                row.providerId == providerId && row.contentType.name == contentType && row.surrogateId == surrogateId
+            }
+
+        override suspend fun maxAllocatedSurrogate(providerId: Long, contentType: String, floor: Long): Long? =
+            rows.asSequence()
+                .filter { row ->
+                    row.providerId == providerId && row.contentType.name == contentType && row.surrogateId >= floor
+                }
+                .maxOfOrNull(StalkerRemoteIdentityEntity::surrogateId)
+
+        override suspend fun insert(entity: StalkerRemoteIdentityEntity) {
+            check(rows.none { row ->
+                row.providerId == entity.providerId &&
+                    row.contentType == entity.contentType &&
+                    (row.rawId == entity.rawId || row.surrogateId == entity.surrogateId)
+            })
+            rows += entity
+        }
     }
 
     companion object {
-        fun sampleProvider(type: ProviderType = ProviderType.XTREAM_CODES) = ProviderEntity(
+        fun sampleProvider(type: ProviderType = ProviderType.XTREAM_CODES) = Provider(
             id = 1L, name = "Test", type = type,
             serverUrl = "https://test.example.com:8080",
             username = "demo", password = "demo",
@@ -159,8 +189,7 @@ class SyncManagerTest {
         )
 
         fun stalkerSyntheticCategoryId(providerId: Long, type: ContentType, seed: String): Long {
-            val normalized = "$providerId/${type.name}/${seed.trim().lowercase(Locale.ROOT)}"
-            return (normalized.hashCode().toLong() and 0x7fff_ffffL).coerceAtLeast(1L)
+            return stalkerStableHashId(providerId, type, seed)
         }
     }
 
@@ -370,17 +399,28 @@ class SyncManagerTest {
     private fun buildManager(
         providerType: ProviderType = ProviderType.XTREAM_CODES,
         providerPresent: Boolean = true,
-        providerEntity: ProviderEntity? = null,
+        providerEntity: Provider? = null,
         readinessTracker: StalkerReadinessTracker = StalkerReadinessTracker(),
         portalStateStore: com.streamvault.data.remote.stalker.StalkerPortalStateStore = mock()
-    ): SyncManager = SyncManager(
+    ): SyncManager {
+        val configuredProvider = if (providerPresent) providerEntity ?: sampleProvider(providerType) else null
+        val stalkerRemoteIdentityResolver = StalkerRemoteIdentityResolver(
+            dao = FakeStalkerRemoteIdentityDao(),
+            transactionRunner = transactionRunner,
+            categoryDao = categoryDao
+        )
+        val typedProviderClientFactory = TypedProviderClientFactory(
+            xtreamApiService = OkHttpXtreamApiService(xtreamBackend.okHttpClient(), xtreamJson),
+            stalkerApiService = stalkerApiService,
+            jellyfinProvider = jellyfinProvider,
+            preferencesRepository = preferencesRepo,
+            stalkerRemoteIdentityResolver = stalkerRemoteIdentityResolver,
+            stalkerPortalStateStore = portalStateStore
+        )
+        return SyncManager(
         applicationContext = applicationContext,
         providerDao = FakeProviderDao(
-            if (providerPresent) {
-                providerEntity ?: sampleProvider(providerType)
-            } else {
-                null
-            }
+            configuredProvider
         ),
         channelDao = channelDao,
         movieDao = movieDao,
@@ -471,7 +511,6 @@ class SyncManagerTest {
             override suspend fun deleteByProvider(providerId: Long): Int = 0
         },
         xtreamLiveOnboardingDao = xtreamLiveOnboardingDao,
-        stalkerApiService = stalkerApiService,
         episodeDao = episodeDao,
         jellyfinProvider = jellyfinProvider,
         xtreamJson = xtreamJson,
@@ -484,12 +523,24 @@ class SyncManagerTest {
         transactionRunner = transactionRunner,
         preferencesRepository = preferencesRepo,
         syncProgressBus = SyncProgressBus(),
-        stalkerRemoteIdentityResolver = mock(),
         stalkerRequestCoordinator = com.streamvault.data.remote.stalker.StalkerRequestCoordinator(),
         stalkerPortalStateStore = portalStateStore,
         stalkerReadinessTracker = readinessTracker,
-        providerWorkflowCommitFence = ProviderWorkflowCommitFence()
+        providerWorkflowCommitFence = ProviderWorkflowCommitFence(),
+        typedProviderClientFactory = typedProviderClientFactory,
+        providerSnapshotRepository = object : ProviderSnapshotRepository {
+            override suspend fun getSnapshot(providerId: Long) =
+                configuredProvider?.takeIf { it.id == providerId }?.toProviderSnapshot()
+
+            override suspend fun compareAndSetStalkerLearning(
+                providerId: Long,
+                learning: StalkerPortalLearning
+            ): Boolean = configuredProvider?.id == providerId
+
+            override suspend fun updateCatalogLayout(providerId: Long, layout: CatalogLayout, detectionVersion: Int) = Unit
+        }
     )
+    }
 
     // ── Initial state ───────────────────────────────────────────────
 
@@ -2759,7 +2810,7 @@ class SyncManagerTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         verify(stalkerApiService).streamLiveStreams(any(), any(), any())
         verify(stalkerApiService).getLiveStreams(any(), any(), eq("10"))
-        verify(portalStateStore, org.mockito.kotlin.times(0)).recordBulkLive(eq(1L), eq(false), anyOrNull(), any())
+        verify(portalStateStore, org.mockito.kotlin.times(0)).recordBulkLive(eq(1L), eq(false), anyOrNull(), any(), anyOrNull())
     }
 
     @Test
@@ -2818,7 +2869,7 @@ class SyncManagerTest {
         val result = manager.sync(providerId = 1L, force = false)
 
         assertThat(result).isInstanceOf(Result.Success::class.java)
-        verify(portalStateStore).recordBulkLive(eq(1L), eq(false), anyOrNull(), any())
+        verify(portalStateStore).recordBulkLive(eq(1L), eq(false), anyOrNull(), any(), anyOrNull())
     }
 
     @Test
@@ -2877,7 +2928,7 @@ class SyncManagerTest {
         assertThat(result).isInstanceOf(Result.Success::class.java)
         verify(stalkerApiService).streamLiveStreams(any(), any(), any())
         verify(stalkerApiService, org.mockito.kotlin.times(0)).getLiveStreams(any(), any(), eq("10"))
-        verify(portalStateStore).recordBulkLive(eq(1L), eq(true), anyOrNull(), any())
+        verify(portalStateStore).recordBulkLive(eq(1L), eq(true), anyOrNull(), any(), anyOrNull())
     }
 
     @Test

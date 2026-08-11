@@ -1,8 +1,9 @@
 package com.streamvault.data.remote.jellyfin
 
 import com.streamvault.data.local.dao.ProviderDao
-import com.streamvault.data.local.entity.ProviderEntity
-import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.local.dao.ProviderSnapshotDao
+import com.streamvault.data.provider.ProviderConfigurationCodec
+import com.streamvault.domain.model.JellyfinConfig
 import com.streamvault.domain.model.ProviderType
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +14,8 @@ import okhttp3.Interceptor
 @Singleton
 class JellyfinImageAuthInterceptor @Inject constructor(
     private val providerDao: ProviderDao,
-    private val credentialCrypto: CredentialCrypto
+    private val providerSnapshotDao: ProviderSnapshotDao,
+    private val providerConfigurationCodec: ProviderConfigurationCodec
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
@@ -33,14 +35,16 @@ class JellyfinImageAuthInterceptor @Inject constructor(
         val providerId = marker.toLongOrNull() ?: return chain.proceed(sanitizedRequest)
         // Query the exact account on every request. Provider edits and deletes must take effect
         // immediately; a short-lived list cache can otherwise attach a revoked account token.
-        val provider = runCatching { providerDao.getByIdSync(providerId) }
-            .getOrNull()
-            ?.takeIf { it.type == ProviderType.JELLYFIN }
+        val identity = runCatching { providerDao.getByIdSync(providerId) }
+            .getOrNull()?.takeIf { it.type == ProviderType.JELLYFIN }
             ?: return chain.proceed(sanitizedRequest)
+        val stored = providerSnapshotDao.getConfigSync(identity.id)
+            ?: return chain.proceed(sanitizedRequest)
+        val provider = runCatching {
+            providerConfigurationCodec.decode(stored.type, stored.encryptedConfigJson) as? JellyfinConfig
+        }.getOrNull() ?: return chain.proceed(sanitizedRequest)
         if (!provider.matches(request.url)) return chain.proceed(sanitizedRequest)
-        val accessToken = runCatching { credentialCrypto.decryptIfNeeded(provider.password) }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
+        val accessToken = provider.credential.takeIf { it.isNotBlank() }
             ?: return chain.proceed(sanitizedRequest)
 
         return chain.proceed(
@@ -53,7 +57,7 @@ class JellyfinImageAuthInterceptor @Inject constructor(
         )
     }
 
-    private fun ProviderEntity.matches(url: HttpUrl): Boolean {
+    private fun JellyfinConfig.matches(url: HttpUrl): Boolean {
         val baseUrl = serverUrl.toHttpUrlOrNull() ?: return false
         if (url.scheme != baseUrl.scheme || url.host != baseUrl.host || url.port != baseUrl.port) {
             return false

@@ -7,7 +7,7 @@ import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Program
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
@@ -16,7 +16,7 @@ import com.streamvault.domain.model.StalkerCompatibilityProfileIds
 import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolFamily
 import com.streamvault.domain.model.StalkerProtocolPreference
-import com.streamvault.domain.provider.IptvProvider
+import com.streamvault.domain.provider.*
 import java.io.IOException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -110,12 +110,18 @@ class MinistraApiV3CompatibilityException(message: String, cause: Throwable? = n
  * generation. A concrete client is enabled only for a provider-documented API-v3 contract.
  */
 class MinistraApiV3Provider(
-    override val providerId: Long,
+    val providerId: Long,
     private val credentials: MinistraApiV3Credentials,
     private val requestedProfileId: String,
     private val client: MinistraApiV3Client,
     private val tokenStore: MinistraApiV3TokenStore
-) : IptvProvider {
+) : ProviderAuthenticator,
+    LiveCatalogSource,
+    VodCatalogSource,
+    SeriesCatalogSource,
+    GuideSource,
+    PlaybackResolver,
+    CatchUpSource {
     private var memoryToken: MinistraApiV3Token? = null
 
     override suspend fun authenticate(): Result<Provider> = apiCall("Ministra API-v3 authentication failed") {

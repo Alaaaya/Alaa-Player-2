@@ -40,6 +40,10 @@ class ProviderSyncStateReaderImpl @Inject constructor(
                     )
                     }
             } == true
-            legacyIndexActive || workflowIndexActive
+            // The durable workflow is authoritative once present. The legacy
+            // Xtream rows remain a compatibility fallback for providers that
+            // have not yet been migrated into the workflow table, but must not
+            // resurrect a stale spinner after a workflow has completed.
+            if (workflow != null) workflowIndexActive else legacyIndexActive
         }
 }

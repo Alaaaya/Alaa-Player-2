@@ -2,6 +2,7 @@ package com.streamvault.data.sync
 
 import androidx.room.Room
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.streamvault.data.local.StreamVaultDatabase
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.ProviderWorkflowPhase
@@ -15,7 +16,10 @@ import com.streamvault.data.remote.jellyfin.JellyfinResponseTooLargeException
 import com.streamvault.domain.model.ProviderType
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -161,10 +165,96 @@ class ProviderWorkflowRunnerTest {
         assertThat(first.await()).isEqualTo(ProviderWorkflowDisposition.SUCCEEDED)
     }
 
-    private suspend fun insertProvider() {
+    @Test
+    fun `cancellation is rethrown without publishing workflow failure`() = runTest {
+        insertProvider()
+        val entered = CompletableDeferred<Unit>()
+        var cancellation: CancellationException? = null
+        val worker = launch {
+            try {
+                runner.execute(
+                    providerId = PROVIDER_ID,
+                    phase = ProviderWorkflowPhase.EPG,
+                    reason = ProviderWorkflowReason.PERIODIC
+                ) {
+                    entered.complete(Unit)
+                    kotlinx.coroutines.awaitCancellation()
+                }
+            } catch (error: CancellationException) {
+                cancellation = error
+                throw error
+            }
+        }
+
+        entered.await()
+        worker.cancelAndJoin()
+
+        assertThat(cancellation).isNotNull()
+        val workflow = database.providerWorkflowDao().getWorkflow(PROVIDER_ID)!!
+        assertThat(workflow.state).isEqualTo(ProviderWorkflowState.RUNNING)
+        assertThat(workflow.lastErrorCode).isNull()
+        assertThat(workflow.lastErrorMessage).isNull()
+        assertThat(
+            database.providerWorkflowDao()
+                .getPhases(PROVIDER_ID, workflow.generation)
+                .single()
+                .state
+        ).isEqualTo(ProviderWorkflowPhaseState.RUNNING)
+    }
+
+    @Test
+    fun `provider worker cancellation matrix publishes no retry or error for any provider phase`() = runTest {
+        val workerPhases = listOf(
+            "background EPG" to ProviderWorkflowPhase.EPG,
+            "provider catalog" to ProviderWorkflowPhase.PRIMARY_CATALOG,
+            "Stalker index" to ProviderWorkflowPhase.CONTENT_INDEX,
+            "Xtream index" to ProviderWorkflowPhase.MOVIE_INDEX
+        )
+
+        workerPhases.forEachIndexed { index, (owner, phase) ->
+            val providerId = PROVIDER_ID + index + 1
+            insertProvider(providerId)
+            val entered = CompletableDeferred<Unit>()
+            var cancellation: CancellationException? = null
+            val worker = launch {
+                try {
+                    runner.execute(
+                        providerId = providerId,
+                        phase = phase,
+                        reason = ProviderWorkflowReason.PERIODIC
+                    ) {
+                        entered.complete(Unit)
+                        kotlinx.coroutines.awaitCancellation()
+                    }
+                } catch (error: CancellationException) {
+                    cancellation = error
+                    throw error
+                }
+            }
+
+            entered.await()
+            worker.cancelAndJoin()
+
+            assertThat(cancellation).isNotNull()
+            val workflow = database.providerWorkflowDao().getWorkflow(providerId)!!
+            assertWithMessage("$owner cancellation must leave the lease running")
+                .that(workflow.state)
+                .isEqualTo(ProviderWorkflowState.RUNNING)
+            assertThat(workflow.lastErrorCode).isNull()
+            assertThat(workflow.lastErrorMessage).isNull()
+            assertThat(
+                database.providerWorkflowDao()
+                    .getPhases(providerId, workflow.generation)
+                    .single()
+                    .state
+            ).isEqualTo(ProviderWorkflowPhaseState.RUNNING)
+        }
+    }
+
+    private suspend fun insertProvider(providerId: Long = PROVIDER_ID) {
         database.providerDao().insert(
             ProviderEntity(
-                id = PROVIDER_ID,
+                id = providerId,
                 name = "Provider",
                 type = ProviderType.M3U,
                 serverUrl = "https://example.com"

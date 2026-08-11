@@ -1,17 +1,25 @@
 package com.streamvault.data.remote.stalker
 
 import com.streamvault.data.local.dao.StalkerPortalStateDao
+import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.entity.StalkerPortalStateEntity
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Singleton
 class StalkerPortalStateStore @Inject constructor(
-    private val dao: StalkerPortalStateDao
+    private val dao: StalkerPortalStateDao,
+    private val providerSnapshotDao: ProviderSnapshotDao? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -26,11 +34,12 @@ class StalkerPortalStateStore @Inject constructor(
         providerId: Long,
         session: StalkerSession,
         profile: StalkerProviderProfile,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
     ) {
         if (providerId <= 0L) return
         val existing = dao.get(providerId)
-        dao.upsert(
+        persist(
             (existing ?: StalkerPortalStateEntity(providerId)).copy(
                 workingEndpoint = session.loadUrl,
                 bootstrapRecipe = profile.bootstrapRecipe.name,
@@ -43,8 +52,21 @@ class StalkerPortalStateStore @Inject constructor(
                     recipeKey(profile.bootstrapRecipe.name)
                 ),
                 endpointFailedUntil = 0L,
-                validatedAt = now
-            )
+                validatedAt = now,
+                configurationGeneration = configurationGeneration
+                    ?: existing?.configurationGeneration
+                    ?: 0L,
+                learningJson = authenticationLearningJson(
+                    existing?.learningJson,
+                    configurationGeneration ?: existing?.configurationGeneration ?: 0L,
+                    session,
+                    profile,
+                    now
+                ),
+                observationSource = "AUTHENTICATION",
+                observedAt = now
+            ),
+            configurationGeneration
         )
         StalkerTelemetry.capabilityChanged(providerId, "AUTH_RECIPE", "VALIDATED")
     }
@@ -53,9 +75,10 @@ class StalkerPortalStateStore @Inject constructor(
         providerId: Long,
         supported: Boolean,
         categoryFidelity: Boolean? = null,
-        now: Long = System.currentTimeMillis()
-    ) = update(providerId) { state ->
-        state.copy(
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
+    ) = update(providerId, configurationGeneration) { state ->
+        withCapability(state, "live", supported, configurationGeneration, now, "CATALOG").copy(
             bulkLiveSupported = supported,
             bulkLiveCategoryFidelity = categoryFidelity ?: state.bulkLiveCategoryFidelity,
             validatedAt = now
@@ -68,11 +91,20 @@ class StalkerPortalStateStore @Inject constructor(
         providerId: Long,
         contentType: ContentType,
         supported: Boolean,
-        now: Long = System.currentTimeMillis()
-    ) = update(providerId) { state ->
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
+    ) = update(providerId, configurationGeneration) { state ->
+        val capability = when (contentType) {
+            ContentType.MOVIE -> "vod"
+            ContentType.SERIES -> "series"
+            else -> null
+        }
+        val learned = capability?.let {
+            withCapability(state, it, supported, configurationGeneration, now, "CATALOG")
+        } ?: state
         when (contentType) {
-            ContentType.MOVIE -> state.copy(movieWildcardSupported = supported, validatedAt = now)
-            ContentType.SERIES -> state.copy(seriesWildcardSupported = supported, validatedAt = now)
+            ContentType.MOVIE -> learned.copy(movieWildcardSupported = supported, validatedAt = now)
+            ContentType.SERIES -> learned.copy(seriesWildcardSupported = supported, validatedAt = now)
             else -> state
         }
     }.also {
@@ -86,11 +118,38 @@ class StalkerPortalStateStore @Inject constructor(
     suspend fun recordEpg(
         providerId: Long,
         supported: Boolean,
-        now: Long = System.currentTimeMillis()
-    ) = update(providerId) { state ->
-        state.copy(epgSupported = supported, validatedAt = now)
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
+    ) = update(providerId, configurationGeneration) { state ->
+        withCapability(state, "epg", supported, configurationGeneration, now, "GUIDE")
+            .copy(epgSupported = supported, validatedAt = now)
     }.also {
         StalkerTelemetry.capabilityChanged(providerId, "EPG", if (supported) "SUPPORTED" else "UNSUPPORTED")
+    }
+
+    suspend fun recordPlayback(
+        providerId: Long,
+        playbackMode: String,
+        endpointPreference: StalkerEndpointPreference,
+        cookieMode: StalkerCookieMode,
+        backendHint: StalkerPlaybackBackendHint,
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
+    ) = update(providerId, configurationGeneration) { state ->
+        val generation = configurationGeneration ?: state.configurationGeneration
+        val learning = mutableLearning(state.learningJson)
+        learning["configurationGeneration"] = JsonPrimitive(generation)
+        learning["lastPlaybackMode"] = observationJson(playbackMode, generation, now)
+        learning["endpointPreference"] = observationJson(endpointPreference.name, generation, now)
+        learning["cookieMode"] = observationJson(cookieMode.name, generation, now)
+        learning["playbackBackendHint"] = observationJson(backendHint.name, generation, now)
+        state.copy(
+            configurationGeneration = generation,
+            learningJson = JsonObject(learning).toString(),
+            observationSource = "PLAYBACK",
+            observedAt = now,
+            validatedAt = maxOf(state.validatedAt, now)
+        )
     }
 
     suspend fun recordStressCooldown(
@@ -150,11 +209,12 @@ class StalkerPortalStateStore @Inject constructor(
     suspend fun markEndpointUnhealthy(
         providerId: Long,
         endpoint: String,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
     ) {
         if (providerId <= 0L || endpoint.isBlank()) return
         val until = now + ENDPOINT_COOLDOWN_MILLIS
-        update(providerId) { state ->
+        update(providerId, configurationGeneration) { state ->
             val health = decodeEndpointHealth(state.endpointHealthJson)
                 .filterValues { expiry -> expiry > now }
                 .toMutableMap()
@@ -177,11 +237,12 @@ class StalkerPortalStateStore @Inject constructor(
     suspend fun markRecipeUnhealthy(
         providerId: Long,
         recipe: String,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        configurationGeneration: Long? = null
     ) {
         if (providerId <= 0L || recipe.isBlank()) return
         val until = now + RECIPE_COOLDOWN_MILLIS
-        update(providerId) { state ->
+        update(providerId, configurationGeneration) { state ->
             val health = decodeEndpointHealth(state.endpointHealthJson)
                 .filterValues { expiry -> expiry > now }
                 .toMutableMap()
@@ -229,16 +290,112 @@ class StalkerPortalStateStore @Inject constructor(
 
     private suspend fun update(
         providerId: Long,
+        configurationGeneration: Long? = null,
         transform: (StalkerPortalStateEntity) -> StalkerPortalStateEntity
     ) {
         if (providerId <= 0L) return
-        dao.upsert(transform(dao.get(providerId) ?: StalkerPortalStateEntity(providerId)))
+        val existing = dao.get(providerId)
+        persist(
+            transform(existing ?: StalkerPortalStateEntity(providerId)),
+            configurationGeneration ?: existing?.configurationGeneration?.takeIf { it > 0L }
+        )
+    }
+
+    private suspend fun persist(
+        entity: StalkerPortalStateEntity,
+        expectedGeneration: Long?
+    ): Boolean {
+        val snapshotDao = providerSnapshotDao
+        if (snapshotDao == null) {
+            dao.upsert(entity)
+            return true
+        }
+        val currentGeneration = snapshotDao.getConfig(entity.providerId)?.configurationGeneration ?: return false
+        val generation = expectedGeneration ?: currentGeneration
+        return snapshotDao.compareAndSetStalkerLearning(
+            entity.copy(
+                configurationGeneration = generation,
+                observedAt = entity.observedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+            )
+        )
     }
 
     private fun clearHealthFailures(jsonValue: String?, vararg keys: String): String {
         val health = decodeEndpointHealth(jsonValue).toMutableMap()
         keys.forEach(health::remove)
         return json.encodeToString(health)
+    }
+
+    private fun observationJson(
+        value: Any,
+        generation: Long,
+        observedAt: Long,
+        source: String = "PLAYBACK"
+    ): JsonObject = JsonObject(
+        mapOf(
+            "value" to value.toJsonPrimitive(),
+            "configurationGeneration" to JsonPrimitive(generation),
+            "source" to JsonPrimitive(source),
+            "observedAt" to JsonPrimitive(observedAt)
+        )
+    )
+
+    private fun authenticationLearningJson(
+        existingJson: String?,
+        generation: Long,
+        session: StalkerSession,
+        profile: StalkerProviderProfile,
+        observedAt: Long
+    ): String {
+        val learning = mutableLearning(existingJson)
+        learning["configurationGeneration"] = JsonPrimitive(generation)
+        learning["profileId"] = observationJson(profile.compatibilityProfileId, generation, observedAt, "AUTHENTICATION")
+        learning["profileRevision"] = observationJson(profile.profileRevision, generation, observedAt, "AUTHENTICATION")
+        learning["profileVerification"] = observationJson(profile.profileVerification.name, generation, observedAt, "AUTHENTICATION")
+        learning["portalProfile"] = observationJson(profile.portalProfile.name, generation, observedAt, "AUTHENTICATION")
+        learning["portalFingerprint"] = observationJson(profile.portalFingerprint.name, generation, observedAt, "AUTHENTICATION")
+        learning["magPreset"] = observationJson(profile.magPreset.name, generation, observedAt, "AUTHENTICATION")
+        learning["protocolFamily"] = observationJson(profile.protocolFamily.name, generation, observedAt, "AUTHENTICATION")
+        learning["bootstrapRecipe"] = observationJson(profile.bootstrapRecipe.name, generation, observedAt, "AUTHENTICATION")
+        learning["workingEndpoint"] = observationJson(session.loadUrl, generation, observedAt, "AUTHENTICATION")
+        return JsonObject(learning).toString()
+    }
+
+    private fun withCapability(
+        state: StalkerPortalStateEntity,
+        key: String,
+        supported: Boolean,
+        generationOverride: Long?,
+        observedAt: Long,
+        source: String
+    ): StalkerPortalStateEntity {
+        val generation = generationOverride ?: state.configurationGeneration
+        val learning = mutableLearning(state.learningJson)
+        learning["configurationGeneration"] = JsonPrimitive(generation)
+        val capabilities = (learning["capabilities"] as? JsonObject)?.toMutableMap() ?: mutableMapOf()
+        capabilities[key] = observationJson(
+            if (supported) "SUPPORTED" else "UNSUPPORTED",
+            generation,
+            observedAt,
+            source
+        )
+        learning["capabilities"] = JsonObject(capabilities)
+        return state.copy(
+            configurationGeneration = generation,
+            learningJson = JsonObject(learning).toString(),
+            observationSource = source,
+            observedAt = observedAt
+        )
+    }
+
+    private fun mutableLearning(value: String?): MutableMap<String, JsonElement> = runCatching {
+        json.parseToJsonElement(value.orEmpty().ifBlank { "{}" }).let { it as JsonObject }.toMutableMap()
+    }.getOrElse { mutableMapOf() }
+
+    private fun Any.toJsonPrimitive(): JsonPrimitive = when (this) {
+        is Boolean -> JsonPrimitive(this)
+        is Number -> JsonPrimitive(this)
+        else -> JsonPrimitive(toString())
     }
 
     private fun encodeBoundedHealth(health: Map<String, Long>): String {

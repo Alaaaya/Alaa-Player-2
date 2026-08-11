@@ -7,6 +7,12 @@ import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.security.AndroidKeystoreCredentialCrypto
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.ProviderSyncStateReaderImpl
+import com.streamvault.data.provider.RoomProviderSnapshotRepository
+import com.streamvault.data.provider.DefaultProviderCapabilityRegistry
+import com.streamvault.data.provider.JellyfinCapabilityFactory
+import com.streamvault.data.provider.M3uCapabilityFactory
+import com.streamvault.data.provider.StalkerCapabilityFactory
+import com.streamvault.data.provider.XtreamCapabilityFactory
 import com.streamvault.data.validation.ProviderSetupInputValidatorImpl
 import com.streamvault.domain.manager.ParentalPinVerifier
 import com.streamvault.domain.manager.ProviderSetupInputValidator
@@ -14,6 +20,7 @@ import com.streamvault.domain.manager.ProviderSyncStateReader
 import com.streamvault.data.repository.*
 import com.streamvault.domain.manager.ParentalControlSessionStore
 import com.streamvault.domain.repository.*
+import com.streamvault.domain.provider.ProviderCapabilityRegistry
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -30,6 +37,9 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindProviderRepository(impl: ProviderRepositoryImpl): ProviderRepository
+
+    @Binds @Singleton
+    abstract fun bindProviderSnapshotRepository(impl: RoomProviderSnapshotRepository): ProviderSnapshotRepository
 
     @Binds @Singleton
     abstract fun bindChannelRepository(impl: ChannelRepositoryImpl): ChannelRepository
@@ -118,5 +128,16 @@ abstract class RepositoryModule {
         fun provideM3uParser(): com.streamvault.data.parser.M3uParser {
             return com.streamvault.data.parser.M3uParser()
         }
+
+        @Provides
+        @Singleton
+        fun provideProviderCapabilityRegistry(
+            xtream: XtreamCapabilityFactory,
+            stalker: StalkerCapabilityFactory,
+            m3u: M3uCapabilityFactory,
+            jellyfin: JellyfinCapabilityFactory
+        ): ProviderCapabilityRegistry = DefaultProviderCapabilityRegistry(
+            listOf(xtream, stalker, m3u, jellyfin)
+        )
     }
 }

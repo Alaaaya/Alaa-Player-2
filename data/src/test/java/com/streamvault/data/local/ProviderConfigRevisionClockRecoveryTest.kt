@@ -70,4 +70,47 @@ class ProviderConfigRevisionClockRecoveryTest {
         assertThat(candidates.map { it.providerId }).containsExactly(1L, 2L, 3L)
         assertThat(candidates.map { it.providerId }).doesNotContain(4L)
     }
+
+    @Test
+    fun `newer edit fences older revision promotion and provider deletion removes stale work`() = runTest {
+        val providerDao = database.providerDao()
+        val revisionDao = database.providerConfigRevisionDao()
+        providerDao.insert(
+            ProviderEntity(
+                id = 11L,
+                name = "Provider",
+                type = ProviderType.M3U,
+                serverUrl = "https://example.com"
+            )
+        )
+        revisionDao.upsert(
+            ProviderConfigRevisionEntity(
+                providerId = 11L,
+                revision = 1L,
+                configJson = "old",
+                state = ProviderConfigRevisionState.SYNCING,
+                createdAt = 1L,
+                updatedAt = 1L
+            )
+        )
+        revisionDao.upsert(
+            ProviderConfigRevisionEntity(
+                providerId = 11L,
+                revision = 2L,
+                configJson = "new",
+                state = ProviderConfigRevisionState.PENDING,
+                createdAt = 2L,
+                updatedAt = 2L
+            )
+        )
+
+        assertThat(revisionDao.markCommitted(11L, 1L, 3L)).isEqualTo(0)
+        assertThat(revisionDao.getState(11L, 1L)).isEqualTo(ProviderConfigRevisionState.SYNCING)
+        assertThat(revisionDao.claimForSync(11L, 2L, 4L)).isEqualTo(1)
+        assertThat(revisionDao.markCommitted(11L, 2L, 5L)).isEqualTo(1)
+
+        providerDao.delete(11L)
+        assertThat(revisionDao.get(11L, 1L)).isNull()
+        assertThat(revisionDao.get(11L, 2L)).isNull()
+    }
 }

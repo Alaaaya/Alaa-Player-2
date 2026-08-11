@@ -7,7 +7,7 @@ import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.remote.http.useCancellableResponse
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.Result
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient

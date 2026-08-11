@@ -1,17 +1,25 @@
 package com.streamvault.domain.manager
 
+import com.streamvault.domain.model.Provider as StableProvider
+
 import com.streamvault.domain.model.PlaybackHistory
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.RecordingRecurrence
 import kotlinx.coroutines.flow.Flow
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.XtreamConfig
+import com.streamvault.domain.model.M3uConfig
+import com.streamvault.domain.model.StalkerConfig
+import com.streamvault.domain.model.JellyfinConfig
 
 data class BackupData(
-    val version: Int = 10,
+    val version: Int = 11,
     val checksum: String? = null,
     val preferences: Map<String, String>? = null,
     val providers: List<Provider>? = null,
+    /** v11 authoritative provider payload; v0-10 continue to use [providers]. */
+    val providerSnapshots: List<ProviderBackupSnapshot>? = null,
     val favorites: List<com.streamvault.domain.model.Favorite>? = null,
     val virtualGroups: List<com.streamvault.domain.model.VirtualGroup>? = null,
     val playbackHistory: List<PlaybackHistory>? = null,
@@ -21,6 +29,20 @@ data class BackupData(
     val portableProviderPreferences: PortableProviderPreferencesBackup? = null,
     val epgSources: List<com.streamvault.domain.model.EpgSource>? = null
 )
+
+data class ProviderBackupSnapshot(
+    val provider: StableProvider,
+    /** Runtime observations are portable and restore without becoming configuration state. */
+    val accountRuntime: com.streamvault.domain.model.ProviderAccountRuntime? = null,
+    val xtreamConfig: XtreamConfig? = null,
+    val m3uConfig: M3uConfig? = null,
+    val stalkerConfig: StalkerConfig? = null,
+    val jellyfinConfig: JellyfinConfig? = null
+) {
+    fun configuration() = listOfNotNull(xtreamConfig, m3uConfig, stalkerConfig, jellyfinConfig)
+        .singleOrNull()
+        ?: throw IllegalArgumentException("Provider backup must contain exactly one typed configuration")
+}
 
 /**
  * Provider-scoped preference values expressed without local Room/DataStore identifiers.

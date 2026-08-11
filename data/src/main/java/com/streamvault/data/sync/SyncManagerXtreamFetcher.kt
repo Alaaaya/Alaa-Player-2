@@ -12,7 +12,7 @@ import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.Series
 import kotlin.system.measureTimeMillis
 

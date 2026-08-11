@@ -7,6 +7,7 @@ import com.streamvault.data.local.entity.ProviderWorkflowEntity
 import com.streamvault.data.local.entity.ProviderWorkflowPhase
 import com.streamvault.data.local.entity.ProviderWorkflowReason
 import com.streamvault.data.local.entity.ProviderWorkflowState
+import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -44,7 +45,17 @@ class ProviderSyncStateReaderImplTest {
 
     @Test
     fun `terminal durable workflow does not report background indexing`() = runTest {
-        whenever(xtreamIndexJobDao.observeForProvider(PROVIDER_ID)).thenReturn(flowOf(emptyList()))
+        whenever(xtreamIndexJobDao.observeForProvider(PROVIDER_ID)).thenReturn(
+            flowOf(
+                listOf(
+                    XtreamIndexJobEntity(
+                        providerId = PROVIDER_ID,
+                        section = "MOVIE",
+                        state = "RUNNING"
+                    )
+                )
+            )
+        )
         whenever(workflowDao.observeWorkflow(PROVIDER_ID)).thenReturn(
             flowOf(
                 ProviderWorkflowEntity(
@@ -62,6 +73,26 @@ class ProviderSyncStateReaderImplTest {
         val reader = ProviderSyncStateReaderImpl(syncManager, xtreamIndexJobDao, workflowDao)
 
         assertThat(reader.observeBackgroundIndexingActive(PROVIDER_ID).first()).isFalse()
+    }
+
+    @Test
+    fun `legacy indexing remains a fallback before durable workflow exists`() = runTest {
+        whenever(xtreamIndexJobDao.observeForProvider(PROVIDER_ID)).thenReturn(
+            flowOf(
+                listOf(
+                    XtreamIndexJobEntity(
+                        providerId = PROVIDER_ID,
+                        section = "SERIES",
+                        state = "RUNNING"
+                    )
+                )
+            )
+        )
+        whenever(workflowDao.observeWorkflow(PROVIDER_ID)).thenReturn(flowOf(null))
+        whenever(workflowDao.observeActivePhases(PROVIDER_ID)).thenReturn(flowOf(emptyList()))
+        val reader = ProviderSyncStateReaderImpl(syncManager, xtreamIndexJobDao, workflowDao)
+
+        assertThat(reader.observeBackgroundIndexingActive(PROVIDER_ID).first()).isTrue()
     }
 
     private companion object {

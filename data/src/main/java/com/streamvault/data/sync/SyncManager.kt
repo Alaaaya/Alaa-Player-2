@@ -68,6 +68,9 @@ import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.provider.toProviderSnapshot
+import com.streamvault.data.provider.TypedProviderClientFactory
+import com.streamvault.data.provider.XtreamClientOptions
 import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.runSuspendCatching
 import com.streamvault.data.util.UrlSecurityPolicy
@@ -77,7 +80,7 @@ import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.ProviderEpgSyncMode
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
@@ -91,11 +94,15 @@ import com.streamvault.domain.model.StalkerTransportOrigin
 import com.streamvault.domain.model.SyncMetadata
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.model.VodSyncMode
+import com.streamvault.domain.model.XtreamConfig
+import com.streamvault.data.provider.toLegacyProvider
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.repository.ProviderSnapshotRepository
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress
+import com.streamvault.domain.provider.CapabilityResolution
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
@@ -246,7 +253,6 @@ class SyncManager @Inject constructor(
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val stalkerIndexJobDao: StalkerIndexJobDao,
     private val xtreamLiveOnboardingDao: XtreamLiveOnboardingDao,
-    private val stalkerApiService: StalkerApiService,
     private val episodeDao: EpisodeDao,
     private val jellyfinProvider: JellyfinProvider,
     private val xtreamJson: Json,
@@ -259,11 +265,12 @@ class SyncManager @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository,
     private val syncProgressBus: SyncProgressBus,
-    private val stalkerRemoteIdentityResolver: StalkerRemoteIdentityResolver,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
     private val stalkerPortalStateStore: StalkerPortalStateStore,
     private val stalkerReadinessTracker: StalkerReadinessTracker,
     private val providerWorkflowCommitFence: ProviderWorkflowCommitFence,
+    private val typedProviderClientFactory: TypedProviderClientFactory,
+    private val providerSnapshotRepository: ProviderSnapshotRepository? = null,
     private val providerWorkflowDao: ProviderWorkflowDao? = null
 ) {
     private val syncStateTracker = SyncStateTracker()
@@ -296,6 +303,164 @@ class SyncManager @Inject constructor(
         seriesRequestTimeoutMillis = XTREAM_SERIES_REQUEST_TIMEOUT_MILLIS,
         recoveryAbortWarningSuffix = XTREAM_RECOVERY_ABORT_WARNING_SUFFIX
     )
+    private val providerSyncRegistry: ProviderSyncAdapterRegistry by lazy {
+        ProviderSyncAdapterRegistry(
+            listOf(
+                LambdaProviderSyncAdapter(
+                    providerType = ProviderType.XTREAM_CODES,
+                    full = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        syncXtreamIndexFirst(
+                            provider = provider,
+                            force = request.force,
+                            onProgress = request.onProgress,
+                            trackInitialLiveOnboarding = request.trackInitialLiveOnboarding,
+                            syncReason = if (request.trackInitialLiveOnboarding) {
+                                XtreamLiveSyncReason.INITIAL_ONBOARDING
+                            } else {
+                                XtreamLiveSyncReason.FOREGROUND
+                            },
+                            afterCatalogApply = request.afterCatalogApply
+                        )
+                    },
+                    section = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(when (request.section) {
+                            SyncRepairSection.LIVE -> syncXtreamLiveOnly(provider, request.syncReason, request.onProgress)
+                            SyncRepairSection.EPG -> {
+                                syncXtreamEpgOnly(provider, request.onProgress)
+                                SyncOutcome()
+                            }
+                            SyncRepairSection.MOVIES -> syncXtreamMoviesOnly(provider, request.onProgress)
+                            SyncRepairSection.SERIES -> syncXtreamSeriesOnly(provider, request.onProgress)
+                        })
+                    },
+                    guide = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(
+                            syncXtreamProviderEpg(
+                                provider,
+                                syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
+                                request.now,
+                                request.force,
+                                request.onProgress
+                            )
+                        )
+                    }
+                ),
+                LambdaProviderSyncAdapter(
+                    providerType = ProviderType.M3U,
+                    full = { request ->
+                        syncM3u(request.snapshot.toSyncCompatibilityProvider(), request.force, request.onProgress, request.afterCatalogApply)
+                    },
+                    section = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        when (request.section) {
+                        SyncRepairSection.LIVE -> CapabilityResolution.Available(
+                            syncM3uLiveOnly(provider, request.onProgress)
+                        )
+                        SyncRepairSection.MOVIES -> CapabilityResolution.Available(
+                            syncM3uMoviesOnly(provider, request.onProgress)
+                        )
+                        SyncRepairSection.EPG -> {
+                            syncM3uEpgOnly(provider, request.onProgress)
+                            CapabilityResolution.Available(SyncOutcome())
+                        }
+                        SyncRepairSection.SERIES -> CapabilityResolution.Unsupported(
+                            "Series retry is unavailable for M3U providers"
+                        )
+                    }},
+                    guide = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(
+                            syncM3uProviderEpg(
+                                provider,
+                                syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
+                                request.now,
+                                request.force,
+                                request.onProgress
+                            )
+                        )
+                    }
+                ),
+                LambdaProviderSyncAdapter(
+                    providerType = ProviderType.STALKER_PORTAL,
+                    full = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        syncStalker(
+                            provider = provider,
+                            force = request.force,
+                            onProgress = request.onProgress,
+                            afterCatalogApply = request.afterCatalogApply,
+                            deferProviderStateUntilCatalogCommit = request.deferProviderStateUntilCatalogCommit
+                        )
+                    },
+                    section = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(when (request.section) {
+                        SyncRepairSection.LIVE -> syncStalkerLiveOnly(provider, request.onProgress)
+                        SyncRepairSection.EPG -> {
+                            syncStalkerEpgOnly(provider, request.onProgress)
+                            SyncOutcome()
+                        }
+                        SyncRepairSection.MOVIES -> syncStalkerMoviesOnly(provider, request.onProgress)
+                        SyncRepairSection.SERIES -> syncStalkerSeriesOnly(provider, request.onProgress)
+                    }) },
+                    guide = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(
+                            syncStalkerProviderEpg(
+                                provider,
+                                syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
+                                request.now,
+                                request.force,
+                                request.onProgress
+                            )
+                        )
+                    }
+                ),
+                LambdaProviderSyncAdapter(
+                    providerType = ProviderType.JELLYFIN,
+                    full = { request ->
+                        syncJellyfin(request.snapshot.toSyncCompatibilityProvider(), request.force, request.onProgress, request.afterCatalogApply)
+                    },
+                    section = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        when (request.section) {
+                        SyncRepairSection.MOVIES -> {
+                            syncJellyfinMoviesOnly(provider, request.onProgress)
+                            CapabilityResolution.Available(SyncOutcome())
+                        }
+                        SyncRepairSection.SERIES -> {
+                            syncJellyfinSeriesOnly(provider, request.onProgress)
+                            CapabilityResolution.Available(SyncOutcome())
+                        }
+                        SyncRepairSection.LIVE -> CapabilityResolution.Unsupported(
+                            "Live TV retry is unavailable for Jellyfin providers"
+                        )
+                        SyncRepairSection.EPG -> CapabilityResolution.Unsupported(
+                            "Native guide retry is unavailable for Jellyfin providers"
+                        )
+                    }},
+                    guide = { request ->
+                        val provider = request.snapshot.toSyncCompatibilityProvider()
+                        CapabilityResolution.Available(
+                            syncJellyfinProviderEpg(
+                                provider,
+                                syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
+                                request.now,
+                                request.force,
+                                request.onProgress
+                            )
+                        )
+                    }
+                )
+            )
+        )
+    }
+
+    private suspend fun loadCompatibilityProvider(providerId: Long): Provider? =
+        providerSnapshotRepository?.getSnapshot(providerId)?.toLegacyProvider()
     val syncState: StateFlow<SyncState> = syncStateTracker.aggregateState
     val syncStatesByProvider: StateFlow<Map<Long, SyncState>> = syncStateTracker.statesByProvider
     private val providerSyncMutexes = ConcurrentHashMap<Long, Mutex>()
@@ -317,7 +482,7 @@ class SyncManager @Inject constructor(
         }
         val lock = providerVodCategoryMutexes.computeIfAbsent("$providerId:$categoryId") { Mutex() }
         return lock.withLock {
-            val providerEntity = providerDao.getById(providerId)
+            val providerEntity = loadCompatibilityProvider(providerId)
                 ?: return@withLock Result.error("Provider not found")
             if (providerEntity.type != ProviderType.STALKER_PORTAL) {
                 return@withLock Result.success(Unit)
@@ -331,7 +496,7 @@ class SyncManager @Inject constructor(
                 return@withLock Result.success(Unit)
             }
 
-            val api = createStalkerSyncProvider(providerEntity.toDomain())
+            val api = createStalkerSyncProvider(providerEntity)
             var hydration = current
             var nextPage = ((current?.lastSuccessfulPage ?: 0) + 1).coerceAtLeast(1)
             while (true) {
@@ -449,7 +614,7 @@ class SyncManager @Inject constructor(
         }
         val lock = providerVodCategoryMutexes.computeIfAbsent("split:$providerId:$movieCategoryId") { Mutex() }
         return lock.withLock {
-            val providerEntity = providerDao.getById(providerId)
+            val providerEntity = loadCompatibilityProvider(providerId)
                 ?: return@withLock Result.error("Provider not found")
             if (providerEntity.type != ProviderType.STALKER_PORTAL || providerEntity.catalogLayout != CatalogLayout.SPLIT) {
                 return@withLock Result.success(Unit)
@@ -463,7 +628,7 @@ class SyncManager @Inject constructor(
             ) {
                 return@withLock Result.success(Unit)
             }
-            val api = createStalkerSyncProvider(providerEntity.toDomain())
+            val api = createStalkerSyncProvider(providerEntity)
             val movieCategory = categoryDao.getByProviderAndTypeSync(providerId, ContentType.MOVIE.name)
                 .firstOrNull { it.categoryId == movieCategoryId }
                 ?: return@withLock Result.error("Movie category not found")
@@ -632,11 +797,11 @@ class SyncManager @Inject constructor(
         seriesCategoryId: Long,
         request: com.streamvault.domain.model.VodCategoryHydrationRequest
     ): Result<Unit> {
-        val providerEntity = providerDao.getById(providerId) ?: return Result.error("Provider not found")
+        val providerEntity = loadCompatibilityProvider(providerId) ?: return Result.error("Provider not found")
         if (providerEntity.type != ProviderType.STALKER_PORTAL || providerEntity.catalogLayout != CatalogLayout.SPLIT) {
             return Result.success(Unit)
         }
-        val api = createStalkerSyncProvider(providerEntity.toDomain())
+        val api = createStalkerSyncProvider(providerEntity)
         api.getSeriesCategories()
         val movieCategoryId = api.projectSeriesCategoryToVod(seriesCategoryId)
             ?: return Result.error("Unable to resolve VOD category for derived Series")
@@ -939,9 +1104,8 @@ class SyncManager @Inject constructor(
         force: Boolean,
         onProgress: ((String) -> Unit)?
     ): com.streamvault.domain.model.Result<Unit> {
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
+        val provider = loadCompatibilityProvider(providerEntity.id)
+            ?: return Result.error("Provider ${providerEntity.id} has no typed configuration")
         val providerId = provider.id
 
         val startedAt = System.currentTimeMillis()
@@ -955,13 +1119,26 @@ class SyncManager @Inject constructor(
         publishSyncState(providerId, SyncState.Syncing("Downloading EPG..."))
 
         return try {
-            val epgResult = syncProviderEpg(
-                provider = provider,
-                metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id),
-                now = startedAt,
-                force = force,
-                onProgress = onProgress
-            )
+            val snapshot = providerSnapshotRepository?.getSnapshot(providerId) ?: provider.toProviderSnapshot()
+            val syncAdapter = when (val resolution = providerSyncRegistry.resolve(snapshot)) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError -> return Result.error(resolution.reason)
+                is CapabilityResolution.Restricted -> return Result.error(resolution.reason)
+                is CapabilityResolution.Unsupported -> return Result.error(resolution.reason)
+            }
+            val epgResult = when (val result = syncAdapter.syncGuide(
+                ProviderGuideSyncRequest(
+                    snapshot = snapshot,
+                    force = force,
+                    now = startedAt,
+                    onProgress = onProgress
+                )
+            )) {
+                is CapabilityResolution.Available -> result.capability
+                is CapabilityResolution.ConfigurationError -> return Result.error(result.reason)
+                is CapabilityResolution.Restricted -> return Result.error(result.reason)
+                is CapabilityResolution.Unsupported -> return Result.error(result.reason)
+            }
             val finishedAt = System.currentTimeMillis()
             val epgCount = programDao.countByProvider(providerId)
             updateXtreamEpgJobState(
@@ -1081,9 +1258,8 @@ class SyncManager @Inject constructor(
             require(providerOverride == null || providerOverride.id == providerId) {
                 "Provider override must match the requested provider ID."
             }
-            val provider = (providerOverride ?: providerEntity
-                .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-                .toDomain())
+            val provider = (providerOverride ?: loadCompatibilityProvider(providerId)
+                ?: return@lock Result.error("Provider $providerId has no typed configuration"))
                 .let { resolvedProvider ->
                     resolvedProvider.copy(
                         xtreamFastSyncEnabled = movieFastSyncOverride ?: resolvedProvider.xtreamFastSyncEnabled,
@@ -1094,25 +1270,33 @@ class SyncManager @Inject constructor(
             progressSession = beginProgressSession(providerId)
             publishSyncState(providerId, SyncState.Syncing("Starting..."))
 
+            val snapshot = if (providerOverride != null) {
+                provider.toProviderSnapshot()
+            } else {
+                providerSnapshotRepository?.getSnapshot(providerId) ?: provider.toProviderSnapshot()
+            }
+            val syncAdapter = when (val resolution = providerSyncRegistry.resolve(snapshot)) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError ->
+                    return@lock Result.error(resolution.reason)
+                is CapabilityResolution.Restricted ->
+                    return@lock Result.error(resolution.reason)
+                is CapabilityResolution.Unsupported ->
+                    return@lock Result.error(resolution.reason)
+            }
+
             try {
                 val outcome = withContext(Dispatchers.IO) {
-                    when (provider.type) {
-                        ProviderType.XTREAM_CODES -> syncXtreamIndexFirst(
-                            provider = provider,
+                    syncAdapter.syncFull(
+                        FullProviderSyncRequest(
+                            snapshot = snapshot,
                             force = force,
                             onProgress = onProgress,
                             trackInitialLiveOnboarding = trackInitialLiveOnboarding,
-                            syncReason = if (trackInitialLiveOnboarding) {
-                                XtreamLiveSyncReason.INITIAL_ONBOARDING
-                            } else {
-                                XtreamLiveSyncReason.FOREGROUND
-                            },
+                            deferProviderStateUntilCatalogCommit = providerOverride != null,
                             afterCatalogApply = catalogCommitGate::apply
                         )
-                        ProviderType.M3U -> syncM3u(provider, force, onProgress, catalogCommitGate::apply)
-                        ProviderType.STALKER_PORTAL -> syncStalker(provider, force, onProgress, catalogCommitGate::apply)
-                        ProviderType.JELLYFIN -> syncJellyfin(provider, force, onProgress, catalogCommitGate::apply)
-                    }
+                    )
                 }
                 transactionRunner.inTransaction {
                     providerWorkflowCommitFence.assertCanCommit(providerId)
@@ -1168,9 +1352,8 @@ class SyncManager @Inject constructor(
             return@lock com.streamvault.domain.model.Result.error("Index rebuild is only available for Xtream providers")
         }
 
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
+        val provider = loadCompatibilityProvider(providerId)
+            ?: return@lock Result.error("Provider $providerId has no typed configuration")
 
         publishSyncState(providerId, SyncState.Syncing("Preparing index rebuild..."))
         val now = System.currentTimeMillis()
@@ -1275,27 +1458,46 @@ class SyncManager @Inject constructor(
         val providerEntity = providerDao.getById(providerId)
             ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
 
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
-            .let { resolvedProvider ->
-                movieFastSyncOverride?.let { override ->
-                    resolvedProvider.copy(xtreamFastSyncEnabled = override)
-                } ?: resolvedProvider
-            }
+        val resolvedProvider = loadCompatibilityProvider(providerId)
+            ?: return@lock Result.error("Provider $providerId has no typed configuration")
+        val provider = movieFastSyncOverride?.let { override ->
+            resolvedProvider.copy(xtreamFastSyncEnabled = override)
+        } ?: resolvedProvider
 
         val progressSession = beginProgressSession(providerId)
         try {
-            val outcome = withContext(Dispatchers.IO) {
-                when (section) {
-                    SyncRepairSection.LIVE -> syncLiveOnly(provider, syncReason, onProgress)
-                    SyncRepairSection.EPG -> {
-                        syncEpgOnly(provider, onProgress)
-                        SyncOutcome()
-                    }
-                    SyncRepairSection.MOVIES -> syncMoviesOnly(provider, onProgress)
-                    SyncRepairSection.SERIES -> syncSeriesOnly(provider, onProgress)
-                }
+            val persistedSnapshot = providerSnapshotRepository?.getSnapshot(providerId) ?: provider.toProviderSnapshot()
+            val persistedConfiguration = persistedSnapshot.configuration
+            val snapshot = if (movieFastSyncOverride != null && persistedConfiguration is XtreamConfig) {
+                persistedSnapshot.copy(
+                    configuration = persistedConfiguration.copy(
+                        fastSyncEnabled = movieFastSyncOverride
+                    )
+                )
+            } else {
+                persistedSnapshot
+            }
+            val syncAdapter = when (val resolution = providerSyncRegistry.resolve(snapshot)) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError -> return@lock Result.error(resolution.reason)
+                is CapabilityResolution.Restricted -> return@lock Result.error(resolution.reason)
+                is CapabilityResolution.Unsupported -> return@lock Result.error(resolution.reason)
+            }
+            val sectionResult = withContext(Dispatchers.IO) {
+                syncAdapter.syncSection(
+                    SectionProviderSyncRequest(
+                        snapshot = snapshot,
+                        section = section,
+                        syncReason = syncReason,
+                        onProgress = onProgress
+                    )
+                )
+            }
+            val outcome = when (sectionResult) {
+                is CapabilityResolution.Available -> sectionResult.capability
+                is CapabilityResolution.Unsupported -> return@lock Result.error(sectionResult.reason)
+                is CapabilityResolution.Restricted -> return@lock Result.error(sectionResult.reason)
+                is CapabilityResolution.ConfigurationError -> return@lock Result.error(sectionResult.reason)
             }
             updateSyncStatusMetadata(
                 providerId = providerId,
@@ -1900,9 +2102,8 @@ class SyncManager @Inject constructor(
             return@lock com.streamvault.domain.model.Result.success(Unit)
         }
 
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
+        val provider = loadCompatibilityProvider(providerId)
+            ?: return@lock Result.error("Provider $providerId has no typed configuration")
         val useTextClassification = preferencesRepository.useXtreamTextClassification.first()
         val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
         val api = createXtreamSyncProvider(provider, useTextClassification, enableBase64TextCompatibility)
@@ -1975,7 +2176,8 @@ class SyncManager @Inject constructor(
     suspend fun reconcileStalkerIndexWorkAtStartup() {
         providerDao.getAllSync()
             .filter { it.type == ProviderType.STALKER_PORTAL }
-            .forEach { provider ->
+            .forEach { identity ->
+                val provider = loadCompatibilityProvider(identity.id) ?: return@forEach
                 // v62 and older reused Xtream rows. They are never valid Stalker owners now.
                 xtreamIndexJobDao.deleteByProvider(provider.id)
                 val hasPendingOneTime = listOf(ContentType.MOVIE, ContentType.SERIES).any { section ->
@@ -2042,9 +2244,8 @@ class SyncManager @Inject constructor(
             return@lock com.streamvault.domain.model.Result.success(Unit)
         }
 
-        val provider = providerEntity
-            .copy(password = credentialCrypto.decryptIfNeeded(providerEntity.password))
-            .toDomain()
+        val provider = loadCompatibilityProvider(providerId)
+            ?: return@lock Result.error("Provider $providerId has no typed configuration")
         val api = createStalkerSyncProvider(provider)
         val decision = chooseNextStalkerCatalogSection(
             provider = provider,
@@ -4402,10 +4603,6 @@ class SyncManager @Inject constructor(
             warnings += stats.warnings
             val playlistEpgUrl = stats.header.tvgUrl
             if (provider.epgUrl.isBlank() && !playlistEpgUrl.isNullOrBlank()) {
-                transactionRunner.inTransaction {
-                    providerWorkflowCommitFence.assertCanCommit(provider.id)
-                    providerDao.updateEpgUrl(provider.id, playlistEpgUrl)
-                }
                 val existingSourcesByUrl = epgSourceRepository.getAllSources().first().associateBy { it.url }
                 val assignedSourceIds = epgSourceRepository.getAssignmentsForProvider(provider.id)
                     .first()
@@ -4461,7 +4658,7 @@ class SyncManager @Inject constructor(
                 lastAttemptAt = now,
                 lastError = null
             )
-            val epgResult = syncProviderEpg(
+            val epgResult = syncM3uProviderEpg(
                 provider = provider,
                 metadata = metadata,
                 now = now,
@@ -4539,7 +4736,8 @@ class SyncManager @Inject constructor(
         provider: Provider,
         force: Boolean,
         onProgress: ((String) -> Unit)?,
-        afterCatalogApply: suspend () -> Unit = {}
+        afterCatalogApply: suspend () -> Unit = {},
+        deferProviderStateUntilCatalogCommit: Boolean = false
     ): SyncOutcome {
         val warnings = mutableListOf<String>()
         stalkerReadinessTracker.start(provider.id)
@@ -4556,18 +4754,12 @@ class SyncManager @Inject constructor(
         val catalogLayoutChanged =
             authenticatedProvider.catalogLayout != com.streamvault.domain.model.CatalogLayout.UNKNOWN &&
                 authenticatedProvider.catalogLayout != provider.catalogLayout
-        if (
+        val catalogLayoutDetectionChanged =
             catalogLayoutChanged ||
-            authenticatedProvider.catalogLayoutDetectionVersion != provider.catalogLayoutDetectionVersion
-        ) {
-            transactionRunner.inTransaction {
-                if (authenticatedProvider.catalogLayout != com.streamvault.domain.model.CatalogLayout.UNKNOWN) {
-                    providerDao.updateCatalogLayout(
-                        provider.id,
-                        authenticatedProvider.catalogLayout,
-                        authenticatedProvider.catalogLayoutDetectionVersion
-                    )
-                }
+                authenticatedProvider.catalogLayoutDetectionVersion != provider.catalogLayoutDetectionVersion
+        var catalogCommitCallback = afterCatalogApply
+        if (catalogLayoutDetectionChanged) {
+            suspend fun clearIncompatibleVodCatalog() {
                 if (catalogLayoutChanged) {
                     categoryDao.deleteByProviderAndType(provider.id, ContentType.MOVIE.name)
                     categoryDao.deleteByProviderAndType(provider.id, ContentType.SERIES.name)
@@ -4576,6 +4768,29 @@ class SyncManager @Inject constructor(
                     seriesCategoryHydrationDao.deleteByProvider(provider.id)
                     vodCategoryHydrationDao.deleteByProvider(provider.id)
                     vodCatalogEntryDao.deleteByProvider(provider.id)
+                }
+            }
+
+            if (deferProviderStateUntilCatalogCommit) {
+                // A candidate edit must not rewrite the committed provider row or delete its
+                // existing VOD catalog before the first replacement catalog transaction has
+                // passed the revision commit gate. The callback executes inside that same Room
+                // transaction, so a superseded/cancelled candidate rolls everything back.
+                val originalCallback = catalogCommitCallback
+                catalogCommitCallback = {
+                    originalCallback()
+                    clearIncompatibleVodCatalog()
+                }
+            } else {
+                transactionRunner.inTransaction {
+                    if (authenticatedProvider.catalogLayout != com.streamvault.domain.model.CatalogLayout.UNKNOWN) {
+                        providerSnapshotRepository?.updateCatalogLayout(
+                            provider.id,
+                            authenticatedProvider.catalogLayout,
+                            authenticatedProvider.catalogLayoutDetectionVersion
+                        )
+                    }
+                    clearIncompatibleVodCatalog()
                 }
             }
         }
@@ -4597,7 +4812,7 @@ class SyncManager @Inject constructor(
                 provider,
                 hiddenLiveCategoryIds,
                 onProgress,
-                afterCatalogApply
+                catalogCommitCallback
             )
             metadata = metadata.copy(
                 lastLiveSync = now,
@@ -4790,7 +5005,7 @@ class SyncManager @Inject constructor(
 
         when (provider.epgSyncMode) {
             ProviderEpgSyncMode.UPFRONT -> {
-                val epgResult = syncProviderEpg(
+                val epgResult = syncStalkerProviderEpg(
                     provider = provider,
                     metadata = metadata,
                     now = now,
@@ -4961,18 +5176,6 @@ class SyncManager @Inject constructor(
             error !is JellyfinItemLimitException
 
     /**
-     * Returned by [syncProviderEpg] so callers can distinguish between warning-only
-     * degradations and transient network/IO failures that WorkManager should retry.
-     */
-    private data class EpgSyncResult(
-        val warnings: List<String>,
-        /** True when at least one EPG sub-operation failed due to a network or IO error
-         *  rather than a permanent configuration problem (bad URL, bad credentials, etc.).
-         *  WorkManager workers should return [Result.retry()] when this is true. */
-        val hasRetryableFailure: Boolean
-    )
-
-    /**
      * Returns true for transient network/IO exceptions that are worth retrying via
      * WorkManager backoff — as opposed to permanent failures (bad URL, auth, parse error)
      * that will fail identically on every attempt.
@@ -4994,108 +5197,13 @@ class SyncManager @Inject constructor(
         metadata: SyncMetadata,
         now: Long,
         force: Boolean,
-        onProgress: ((String) -> Unit)?
-    ): EpgSyncResult {
-        var updatedMetadata = metadata
+        onProgress: ((String) -> Unit)?,
+        syncNativeGuide: suspend (MutableList<String>) -> Boolean
+    ): ProviderGuideSyncResult {
         val warnings = mutableListOf<String>()
-        var hasRetryableFailure = false
+        var hasRetryableFailure = syncNativeGuide(warnings)
         val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
         val guidePolicy = provider.guideSourcePolicy
-
-        when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                if (shouldUseProviderGuide(guidePolicy) &&
-                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
-                ) {
-                    try {
-                        progress(provider.id, onProgress, "Downloading EPG...")
-                        val base = provider.serverUrl.trimEnd('/')
-                        val xmltvUrl = provider.epgUrl.ifBlank {
-                            XtreamUrlFactory.buildXmltvUrl(base, provider.username, provider.password)
-                        }
-                        UrlSecurityPolicy.validateXtreamEpgUrl(xmltvUrl)?.let { message ->
-                            throw IllegalStateException(message)
-                        }
-                        retryTransient {
-                            requireResult(epgRepository.refreshEpg(provider.id, xmltvUrl), "Failed to refresh EPG")
-                        }
-                        val epgCount = programDao.countByProvider(provider.id)
-                        updatedMetadata = updatedMetadata.copy(
-                            lastEpgSync = now,
-                            lastEpgSuccess = now,
-                            epgCount = epgCount
-                        )
-                        syncMetadataRepository.updateMetadata(updatedMetadata)
-                        if (epgCount == 0) {
-                            warnings.add("EPG imported zero programs; live guide may require provider fallback.")
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "EPG sync failed (non-fatal): ${sanitizeThrowableMessage(e)}")
-                        if (isRetryableEpgException(e)) hasRetryableFailure = true
-                        warnings.add("EPG XMLTV sync failed.")
-                    }
-                }
-            }
-
-            ProviderType.M3U -> {
-                val currentEpgUrl = providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
-                if (shouldUseProviderGuide(guidePolicy) &&
-                    !currentEpgUrl.isNullOrBlank() &&
-                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
-                ) {
-                    val epgValidationError = UrlSecurityPolicy.validateOptionalEpgUrl(currentEpgUrl)
-                    if (epgValidationError != null) {
-                        warnings.add(epgValidationError)
-                    } else {
-                        try {
-                            progress(provider.id, onProgress, "Downloading EPG...")
-                            retryTransient {
-                                requireResult(epgRepository.refreshEpg(provider.id, currentEpgUrl), "Failed to refresh EPG")
-                            }
-                            updatedMetadata = updatedMetadata.copy(
-                                lastEpgSync = now,
-                                lastEpgSuccess = now,
-                                epgCount = programDao.countByProvider(provider.id)
-                            )
-                            syncMetadataRepository.updateMetadata(updatedMetadata)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "EPG sync failed (non-fatal): ${sanitizeThrowableMessage(e)}")
-                            if (isRetryableEpgException(e)) hasRetryableFailure = true
-                            warnings.add("EPG sync failed")
-                        }
-                    }
-                }
-            }
-
-            ProviderType.STALKER_PORTAL -> {
-                if (shouldUseProviderGuide(guidePolicy) &&
-                    (force || ContentCachePolicy.shouldRefresh(updatedMetadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
-                ) {
-                    val learnedEpgSupport = stalkerPortalStateStore.getValidated(provider.id)?.epgSupported
-                    if (learnedEpgSupport == false && provider.epgUrl.isBlank()) {
-                        StalkerTelemetry.strategySelected(provider.id, "EPG_SKIP", "EPG_KNOWN_UNSUPPORTED")
-                        warnings += "Stalker portal guide is known to be unsupported; keeping cached guide data."
-                    } else {
-                        val stalkerEpgWarnings = syncStalkerPreferredEpg(
-                            provider = provider,
-                            now = now,
-                            onProgress = onProgress
-                        )
-                        // A failed capability probe is retryable only until it is learned;
-                        // subsequent syncs skip it for the validation TTL.
-                        if (stalkerEpgWarnings.isNotEmpty()) hasRetryableFailure = true
-                        warnings += stalkerEpgWarnings
-                    }
-                    updatedMetadata = syncMetadataRepository.getMetadata(provider.id) ?: updatedMetadata
-                }
-            }
-
-            ProviderType.JELLYFIN -> Unit
-        }
 
         if (shouldUseExternalGuide(guidePolicy)) {
             try {
@@ -5123,11 +5231,148 @@ class SyncManager @Inject constructor(
             epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
         }
 
-        return EpgSyncResult(warnings = warnings, hasRetryableFailure = hasRetryableFailure)
+        return ProviderGuideSyncResult(warnings = warnings, hasRetryableFailure = hasRetryableFailure)
     }
 
-    private suspend fun syncEpgOnly(
+    private suspend fun syncXtreamProviderEpg(
         provider: Provider,
+        metadata: SyncMetadata,
+        now: Long,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): ProviderGuideSyncResult = syncProviderEpg(provider, metadata, now, force, onProgress) { warnings ->
+        var retryable = false
+        if (shouldUseProviderGuide(provider.guideSourcePolicy) &&
+            (force || ContentCachePolicy.shouldRefresh(metadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+        ) {
+            try {
+                progress(provider.id, onProgress, "Downloading EPG...")
+                val base = provider.serverUrl.trimEnd('/')
+                val xmltvUrl = provider.epgUrl.ifBlank {
+                    XtreamUrlFactory.buildXmltvUrl(base, provider.username, provider.password)
+                }
+                UrlSecurityPolicy.validateXtreamEpgUrl(xmltvUrl)?.let { throw IllegalStateException(it) }
+                retryTransient {
+                    requireResult(epgRepository.refreshEpg(provider.id, xmltvUrl), "Failed to refresh EPG")
+                }
+                val epgCount = programDao.countByProvider(provider.id)
+                syncMetadataRepository.updateMetadata(
+                    metadata.copy(lastEpgSync = now, lastEpgSuccess = now, epgCount = epgCount)
+                )
+                if (epgCount == 0) warnings += "EPG imported zero programs; live guide may require provider fallback."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "EPG sync failed (non-fatal): ${sanitizeThrowableMessage(e)}")
+                retryable = isRetryableEpgException(e)
+                warnings += "EPG XMLTV sync failed."
+            }
+        }
+        retryable
+    }
+
+    private suspend fun syncM3uProviderEpg(
+        provider: Provider,
+        metadata: SyncMetadata,
+        now: Long,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): ProviderGuideSyncResult = syncProviderEpg(provider, metadata, now, force, onProgress) { warnings ->
+        var retryable = false
+        val epgUrl = provider.epgUrl
+        if (shouldUseProviderGuide(provider.guideSourcePolicy) && epgUrl.isNotBlank() &&
+            (force || ContentCachePolicy.shouldRefresh(metadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+        ) {
+            val validationError = UrlSecurityPolicy.validateOptionalEpgUrl(epgUrl)
+            if (validationError != null) {
+                warnings += validationError
+            } else {
+                try {
+                    progress(provider.id, onProgress, "Downloading EPG...")
+                    retryTransient {
+                        requireResult(epgRepository.refreshEpg(provider.id, epgUrl), "Failed to refresh EPG")
+                    }
+                    syncMetadataRepository.updateMetadata(
+                        metadata.copy(
+                            lastEpgSync = now,
+                            lastEpgSuccess = now,
+                            epgCount = programDao.countByProvider(provider.id)
+                        )
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "EPG sync failed (non-fatal): ${sanitizeThrowableMessage(e)}")
+                    retryable = isRetryableEpgException(e)
+                    warnings += "EPG sync failed"
+                }
+            }
+        }
+        retryable
+    }
+
+    private suspend fun syncStalkerProviderEpg(
+        provider: Provider,
+        metadata: SyncMetadata,
+        now: Long,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): ProviderGuideSyncResult = syncProviderEpg(provider, metadata, now, force, onProgress) { warnings ->
+        var retryable = false
+        if (shouldUseProviderGuide(provider.guideSourcePolicy) &&
+            (force || ContentCachePolicy.shouldRefresh(metadata.lastEpgSuccess, ContentCachePolicy.EPG_TTL_MILLIS, now))
+        ) {
+            val learnedEpgSupport = stalkerPortalStateStore.getValidated(provider.id)?.epgSupported
+            if (learnedEpgSupport == false && provider.epgUrl.isBlank()) {
+                StalkerTelemetry.strategySelected(provider.id, "EPG_SKIP", "EPG_KNOWN_UNSUPPORTED")
+                warnings += "Stalker portal guide is known to be unsupported; keeping cached guide data."
+            } else {
+                val stalkerWarnings = syncStalkerPreferredEpg(provider, now, onProgress)
+                retryable = stalkerWarnings.isNotEmpty()
+                warnings += stalkerWarnings
+            }
+        }
+        retryable
+    }
+
+    private suspend fun syncJellyfinProviderEpg(
+        provider: Provider,
+        metadata: SyncMetadata,
+        now: Long,
+        force: Boolean,
+        onProgress: ((String) -> Unit)?
+    ): ProviderGuideSyncResult = syncProviderEpg(provider, metadata, now, force, onProgress) { false }
+
+    private suspend fun syncXtreamEpgOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ) = syncXmlTvEpgOnly(
+        provider = provider,
+        epgUrl = provider.epgUrl.ifBlank {
+            XtreamUrlFactory.buildXmltvUrl(
+                provider.serverUrl.trimEnd('/'),
+                provider.username,
+                provider.password
+            )
+        },
+        validateUrl = UrlSecurityPolicy::validateXtreamEpgUrl,
+        onProgress = onProgress
+    )
+
+    private suspend fun syncM3uEpgOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ) = syncXmlTvEpgOnly(
+        provider = provider,
+        epgUrl = provider.epgUrl,
+        validateUrl = UrlSecurityPolicy::validateOptionalEpgUrl,
+        onProgress = onProgress
+    )
+
+    private suspend fun syncXmlTvEpgOnly(
+        provider: Provider,
+        epgUrl: String,
+        validateUrl: (String) -> String?,
         onProgress: ((String) -> Unit)?
     ) {
         progress(provider.id, onProgress, "Retrying EPG...")
@@ -5137,42 +5382,6 @@ class SyncManager @Inject constructor(
             progress(provider.id, onProgress, "Guide data disabled for this provider.")
             epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
             return
-        }
-        if (provider.type == ProviderType.STALKER_PORTAL) {
-            if (shouldUseProviderGuide(guidePolicy)) {
-                syncStalkerPreferredEpg(
-                    provider = provider,
-                    now = System.currentTimeMillis(),
-                    onProgress = onProgress
-                )
-            }
-            if (shouldUseExternalGuide(guidePolicy)) {
-                progress(provider.id, onProgress, "Refreshing external EPG sources...")
-                retryTransient {
-                    requireResult(
-                        epgSourceRepository.refreshAllForProvider(provider.id),
-                        "External EPG source refresh failed"
-                    )
-                }
-                progress(provider.id, onProgress, "Resolving EPG mappings...")
-                epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
-            }
-            if (!shouldUseExternalGuide(guidePolicy)) {
-                progress(provider.id, onProgress, "Resolving provider EPG mappings...")
-                epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
-            }
-            return
-        }
-        val epgUrl = when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                val base = provider.serverUrl.trimEnd('/')
-                provider.epgUrl.ifBlank {
-                    XtreamUrlFactory.buildXmltvUrl(base, provider.username, provider.password)
-                }
-            }
-            ProviderType.M3U -> providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
-            ProviderType.STALKER_PORTAL -> providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
-            ProviderType.JELLYFIN -> ""
         }
         if (!shouldUseProviderGuide(guidePolicy)) {
             if (shouldUseExternalGuide(guidePolicy)) {
@@ -5191,13 +5400,7 @@ class SyncManager @Inject constructor(
         if (epgUrl.isBlank()) {
             throw IllegalStateException("No EPG URL configured for this provider")
         }
-        val validationError = when (provider.type) {
-            ProviderType.XTREAM_CODES -> UrlSecurityPolicy.validateXtreamEpgUrl(epgUrl)
-            ProviderType.M3U -> UrlSecurityPolicy.validateOptionalEpgUrl(epgUrl)
-            ProviderType.STALKER_PORTAL -> UrlSecurityPolicy.validateOptionalEpgUrl(epgUrl)
-            ProviderType.JELLYFIN -> null
-        }
-        validationError?.let { message ->
+        validateUrl(epgUrl)?.let { message ->
             throw IllegalStateException(message)
         }
         retryTransient {
@@ -5229,13 +5432,44 @@ class SyncManager @Inject constructor(
         }
     }
 
+    private suspend fun syncStalkerEpgOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ) {
+        progress(provider.id, onProgress, "Retrying EPG...")
+        val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
+        val guidePolicy = provider.guideSourcePolicy
+        if (guidePolicy == GuideSourcePolicy.DISABLED) {
+            progress(provider.id, onProgress, "Guide data disabled for this provider.")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+            return
+        }
+        if (shouldUseProviderGuide(guidePolicy)) {
+            syncStalkerPreferredEpg(provider, System.currentTimeMillis(), onProgress)
+        }
+        if (shouldUseExternalGuide(guidePolicy)) {
+            progress(provider.id, onProgress, "Refreshing external EPG sources...")
+            retryTransient {
+                requireResult(
+                    epgSourceRepository.refreshAllForProvider(provider.id),
+                    "External EPG source refresh failed"
+                )
+            }
+            progress(provider.id, onProgress, "Resolving EPG mappings...")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+        } else {
+            progress(provider.id, onProgress, "Resolving provider EPG mappings...")
+            epgSourceRepository.resolveForProvider(provider.id, hiddenLiveCategoryIds)
+        }
+    }
+
     private suspend fun syncStalkerPreferredEpg(
         provider: Provider,
         now: Long,
         onProgress: ((String) -> Unit)?
     ): List<String> {
         val warnings = mutableListOf<String>()
-        val currentEpgUrl = providerDao.getById(provider.id)?.epgUrl ?: provider.epgUrl
+        val currentEpgUrl = provider.epgUrl
         var shouldUseNativeGuide = currentEpgUrl.isBlank()
 
         if (currentEpgUrl.isNotBlank()) {
@@ -5553,16 +5787,14 @@ class SyncManager @Inject constructor(
         }
     }
 
-    private suspend fun syncLiveOnly(
+    private suspend fun syncXtreamLiveOnly(
         provider: Provider,
         syncReason: XtreamLiveSyncReason,
         onProgress: ((String) -> Unit)?
     ): SyncOutcome {
         val now = System.currentTimeMillis()
         val sectionWarnings = mutableListOf<String>()
-        when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                progress(provider.id, onProgress, "Retrying Live TV...")
+        progress(provider.id, onProgress, "Retrying Live TV...")
                 val useTextClassification = preferencesRepository.useXtreamTextClassification.first()
                 val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
                 val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
@@ -5661,9 +5893,15 @@ class SyncManager @Inject constructor(
                         )
                     }
                 }
-            }
-            ProviderType.M3U -> {
-                progress(provider.id, onProgress, "Retrying Live TV...")
+        return if (sectionWarnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = sectionWarnings)
+    }
+
+    private suspend fun syncM3uLiveOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ): SyncOutcome {
+        val now = System.currentTimeMillis()
+        progress(provider.id, onProgress, "Retrying Live TV...")
                 val stats = withContext(Dispatchers.IO) {
                     m3uImporter.importPlaylist(provider, onProgress, includeLive = true, includeMovies = false)
                 }
@@ -5677,9 +5915,16 @@ class SyncManager @Inject constructor(
                         liveCount = stats.liveCount
                 )
                 syncMetadataRepository.updateMetadata(metadata)
-            }
-            ProviderType.STALKER_PORTAL -> {
-                emitCatalogSyncProgress(provider.id, section = Section.LIVE)
+        return SyncOutcome()
+    }
+
+    private suspend fun syncStalkerLiveOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ): SyncOutcome {
+        val now = System.currentTimeMillis()
+        val sectionWarnings = mutableListOf<String>()
+        emitCatalogSyncProgress(provider.id, section = Section.LIVE)
                 progress(provider.id, onProgress, "Retrying Live TV...")
                 val api = createStalkerSyncProvider(provider)
                 val hiddenLiveCategoryIds = preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE).first()
@@ -5696,22 +5941,15 @@ class SyncManager @Inject constructor(
                     itemsIndexed = liveCatalogResult.acceptedCount
                 )
                 sectionWarnings += liveCatalogResult.warnings
-            }
-
-            ProviderType.JELLYFIN -> throw IllegalStateException("Live TV retry is unavailable for Jellyfin providers")
-        }
         return if (sectionWarnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = sectionWarnings)
     }
 
-    private suspend fun syncMoviesOnly(
+    private suspend fun syncXtreamMoviesOnly(
         provider: Provider,
         onProgress: ((String) -> Unit)?
     ): SyncOutcome {
         val now = System.currentTimeMillis()
-        val sectionWarnings = mutableListOf<String>()
-        when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                progress(provider.id, onProgress, "Queueing Movies index...")
+        progress(provider.id, onProgress, "Queueing Movies index...")
                 val useTextClassification = preferencesRepository.useXtreamTextClassification.first()
                 val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
                 val api = createXtreamSyncProvider(provider, useTextClassification, enableBase64TextCompatibility)
@@ -5746,9 +5984,15 @@ class SyncManager @Inject constructor(
                 )
                 scheduleXtreamIndexSync(provider.id, ContentType.MOVIE)
                 Log.i(TAG, "Queued Xtream movie index for provider ${provider.id}: $categoryCount categories.")
-            }
-            ProviderType.M3U -> {
-                progress(provider.id, onProgress, "Retrying Movies...")
+        return SyncOutcome()
+    }
+
+    private suspend fun syncM3uMoviesOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ): SyncOutcome {
+        val now = System.currentTimeMillis()
+        progress(provider.id, onProgress, "Retrying Movies...")
                 val stats = withContext(Dispatchers.IO) {
                     m3uImporter.importPlaylist(provider, onProgress, includeLive = false, includeMovies = true)
                 }
@@ -5766,9 +6010,15 @@ class SyncManager @Inject constructor(
                         movieCatalogStale = false
                 )
                 syncMetadataRepository.updateMetadata(metadata)
-            }
-            ProviderType.STALKER_PORTAL -> {
-                progress(provider.id, onProgress, "Queueing Movies index...")
+        return SyncOutcome()
+    }
+
+    private suspend fun syncStalkerMoviesOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ): SyncOutcome {
+        val now = System.currentTimeMillis()
+        progress(provider.id, onProgress, "Queueing Movies index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getVodCategories(), "Failed to load movie categories")
                 emitCatalogSyncProgress(provider.id,
@@ -5807,21 +6057,14 @@ class SyncManager @Inject constructor(
                     )
                 syncMetadataRepository.updateMetadata(metadata)
                 scheduleStalkerIndexContinuation(provider, ContentType.MOVIE, force = true)
-            }
-
-            ProviderType.JELLYFIN -> throw IllegalStateException("Movies retry is unavailable for Jellyfin providers")
-        }
-        return if (sectionWarnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = sectionWarnings)
+        return SyncOutcome()
     }
 
-    private suspend fun syncSeriesOnly(
+    private suspend fun syncXtreamSeriesOnly(
         provider: Provider,
         onProgress: ((String) -> Unit)?
     ): SyncOutcome {
-        val sectionWarnings = mutableListOf<String>()
-        when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                val now = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
                 progress(provider.id, onProgress, "Queueing Series index...")
                 val useTextClassification = preferencesRepository.useXtreamTextClassification.first()
                 val enableBase64TextCompatibility = preferencesRepository.xtreamBase64TextCompatibility.first()
@@ -5855,9 +6098,14 @@ class SyncManager @Inject constructor(
                 )
                 scheduleXtreamIndexSync(provider.id, ContentType.SERIES)
                 Log.i(TAG, "Queued Xtream series index for provider ${provider.id}: $categoryCount categories.")
-            }
-            ProviderType.STALKER_PORTAL -> {
-                progress(provider.id, onProgress, "Queueing Series index...")
+        return SyncOutcome()
+    }
+
+    private suspend fun syncStalkerSeriesOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ): SyncOutcome {
+        progress(provider.id, onProgress, "Queueing Series index...")
                 val api = createStalkerSyncProvider(provider)
                 val categories = requireResult(api.getSeriesCategories(), "Failed to load series categories")
                 emitCatalogSyncProgress(provider.id,
@@ -5890,17 +6138,117 @@ class SyncManager @Inject constructor(
                     .copy(
                         lastSeriesSync = now,
                         seriesCount = seriesDao.getCount(provider.id).first()
-                    )
+                )
                 syncMetadataRepository.updateMetadata(metadata)
                 scheduleStalkerIndexContinuation(provider, ContentType.SERIES, force = true)
-            }
-            ProviderType.M3U -> {
-                throw IllegalStateException("Series retry is unavailable for this provider")
-            }
+        return SyncOutcome()
+    }
 
-            ProviderType.JELLYFIN -> throw IllegalStateException("Series retry is unavailable for Jellyfin providers")
+    private suspend fun syncJellyfinMoviesOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ) {
+        progress(provider.id, onProgress, "Retrying Jellyfin movies...")
+        val decrypted = provider
+        val sessionId = syncCatalogStore.newSessionId()
+        var startIndex = 0
+        var expectedTotal: Int? = null
+        try {
+            do {
+                when (val result = jellyfinProvider.fetchMoviesPage(decrypted, startIndex)) {
+                    is Result.Success -> {
+                        val page = result.data
+                        expectedTotal = expectedTotal ?: page.totalRecordCount
+                        if (page.totalRecordCount != expectedTotal) {
+                            throw JellyfinPaginationException("Jellyfin movie catalog changed during retry")
+                        }
+                        syncCatalogStore.stageMovieBatch(provider.id, sessionId, page.items)
+                        startIndex = page.nextStartIndex
+                    }
+                    is Result.Error -> throw result.exception ?: IllegalStateException(result.message)
+                    is Result.Loading -> throw JellyfinPaginationException("Jellyfin movie retry did not complete")
+                }
+            } while (startIndex < (expectedTotal ?: 0))
+            syncCatalogStore.applyStagedMovieCatalog(
+                providerId = provider.id,
+                sessionId = sessionId,
+                categories = listOf(CategoryEntity(
+                    providerId = provider.id,
+                    categoryId = 1L,
+                    name = "Movies",
+                    type = ContentType.MOVIE
+                ))
+            )
+            val now = System.currentTimeMillis()
+            val metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)
+            syncMetadataRepository.updateMetadata(
+                metadata.copy(
+                    lastMovieSync = now,
+                    lastMovieAttempt = now,
+                    lastMovieSuccess = now,
+                    movieCount = movieDao.getCount(provider.id).first(),
+                    movieCatalogStale = false
+                )
+            )
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) { syncCatalogStore.discardStagedImport(provider.id, sessionId) }
+            throw cancelled
+        } catch (error: Exception) {
+            withContext(NonCancellable) { syncCatalogStore.discardStagedImport(provider.id, sessionId) }
+            throw error
         }
-        return if (sectionWarnings.isEmpty()) SyncOutcome() else SyncOutcome(partial = true, warnings = sectionWarnings)
+    }
+
+    private suspend fun syncJellyfinSeriesOnly(
+        provider: Provider,
+        onProgress: ((String) -> Unit)?
+    ) {
+        progress(provider.id, onProgress, "Retrying Jellyfin series...")
+        val decrypted = provider
+        val sessionId = syncCatalogStore.newSessionId()
+        var startIndex = 0
+        var expectedTotal: Int? = null
+        try {
+            do {
+                when (val result = jellyfinProvider.fetchSeriesPage(decrypted, startIndex)) {
+                    is Result.Success -> {
+                        val page = result.data
+                        expectedTotal = expectedTotal ?: page.totalRecordCount
+                        if (page.totalRecordCount != expectedTotal) {
+                            throw JellyfinPaginationException("Jellyfin series catalog changed during retry")
+                        }
+                        syncCatalogStore.stageSeriesBatch(provider.id, sessionId, page.items)
+                        startIndex = page.nextStartIndex
+                    }
+                    is Result.Error -> throw result.exception ?: IllegalStateException(result.message)
+                    is Result.Loading -> throw JellyfinPaginationException("Jellyfin series retry did not complete")
+                }
+            } while (startIndex < (expectedTotal ?: 0))
+            syncCatalogStore.applyStagedSeriesCatalog(
+                providerId = provider.id,
+                sessionId = sessionId,
+                categories = listOf(CategoryEntity(
+                    providerId = provider.id,
+                    categoryId = 2L,
+                    name = "Series",
+                    type = ContentType.SERIES
+                ))
+            )
+            val now = System.currentTimeMillis()
+            val metadata = syncMetadataRepository.getMetadata(provider.id) ?: SyncMetadata(provider.id)
+            syncMetadataRepository.updateMetadata(
+                metadata.copy(
+                    lastSeriesSync = now,
+                    seriesCount = seriesDao.getCount(provider.id).first()
+                )
+            )
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) { syncCatalogStore.discardStagedImport(provider.id, sessionId) }
+            throw cancelled
+        } catch (error: Exception) {
+            withContext(NonCancellable) { syncCatalogStore.discardStagedImport(provider.id, sessionId) }
+            throw error
+        }
     }
 
     private suspend fun syncXtreamLiveCatalog(
@@ -6340,61 +6688,29 @@ class SyncManager @Inject constructor(
         private const val PROGRESS_INTERVAL = 5_000
     }
 
-    private fun createXtreamSyncProvider(
+    private suspend fun createXtreamSyncProvider(
         provider: Provider,
         useTextClassification: Boolean = true,
         enableBase64TextCompatibility: Boolean = false
     ): XtreamProvider {
-        return XtreamProvider(
-            providerId = provider.id,
-            api = xtreamCatalogApiService,
-            serverUrl = provider.serverUrl,
-            username = provider.username,
-            password = provider.password,
-            allowedOutputFormats = provider.allowedOutputFormats,
-            useTextClassification = useTextClassification,
-            enableBase64TextCompatibility = enableBase64TextCompatibility,
-            requestProfile = provider.toGenericRequestProfile(ownerTag = "provider:${provider.id}/xtream")
-        )
+        return when (val resolution = typedProviderClientFactory.xtream(
+            provider.toProviderSnapshot(),
+            XtreamClientOptions(useTextClassification, enableBase64TextCompatibility)
+        )) {
+            is CapabilityResolution.Available -> resolution.capability
+            is CapabilityResolution.ConfigurationError -> throw IllegalArgumentException(resolution.reason)
+            is CapabilityResolution.Restricted -> throw IllegalArgumentException(resolution.reason)
+            is CapabilityResolution.Unsupported -> throw IllegalArgumentException(resolution.reason)
+        }
     }
 
     private fun createStalkerSyncProvider(provider: Provider): StalkerProvider {
-        return StalkerProvider(
-            providerId = provider.id,
-            api = stalkerApiService,
-            portalUrl = provider.serverUrl,
-            macAddress = provider.stalkerMacAddress,
-            authMode = provider.stalkerAuthMode,
-            username = provider.username,
-            password = provider.password,
-            httpUserAgent = provider.httpUserAgent,
-            httpHeaders = provider.httpHeaders,
-            portalFingerprintHint = provider.stalkerPortalFingerprint,
-            magPresetHint = provider.stalkerMagPreset,
-            bootstrapRecipeHint = provider.stalkerLastBootstrapRecipe,
-            endpointPreferenceHint = provider.stalkerEndpointPreference,
-            cookieModeHint = provider.stalkerCookieMode,
-            playbackBackendHint = provider.stalkerPlaybackBackendHint,
-            portalProfileHint = provider.stalkerPortalProfile,
-            preferredPlaybackMode = provider.stalkerLastPlaybackMode
-                ?.let { value -> runCatching { StalkerPlaybackMode.valueOf(value) }.getOrNull() },
-            deviceProfile = provider.stalkerDeviceProfile,
-            timezone = provider.stalkerDeviceTimezone,
-            locale = provider.stalkerDeviceLocale,
-            serialNumber = provider.stalkerSerialNumber,
-            deviceId = provider.stalkerDeviceId,
-            deviceId2 = provider.stalkerDeviceId2,
-            signature = provider.stalkerSignature,
-            stalkerAdvancedOptionsJson = provider.stalkerAdvancedOptionsJson,
-            protocolPreference = provider.stalkerProtocolPreference,
-            transportGrant = provider.toStalkerTransportGrant(),
-            requestedProfileId = provider.stalkerRequestedProfileId,
-            learnedProfileId = provider.stalkerLearnedProfileId,
-            catalogLayoutHint = provider.catalogLayout,
-            catalogLayoutDetectionVersionHint = provider.catalogLayoutDetectionVersion,
-            identityResolver = stalkerRemoteIdentityResolver,
-            portalStateStore = stalkerPortalStateStore
-        )
+        return when (val resolution = typedProviderClientFactory.stalker(provider.toProviderSnapshot())) {
+            is CapabilityResolution.Available -> resolution.capability
+            is CapabilityResolution.ConfigurationError -> throw IllegalArgumentException(resolution.reason)
+            is CapabilityResolution.Restricted -> throw IllegalArgumentException(resolution.reason)
+            is CapabilityResolution.Unsupported -> throw IllegalArgumentException(resolution.reason)
+        }
     }
 
     /**

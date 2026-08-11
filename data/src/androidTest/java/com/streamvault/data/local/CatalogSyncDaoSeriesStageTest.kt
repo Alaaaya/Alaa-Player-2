@@ -169,7 +169,6 @@ class CatalogSyncDaoSeriesStageTest {
     private fun provider(id: Long) = ProviderEntity(
         id = id,
         name = "Provider $id",
-        type = ProviderType.STALKER_PORTAL,
-        serverUrl = "https://provider$id.example.com"
+        type = ProviderType.STALKER_PORTAL
     )
 }

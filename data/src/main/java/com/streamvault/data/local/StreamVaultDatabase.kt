@@ -7,10 +7,15 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.*
+import org.json.JSONObject
+import java.net.URI
+import java.security.MessageDigest
 
 @Database(
     entities = [
         ProviderEntity::class,
+        ProviderConfigEntity::class,
+        ProviderAccountRuntimeEntity::class,
         ChannelEntity::class,
         ChannelPreferenceEntity::class,
         ChannelFtsEntity::class,
@@ -62,12 +67,13 @@ import com.streamvault.data.local.entity.*
         ProviderWorkflowEntity::class,
         ProviderWorkflowPhaseEntity::class
     ],
-    version = 72,
+    version = 74,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
 abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun providerDao(): ProviderDao
+    abstract fun providerSnapshotDao(): ProviderSnapshotDao
     abstract fun channelDao(): ChannelDao
     abstract fun channelPreferenceDao(): ChannelPreferenceDao
     abstract fun movieDao(): MovieDao
@@ -3210,6 +3216,232 @@ abstract class StreamVaultDatabase : RoomDatabase() {
             }
         }
 
+        /** Migration 72 -> 73: add the typed provider snapshot boundary alongside legacy rows. */
+        val MIGRATION_72_73 = object : Migration(72, 73) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_configs (
+                        provider_id INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        schema_version INTEGER NOT NULL,
+                        configuration_generation INTEGER NOT NULL,
+                        identity_key TEXT NOT NULL,
+                        encrypted_config_json TEXT NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_provider_configs_provider_id ON provider_configs(provider_id)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_provider_configs_identity_key ON provider_configs(identity_key)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_provider_configs_type ON provider_configs(type)")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS provider_account_runtime (
+                        provider_id INTEGER NOT NULL,
+                        max_connections INTEGER NOT NULL,
+                        expiration_date INTEGER,
+                        api_version TEXT,
+                        allowed_output_formats_json TEXT NOT NULL,
+                        catalog_layout TEXT NOT NULL,
+                        catalog_layout_detection_version INTEGER NOT NULL,
+                        observed_at INTEGER NOT NULL,
+                        PRIMARY KEY(provider_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_provider_account_runtime_provider_id ON provider_account_runtime(provider_id)")
+
+                addColumnIfMissing(database, "stalker_portal_state", "configuration_generation", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(database, "stalker_portal_state", "learning_json", "TEXT NOT NULL DEFAULT '{}'")
+                addColumnIfMissing(database, "stalker_portal_state", "observation_source", "TEXT NOT NULL DEFAULT 'DISCOVERY'")
+                addColumnIfMissing(database, "stalker_portal_state", "observed_at", "INTEGER NOT NULL DEFAULT 0")
+
+                backfillTypedProviderSnapshots(database)
+                validateForeignKeys(database, "provider_configs", "provider_account_runtime", "stalker_portal_state")
+            }
+        }
+
+        /** Migration 73 -> 74: make providers a stable identity/status row. */
+        val MIGRATION_73_74 = object : Migration(73, 74) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    database,
+                    "provider_configs",
+                    "guide_source_policy",
+                    "TEXT NOT NULL DEFAULT 'AUTO'"
+                )
+                addColumnIfMissing(
+                    database,
+                    "provider_configs",
+                    "channel_logo_source_policy",
+                    "TEXT NOT NULL DEFAULT 'SUPPLIER_PREFERRED'"
+                )
+                database.execSQL(
+                    """
+                    UPDATE provider_configs
+                    SET guide_source_policy = COALESCE(
+                            (SELECT guide_source_policy FROM providers WHERE providers.id = provider_configs.provider_id),
+                            'AUTO'
+                        ),
+                        channel_logo_source_policy = COALESCE(
+                            (SELECT channel_logo_source_policy FROM providers WHERE providers.id = provider_configs.provider_id),
+                            'SUPPLIER_PREFERRED'
+                        )
+                    """.trimIndent()
+                )
+
+                // Room runs migrations in a transaction with foreign keys enabled. SQLite ignores
+                // PRAGMA foreign_keys changes inside that transaction, and dropping the parent
+                // table would therefore cascade-delete the complete provider catalog. Preserve the
+                // full transitive provider-owned FK graph in temporary shadow tables and restore it
+                // after the stable parent row has been rebuilt.
+                val providerDependents = backupProviderDependentTables(database)
+                clearProviderDependentTables(database, providerDependents)
+                database.execSQL(
+                    """
+                    CREATE TABLE providers_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        is_active INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        last_synced_at INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO providers_new (
+                        id, name, type, is_active, status, last_synced_at, created_at
+                    )
+                    SELECT id, name, type, is_active, status, last_synced_at, created_at
+                    FROM providers
+                    """.trimIndent()
+                )
+                database.execSQL("DROP TABLE providers")
+                database.execSQL("ALTER TABLE providers_new RENAME TO providers")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_providers_type ON providers(type)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_providers_is_active ON providers(is_active)")
+                restoreProviderDependentTables(database, providerDependents)
+                validateAllForeignKeys(database)
+            }
+        }
+
+        private data class ProviderDependentBackup(
+            val table: String,
+            val temporaryTable: String
+        )
+
+        private fun backupProviderDependentTables(
+            database: SupportSQLiteDatabase
+        ): List<ProviderDependentBackup> {
+            val tables = buildList {
+                database.query(
+                    "SELECT name FROM sqlite_master " +
+                        "WHERE type='table' AND name NOT LIKE 'sqlite_%' " +
+                        "AND name NOT IN ('providers','room_master_table','android_metadata')"
+                ).use { cursor ->
+                    while (cursor.moveToNext()) add(cursor.getString(0))
+                }
+            }
+            val parentsByTable = tables.associateWith { table ->
+                buildSet {
+                    database.query("PRAGMA foreign_key_list(${quoteSqlIdentifier(table)})").use { cursor ->
+                        while (cursor.moveToNext()) add(cursor.getString(2))
+                    }
+                }
+            }
+            val affected = linkedSetOf("providers")
+            var changed: Boolean
+            do {
+                changed = false
+                parentsByTable.forEach { (table, parents) ->
+                    if (table !in affected && parents.any(affected::contains)) {
+                        affected += table
+                        changed = true
+                    }
+                }
+            } while (changed)
+
+            val dependentTables = affected - "providers"
+            val pending = dependentTables.toMutableSet()
+            val ordered = mutableListOf<String>()
+            val restoredParents = mutableSetOf("providers")
+            while (pending.isNotEmpty()) {
+                val ready = pending.filter { table ->
+                    parentsByTable.getValue(table)
+                        .filter { parent -> parent in dependentTables && parent != table }
+                        .all(restoredParents::contains)
+                }
+                check(ready.isNotEmpty()) {
+                    "Provider-dependent foreign-key cycle cannot be rebuilt safely: $pending"
+                }
+                ready.sorted().forEach { table ->
+                    ordered += table
+                    restoredParents += table
+                    pending -= table
+                }
+            }
+
+            return ordered.mapIndexed { index, table ->
+                val temporaryTable = "provider_rebuild_backup_$index"
+                database.execSQL("DROP TABLE IF EXISTS ${quoteSqlIdentifier(temporaryTable)}")
+                database.execSQL(
+                    "CREATE TEMP TABLE ${quoteSqlIdentifier(temporaryTable)} AS " +
+                        "SELECT * FROM ${quoteSqlIdentifier(table)}"
+                )
+                ProviderDependentBackup(
+                    table = table,
+                    temporaryTable = temporaryTable
+                )
+            }
+        }
+
+        private fun clearProviderDependentTables(
+            database: SupportSQLiteDatabase,
+            backups: List<ProviderDependentBackup>
+        ) {
+            // Every row is already present in a temporary shadow table. Clear children first so
+            // rows outside the provider cascade are not left behind and inserted a second time.
+            backups.asReversed().forEach { backup ->
+                database.execSQL("DELETE FROM ${quoteSqlIdentifier(backup.table)}")
+            }
+        }
+
+        private fun restoreProviderDependentTables(
+            database: SupportSQLiteDatabase,
+            backups: List<ProviderDependentBackup>
+        ) {
+            backups.forEach { backup ->
+                database.execSQL(
+                    "INSERT INTO ${quoteSqlIdentifier(backup.table)} " +
+                        "SELECT * FROM ${quoteSqlIdentifier(backup.temporaryTable)}"
+                )
+                database.execSQL("DROP TABLE ${quoteSqlIdentifier(backup.temporaryTable)}")
+            }
+        }
+
+        private fun quoteSqlIdentifier(value: String): String =
+            "\"${value.replace("\"", "\"\"")}\""
+
+        private fun validateAllForeignKeys(database: SupportSQLiteDatabase) {
+            database.query("PRAGMA foreign_key_check").use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val table = if (!cursor.isNull(0)) cursor.getString(0) else "<unknown>"
+                    val rowId = if (!cursor.isNull(1)) cursor.getLong(1) else -1L
+                    val parent = if (!cursor.isNull(2)) cursor.getString(2) else "<unknown>"
+                    throw IllegalStateException(
+                        "Foreign key violation after provider rebuild: table=$table rowId=$rowId parent=$parent"
+                    )
+                }
+            }
+        }
+
         private fun imageUrlMigrationSql(table: String, column: String): String = """
             UPDATE $table SET $column = CASE
                 WHEN instr($column, 'streamvault_provider_id=') > 0 THEN $column
@@ -3271,6 +3503,202 @@ abstract class StreamVaultDatabase : RoomDatabase() {
             }
             database.execSQL("ALTER TABLE $tableName ADD COLUMN $columnName $columnDefinition")
         }
+
+        private fun backfillTypedProviderSnapshots(database: SupportSQLiteDatabase) {
+            database.query("SELECT * FROM providers ORDER BY id").use { cursor ->
+                fun text(name: String): String = cursor.getString(cursor.getColumnIndexOrThrow(name)) ?: ""
+                fun long(name: String): Long = cursor.getLong(cursor.getColumnIndexOrThrow(name))
+                fun int(name: String): Int = cursor.getInt(cursor.getColumnIndexOrThrow(name))
+                fun nullableText(name: String): String? {
+                    val index = cursor.getColumnIndexOrThrow(name)
+                    return if (cursor.isNull(index)) null else cursor.getString(index)
+                }
+                fun nullableLong(name: String): Long? {
+                    val index = cursor.getColumnIndexOrThrow(name)
+                    return if (cursor.isNull(index)) null else cursor.getLong(index)
+                }
+
+                while (cursor.moveToNext()) {
+                    val providerId = long("id")
+                    val type = text("type")
+                    val generation = if (type == "STALKER_PORTAL") long("stalker_configuration_generation") else 0L
+                    val config = when (type) {
+                        "XTREAM_CODES" -> JSONObject()
+                            .put("serverUrl", text("server_url"))
+                            .put("username", text("username"))
+                            .put("password", text("password"))
+                            .put("httpUserAgent", text("http_user_agent"))
+                            .put("httpHeaders", text("http_headers"))
+                            .put("epgSyncMode", text("epg_sync_mode"))
+                            .put("guideSourcePolicy", text("guide_source_policy"))
+                            .put("channelLogoSourcePolicy", text("channel_logo_source_policy"))
+                            .put("fastSyncEnabled", int("xtream_fast_sync_enabled") != 0)
+                            .put("liveSyncMode", text("xtream_live_sync_mode"))
+                            .put("schemaVersion", 1)
+                        "M3U" -> JSONObject()
+                            .put("playlistUrl", text("m3u_url").ifBlank { text("server_url") })
+                            .put("epgUrl", text("epg_url"))
+                            .put("httpUserAgent", text("http_user_agent"))
+                            .put("httpHeaders", text("http_headers"))
+                            .put("epgSyncMode", text("epg_sync_mode"))
+                            .put("guideSourcePolicy", text("guide_source_policy"))
+                            .put("channelLogoSourcePolicy", text("channel_logo_source_policy"))
+                            .put("vodClassificationEnabled", int("m3u_vod_classification_enabled") != 0)
+                            .put("schemaVersion", 1)
+                        "STALKER_PORTAL" -> JSONObject()
+                            .put("portalUrl", text("server_url"))
+                            .put("device", JSONObject()
+                                .put("macAddress", text("stalker_mac_address"))
+                                .put("deviceProfile", text("stalker_device_profile"))
+                                .put("timezone", text("stalker_device_timezone"))
+                                .put("locale", text("stalker_device_locale"))
+                                .put("serialNumber", text("stalker_serial_number"))
+                                .put("deviceId", text("stalker_device_id"))
+                                .put("deviceId2", text("stalker_device_id2"))
+                                .put("signature", text("stalker_signature")))
+                            .put("username", text("username"))
+                            .put("password", text("password"))
+                            .put("httpUserAgent", text("http_user_agent"))
+                            .put("httpHeaders", text("http_headers"))
+                            .put("advancedOptionsJson", text("stalker_advanced_options_json"))
+                            .put("authMode", text("stalker_auth_mode"))
+                            .put("requestedProfileId", text("stalker_requested_profile_id"))
+                            .put("protocolPreference", text("stalker_protocol_preference"))
+                            .put("transportGrant", legacyTransportGrant(cursor))
+                            .put("epgSyncMode", text("epg_sync_mode"))
+                            .put("catalogMode", text("stalker_catalog_mode"))
+                            .put("guideSourcePolicy", text("guide_source_policy"))
+                            .put("channelLogoSourcePolicy", text("channel_logo_source_policy"))
+                            .put("schemaVersion", 1)
+                        "JELLYFIN" -> JSONObject()
+                            .put("serverUrl", text("server_url"))
+                            .put("username", text("username"))
+                            .put("credential", text("password"))
+                            .put("schemaVersion", 1)
+                        else -> throw IllegalStateException("Unknown provider type during migration: $type")
+                    }
+                    val identity = when (type) {
+                        "XTREAM_CODES", "JELLYFIN" -> listOf(type, migrationNormalizeOrigin(text("server_url")), text("username").trim())
+                        "M3U" -> listOf(type, text("m3u_url").ifBlank { text("server_url") }.trim())
+                        "STALKER_PORTAL" -> listOf(
+                            type,
+                            migrationNormalizeOrigin(text("server_url")),
+                            text("stalker_mac_address").trim().uppercase(),
+                            text("username").trim()
+                        )
+                        else -> error("unreachable")
+                    }.joinToString("\u0000")
+                    val identityKey = MessageDigest.getInstance("SHA-256")
+                        .digest(identity.toByteArray(Charsets.UTF_8))
+                        .joinToString("") { "%02x".format(it) }
+                    val updatedAt = long("last_synced_at").takeIf { it > 0L } ?: long("created_at")
+
+                    database.execSQL(
+                        "INSERT INTO provider_configs(provider_id,type,schema_version,configuration_generation,identity_key,encrypted_config_json,updated_at) VALUES(?,?,?,?,?,?,?)",
+                        arrayOf(providerId, type, 1, generation, identityKey, config.toString(), updatedAt)
+                    )
+                    database.execSQL(
+                        "INSERT INTO provider_account_runtime(provider_id,max_connections,expiration_date,api_version,allowed_output_formats_json,catalog_layout,catalog_layout_detection_version,observed_at) VALUES(?,?,?,?,?,?,?,?)",
+                        arrayOf(
+                            providerId,
+                            int("max_connections"),
+                            nullableLong("expiration_date"),
+                            nullableText("api_version"),
+                            text("allowed_output_formats_json"),
+                            text("catalog_layout"),
+                            int("catalog_layout_detection_version"),
+                            updatedAt
+                        )
+                    )
+                    if (type == "STALKER_PORTAL") {
+                        database.execSQL(
+                            "UPDATE stalker_portal_state SET configuration_generation=?, learning_json=?, observation_source='DISCOVERY', observed_at=CASE WHEN validated_at > 0 THEN validated_at ELSE ? END WHERE provider_id=?",
+                            arrayOf(
+                                generation,
+                                legacyStalkerLearning(cursor, generation, updatedAt).toString(),
+                                updatedAt,
+                                providerId
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        private fun legacyStalkerLearning(
+            cursor: android.database.Cursor,
+            generation: Long,
+            observedAt: Long
+        ): JSONObject {
+            fun text(name: String): String = cursor.getString(cursor.getColumnIndexOrThrow(name)) ?: ""
+            fun int(name: String): Int = cursor.getInt(cursor.getColumnIndexOrThrow(name))
+            fun observation(value: Any): JSONObject = JSONObject()
+                .put("value", value)
+                .put("configurationGeneration", generation)
+                .put("source", "DISCOVERY")
+                .put("observedAt", observedAt)
+            val identity = JSONObject()
+                .put("macAddress", text("stalker_mac_address"))
+                .put("deviceProfile", text("stalker_device_profile"))
+                .put("timezone", text("stalker_device_timezone"))
+                .put("locale", text("stalker_device_locale"))
+                .put("serialNumber", text("stalker_serial_number"))
+                .put("deviceId", text("stalker_device_id"))
+                .put("deviceId2", text("stalker_device_id2"))
+                .put("signature", text("stalker_signature"))
+            return JSONObject()
+                .put("configurationGeneration", generation)
+                .put("effectiveIdentity", observation(identity))
+                .apply {
+                    text("stalker_learned_profile_id").takeIf(String::isNotBlank)
+                        ?.let { put("profileId", observation(it)) }
+                    put("profileRevision", observation(int("stalker_profile_revision")))
+                    put("profileVerification", observation(text("stalker_profile_verification")))
+                    put("portalProfile", observation(text("stalker_portal_profile")))
+                    put("portalFingerprint", observation(text("stalker_portal_fingerprint")))
+                    put("magPreset", observation(text("stalker_mag_preset")))
+                    put("protocolFamily", observation(text("stalker_protocol_family")))
+                    put("bootstrapRecipe", observation(text("stalker_last_bootstrap_recipe")))
+                    put("endpointPreference", observation(text("stalker_endpoint_preference")))
+                    put("cookieMode", observation(text("stalker_cookie_mode")))
+                    put("playbackBackendHint", observation(text("stalker_playback_backend_hint")))
+                    val lastPlaybackModeIndex = cursor.getColumnIndexOrThrow("stalker_last_playback_mode")
+                    if (!cursor.isNull(lastPlaybackModeIndex)) {
+                        put("lastPlaybackMode", observation(cursor.getString(lastPlaybackModeIndex)))
+                    }
+                    put("capabilities", JSONObject())
+                    put("discoveryEvidence", org.json.JSONArray())
+                }
+        }
+
+        private fun legacyTransportGrant(cursor: android.database.Cursor): Any {
+            fun text(name: String): String = cursor.getString(cursor.getColumnIndexOrThrow(name)) ?: ""
+            val mode = text("stalker_transport_mode")
+            val consentedAt = cursor.getLong(cursor.getColumnIndexOrThrow("stalker_transport_consent_at"))
+            if (mode == "AUTO_STRICT" || consentedAt <= 0L) return JSONObject.NULL
+            val originValue = text("stalker_transport_origin")
+            val uri = runCatching { URI(originValue) }.getOrNull() ?: return JSONObject.NULL
+            val scheme = uri.scheme?.lowercase() ?: return JSONObject.NULL
+            val host = uri.host ?: return JSONObject.NULL
+            val port = uri.port.takeIf { it >= 0 } ?: if (scheme == "https") 443 else 80
+            return JSONObject()
+                .put("mode", mode)
+                .put("origin", JSONObject().put("scheme", scheme).put("host", host).put("port", port))
+                .put("spkiSha256", text("stalker_tls_spki_sha256").takeIf { it.isNotBlank() })
+                .put("consentedAt", consentedAt)
+        }
+
+        private fun migrationNormalizeOrigin(value: String): String = runCatching {
+            val uri = URI(value.trim())
+            val scheme = uri.scheme?.lowercase().orEmpty()
+            val host = uri.host?.lowercase().orEmpty()
+            val port = uri.port.takeIf { it >= 0 } ?: when (scheme) {
+                "https" -> 443
+                "http" -> 80
+                else -> -1
+            }
+            "$scheme://$host:$port${uri.path.orEmpty().trimEnd('/')}"
+        }.getOrElse { value.trim().trimEnd('/').lowercase() }
 
         private fun tableHasColumn(
             database: SupportSQLiteDatabase,

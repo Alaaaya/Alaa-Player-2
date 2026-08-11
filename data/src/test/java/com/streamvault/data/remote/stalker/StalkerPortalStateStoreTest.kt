@@ -4,7 +4,14 @@ import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.dao.StalkerPortalStateDao
 import com.streamvault.data.local.entity.StalkerPortalStateEntity
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.StalkerCookieMode
+import com.streamvault.domain.model.StalkerEndpointPreference
+import com.streamvault.domain.model.StalkerPlaybackBackendHint
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Test
 
 class StalkerPortalStateStoreTest {
@@ -100,6 +107,41 @@ class StalkerPortalStateStoreTest {
         assertThat(store.isRecipeHealthy(state, "STRICT_MAG", now + 1L)).isFalse()
         assertThat(store.isRecipeHealthy(state, "STRICT_MAG", now + 11L * 60L * 1000L)).isTrue()
         assertThat(state.workingEndpoint).isEqualTo("https://portal.invalid/portal.php")
+    }
+
+    @Test
+    fun `authentication and playback observations share one generation-bound learning envelope`() = runTest {
+        val dao = FakePortalStateDao()
+        val store = StalkerPortalStateStore(dao)
+        store.recordAuthentication(
+            providerId = 8L,
+            session = StalkerSession(
+                loadUrl = "https://portal.test/load.php",
+                portalReferer = "https://portal.test/c/",
+                token = "token"
+            ),
+            profile = StalkerProviderProfile(compatibilityProfileId = "classic-mag"),
+            now = 100L,
+            configurationGeneration = 5L
+        )
+        store.recordPlayback(
+            providerId = 8L,
+            playbackMode = "DIRECT_URL",
+            endpointPreference = StalkerEndpointPreference.SERVER_LOAD,
+            cookieMode = StalkerCookieMode.BOTH,
+            backendHint = StalkerPlaybackBackendHint.DIRECT,
+            now = 200L,
+            configurationGeneration = 5L
+        )
+
+        val learning = Json.parseToJsonElement(requireNotNull(store.get(8L)).learningJson).jsonObject
+        assertThat(learning.getValue("configurationGeneration").jsonPrimitive.long).isEqualTo(5L)
+        assertThat(learning.getValue("profileId").jsonObject.getValue("source").jsonPrimitive.content)
+            .isEqualTo("AUTHENTICATION")
+        assertThat(learning.getValue("lastPlaybackMode").jsonObject.getValue("source").jsonPrimitive.content)
+            .isEqualTo("PLAYBACK")
+        assertThat(learning.getValue("workingEndpoint").jsonObject.getValue("value").jsonPrimitive.content)
+            .isEqualTo("https://portal.test/load.php")
     }
 
     private class FakePortalStateDao : StalkerPortalStateDao {

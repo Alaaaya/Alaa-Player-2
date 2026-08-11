@@ -12,16 +12,21 @@ import com.streamvault.data.local.dao.FavoriteDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.ProviderConfigEntity
+import com.streamvault.data.provider.ProviderConfigurationCodec
 import com.streamvault.data.local.entity.EpgSourceEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.RecordingScheduleEntity
 import com.streamvault.data.local.entity.VirtualGroupEntity
+import com.streamvault.data.mapper.toEntity
+import com.streamvault.data.provider.toProviderSnapshot
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.domain.manager.BackupData
@@ -44,7 +49,7 @@ import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.EpgSource
 import com.streamvault.domain.model.PlaybackHistory
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.RecordingItem
@@ -52,6 +57,8 @@ import com.streamvault.domain.model.RecordingRecurrence
 import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StalkerTransportMode
+import com.streamvault.domain.model.StalkerConfig
+import com.streamvault.domain.repository.ProviderSnapshotRepository
 import com.streamvault.domain.model.XmltvTimezonePolicy
 import com.streamvault.domain.repository.CategoryRepository
 import java.io.ByteArrayInputStream
@@ -237,7 +244,7 @@ class BackupManagerImplTest {
     fun `inspectBackup rejects unsupported version before reading sections`() = runBlocking {
         val error = inspectAdmissionFailure(
             "unsupported-version",
-            """{"version":11,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
+            """{"version":12,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
         )
 
         assertThat(error.reason).isEqualTo(BackupAdmissionReason.UNSUPPORTED_VERSION)
@@ -282,7 +289,7 @@ class BackupManagerImplTest {
 
     @Test
     fun `recording conflict benchmark remains linear for duplicate heavy sections`() {
-        val provider = ProviderEntity(
+        val provider = Provider(
             id = 7L,
             name = "Provider",
             type = ProviderType.M3U,
@@ -396,9 +403,17 @@ class BackupManagerImplTest {
             ByteArrayInputStream(gson.toJson(backup).toByteArray())
         )
         whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(providerDao.insert(any())).thenReturn(9L)
         whenever(credentialCrypto.encryptIfNeeded(any())).thenAnswer { invocation ->
             invocation.arguments.first() as String
         }
+        whenever(credentialCrypto.decryptIfNeeded(any())).thenAnswer { invocation ->
+            invocation.arguments.first() as String
+        }
+        val providerSnapshotDao: ProviderSnapshotDao = mock()
+        val configurationCodec = ProviderConfigurationCodec(gson, credentialCrypto)
+        whenever(providerSnapshotDao.getConfig(any())).thenReturn(null)
+        whenever(providerSnapshotDao.commitConfiguration(any())).thenReturn(true)
         val manager = BackupManagerImpl(
             context = context,
             preferencesRepository = mock(),
@@ -416,7 +431,10 @@ class BackupManagerImplTest {
             transactionRunner = object : DatabaseTransactionRunner {
                 override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
             },
-            gson = gson
+            gson = gson,
+            providerSnapshotRepository = mock<ProviderSnapshotRepository>(),
+            providerSnapshotDao = providerSnapshotDao,
+            providerConfigurationCodec = configurationCodec
         )
 
         val result = manager.importConfig(
@@ -432,15 +450,19 @@ class BackupManagerImplTest {
         )
 
         assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat((result as Result.Success).data.failedSections).isEmpty()
+        assertThat((result as Result.Success).data.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
         val inserted = org.mockito.kotlin.argumentCaptor<ProviderEntity>()
         verify(providerDao).insert(inserted.capture())
-        assertThat(inserted.firstValue.stalkerTransportMode)
-            .isEqualTo(StalkerTransportMode.AUTO_STRICT)
-        assertThat(inserted.firstValue.stalkerTransportOrigin).isEmpty()
-        assertThat(inserted.firstValue.stalkerTlsSpkiSha256).isEmpty()
-        assertThat(inserted.firstValue.stalkerTransportConsentAt).isEqualTo(0L)
         assertThat(inserted.firstValue.isActive).isFalse()
         assertThat(inserted.firstValue.status).isEqualTo(ProviderStatus.PARTIAL)
+        val storedConfig = org.mockito.kotlin.argumentCaptor<ProviderConfigEntity>()
+        verify(providerSnapshotDao).commitConfiguration(storedConfig.capture())
+        val restoredConfig = configurationCodec.decode(
+            storedConfig.firstValue.type,
+            storedConfig.firstValue.encryptedConfigJson
+        ) as StalkerConfig
+        assertThat(restoredConfig.transportGrant).isNull()
     }
 
     @Test
@@ -509,7 +531,8 @@ class BackupManagerImplTest {
             recordingManager = mock<RecordingManager>(),
             transactionRunner = transactionRunner,
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
         val result = manager.importConfig(
@@ -634,7 +657,8 @@ class BackupManagerImplTest {
             recordingManager = mock<RecordingManager>(),
             transactionRunner = transactionRunner,
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
         val result = manager.importConfig(
@@ -721,7 +745,8 @@ class BackupManagerImplTest {
                 override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
             },
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
         val result = manager.importConfig(
@@ -889,7 +914,7 @@ class BackupManagerImplTest {
         val categoryRepository: CategoryRepository = mock()
         val virtualGroupDao: VirtualGroupDao = mock()
         val channelDao: ChannelDao = mock()
-        val provider = ProviderEntity(
+        val provider = Provider(
             id = 2L,
             name = "Source",
             type = ProviderType.XTREAM_CODES,
@@ -958,7 +983,7 @@ class BackupManagerImplTest {
         val virtualGroupDao: VirtualGroupDao = mock()
         val channelDao: ChannelDao = mock()
         val providerReference = BackupProviderReference("https://example.com", "user")
-        val targetProvider = ProviderEntity(
+        val targetProvider = Provider(
             id = 7L,
             name = "Target",
             type = ProviderType.XTREAM_CODES,
@@ -991,7 +1016,7 @@ class BackupManagerImplTest {
             )
         )
         whenever(context.contentResolver).thenReturn(contentResolver)
-        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider))
+        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider.toEntity()))
         whenever(categoryRepository.getCategories(targetProvider.id)).thenReturn(
             flowOf(listOf(Category(id = 150L, roomId = 1_500L, name = "News", type = ContentType.LIVE)))
         )
@@ -1041,7 +1066,8 @@ class BackupManagerImplTest {
             providerDao = providerDao,
             categoryRepository = categoryRepository,
             virtualGroupDao = virtualGroupDao,
-            channelDao = channelDao
+            channelDao = channelDao,
+            storedProviders = listOf(targetProvider)
         ).importConfig("content://portable-shifted", preferencesOnlyPlan())
 
         val imported = (result as Result.Success).data
@@ -1065,7 +1091,7 @@ class BackupManagerImplTest {
         val virtualGroupDao: VirtualGroupDao = mock()
         val channelDao: ChannelDao = mock()
         val reference = BackupProviderReference("https://example.com", "user")
-        val targetProvider = ProviderEntity(
+        val targetProvider = Provider(
             id = 7L,
             name = "Target",
             type = ProviderType.XTREAM_CODES,
@@ -1073,7 +1099,7 @@ class BackupManagerImplTest {
             username = reference.username
         )
         whenever(context.contentResolver).thenReturn(contentResolver)
-        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider))
+        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider.toEntity()))
         whenever(categoryRepository.getCategories(targetProvider.id)).thenReturn(flowOf(emptyList()))
         whenever(channelDao.getByProviderSync(targetProvider.id)).thenReturn(emptyList())
         whenever(virtualGroupDao.getByType(targetProvider.id, ContentType.LIVE.name)).thenReturn(
@@ -1105,7 +1131,8 @@ class BackupManagerImplTest {
             providerDao = providerDao,
             categoryRepository = categoryRepository,
             virtualGroupDao = virtualGroupDao,
-            channelDao = channelDao
+            channelDao = channelDao,
+            storedProviders = listOf(targetProvider)
         ).importConfig("content://portable-duplicate-group", preferencesOnlyPlan())
 
         val imported = (result as Result.Success).data
@@ -1170,7 +1197,7 @@ class BackupManagerImplTest {
                 serverUrl = "https://example.com",
                 username = "user"
             )
-            val targetProvider = ProviderEntity(
+            val targetProvider = Provider(
                 id = 7L,
                 name = "Target",
                 type = ProviderType.XTREAM_CODES,
@@ -1181,7 +1208,7 @@ class BackupManagerImplTest {
             val uriString = "content://portable-conflict-${conflictStrategy.name}"
             var insertCalls = 0
             whenever(context.contentResolver).thenReturn(contentResolver)
-            whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider))
+            whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider.toEntity()))
             doAnswer {
                 insertCalls += 1
                 targetProvider.id
@@ -1209,7 +1236,8 @@ class BackupManagerImplTest {
                 categoryRepository = categoryRepository,
                 virtualGroupDao = virtualGroupDao,
                 channelDao = channelDao,
-                credentialCrypto = credentialCrypto
+                credentialCrypto = credentialCrypto,
+                storedProviders = listOf(targetProvider)
             ).importConfig(
                 uriString,
                 preferencesOnlyPlan().copy(
@@ -1770,7 +1798,7 @@ class BackupManagerImplTest {
     @Test
     fun `importScheduledRecordingBackups reports skipped and failed outcomes`() {
         val recordingManager: RecordingManager = mock()
-        val provider = ProviderEntity(
+        val provider = Provider(
             id = 7L,
             name = "Provider",
             type = ProviderType.M3U,
@@ -1837,7 +1865,7 @@ class BackupManagerImplTest {
     @Test
     fun `importScheduledRecordingBackups reports replaced existing schedules`() {
         val recordingManager: RecordingManager = mock()
-        val provider = ProviderEntity(
+        val provider = Provider(
             id = 7L,
             name = "Provider",
             type = ProviderType.M3U,
@@ -1894,7 +1922,7 @@ class BackupManagerImplTest {
     @Test
     fun `importScheduledRecordingBackups keeps old schedule when replacement cancellation fails`() = runBlocking {
         val recordingManager: RecordingManager = mock()
-        val provider = ProviderEntity(
+        val provider = Provider(
             id = 7L,
             name = "Provider",
             type = ProviderType.M3U,
@@ -2001,7 +2029,7 @@ class BackupManagerImplTest {
         }
     }
 
-    private fun ProviderEntity.backupIdentityForTest(): Triple<String, String, String> =
+    private fun Provider.backupIdentityForTest(): Triple<String, String, String> =
         Triple(serverUrl, username, stalkerMacAddress)
 
     private fun backupManagerForValidation(
@@ -2014,6 +2042,7 @@ class BackupManagerImplTest {
         virtualGroupDao: VirtualGroupDao = mock(),
         credentialCrypto: CredentialCrypto = mock(),
         epgSourceDao: EpgSourceDao? = null,
+        storedProviders: List<Provider> = emptyList(),
     ): BackupManagerImpl = BackupManagerImpl(
         context = context,
         preferencesRepository = preferencesRepository,
@@ -2031,6 +2060,23 @@ class BackupManagerImplTest {
             override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
         },
         gson = Gson(),
+        providerSnapshotRepository = object : ProviderSnapshotRepository {
+            override suspend fun getSnapshot(providerId: Long) =
+                storedProviders.firstOrNull { it.id == providerId }?.toProviderSnapshot()
+
+            override suspend fun compareAndSetStalkerLearning(
+                providerId: Long,
+                learning: com.streamvault.domain.model.StalkerPortalLearning
+            ): Boolean = false
+
+            override suspend fun updateCatalogLayout(
+                providerId: Long,
+                layout: com.streamvault.domain.model.CatalogLayout,
+                detectionVersion: Int
+            ) = Unit
+        },
+        providerSnapshotDao = acceptingSnapshotDao(),
+        providerConfigurationCodec = ProviderConfigurationCodec(Gson(), credentialCrypto),
         backupRestoreCheckpointDao = checkpointDao,
         channelDao = channelDao,
         epgSourceDao = epgSourceDao
@@ -2044,4 +2090,29 @@ class BackupManagerImplTest {
         importMultiViewPresets = false,
         importRecordingSchedules = false
     )
+
+    private fun snapshotRepositoryFor(vararg providers: Provider) = object : ProviderSnapshotRepository {
+        override suspend fun getSnapshot(providerId: Long) =
+            checkNotNull(providers.firstOrNull { it.id == providerId }) {
+                "No typed provider fixture for id=$providerId; available=${providers.map { it.id }}"
+            }.toProviderSnapshot()
+
+        override suspend fun compareAndSetStalkerLearning(
+            providerId: Long,
+            learning: com.streamvault.domain.model.StalkerPortalLearning
+        ): Boolean = false
+
+        override suspend fun updateCatalogLayout(
+            providerId: Long,
+            layout: com.streamvault.domain.model.CatalogLayout,
+            detectionVersion: Int
+        ) = Unit
+    }
+
+    private fun acceptingSnapshotDao(): ProviderSnapshotDao = mock<ProviderSnapshotDao>().also { dao ->
+        runBlocking {
+            whenever(dao.getConfig(any())).thenReturn(null)
+            whenever(dao.commitConfiguration(any())).thenReturn(true)
+        }
+    }
 }
