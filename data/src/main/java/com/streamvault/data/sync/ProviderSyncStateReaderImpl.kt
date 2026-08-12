@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.combine
 
 @Singleton
 class ProviderSyncStateReaderImpl @Inject constructor(
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncStateSource,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val providerWorkflowDao: ProviderWorkflowDao
 ) : ProviderSyncStateReader {

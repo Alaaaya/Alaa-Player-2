@@ -58,7 +58,7 @@ internal suspend fun reconcileTargetedProviderStatus(
     channelDao: ChannelDao,
     categoryDao: CategoryDao,
     syncMetadataRepository: SyncMetadataRepository,
-    syncManager: SyncManager,
+    syncManager: ProviderSyncCommands,
     provider: com.streamvault.data.local.entity.ProviderEntity,
     result: com.streamvault.domain.model.Result<Unit>,
     currentTimeMillis: Long = System.currentTimeMillis()
@@ -148,7 +148,7 @@ class ProviderSyncWorker(
         fun providerDao(): ProviderDao
         fun channelDao(): ChannelDao
         fun categoryDao(): CategoryDao
-        fun syncManager(): SyncManager
+        fun syncCommands(): ProviderSyncCommands
         fun syncMetadataRepository(): SyncMetadataRepository
         fun providerConfigRevisionDao(): ProviderConfigRevisionDao
         fun credentialCrypto(): CredentialCrypto
@@ -227,7 +227,7 @@ class ProviderSyncWorker(
                         onboardingDao = entryPoint.xtreamLiveOnboardingDao()
                     )
                     val result = if (requestedProviderId == provider.id) {
-                        entryPoint.syncManager().sync(
+                        entryPoint.syncCommands().sync(
                             provider.id,
                             force = false,
                             trackInitialLiveOnboarding = trackInitialLiveOnboarding
@@ -237,7 +237,7 @@ class ProviderSyncWorker(
                     } else if (provider.type == ProviderType.STALKER_PORTAL) {
                         syncStalkerProviderIfStale(entryPoint, provider)
                     } else {
-                        entryPoint.syncManager().sync(provider.id, force = false)
+                        entryPoint.syncCommands().sync(provider.id, force = false)
                     }
                     if (requestedProviderId == provider.id) {
                         reconcileTargetedProviderStatusFenced(entryPoint, provider, result)
@@ -245,7 +245,7 @@ class ProviderSyncWorker(
                     when (result) {
                         is com.streamvault.domain.model.Result.Success ->
                             ProviderWorkflowOutcome.Success(
-                                partial = entryPoint.syncManager().currentSyncState(provider.id) is SyncState.Partial
+                                partial = entryPoint.syncCommands().currentSyncState(provider.id) is SyncState.Partial
                             )
                         is com.streamvault.domain.model.Result.Error -> {
                             Log.w(TAG, "Provider sync worker failed for provider ${provider.id}: ${result.message}")
@@ -398,7 +398,7 @@ class ProviderSyncWorker(
             decodedRevision.configurationGeneration
         }
 
-        val result = entryPoint.syncManager().syncWithProviderOverride(
+        val result = entryPoint.syncCommands().syncWithProviderOverride(
             providerId = providerId,
             // Recovery must revalidate the staged configuration instead of accepting a fresh
             // cache belonging to the previously committed configuration.
@@ -628,7 +628,7 @@ class ProviderSyncWorker(
     ): com.streamvault.domain.model.Result<Unit> {
         val now = System.currentTimeMillis()
         if (shouldTrackInitialLiveOnboarding(provider, entryPoint.xtreamLiveOnboardingDao())) {
-            return entryPoint.syncManager().sync(
+            return entryPoint.syncCommands().sync(
                 provider.id,
                 force = false,
                 trackInitialLiveOnboarding = true
@@ -654,7 +654,7 @@ class ProviderSyncWorker(
         }
 
         if (liveStale) {
-            when (val liveResult = entryPoint.syncManager().retrySection(
+            when (val liveResult = entryPoint.syncCommands().retrySection(
                 provider.id,
                 SyncRepairSection.LIVE,
                 syncReason = XtreamLiveSyncReason.BACKGROUND_STALE
@@ -664,16 +664,16 @@ class ProviderSyncWorker(
             }
         }
         if (epgStale) {
-            when (val epgResult = entryPoint.syncManager().syncEpg(provider.id, force = false)) {
+            when (val epgResult = entryPoint.syncCommands().syncEpg(provider.id, force = false)) {
                 is com.streamvault.domain.model.Result.Error -> return epgResult
                 else -> Unit
             }
         }
         if (movieIndexDue) {
-            entryPoint.syncManager().scheduleXtreamIndexSync(provider.id, ContentType.MOVIE)
+            entryPoint.syncCommands().scheduleXtreamIndexSync(provider.id, ContentType.MOVIE)
         }
         if (seriesIndexDue) {
-            entryPoint.syncManager().scheduleXtreamIndexSync(provider.id, ContentType.SERIES)
+            entryPoint.syncCommands().scheduleXtreamIndexSync(provider.id, ContentType.SERIES)
         }
         return com.streamvault.domain.model.Result.success(Unit)
     }
@@ -717,19 +717,19 @@ class ProviderSyncWorker(
         }
 
         if (liveStale) {
-            when (val liveResult = entryPoint.syncManager().retrySection(provider.id, SyncRepairSection.LIVE)) {
+            when (val liveResult = entryPoint.syncCommands().retrySection(provider.id, SyncRepairSection.LIVE)) {
                 is com.streamvault.domain.model.Result.Error -> return liveResult
                 else -> Unit
             }
         }
         if (movieIndexDue) {
-            entryPoint.syncManager().scheduleStalkerIndexSync(provider.id, ContentType.MOVIE)
+            entryPoint.syncCommands().scheduleStalkerIndexSync(provider.id, ContentType.MOVIE)
         }
         if (seriesIndexDue) {
-            entryPoint.syncManager().scheduleStalkerIndexSync(provider.id, ContentType.SERIES)
+            entryPoint.syncCommands().scheduleStalkerIndexSync(provider.id, ContentType.SERIES)
         }
         if (epgStale) {
-            entryPoint.syncManager().scheduleBackgroundEpgSync(provider.id)
+            entryPoint.syncCommands().scheduleBackgroundEpgSync(provider.id)
         }
         return com.streamvault.domain.model.Result.success(Unit)
     }
@@ -761,7 +761,7 @@ class ProviderSyncWorker(
             channelDao = entryPoint.channelDao(),
             categoryDao = entryPoint.categoryDao(),
             syncMetadataRepository = entryPoint.syncMetadataRepository(),
-            syncManager = entryPoint.syncManager(),
+            syncManager = entryPoint.syncCommands(),
             provider = provider,
             result = result
         )

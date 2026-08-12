@@ -36,7 +36,7 @@ class XtreamIndexWorker(
     @InstallIn(SingletonComponent::class)
     interface XtreamIndexWorkerEntryPoint {
         fun providerDao(): ProviderDao
-        fun syncManager(): SyncManager
+        fun syncCommands(): ProviderSyncCommands
         fun providerWorkflowRunner(): ProviderWorkflowRunner
     }
 
@@ -73,7 +73,7 @@ class XtreamIndexWorker(
                         reason = ProviderWorkflowReason.PERIODIC,
                         force = force
                     ) {
-                        when (val result = entryPoint.syncManager().processQueuedXtreamIndexJobs(
+                        when (val result = entryPoint.syncCommands().processQueuedXtreamIndexJobs(
                             providerId = provider.id,
                             section = requestedSection,
                             force = force,

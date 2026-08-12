@@ -1,15 +1,9 @@
 package com.streamvault.data.remote.xtream
 
-import com.streamvault.data.provider.ProviderCapabilityResolver
-import com.streamvault.data.remote.stalker.StalkerPlaybackResolutionException
 import com.streamvault.data.remote.stalker.StalkerStreamKind
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackTransportPolicy
-import com.streamvault.domain.model.Result
-import com.streamvault.domain.provider.CapabilityResolution
-import com.streamvault.domain.provider.PlaybackRequest
-import com.streamvault.domain.provider.ProviderContentReference
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,8 +23,10 @@ data class ResolvedStreamUrl(
 /** Provider-neutral playback entry point. Provider selection is owned by the capability registry. */
 @Singleton
 class XtreamStreamUrlResolver @Inject constructor(
-    private val providerCapabilities: ProviderCapabilityResolver
+    providerCapabilities: com.streamvault.data.provider.ProviderCapabilityResolver
 ) {
+    private val playbackCoordinator = PlaybackResolutionCoordinator(providerCapabilities)
+
     fun isInternalStreamUrl(url: String?): Boolean =
         XtreamUrlFactory.isInternalStreamUrl(url) || StalkerUrlFactory.isInternalStreamUrl(url)
 
@@ -63,7 +59,13 @@ class XtreamStreamUrlResolver @Inject constructor(
         val providerId = xtreamToken?.providerId
             ?: stalkerToken?.providerId
             ?: fallbackProviderId?.takeIf { it > 0L }
-            ?: return url.takeIf(String::isNotBlank)?.toPassthrough(fallbackContainerExtension)
+            ?: return url.takeIf(String::isNotBlank)?.let {
+                ResolvedStreamUrl(
+                    url = it,
+                    expirationTime = extractStreamExpirationTime(it),
+                    containerExtension = fallbackContainerExtension
+                )
+            }
         val contentType = fallbackContentType
             ?: xtreamToken?.kind?.toContentType()
             ?: stalkerToken?.kind?.toContentType()
@@ -72,66 +74,28 @@ class XtreamStreamUrlResolver @Inject constructor(
             ?: stalkerToken?.itemId
             ?: fallbackStreamId?.takeIf { it > 0L }
 
-        val capabilitySet = when (val resolution = providerCapabilities.resolve(providerId)) {
-            is CapabilityResolution.Available -> resolution.capability
-            is CapabilityResolution.ConfigurationError -> return unavailable(url, resolution.reason, stalkerToken != null)
-            is CapabilityResolution.Restricted -> return unavailable(url, resolution.reason, stalkerToken != null)
-            is CapabilityResolution.Unsupported -> return unavailable(url, resolution.reason, stalkerToken != null)
-        }
-        val playback = when (val resolution = capabilitySet.playback()) {
-            is CapabilityResolution.Available -> resolution.capability
-            is CapabilityResolution.ConfigurationError -> return unavailable(url, resolution.reason, stalkerToken != null)
-            is CapabilityResolution.Restricted -> return unavailable(url, resolution.reason, stalkerToken != null)
-            is CapabilityResolution.Unsupported -> return unavailable(url, resolution.reason, stalkerToken != null)
-        }
-        return when (val result = playback.resolve(
-            PlaybackRequest(
-                sourceUrl = url,
-                content = ProviderContentReference(
-                    providerId = providerId,
-                    streamId = streamId
-                ),
-                contentType = contentType,
-                containerExtension = xtreamToken?.containerExtension
-                    ?: stalkerToken?.containerExtension
-                    ?: fallbackContainerExtension,
-                preferStableUrl = preferStableUrl
-            )
-        )) {
-            is Result.Success -> result.data.let { resolved ->
+        if (providerId <= 0L) {
+            return url.takeIf(String::isNotBlank)?.let {
                 ResolvedStreamUrl(
-                    url = resolved.url,
-                    expirationTime = resolved.expirationTime ?: extractStreamExpirationTime(resolved.url),
-                    containerExtension = resolved.containerExtension,
-                    headers = resolved.headers,
-                    userAgent = resolved.userAgent,
-                    playbackTransportPolicy = resolved.playbackTransportPolicy,
-                    allowInvalidSsl = resolved.allowInvalidSsl,
-                    proxyHost = resolved.proxyHost,
-                    proxyPort = resolved.proxyPort
+                    url = it,
+                    expirationTime = extractStreamExpirationTime(it),
+                    containerExtension = fallbackContainerExtension
                 )
             }
-            is Result.Error -> {
-                if (stalkerToken != null) {
-                    throw StalkerPlaybackResolutionException(result.message, result.exception)
-                }
-                null
-            }
-            is Result.Loading -> null
         }
-    }
 
-    private fun unavailable(url: String, reason: String, stalker: Boolean): ResolvedStreamUrl? {
-        if (stalker) throw StalkerPlaybackResolutionException(reason)
-        return url.takeIf { it.isNotBlank() && !isInternalStreamUrl(it) }?.toPassthrough(null)
-    }
-
-    private fun String.toPassthrough(containerExtension: String?): ResolvedStreamUrl =
-        ResolvedStreamUrl(
-            url = this,
-            expirationTime = extractStreamExpirationTime(this),
-            containerExtension = containerExtension
+        return playbackCoordinator.resolve(
+            sourceUrl = url,
+            providerId = providerId,
+            streamId = streamId,
+            contentType = contentType,
+            containerExtension = xtreamToken?.containerExtension
+                ?: stalkerToken?.containerExtension
+                ?: fallbackContainerExtension,
+            preferStableUrl = preferStableUrl,
+            isStalkerSource = stalkerToken != null
         )
+    }
 }
 
 private fun XtreamStreamKind.toContentType(): ContentType = when (this) {

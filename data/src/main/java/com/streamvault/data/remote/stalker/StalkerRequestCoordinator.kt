@@ -97,6 +97,11 @@ class StalkerRequestCoordinator @Inject constructor(
     private val states = ConcurrentHashMap<Long, ProviderState>()
     private val tickets = AtomicLong()
 
+    /** Drops idle/adaptive state after the owning provider has been deleted. */
+    fun forgetProvider(providerId: Long) {
+        if (providerId > 0L) states.remove(providerId)
+    }
+
     suspend fun <T> execute(
         providerId: Long,
         priority: StalkerRequestPriority,

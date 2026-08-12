@@ -28,7 +28,7 @@ class BackgroundEpgSyncWorker(
     @EntryPoint
     @InstallIn(SingletonComponent::class)
     interface BackgroundEpgSyncWorkerEntryPoint {
-        fun syncManager(): SyncManager
+        fun syncCommands(): ProviderSyncCommands
         fun providerWorkflowRunner(): ProviderWorkflowRunner
     }
 
@@ -61,10 +61,10 @@ class BackgroundEpgSyncWorker(
                     reason = ProviderWorkflowReason.PERIODIC,
                     force = force
                 ) {
-                    when (val result = entryPoint.syncManager().syncEpg(providerId, force = force)) {
+                    when (val result = entryPoint.syncCommands().syncEpg(providerId, force = force)) {
                         is com.streamvault.domain.model.Result.Success -> {
                             // A successful EPG sync may still have transient partial failures.
-                            val syncState = entryPoint.syncManager().currentSyncState(providerId)
+                            val syncState = entryPoint.syncCommands().currentSyncState(providerId)
                             if (syncState is com.streamvault.domain.model.SyncState.Partial &&
                                 syncState.hasRetryableEpgFailure
                             ) {

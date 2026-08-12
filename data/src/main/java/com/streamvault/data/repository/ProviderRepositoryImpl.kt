@@ -42,7 +42,7 @@ import com.streamvault.data.remote.stalker.StalkerApiError
 import com.streamvault.data.remote.xtream.XtreamProvider
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.security.CredentialDecryptionException
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncCommands
 import com.streamvault.data.sync.ProviderSyncWorker
 import com.streamvault.data.sync.ProviderWorkflowDisposition
 import com.streamvault.data.sync.ProviderWorkflowOutcome
@@ -104,7 +104,7 @@ class ProviderRepositoryImpl @Inject constructor(
     private val credentialCrypto: CredentialCrypto,
     private val providerConfigurationCodec: ProviderConfigurationCodec,
     private val preferencesRepository: PreferencesRepository,
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncCommands,
     private val syncMetadataRepository: SyncMetadataRepository,
     private val transactionRunner: DatabaseTransactionRunner,
     private val recordingAlarmScheduler: RecordingAlarmScheduler,

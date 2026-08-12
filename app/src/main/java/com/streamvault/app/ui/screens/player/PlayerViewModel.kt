@@ -16,7 +16,6 @@ import com.streamvault.app.plugins.StreamVaultPluginManager
 import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
-import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.security.CredentialDecryptionException
@@ -113,7 +112,6 @@ class PlayerViewModel @Inject constructor(
     internal val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     internal val seekThumbnailProvider: SeekThumbnailProvider,
     internal val livePreviewHandoffManager: LivePreviewHandoffManager,
-    internal val syncManager: SyncManager,
     private val downloadManager: DownloadManager,
     internal val okHttpClient: OkHttpClient,
 ) : ViewModel() {
@@ -276,7 +274,9 @@ class PlayerViewModel @Inject constructor(
     private var currentStreamClassLabel: String = "Primary"
     internal var lastRecordedVariantObservationSignature: String? = null
     internal var lastRecordedVodVariantObservationSignature: String? = null
-    internal var prepareRequestVersion: Long = 0L
+    internal val playbackSessionCoordinator = PlaybackSessionCoordinator()
+    internal val prepareRequestVersion: Long
+        get() = playbackSessionCoordinator.currentId
     internal var readySideEffectsRequestVersion: Long? = null
     internal var currentArtworkUrl: String? = null
     internal var currentResolvedPlaybackUrl: String = ""
@@ -1059,7 +1059,7 @@ class PlayerViewModel @Inject constructor(
         livePlaybackReadyForCurrentSession = false
         readySideEffectsRequestVersion = null
         playerEngine.setScrubbingMode(false)
-        return ++prepareRequestVersion
+        return playbackSessionCoordinator.begin().id
     }
 
     internal fun clearSeriesEpisodeContext() {
@@ -1146,7 +1146,7 @@ class PlayerViewModel @Inject constructor(
     internal fun isActivePlaybackSession(
         requestVersion: Long,
         expectedLogicalUrl: String? = null
-    ): Boolean = matchesActivePlaybackSession(
+    ): Boolean = playbackSessionCoordinator.isCurrent(requestVersion) && matchesActivePlaybackSession(
         requestVersion = requestVersion,
         activeRequestVersion = prepareRequestVersion,
         expectedLogicalUrl = expectedLogicalUrl,
@@ -1799,6 +1799,7 @@ class PlayerViewModel @Inject constructor(
     )?.url
 
     override fun onCleared() {
+        playbackSessionCoordinator.invalidate()
         super.onCleared()
         cleanupAfterCleared(mainPlayerEngine)
     }

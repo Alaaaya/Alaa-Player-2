@@ -108,6 +108,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.truth)
     androidTestImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.work.testing)
 }
 
 afterEvaluate {

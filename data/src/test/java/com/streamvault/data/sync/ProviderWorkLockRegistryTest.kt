@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -40,6 +41,39 @@ class ProviderWorkLockRegistryTest {
         second.await()
 
         assertThat(secondEntered.isCompleted).isTrue()
+        assertThat(registry.isAnyWorkActiveOrWaiting()).isFalse()
+    }
+
+    @Test
+    fun `manual and background sync for one provider never overlap`() = runTest {
+        val registry = ProviderWorkLockRegistry()
+        val releaseManual = CompletableDeferred<Unit>()
+        val backgroundEntered = CompletableDeferred<Unit>()
+        val manualEntered = CompletableDeferred<Unit>()
+        val active = AtomicInteger(0)
+        var maximumActive = 0
+
+        suspend fun run(entered: CompletableDeferred<Unit>, wait: Boolean) {
+            registry.withProviderLock(7L) {
+                val current = active.incrementAndGet()
+                maximumActive = maxOf(maximumActive, current)
+                entered.complete(Unit)
+                if (wait) releaseManual.await()
+                active.decrementAndGet()
+            }
+        }
+
+        val manual = async { run(manualEntered, wait = true) }
+        manualEntered.await()
+        val background = async { run(backgroundEntered, wait = false) }
+        runCurrent()
+
+        assertThat(backgroundEntered.isCompleted).isFalse()
+        releaseManual.complete(Unit)
+        manual.await()
+        background.await()
+
+        assertThat(maximumActive).isEqualTo(1)
         assertThat(registry.isAnyWorkActiveOrWaiting()).isFalse()
     }
 

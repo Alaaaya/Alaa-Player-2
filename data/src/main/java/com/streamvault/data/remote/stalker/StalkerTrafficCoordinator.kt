@@ -27,6 +27,10 @@ internal object StalkerTrafficCoordinator {
     fun isPlaybackActive(providerId: Long): Boolean =
         providerId > 0L && (activePlaybackCountsByProvider[providerId] ?: 0) > 0
 
+    fun forgetProvider(providerId: Long) {
+        if (providerId > 0L) activePlaybackCountsByProvider.remove(providerId)
+    }
+
     /** Playback never blocks interactive requests; only maintenance slows between pages. */
     fun backgroundInterPageDelayMillis(providerId: Long): Long =
         if (isPlaybackActive(providerId)) {

@@ -153,6 +153,39 @@ internal companion object {
         fun clearResolvedStreamUrlCacheForTests() {
             resolvedStreamUrlCache.clear()
         }
+
+        /** Provider deletion hook for process-lifetime authentication and URL caches. */
+        fun clearCachesForProvider(providerId: Long) {
+            if (providerId <= 0L) return
+            val authPrefix = "provider:$providerId|"
+            sharedAuthCache.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthCache::remove)
+            sharedAuthFailureCache.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthFailureCache::remove)
+            sharedAuthMutexes.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthMutexes::remove)
+            resolvedStreamUrlCache.keys
+                .filter { it.startsWith("$providerId|") }
+                .forEach(resolvedStreamUrlCache::remove)
+            missingVodClassificationLogged.remove(providerId)
+        }
+
+        private fun trimSharedCaches() {
+            trimMap(sharedAuthCache, MAX_AUTH_CACHE_ENTRIES)
+            trimMap(sharedAuthFailureCache, MAX_AUTH_CACHE_ENTRIES)
+            trimMap(resolvedStreamUrlCache, MAX_RESOLVED_URL_CACHE_ENTRIES)
+            while (missingVodClassificationLogged.size > MAX_MISSING_CLASSIFICATION_ENTRIES) {
+                missingVodClassificationLogged.firstOrNull()?.let(missingVodClassificationLogged::remove)
+                    ?: break
+            }
+        }
+
+        private fun <K, V> trimMap(map: ConcurrentHashMap<K, V>, maxEntries: Int) {
+            if (map.size <= maxEntries) return
+            map.keys.take(map.size - maxEntries).forEach(map::remove)
+        }
+
+        private const val MAX_AUTH_CACHE_ENTRIES = 256
+        private const val MAX_RESOLVED_URL_CACHE_ENTRIES = 2_048
+        private const val MAX_MISSING_CLASSIFICATION_ENTRIES = 512
+        private const val MAX_REMOTE_IDENTITY_CACHE_ENTRIES = 4_096
     }
 
     private data class CachedAuth(
@@ -177,7 +210,10 @@ internal companion object {
         val name: String
     )
 
-    private val authMutex = sharedAuthMutexes.computeIfAbsent(authCacheKey()) { Mutex() }
+    // Authentication lock identity must remain stable for the provider lifetime. Evicting a
+    // configuration-scoped lock while an older provider instance still holds it permits a second
+    // mutex to be created and defeats same-provider authentication serialization.
+    private val authMutex = sharedAuthMutexes.computeIfAbsent(authMutexKey()) { Mutex() }
     private var sessionCache: StalkerSession? = null
     private var accountProfileCache: StalkerProviderProfile? = null
     private var authFailureCache: CachedAuthFailure? = null
@@ -218,6 +254,7 @@ internal companion object {
             ?: (now + RESOLVED_URL_CACHE_SOFT_TTL_MILLIS)
         resolvedStreamUrlCache[resolvedStreamUrlCacheKey(kind, cmd)] =
             CachedResolvedUrl(url = url, expiresAt = expiry)
+        trimSharedCaches()
     }
 
     private fun clearResolvedStreamUrlCache() {
@@ -462,7 +499,7 @@ internal companion object {
         categoryCache[ContentType.SERIES] = categoryCache[ContentType.SERIES]
             .orEmpty()
             .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
-        remoteIdentityCache[ContentType.SERIES to rawId] = projectedId
+        putRemoteIdentity(ContentType.SERIES to rawId, projectedId)
         return projectedId
     }
 
@@ -480,7 +517,7 @@ internal companion object {
         categoryCache[ContentType.MOVIE] = categoryCache[ContentType.MOVIE]
             .orEmpty()
             .filterNot { it.rawId == rawId } + CategorySeed(projectedId, rawId, name)
-        remoteIdentityCache[ContentType.MOVIE to rawId] = projectedId
+        putRemoteIdentity(ContentType.MOVIE to rawId, projectedId)
         return projectedId
     }
 
@@ -1310,7 +1347,7 @@ is Result.Success -> {
                 rawId.toLongOrNull()?.takeIf { it > 0L } ?: fallbackStableId(type, rawId)
             }
         resolved.forEach { (rawId, surrogateId) ->
-            remoteIdentityCache[type to rawId] = surrogateId
+            putRemoteIdentity(type to rawId, surrogateId)
         }
     }
 
@@ -1323,10 +1360,10 @@ is Result.Success -> {
         if (resolved == null) {
             records.forEach { record ->
                 val rawId = record.id.ifBlank { record.name }.trim()
-                remoteIdentityCache[type to rawId] = fallbackStableId(type, rawId)
+                putRemoteIdentity(type to rawId, fallbackStableId(type, rawId))
             }
         } else {
-            resolved.forEach { (rawId, surrogateId) -> remoteIdentityCache[type to rawId] = surrogateId }
+            resolved.forEach { (rawId, surrogateId) -> putRemoteIdentity(type to rawId, surrogateId) }
         }
     }
 
@@ -1497,6 +1534,7 @@ is Result.Success -> {
                         session = authResult.data.first,
                         profile = authResult.data.second
                     )
+                    trimSharedCaches()
                     portalStateStore?.recordAuthentication(
                         providerId = providerId,
                         session = authResult.data.first,
@@ -1519,6 +1557,7 @@ is Result.Success -> {
                         exception = authResult.exception
                     )
                     sharedAuthFailureCache[authCacheKey()] = authFailureCache!!
+                    trimSharedCaches()
                     Result.error(authResult.message, authResult.exception)
                 }
                 is Result.Loading -> Result.error("Unexpected loading state")
@@ -2151,6 +2190,7 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
     ): Movie? {
         if (item.isSeries) return null
         if (!item.hasSeriesMarker && missingVodClassificationLogged.add(providerId)) {
+            trimSharedCaches()
             StalkerTelemetry.missingVodClassification(providerId)
         }
         val numericId = stableItemId(ContentType.MOVIE, item.id)
@@ -2463,9 +2503,17 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
                     generateSequence(FALLBACK_SURROGATE_FLOOR) { it + 1L }
                         .first { it !in used }
                 }
-                remoteIdentityCache[key] = candidate
+                putRemoteIdentity(key, candidate)
                 candidate
             }
+        }
+    }
+
+    private fun putRemoteIdentity(key: Pair<ContentType, String>, value: Long) {
+        remoteIdentityCache[key] = value
+        if (remoteIdentityCache.size > MAX_REMOTE_IDENTITY_CACHE_ENTRIES) {
+            remoteIdentityCache.keys.take(remoteIdentityCache.size - MAX_REMOTE_IDENTITY_CACHE_ENTRIES)
+                .forEach(remoteIdentityCache::remove)
         }
     }
 
@@ -2527,10 +2575,13 @@ private fun playbackTransportChallengeFor(url: String): StalkerTransportChalleng
             normalizedSignature(),
             stalkerAdvancedOptionsJson
         ).joinToString(separator = "\u001f")
-        return MessageDigest.getInstance("SHA-256")
+        val digest = MessageDigest.getInstance("SHA-256")
             .digest(normalized.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "provider:$providerId|$digest"
     }
+
+    private fun authMutexKey(): String = "provider:$providerId|auth"
 
     private fun resolveProviderStatus(profile: StalkerProviderProfile): ProviderStatus {
         val normalizedStatus = profile.statusLabel?.trim()?.lowercase(Locale.ROOT).orEmpty()

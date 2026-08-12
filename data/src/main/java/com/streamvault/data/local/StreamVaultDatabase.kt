@@ -11,6 +11,8 @@ import org.json.JSONObject
 import java.net.URI
 import java.security.MessageDigest
 
+internal const val STREAM_VAULT_DATABASE_VERSION = 75
+
 @Database(
     entities = [
         ProviderEntity::class,
@@ -67,7 +69,7 @@ import java.security.MessageDigest
         ProviderWorkflowEntity::class,
         ProviderWorkflowPhaseEntity::class
     ],
-    version = 75,
+    version = STREAM_VAULT_DATABASE_VERSION,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
