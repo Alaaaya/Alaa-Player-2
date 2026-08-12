@@ -36,38 +36,38 @@ internal data class ProviderGuideSyncResult(
 internal fun ProviderSnapshot.toSyncCompatibilityProvider() =
     toLegacyProvider()
 
-internal interface ProviderSyncAdapter {
+internal interface CatalogSyncPlan {
     val providerType: ProviderType
     suspend fun syncFull(request: FullProviderSyncRequest): SyncOutcome
     suspend fun syncSection(request: SectionProviderSyncRequest): CapabilityResolution<SyncOutcome>
     suspend fun syncGuide(request: ProviderGuideSyncRequest): CapabilityResolution<ProviderGuideSyncResult>
 }
 
-internal class ProviderSyncAdapterRegistry(adapters: Collection<ProviderSyncAdapter>) {
-    private val adaptersByType: Map<ProviderType, ProviderSyncAdapter>
+internal class CatalogSyncPlanRegistry(plans: Collection<CatalogSyncPlan>) {
+    private val plansByType: Map<ProviderType, CatalogSyncPlan>
 
     init {
-        val duplicates = adapters.groupingBy { it.providerType }.eachCount().filterValues { it != 1 }.keys
-        require(duplicates.isEmpty()) { "Duplicate provider sync adapters: $duplicates" }
-        val missing = ProviderType.entries.toSet() - adapters.mapTo(mutableSetOf()) { it.providerType }
-        require(missing.isEmpty()) { "Missing provider sync adapters: $missing" }
-        adaptersByType = adapters.associateBy { it.providerType }
+        val duplicates = plans.groupingBy { it.providerType }.eachCount().filterValues { it != 1 }.keys
+        require(duplicates.isEmpty()) { "Duplicate catalog sync plans: $duplicates" }
+        val missing = ProviderType.entries.toSet() - plans.mapTo(mutableSetOf()) { it.providerType }
+        require(missing.isEmpty()) { "Missing catalog sync plans: $missing" }
+        plansByType = plans.associateBy { it.providerType }
     }
 
-    fun resolve(snapshot: ProviderSnapshot): CapabilityResolution<ProviderSyncAdapter> {
+    fun resolve(snapshot: ProviderSnapshot): CapabilityResolution<CatalogSyncPlan> {
         if (snapshot.provider.type != snapshot.configuration.type) {
             return CapabilityResolution.ConfigurationError("Provider/configuration type mismatch")
         }
-        return CapabilityResolution.Available(adaptersByType.getValue(snapshot.provider.type))
+        return CapabilityResolution.Available(plansByType.getValue(snapshot.provider.type))
     }
 }
 
-internal class LambdaProviderSyncAdapter(
+internal class LambdaCatalogSyncPlan(
     override val providerType: ProviderType,
     private val full: suspend (FullProviderSyncRequest) -> SyncOutcome,
     private val section: suspend (SectionProviderSyncRequest) -> CapabilityResolution<SyncOutcome>,
     private val guide: suspend (ProviderGuideSyncRequest) -> CapabilityResolution<ProviderGuideSyncResult>
-) : ProviderSyncAdapter {
+) : CatalogSyncPlan {
     override suspend fun syncFull(request: FullProviderSyncRequest): SyncOutcome = full(request)
     override suspend fun syncSection(request: SectionProviderSyncRequest): CapabilityResolution<SyncOutcome> = section(request)
     override suspend fun syncGuide(request: ProviderGuideSyncRequest): CapabilityResolution<ProviderGuideSyncResult> =

@@ -7,6 +7,11 @@ import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.security.AndroidKeystoreCredentialCrypto
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.data.sync.ProviderSyncStateReaderImpl
+import com.streamvault.data.sync.CatalogHydrationCommands
+import com.streamvault.data.sync.ProviderSyncCommands
+import com.streamvault.data.sync.ProviderSyncLifecycle
+import com.streamvault.data.sync.ProviderSyncStateSource
+import com.streamvault.data.sync.SyncManager
 import com.streamvault.data.provider.RoomProviderSnapshotRepository
 import com.streamvault.data.provider.DefaultProviderCapabilityRegistry
 import com.streamvault.data.provider.JellyfinCapabilityFactory
@@ -112,6 +117,18 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindProviderSyncStateReader(impl: ProviderSyncStateReaderImpl): ProviderSyncStateReader
+
+    @Binds @Singleton
+    abstract fun bindProviderSyncCommands(impl: SyncManager): ProviderSyncCommands
+
+    @Binds @Singleton
+    abstract fun bindCatalogHydrationCommands(impl: SyncManager): CatalogHydrationCommands
+
+    @Binds @Singleton
+    abstract fun bindProviderSyncStateSource(impl: SyncManager): ProviderSyncStateSource
+
+    @Binds @Singleton
+    abstract fun bindProviderSyncLifecycle(impl: SyncManager): ProviderSyncLifecycle
 
     @Binds @Singleton
     abstract fun bindCredentialCrypto(impl: AndroidKeystoreCredentialCrypto): CredentialCrypto

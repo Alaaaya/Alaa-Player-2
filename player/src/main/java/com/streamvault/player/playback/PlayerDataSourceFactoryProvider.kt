@@ -9,10 +9,10 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.PlaybackTransportPolicy
 import com.streamvault.domain.model.StreamInfo
+import com.streamvault.domain.util.BoundedExpiringCache
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URI
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -28,6 +28,8 @@ class PlayerDataSourceFactoryProvider(
 ) {
     private companion object {
         private const val TAG = "PlayerDataSource"
+        private const val MAX_CLIENT_CACHE_ENTRIES = 32
+        private const val CLIENT_CACHE_TTL_MILLIS = 30L * 60L * 1_000L
     }
 
     private data class ClientKey(
@@ -41,7 +43,10 @@ class PlayerDataSourceFactoryProvider(
     )
 
     private val addressHealthStore = PlayerAddressHealthStore()
-    private val clientsByKey = ConcurrentHashMap<ClientKey, OkHttpClient>()
+    private val clientsByKey = BoundedExpiringCache<ClientKey, OkHttpClient>(
+        maxEntries = MAX_CLIENT_CACHE_ENTRIES,
+        ttlMillis = CLIENT_CACHE_TTL_MILLIS
+    )
 
     fun createFactory(
         streamInfo: StreamInfo,
@@ -69,7 +74,7 @@ class PlayerDataSourceFactoryProvider(
             proxyHost = streamInfo.proxyHost.trim(),
             proxyPort = streamInfo.proxyPort
         )
-        val client = clientsByKey.computeIfAbsent(clientKey) {
+        val client = clientsByKey.getOrPut(clientKey) {
             val transportPolicy = streamInfo.playbackTransportPolicy
             val builder = when {
                 transportPolicy != null ->
@@ -114,6 +119,8 @@ class PlayerDataSourceFactoryProvider(
         }
         return profile to factory
     }
+
+    internal fun clientCacheSizeForTests(): Int = clientsByKey.size()
 
     private fun logRequestShape(
         streamInfo: StreamInfo,

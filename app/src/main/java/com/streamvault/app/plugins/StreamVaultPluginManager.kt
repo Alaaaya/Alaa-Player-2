@@ -40,13 +40,17 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
@@ -67,6 +71,8 @@ class StreamVaultPluginManager @Inject constructor(
     private val prefs = context.getSharedPreferences("streamvault_plugins", Context.MODE_PRIVATE)
     private val discoveryLock = Any()
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val refreshLock = Any()
+    private var refreshJob: Job? = null
 
     @Volatile
     private var cachedDiscovery: List<InstalledStreamVaultPlugin>? = null
@@ -111,10 +117,17 @@ class StreamVaultPluginManager @Inject constructor(
 
     suspend fun discoverPlugins(): List<InstalledStreamVaultPlugin> = withContext(Dispatchers.IO) {
         cachedDiscovery?.takeIf { System.currentTimeMillis() < discoveryExpiresAtMillis }?.let { return@withContext it }
-        val plugins = queryPluginServices()
-            .map { resolveInfo -> async { resolvePlugin(resolveInfo) } }
-            .awaitAll()
-            .filterNotNull()
+        val resolveInfos = queryPluginServices()
+        val plugins = (withTimeoutOrNull(DISCOVERY_TOTAL_TIMEOUT_MILLIS) {
+            coroutineScope {
+                resolveInfos
+                    .map { resolveInfo -> async { resolvePlugin(resolveInfo) } }
+                    .awaitAll()
+                    .filterNotNull()
+            }
+        } ?: resolveInfos.mapNotNull { resolveInfo ->
+            metadataOnlyPlugin(resolveInfo, "Plugin discovery timed out")
+        })
             .sortedBy { it.displayName.lowercase() }
         migrateLegacyEnabledStates(plugins)
         plugins.map { plugin -> plugin.copy(enabled = isEnabled(plugin)) }.also { discovered ->
@@ -663,7 +676,27 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private fun refreshTvInputCatalogInBackground() {
-        backgroundScope.launchCatching { tvInputChannelSyncManager.refreshTvInputCatalog() }
+        synchronized(refreshLock) {
+            refreshJob?.cancel()
+            val newJob = backgroundScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    tvInputChannelSyncManager.refreshTvInputCatalog()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Best-effort catalog refresh; the next provider/plugin change retries it.
+                } finally {
+                    val completedJob = currentCoroutineContext()[Job]
+                    synchronized(refreshLock) {
+                        if (refreshJob === completedJob) {
+                            refreshJob = null
+                        }
+                    }
+                }
+            }
+            refreshJob = newJob
+            newJob.start()
+        }
     }
 
     private suspend fun resolvePlugin(resolveInfo: ResolveInfo): InstalledStreamVaultPlugin? = coroutineScope {
@@ -699,6 +732,30 @@ class StreamVaultPluginManager @Inject constructor(
             enabled = false,
             statusLabel = status?.getString(StreamVaultPluginContract.KEY_STATUS_LABEL).orEmpty(),
             lastMessage = status?.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
+        )
+    }
+
+    private fun metadataOnlyPlugin(
+        resolveInfo: ResolveInfo,
+        errorMessage: String
+    ): InstalledStreamVaultPlugin? {
+        val serviceInfo = resolveInfo.serviceInfo ?: return null
+        val packageName = serviceInfo.packageName ?: return null
+        val serviceName = serviceInfo.name ?: return null
+        val appLabel = serviceInfo.loadLabel(context.packageManager)?.toString().orEmpty()
+        val manifest = readManifestFromMetadata(serviceInfo.metaData)
+            ?: StreamVaultPluginManifest(
+                id = packageName,
+                name = appLabel.ifBlank { packageName },
+                description = "StreamVault plugin"
+            )
+        return InstalledStreamVaultPlugin(
+            packageName = packageName,
+            serviceClassName = serviceName,
+            appLabel = appLabel,
+            manifest = manifest,
+            enabled = false,
+            lastMessage = errorMessage
         )
     }
 
@@ -870,6 +927,7 @@ class StreamVaultPluginManager @Inject constructor(
     private companion object {
         const val DISCOVERY_CACHE_TTL_MILLIS = 30_000L
         const val DISCOVERY_REQUEST_TIMEOUT_MILLIS = 1_500L
+        const val DISCOVERY_TOTAL_TIMEOUT_MILLIS = 5_000L
         const val PLAYBACK_HANDLER_TIMEOUT_MILLIS = 5_000L
         const val PLAYBACK_TOTAL_TIMEOUT_MILLIS = 5_000L
     }

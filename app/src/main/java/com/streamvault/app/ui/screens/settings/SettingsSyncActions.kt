@@ -3,7 +3,7 @@ package com.streamvault.app.ui.screens.settings
 import android.app.Application
 import com.streamvault.app.R
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncCommands
 import com.streamvault.data.sync.SyncRepairSection
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 internal class SettingsSyncActions(
     private val appContext: Application,
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncCommands,
     private val tvInputChannelSyncManager: TvInputChannelSyncManager,
     private val uiState: MutableStateFlow<SettingsUiState>,
     private val refreshProvider: (CoroutineScope, Long, SettingsProviderSyncMode, String?, Long, String?, Boolean) -> Job

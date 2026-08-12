@@ -26,12 +26,12 @@ class DatabaseMaintenanceManager @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val programReminderDao: ProgramReminderDao,
     private val searchHistoryDao: SearchHistoryDao,
-    private val syncManager: SyncManager
+    private val providerWorkLocks: ProviderWorkLockRegistry
 ) {
 
     suspend fun runDailyMaintenance(now: Long = System.currentTimeMillis()): MaintenanceRunResult {
         var completedReport: MaintenanceReport? = null
-        syncManager.runWhenNoSyncActive {
+        providerWorkLocks.runWhenNoWorkActive {
             completedReport = runDailyMaintenanceWhenAdmitted(now)
             true
         }

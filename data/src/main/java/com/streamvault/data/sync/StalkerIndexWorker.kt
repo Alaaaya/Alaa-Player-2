@@ -40,7 +40,7 @@ class StalkerIndexWorker(
     @InstallIn(SingletonComponent::class)
     interface StalkerIndexWorkerEntryPoint {
         fun providerDao(): ProviderDao
-        fun syncManager(): SyncManager
+        fun syncCommands(): ProviderSyncCommands
         fun providerWorkflowRunner(): ProviderWorkflowRunner
     }
 
@@ -77,7 +77,7 @@ class StalkerIndexWorker(
                         reason = ProviderWorkflowReason.PERIODIC,
                         force = force
                     ) {
-                        when (val result = entryPoint.syncManager().processQueuedStalkerIndexJobs(
+                        when (val result = entryPoint.syncCommands().processQueuedStalkerIndexJobs(
                             providerId = provider.id,
                             section = requestedSection,
                             force = force,

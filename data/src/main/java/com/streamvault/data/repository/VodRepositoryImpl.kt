@@ -7,7 +7,7 @@ import com.streamvault.data.local.dao.VodCatalogEntryDao
 import com.streamvault.data.local.dao.VodCategoryHydrationDao
 import com.streamvault.data.mapper.toDomain
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.CatalogHydrationCommands
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Result
@@ -41,7 +41,7 @@ class VodRepositoryImpl @Inject constructor(
     private val vodCatalogEntryDao: VodCatalogEntryDao,
     private val categoryDao: CategoryDao,
     private val preferencesRepository: PreferencesRepository,
-    private val syncManager: SyncManager
+    private val syncManager: CatalogHydrationCommands
 ) : VodRepository {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

@@ -435,7 +435,7 @@ class SyncManagerTest {
         tmdbIdentityDao = tmdbIdentityDao,
         xtreamContentIndexDao = xtreamContentIndexDao,
         xtreamIndexJobDao = xtreamIndexJobDao,
-        stalkerIndexJobDao = object : StalkerIndexJobDao {
+        stalkerIndexJobStore = StalkerIndexJobStore(object : StalkerIndexJobDao {
             override fun observeForProvider(providerId: Long): Flow<List<StalkerIndexJobEntity>> = flowOf(emptyList())
 
             override suspend fun get(providerId: Long, section: String): StalkerIndexJobEntity? =
@@ -509,7 +509,7 @@ class SyncManagerTest {
 
             override suspend fun disableForProvider(providerId: Long, updatedAt: Long): Int = 0
             override suspend fun deleteByProvider(providerId: Long): Int = 0
-        },
+        }),
         xtreamLiveOnboardingDao = xtreamLiveOnboardingDao,
         episodeDao = episodeDao,
         jellyfinProvider = jellyfinProvider,
@@ -538,7 +538,11 @@ class SyncManagerTest {
             ): Boolean = configuredProvider?.id == providerId
 
             override suspend fun updateCatalogLayout(providerId: Long, layout: CatalogLayout, detectionVersion: Int) = Unit
-        }
+        },
+        providerWorkLocks = ProviderWorkLockRegistry(),
+        providerSyncLocks = ProviderSyncLockRegistry(),
+        stalkerPlaybackCapabilityCache = com.streamvault.data.provider.StalkerPlaybackCapabilityCache(typedProviderClientFactory),
+        providerSyncWorkScheduler = mock()
     )
     }
 
@@ -958,6 +962,18 @@ class SyncManagerTest {
         val updated = syncMetadataRepo.getMetadata(1L)
         assertThat(updated?.liveCount).isEqualTo(1)
         assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Success::class.java)
+    }
+
+    @Test
+    fun `unsupported section retry publishes terminal error instead of remaining syncing`() = runTest {
+        val mgr = buildManager(providerType = ProviderType.M3U)
+
+        val result = mgr.retrySection(providerId = 1L, section = SyncRepairSection.SERIES)
+        advanceUntilIdle()
+
+        assertThat(result.isError).isTrue()
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
+        assertThat(syncMetadataRepo.getMetadata(1L)?.lastSyncStatus).isEqualTo("FAILED_PERMANENT")
     }
 
     @Test

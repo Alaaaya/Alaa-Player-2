@@ -9,7 +9,7 @@ import androidx.work.WorkerParameters
 import com.streamvault.data.local.dao.ProviderDeletionCleanupDao
 import com.streamvault.data.manager.recording.RecordingAlarmScheduler
 import com.streamvault.data.manager.reminder.ProgramReminderAlarmScheduler
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncLifecycle
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -24,7 +24,7 @@ class ProviderDeletionCleanupWorker(appContext: Context, params: WorkerParameter
         fun providerDeletionCleanupDao(): ProviderDeletionCleanupDao
         fun recordingAlarmScheduler(): RecordingAlarmScheduler
         fun programReminderAlarmScheduler(): ProgramReminderAlarmScheduler
-        fun syncManager(): SyncManager
+        fun syncLifecycle(): ProviderSyncLifecycle
     }
 
     override suspend fun doWork(): Result {
@@ -34,7 +34,7 @@ class ProviderDeletionCleanupWorker(appContext: Context, params: WorkerParameter
                 dao = entry.providerDeletionCleanupDao(),
                 cancelRecordingAlarm = entry.recordingAlarmScheduler()::cancel,
                 cancelReminderAlarm = entry.programReminderAlarmScheduler()::cancel,
-                cleanupSyncRuntime = entry.syncManager()::onProviderDeleted
+                cleanupSyncRuntime = entry.syncLifecycle()::onProviderDeleted
             )
         ) {
             ProviderDeletionDrainOutcome.COMPLETE -> Result.success()

@@ -27,7 +27,7 @@ import com.streamvault.data.remote.stalker.StalkerResponseMetrics
 import com.streamvault.data.remote.stalker.StalkerTrafficCoordinator
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.sync.ContentCachePolicy
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.CatalogHydrationCommands
 import com.streamvault.data.util.MoviePresentationSettings
 import com.streamvault.data.util.buildPresentedMovies
 import com.streamvault.data.util.rankSearchResults
@@ -97,7 +97,7 @@ class MovieRepositoryImpl @Inject constructor(
     private val syncMetadataRepository: SyncMetadataRepository,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
-    private val syncManager: SyncManager,
+    private val syncManager: CatalogHydrationCommands,
     private val transactionRunner: DatabaseTransactionRunner,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
     private val providerCapabilityResolver: ProviderCapabilityResolver,

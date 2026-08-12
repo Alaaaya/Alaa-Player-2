@@ -4,12 +4,15 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Provides one in-process execution lane per provider, regardless of whether work originated
  * from foreground refresh, catalog indexing, EPG, or a WorkManager recovery entry point.
  */
-internal class ProviderWorkLockRegistry {
+@Singleton
+class ProviderWorkLockRegistry @Inject constructor() {
     private val admissionMutex = Mutex()
     private val providerMutexes = ConcurrentHashMap<Long, Mutex>()
     private val admittedCount = AtomicInteger(0)
@@ -39,4 +42,11 @@ internal class ProviderWorkLockRegistry {
                 block()
             }
         }
+
+    /** Removes idle provider state after durable provider deletion. */
+    suspend fun forgetProvider(providerId: Long) {
+        admissionMutex.withLock {
+            providerMutexes.remove(providerId)
+        }
+    }
 }

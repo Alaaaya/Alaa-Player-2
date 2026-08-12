@@ -17,7 +17,7 @@ import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.stalker.StalkerVodPlaybackDialect
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.data.sync.ContentCachePolicy
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.CatalogHydrationCommands
 import com.streamvault.data.util.SeriesPresentationSettings
 import com.streamvault.data.util.buildPresentedSeries
 import com.streamvault.domain.model.*
@@ -71,7 +71,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     private val xtreamContentIndexDao: XtreamContentIndexDao,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
-    private val syncManager: SyncManager,
+    private val syncManager: CatalogHydrationCommands,
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
     private val providerCapabilityResolver: ProviderCapabilityResolver,

@@ -14,7 +14,7 @@ import com.streamvault.app.ui.model.guideLookupKey
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncStateSource
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.ActiveLiveSourceOption
@@ -80,7 +80,7 @@ class HomeViewModel @Inject constructor(
     private val getCustomCategories: GetCustomCategories,
     private val unlockParentalCategory: UnlockParentalCategory,
     private val parentalControlManager: ParentalControlManager,
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncStateSource,
     private val tvInputChannelSyncManager: TvInputChannelSyncManager,
     private val multiViewManager: MultiViewManager,
     private val livePreviewHandoffManager: LivePreviewHandoffManager,
