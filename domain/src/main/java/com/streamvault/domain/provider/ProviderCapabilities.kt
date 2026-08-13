@@ -44,8 +44,24 @@ data class ResolvedPlayback(
     val playbackTransportPolicy: com.streamvault.domain.model.PlaybackTransportPolicy? = null,
     val allowInvalidSsl: Boolean = false,
     val proxyHost: String = "",
-    val proxyPort: Int? = null
+    val proxyPort: Int? = null,
+    val observations: List<PlaybackObservation> = emptyList()
 )
+
+/** State learned while resolving, returned as data so the resolver itself remains side-effect free. */
+sealed interface PlaybackObservation {
+    val providerId: Long
+    val configurationGeneration: Long
+}
+
+data class StalkerPlaybackObservation(
+    override val providerId: Long,
+    override val configurationGeneration: Long,
+    val playbackMode: String,
+    val endpointPreference: com.streamvault.domain.model.StalkerEndpointPreference,
+    val cookieMode: com.streamvault.domain.model.StalkerCookieMode,
+    val backendHint: com.streamvault.domain.model.StalkerPlaybackBackendHint
+) : PlaybackObservation
 
 data class CatchUpRequest(
     val streamId: Long,

@@ -44,7 +44,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.data.util.rankSearchResults
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.provider.ProviderCapabilityResolver
@@ -53,8 +52,8 @@ import com.streamvault.data.provider.toLegacyProvider
 import com.streamvault.data.provider.ProviderCapabilityTimeoutException
 import com.streamvault.domain.provider.CapabilityResolution
 import com.streamvault.domain.provider.ProviderContentReference
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import com.streamvault.domain.util.KeyedMutexRegistry
+import com.streamvault.domain.util.BoundedKeySet
 import javax.inject.Singleton
 
 @Singleton
@@ -78,6 +77,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private val typedProviderClientFactory: TypedProviderClientFactory
 ) : SeriesRepository {
     private companion object {
+        const val MAX_BACKGROUND_CATEGORY_REFRESHES = 256
         const val TAG = "SeriesRepository"
         const val SEARCH_RESULT_LIMIT = 200
         const val SEARCH_OVERSAMPLE_LIMIT = 500
@@ -115,9 +115,8 @@ class SeriesRepositoryImpl @Inject constructor(
         val id: Long
     )
 
-    private val xtreamCategoryLoadLocks = ConcurrentHashMap<String, Mutex>()
-    private val loadedXtreamCategories = ConcurrentHashMap.newKeySet<String>()
-    private val backgroundRefreshes = ConcurrentHashMap.newKeySet<String>()
+    private val xtreamCategoryLoadLocks = KeyedMutexRegistry<String>()
+    private val backgroundRefreshes = BoundedKeySet<String>(MAX_BACKGROUND_CATEGORY_REFRESHES)
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO.limitedParallelism(XTREAM_CATEGORY_HYDRATION_CONCURRENCY)
     )
@@ -701,7 +700,7 @@ class SeriesRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getEpisodeStreamInfo(episode: Episode): Result<StreamInfo> = try {
-        xtreamStreamUrlResolver.resolveWithMetadata(
+        xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = episode.streamUrl,
             fallbackProviderId = episode.providerId,
             fallbackStreamId = episode.episodeId.takeIf { it > 0 } ?: episode.id,
@@ -1552,7 +1551,6 @@ class SeriesRepositoryImpl @Inject constructor(
         val hydration = seriesCategoryHydrationDao.get(providerId, categoryId)
         if (provider.type == ProviderType.XTREAM_CODES) {
             if (localCount > 0) {
-                loadedXtreamCategories.add(key)
             } else {
                 syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.SERIES, categoryId)
             }
@@ -1590,8 +1588,8 @@ class SeriesRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true
     ) {
         val key = "$providerId:$categoryId"
-        if (!backgroundRefreshes.add(key)) return
         repositoryScope.launch {
+            if (!backgroundRefreshes.awaitAdd(key)) return@launch
             try {
                 if (provider.type == ProviderType.XTREAM_CODES) {
                     return@launch
@@ -1649,18 +1647,17 @@ class SeriesRepositoryImpl @Inject constructor(
         requestedPage: Int? = null
     ) {
         val key = "$providerId:$categoryId"
-        val lock = xtreamCategoryLoadLocks.getOrPut(key) { Mutex() }
-        lock.withLock {
+        xtreamCategoryLoadLocks.withLock(key) {
             val persistedHydration = seriesCategoryHydrationDao.get(providerId, categoryId)
-            if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return
+            if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return@withLock
             val stalkerProvider = createStalkerProvider(providerId)
-            if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.SERIES, categoryId)) return
+            if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.SERIES, categoryId)) return@withLock
             var currentCount = localCount ?: seriesDao.getCountByCategory(providerId, categoryId).first()
             var currentHydration = persistedHydration ?: hydration
             if ((currentHydration?.isComplete == true && currentCount > 0) ||
                 (!loadCompletely && currentCount >= requiredCount)
-            ) return
-            if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return
+            ) return@withLock
+            if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return@withLock
 
             val isPreviewLoad = requiredCount <= STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD
             val isInitialCategoryFill = !isPreviewLoad && currentCount < STALKER_INITIAL_CATEGORY_FILL_COUNT

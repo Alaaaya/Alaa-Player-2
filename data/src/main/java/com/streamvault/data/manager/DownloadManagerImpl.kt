@@ -622,7 +622,7 @@ class DownloadManagerImpl @Inject constructor(
     private suspend fun resolveFreshDownloadStream(entity: DownloadEntity): ResolvedStreamUrl? {
         val logicalUrl = entity.sourceStreamUrl?.takeIf { it.isNotBlank() } ?: entity.streamUrl
         return runSuspendCatching {
-            xtreamStreamUrlResolver.resolveWithMetadata(
+            xtreamStreamUrlResolver.resolveAndCommitMetadata(
                 url = logicalUrl,
                 fallbackProviderId = entity.providerId,
                 fallbackStreamId = entity.sourceStreamId ?: entity.contentId,

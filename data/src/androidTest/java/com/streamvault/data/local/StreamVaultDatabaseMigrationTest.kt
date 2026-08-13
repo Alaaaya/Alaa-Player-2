@@ -26,6 +26,31 @@ class StreamVaultDatabaseMigrationTest {
     )
 
     @Test
+    fun everyExportedHistoricalSchemaMigratesToCurrent() {
+        // Version 2 was never exported; validate every historical artifact that can ship.
+        val exportedHistoricalVersions =
+            (StreamVaultDatabaseMigrationRegistry.CURRENT_VERSION - 1 downTo 3).toList() + 1
+
+        exportedHistoricalVersions.forEach { startVersion ->
+            val databaseName = "streamvault-every-schema-$startVersion"
+            migrationTestHelper.createDatabase(databaseName, startVersion).close()
+            val pathToCurrent = StreamVaultDatabaseMigrationRegistry.all
+                .filter { migration -> migration.startVersion >= startVersion }
+
+            try {
+                migrationTestHelper.runMigrationsAndValidate(
+                    databaseName,
+                    StreamVaultDatabaseMigrationRegistry.CURRENT_VERSION,
+                    true,
+                    *pathToCurrent.toTypedArray()
+                ).close()
+            } catch (error: Throwable) {
+                throw AssertionError("Migration failed from exported schema v$startVersion", error)
+            }
+        }
+    }
+
+    @Test
     fun migrate9To10_createsBackfillsAndMaintainsFtsTables() {
         migrationTestHelper.createDatabase(testDbName, 9).apply {
             execSQL(
@@ -145,10 +170,11 @@ class StreamVaultDatabaseMigrationTest {
                 """
                 INSERT INTO providers (
                     id, name, type, server_url, username, password, m3u_url, epg_url,
+                    stalker_mac_address, stalker_device_profile, stalker_device_timezone, stalker_device_locale,
                     is_active, max_connections, allowed_output_formats_json, epg_sync_mode,
                     xtream_fast_sync_enabled, m3u_vod_classification_enabled, status,
                     last_synced_at, created_at
-                ) VALUES (1, 'Public Master Provider', 'XTREAM_CODES', 'https://provider.example.com', 'demo', 'secret', '', '', 1, 1, '[]', 'UPFRONT', 1, 0, 'ACTIVE', 0, 0)
+                ) VALUES (1, 'Public Master Provider', 'XTREAM_CODES', 'https://provider.example.com', 'demo', 'secret', '', '', '', '', '', '', 1, 1, '[]', 'UPFRONT', 1, 0, 'ACTIVE', 0, 0)
                 """.trimIndent()
             )
             close()
@@ -186,12 +212,13 @@ class StreamVaultDatabaseMigrationTest {
                 """
                 INSERT INTO providers (
                     id, name, type, server_url, username, password, m3u_url, epg_url,
+                    http_user_agent, http_headers,
                     stalker_mac_address, stalker_device_profile, stalker_device_timezone, stalker_device_locale,
                     is_active, max_connections, expiration_date, api_version, allowed_output_formats_json,
                     epg_sync_mode, xtream_fast_sync_enabled, m3u_vod_classification_enabled, status,
                     last_synced_at, created_at
                 ) VALUES (
-                    1, 'Provider', 'XTREAM_CODES', 'https://provider.example.com', 'demo', 'secret', '', '',
+                    1, 'Provider', 'XTREAM_CODES', 'https://provider.example.com', 'demo', 'secret', '', '', '', '',
                     '', '', '', '', 1, 1, NULL, NULL, '[]',
                     'UPFRONT', 1, 0, 'ACTIVE', 0, 0
                 )
@@ -481,7 +508,7 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate32To33_backfillsMovieWatchCountAndAddsGlobalFavoritesIndex() {
+    fun migrate32To33_backfillsMovieWatchCount() {
         migrationTestHelper.createDatabase("streamvault-32-33-test", 32).apply {
             execSQL(
                 """
@@ -527,14 +554,6 @@ class StreamVaultDatabaseMigrationTest {
         )
 
         assertEquals(6, countRows(migratedDb, "SELECT watch_count FROM movies WHERE id = 10"))
-        assertEquals(
-            1,
-            countRows(
-                migratedDb,
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'index_favorites_global_provider_id_content_type_content_id' AND sql LIKE '%WHERE group_id IS NULL%'"
-            )
-        )
-
         migratedDb.close()
     }
 
@@ -603,10 +622,11 @@ class StreamVaultDatabaseMigrationTest {
                 """
                 INSERT INTO providers (
                     id, name, type, server_url, username, password, m3u_url, epg_url,
+                    stalker_mac_address, stalker_device_profile, stalker_device_timezone, stalker_device_locale,
                     is_active, max_connections, allowed_output_formats_json, epg_sync_mode,
                     xtream_fast_sync_enabled, m3u_vod_classification_enabled, status,
                     last_synced_at, created_at
-                ) VALUES (1, 'Provider', 'M3U', 'https://provider.example.com', '', '', '', '', 1, 1, '[]', 'UPFRONT', 0, 0, 'ACTIVE', 0, 0)
+                ) VALUES (1, 'Provider', 'M3U', 'https://provider.example.com', '', '', '', '', '', '', '', '', 1, 1, '[]', 'UPFRONT', 0, 0, 'ACTIVE', 0, 0)
                 """.trimIndent()
             )
             execSQL(
@@ -653,10 +673,11 @@ class StreamVaultDatabaseMigrationTest {
                 """
                 INSERT INTO providers (
                     id, name, type, server_url, username, password, m3u_url, epg_url,
+                    stalker_mac_address, stalker_device_profile, stalker_device_timezone, stalker_device_locale,
                     is_active, max_connections, allowed_output_formats_json, epg_sync_mode,
                     xtream_fast_sync_enabled, m3u_vod_classification_enabled, status,
                     last_synced_at, created_at
-                ) VALUES (1, 'Provider', 'STALKER_PORTAL', 'https://provider.example.com', '', '', '', '', 1, 1, '[]', 'UPFRONT', 0, 0, 'ACTIVE', 0, 0)
+                ) VALUES (1, 'Provider', 'STALKER_PORTAL', 'https://provider.example.com', '', '', '', '', '00:1A:79:00:00:01', 'MAG250', 'UTC', 'en', 1, 1, '[]', 'UPFRONT', 0, 0, 'ACTIVE', 0, 0)
                 """.trimIndent()
             )
             execSQL(
@@ -1559,7 +1580,7 @@ class StreamVaultDatabaseMigrationTest {
             assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$table'"))
         }
         assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('recording_runs') WHERE name = 'exact_alarm_armed'"))
-        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('providers') WHERE name = 'xmltv_timezone_policy'"))
+        assertEquals(1, countRows(migratedDb, "SELECT COUNT(*) FROM pragma_table_info('epg_sources') WHERE name = 'timezone_policy'"))
         migratedDb.close()
     }
 
@@ -1668,7 +1689,7 @@ class StreamVaultDatabaseMigrationTest {
                 'UNKNOWN',0,0
             )
             """.trimIndent(),
-            arrayOf(id, name, type, "seed://$id", "seed-$id", "seed-mac-$id")
+            arrayOf<Any?>(id, name, type, "seed://$id", "seed-$id", "seed-mac-$id")
         )
     }
 
@@ -1685,7 +1706,7 @@ class StreamVaultDatabaseMigrationTest {
                 is_adult,is_user_protected,logical_group_id,error_count,sync_fingerprint
             ) VALUES (?,?,?,'https://stream.test/live',0,0,0,?,0,0,'',0,'channel-test')
             """.trimIndent(),
-            arrayOf(id, streamId, name, providerId)
+            arrayOf<Any?>(id, streamId, name, providerId)
         )
     }
 

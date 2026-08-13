@@ -7,6 +7,7 @@ import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.util.KeyedMutexRegistry
 import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackTransportMode
@@ -45,8 +46,6 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 data class StalkerPlaybackInfo(
     val url: String,
@@ -140,14 +139,13 @@ internal companion object {
         const val CATALOG_LAYOUT_DETECTION_VERSION = 1
         private val sharedAuthCache = ConcurrentHashMap<String, CachedAuth>()
         private val sharedAuthFailureCache = ConcurrentHashMap<String, CachedAuthFailure>()
-        private val sharedAuthMutexes = ConcurrentHashMap<String, Mutex>()
+        private val sharedAuthMutexes = KeyedMutexRegistry<String>()
         private val resolvedStreamUrlCache = ConcurrentHashMap<String, CachedResolvedUrl>()
         private val missingVodClassificationLogged = ConcurrentHashMap.newKeySet<Long>()
 
         fun clearSharedAuthCacheForTests() {
             sharedAuthCache.clear()
             sharedAuthFailureCache.clear()
-            sharedAuthMutexes.clear()
         }
 
         fun clearResolvedStreamUrlCacheForTests() {
@@ -160,7 +158,6 @@ internal companion object {
             val authPrefix = "provider:$providerId|"
             sharedAuthCache.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthCache::remove)
             sharedAuthFailureCache.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthFailureCache::remove)
-            sharedAuthMutexes.keys.filter { it.startsWith(authPrefix) }.forEach(sharedAuthMutexes::remove)
             resolvedStreamUrlCache.keys
                 .filter { it.startsWith("$providerId|") }
                 .forEach(resolvedStreamUrlCache::remove)
@@ -213,7 +210,6 @@ internal companion object {
     // Authentication lock identity must remain stable for the provider lifetime. Evicting a
     // configuration-scoped lock while an older provider instance still holds it permits a second
     // mutex to be created and defeats same-provider authentication serialization.
-    private val authMutex = sharedAuthMutexes.computeIfAbsent(authMutexKey()) { Mutex() }
     private var sessionCache: StalkerSession? = null
     private var accountProfileCache: StalkerProviderProfile? = null
     private var authFailureCache: CachedAuthFailure? = null
@@ -221,7 +217,7 @@ internal companion object {
     private val remoteIdentityCache = ConcurrentHashMap<Pair<ContentType, String>, Long>()
 
     suspend fun invalidateAuthentication() {
-        authMutex.withLock {
+        sharedAuthMutexes.withLock(authMutexKey()) {
             sessionCache = null
             accountProfileCache = null
             authFailureCache = null
@@ -1122,14 +1118,6 @@ is Result.Success -> {
         )) {
             is Result.Success -> {
                 val info = result.data
-                portalStateStore?.recordPlayback(
-                    providerId = providerId,
-                    playbackMode = info.playbackMode.name,
-                    endpointPreference = info.endpointPreference,
-                    cookieMode = info.cookieMode,
-                    backendHint = info.backendHint,
-                    configurationGeneration = configurationGeneration
-                )
                 Result.success(
                     com.streamvault.domain.provider.ResolvedPlayback(
                         url = info.url,
@@ -1139,7 +1127,17 @@ is Result.Success -> {
                         playbackTransportPolicy = info.transportPolicy,
                         allowInvalidSsl = info.allowInvalidSsl,
                         proxyHost = info.proxyHost,
-                        proxyPort = info.proxyPort
+                        proxyPort = info.proxyPort,
+                        observations = listOf(
+                            com.streamvault.domain.provider.StalkerPlaybackObservation(
+                                providerId = providerId,
+                                configurationGeneration = configurationGeneration,
+                                playbackMode = info.playbackMode.name,
+                                endpointPreference = info.endpointPreference,
+                                cookieMode = info.cookieMode,
+                                backendHint = info.backendHint
+                            )
+                        )
                     )
                 )
             }
@@ -1391,7 +1389,7 @@ is Result.Success -> {
     }
 
     private suspend fun ensureAuthenticated(): Result<Pair<StalkerSession, StalkerProviderProfile>> =
-        authMutex.withLock {
+        sharedAuthMutexes.withLock(authMutexKey()) {
             val cachedSession = sessionCache
             val cachedProfile = accountProfileCache
             if (cachedSession != null && cachedProfile != null &&

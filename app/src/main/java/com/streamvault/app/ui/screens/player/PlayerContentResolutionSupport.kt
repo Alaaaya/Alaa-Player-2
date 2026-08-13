@@ -161,7 +161,7 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
     }
 
     try {
-        xtreamStreamUrlResolver.resolveWithMetadata(
+        xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = logicalUrl,
             fallbackProviderId = providerId.takeIf { it > 0 },
             fallbackStreamId = fallbackStreamId,

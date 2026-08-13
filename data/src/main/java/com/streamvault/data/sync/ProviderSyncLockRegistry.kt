@@ -1,10 +1,9 @@
 package com.streamvault.data.sync
 
 import com.streamvault.domain.model.ContentType
-import java.util.concurrent.ConcurrentHashMap
+import com.streamvault.domain.util.KeyedMutexRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.sync.Mutex
 
 /**
  * Owns the narrower locks used by interactive hydration and incremental index work.
@@ -15,50 +14,35 @@ import kotlinx.coroutines.sync.Mutex
  */
 @Singleton
 class ProviderSyncLockRegistry @Inject constructor() {
-    private val vodCategoryLocks = ConcurrentHashMap<String, Mutex>()
-    private val stalkerSummaryLocks = ConcurrentHashMap<Long, Mutex>()
-    private val stalkerIndexSectionLocks = ConcurrentHashMap<String, Mutex>()
+    private val vodCategoryLocks = KeyedMutexRegistry<String>()
+    private val stalkerSummaryLocks = KeyedMutexRegistry<Long>()
+    private val stalkerIndexSectionLocks = KeyedMutexRegistry<String>()
 
     suspend fun <T> withVodCategoryLock(
         providerId: Long,
         categoryId: Long,
         splitCatalog: Boolean,
         block: suspend () -> T
-    ): T = withMutexLock(
-        lockFor(vodCategoryLocks, vodCategoryKey(providerId, categoryId, splitCatalog)),
-        block
-    )
+    ): T = vodCategoryLocks.withLock(vodCategoryKey(providerId, categoryId, splitCatalog), block)
 
     suspend fun <T> withStalkerSummaryLock(
         providerId: Long,
         block: suspend () -> T
-    ): T = withMutexLock(lockFor(stalkerSummaryLocks, providerId), block)
+    ): T = stalkerSummaryLocks.withLock(providerId, block)
 
     suspend fun <T> withStalkerIndexSectionLock(
         providerId: Long,
         section: ContentType,
         block: suspend () -> T
-    ): T = withMutexLock(lockFor(stalkerIndexSectionLocks, "$providerId:${section.name}"), block)
+    ): T = stalkerIndexSectionLocks.withLock("$providerId:${section.name}", block)
 
     /** Removes idle keys after durable provider deletion. */
-    fun forgetProvider(providerId: Long) {
-        stalkerSummaryLocks.remove(providerId)
-        vodCategoryLocks.keys.removeIf { it.startsWith("$providerId:") || it.startsWith("split:$providerId:") }
-        stalkerIndexSectionLocks.keys.removeIf { it.startsWith("$providerId:") }
+    suspend fun forgetProvider(providerId: Long) {
+        stalkerSummaryLocks.forget(providerId)
+        // Category/section entries release themselves when their last active/waiting user exits.
     }
 
     private fun vodCategoryKey(providerId: Long, categoryId: Long, splitCatalog: Boolean): String =
         if (splitCatalog) "split:$providerId:$categoryId" else "$providerId:$categoryId"
 
-    private fun <K> lockFor(locks: ConcurrentHashMap<K, Mutex>, key: K): Mutex =
-        locks.computeIfAbsent(key) { Mutex() }
-
-    private suspend fun <T> withMutexLock(mutex: Mutex, block: suspend () -> T): T {
-        mutex.lock()
-        return try {
-            block()
-        } finally {
-            mutex.unlock()
-        }
-    }
 }

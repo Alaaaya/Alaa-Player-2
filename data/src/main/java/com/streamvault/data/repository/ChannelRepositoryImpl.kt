@@ -244,7 +244,7 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamInfo(channel: Channel, preferStableUrl: Boolean): Result<StreamInfo> = try {
-        xtreamStreamUrlResolver.resolveWithMetadata(
+        xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = channel.streamUrl,
             fallbackProviderId = channel.providerId,
             fallbackStreamId = channel.streamId.takeIf { it > 0L }

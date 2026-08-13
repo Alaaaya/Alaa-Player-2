@@ -37,7 +37,7 @@ class RecordingSourceResolver @Inject constructor(
         channelId: Long,
         logicalUrl: String
     ): ResolvedRecordingSource {
-        val resolved = xtreamStreamUrlResolver.resolveWithMetadata(
+        val resolved = xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = logicalUrl,
             fallbackProviderId = providerId,
             fallbackStreamId = channelId,

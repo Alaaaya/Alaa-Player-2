@@ -222,7 +222,11 @@ class Media3PlayerEngine @Inject constructor(
     private var currentBufferIsLive: Boolean? = null
     private var currentBufferPolicyLabel: String? = null
     private var currentBufferPolicy: PlaybackBufferPolicy? = null
-    private val promotedLiveHlsBufferReasonsByMediaId = mutableMapOf<String, String>()
+    private val promotedLiveHlsBufferReasonsByMediaId =
+        com.streamvault.domain.util.BoundedExpiringCache<String, String>(
+            maxEntries = 512,
+            ttlMillis = 24L * 60L * 60L * 1_000L
+        )
     private var audioCodecUnsupportedReported = false
     private var lastSupportErrorMessage: String? = null
     private val isLowMemoryPlaybackDevice: Boolean = run {
@@ -1051,7 +1055,7 @@ class Media3PlayerEngine @Inject constructor(
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = streamInfo,
             observedVideoFormat = _videoFormat.value,
-            qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId[mediaId]
+            qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId.get(mediaId)
         )
         val needsRecreate = activeAudioDecoderMode != preferredAudioDecoderMode ||
             activeVideoDecoderMode != preferredVideoDecoderMode ||
@@ -1774,7 +1778,7 @@ class Media3PlayerEngine @Inject constructor(
             bufferMode = requestedPlaybackBufferMode,
             resolvedStreamType = currentResolvedStreamType,
             isLive = isCurrentStreamLive(),
-            mediaAlreadyPromoted = mediaId in promotedLiveHlsBufferReasonsByMediaId,
+            mediaAlreadyPromoted = promotedLiveHlsBufferReasonsByMediaId.get(mediaId) != null,
             currentPolicyLabel = currentBufferPolicyLabel,
             streamInfo = streamInfo,
             observedVideoFormat = observedFormat,
@@ -1782,7 +1786,7 @@ class Media3PlayerEngine @Inject constructor(
             lowMemoryDevice = isLowMemoryPlaybackDevice
         ) ?: return false
 
-        promotedLiveHlsBufferReasonsByMediaId[mediaId] = decision.qualityReason
+        promotedLiveHlsBufferReasonsByMediaId.put(mediaId, decision.qualityReason)
         val wasPlaying = exoPlayer?.playWhenReady ?: true
         Log.i(
             TAG,
