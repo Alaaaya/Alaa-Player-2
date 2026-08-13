@@ -31,7 +31,7 @@ fun PlayerViewModel.castCurrentMedia(onRouteSelectionRequired: () -> Unit) {
             }
         }
 
-        when (castPlaybackCoordinator.startCasting(request)) {
+        when (playerCastCoordinator.startCasting(request)) {
             CastStartResult.STARTED -> {
                 castPlaybackReportMode = CastPlaybackReportMode.SUCCESS_AND_FAILURE
                 showPlayerNotice(
@@ -66,7 +66,7 @@ fun PlayerViewModel.castCurrentMedia(onRouteSelectionRequired: () -> Unit) {
 
 internal fun PlayerViewModel.observeCastPlaybackEvents() {
     viewModelScope.launch {
-        castPlaybackCoordinator.playbackEvents.collect { event ->
+        playerCastCoordinator.playbackEvents.collect { event ->
             handleCastPlaybackEvent(event)
         }
     }
@@ -95,7 +95,7 @@ private fun PlayerViewModel.handleCastPlaybackEvent(event: CastPlaybackEvent) {
 }
 
 fun PlayerViewModel.stopCasting() {
-    castManager.stopCasting()
+    playerCastCoordinator.stopCasting()
     showPlayerNotice(
         message = appContext.getString(R.string.cast_disconnected),
         recoveryType = PlayerRecoveryType.NETWORK
@@ -110,7 +110,7 @@ fun PlayerViewModel.startManualRecording() {
     }
     viewModelScope.launch {
         val now = System.currentTimeMillis()
-        val result = recordingManager.startManualRecording(
+        val result = playerRecordingCoordinator.startManualRecording(
             RecordingRequest(
                 providerId = currentProviderId,
                 channelId = channel.id,
@@ -143,7 +143,7 @@ fun PlayerViewModel.scheduleWeeklyRecording() {
 
 private fun PlayerViewModel.scheduleRecordingInternal(recurrence: RecordingRecurrence) {
     viewModelScope.launch {
-        val result = scheduleRecordingUseCase(
+        val result = playerRecordingCoordinator.scheduleRecording(
             ScheduleRecordingCommand(
                 contentType = currentContentType,
                 providerId = currentProviderId,
@@ -172,7 +172,7 @@ private fun PlayerViewModel.scheduleRecordingInternal(recurrence: RecordingRecur
 fun PlayerViewModel.stopCurrentRecording() {
     val recording = currentChannelRecording.value ?: return
     viewModelScope.launch {
-        val result = recordingManager.stopRecording(recording.id)
+        val result = playerRecordingCoordinator.stopRecording(recording.id)
         if (result is Result.Error) {
             showPlayerNotice(message = result.message)
         } else {
@@ -194,13 +194,13 @@ internal suspend fun PlayerViewModel.buildCastRequestResult(): PlayerCastRequest
                 )
             // Use preferStableUrl = true for Cast: the credential-based portal URL
             // does not expire, unlike the tokenized direct-source CDN URL.
-            val streamInfo = channelRepository.getStreamInfo(channel, preferStableUrl = true)
+            val streamInfo = playerChannelCoordinator.getStreamInfo(channel, preferStableUrl = true)
                 .getOrNull()
                 ?: return PlayerCastRequestResult.Failure(
                     toPlayerCastMessage(CastMediaRequestUnsupportedReason.STREAM_UNAVAILABLE)
                 )
             toPlayerCastRequestResult(
-                castMediaRequestFactory.buildFromStreamInfo(
+                playerCastCoordinator.buildFromStreamInfo(
                     streamInfo = streamInfo,
                     title = mediaTitle.value ?: channel.name,
                     subtitle = currentProgram.value?.title,
@@ -213,8 +213,8 @@ internal suspend fun PlayerViewModel.buildCastRequestResult(): PlayerCastRequest
 
         ContentType.MOVIE,
         ContentType.VOD -> {
-            val movie = movieRepository.getMovie(currentContentId)
-            val repositoryStreamInfo = movie?.let { movieRepository.getStreamInfo(it).getOrNull() }
+            val movie = playerContentResolver.getMovie(currentContentId)
+            val repositoryStreamInfo = movie?.let { playerContentResolver.getMovieStreamInfo(it).getOrNull() }
             val streamInfo = selectPreferredVodCastStreamInfo(
                 activeStreamInfo = currentResolvedStreamInfo.takeIf { currentContentType == ContentType.MOVIE },
                 activePlaybackUrl = currentResolvedPlaybackUrl,
@@ -222,7 +222,7 @@ internal suspend fun PlayerViewModel.buildCastRequestResult(): PlayerCastRequest
             )
                 ?: return directCastRequest()
             toPlayerCastRequestResult(
-                castMediaRequestFactory.buildFromStreamInfo(
+                playerCastCoordinator.buildFromStreamInfo(
                     streamInfo = streamInfo,
                     title = currentTitle.ifBlank { movie?.name.orEmpty() },
                     subtitle = movie?.genre,
@@ -239,18 +239,11 @@ internal suspend fun PlayerViewModel.buildCastRequestResult(): PlayerCastRequest
 }
 
 private suspend fun PlayerViewModel.buildSeriesCastRequestResult(): PlayerCastRequestResult {
-    val resolution = resolvePlayerPlaybackStreamInfo(
+    val resolution = resolvePlaybackStreamResolution(
         logicalUrl = currentStreamUrl,
         internalContentId = currentStableEpisodeId?.takeIf { it > 0L } ?: currentContentId,
         providerId = currentProviderId,
         contentType = currentContentType,
-        currentTitle = currentTitle,
-        currentSeries = currentSeries.value,
-        currentEpisode = currentEpisode.value,
-        channelRepository = channelRepository,
-        movieRepository = movieRepository,
-        seriesRepository = seriesRepository,
-        xtreamStreamUrlResolver = xtreamStreamUrlResolver
     )
     resolution.credentialFailureMessage?.let { message ->
         return PlayerCastRequestResult.Failure(message)
@@ -276,7 +269,7 @@ private suspend fun PlayerViewModel.buildSeriesCastRequestResult(): PlayerCastRe
         currentTitle.ifBlank { episode?.let(::buildEpisodePlaybackTitle).orEmpty() }
     }
     return toPlayerCastRequestResult(
-        castMediaRequestFactory.buildFromStreamInfo(
+        playerCastCoordinator.buildFromStreamInfo(
             streamInfo = streamInfo,
             title = castTitle,
             subtitle = episode?.title,
@@ -293,7 +286,7 @@ internal fun PlayerViewModel.directCastRequest(): PlayerCastRequestResult {
             toPlayerCastMessage(CastMediaRequestUnsupportedReason.EMPTY_URL)
         )
     return toPlayerCastRequestResult(
-        castMediaRequestFactory.buildFromStreamInfo(
+        playerCastCoordinator.buildFromStreamInfo(
             streamInfo = StreamInfo(url = url),
             title = currentTitle,
             subtitle = null,
