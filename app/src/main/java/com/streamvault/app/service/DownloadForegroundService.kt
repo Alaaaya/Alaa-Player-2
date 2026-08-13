@@ -14,6 +14,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.streamvault.app.MainActivity
 import com.streamvault.app.R
+import com.streamvault.data.platform.DataSyncQuotaAcquireResult
+import com.streamvault.data.platform.DataSyncQuotaLease
+import com.streamvault.data.platform.DataSyncQuotaOwner
+import com.streamvault.data.platform.DataSyncServiceOwner
 import com.streamvault.domain.model.DownloadItem
 import com.streamvault.domain.model.DownloadStatus
 import com.streamvault.domain.repository.DownloadManager
@@ -36,11 +40,14 @@ class DownloadForegroundService : Service() {
     @InstallIn(SingletonComponent::class)
     interface DownloadServiceEntryPoint {
         fun downloadManager(): DownloadManager
+        fun dataSyncQuotaOwner(): DataSyncQuotaOwner
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var observeJob: Job? = null
     private var currentDownloadId: String? = null
+    private var dataSyncQuotaOwner: DataSyncQuotaOwner? = null
+    private var dataSyncQuotaLease: DataSyncQuotaLease? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -70,6 +77,7 @@ class DownloadForegroundService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        ensureDataSyncQuotaLease()
 
         observeJob?.cancel()
         if (startMode == DownloadServiceStartMode.RECOVER_INTERRUPTED) {
@@ -114,6 +122,7 @@ class DownloadForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        releaseDataSyncQuotaLease("service_destroyed")
         observeJob?.cancel()
         serviceScope.cancel()
         currentDownloadId = null
@@ -129,6 +138,7 @@ class DownloadForegroundService : Service() {
                     entryPoint().downloadManager().pauseDownloadForForegroundServiceTimeout(downloadId)
                 }
             } finally {
+                releaseDataSyncQuotaLease("android_timeout")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf(startId)
             }
@@ -219,6 +229,29 @@ class DownloadForegroundService : Service() {
 
     private fun entryPoint(): DownloadServiceEntryPoint =
         EntryPointAccessors.fromApplication(applicationContext, DownloadServiceEntryPoint::class.java)
+
+    private fun ensureDataSyncQuotaLease() {
+        if (dataSyncQuotaLease != null) return
+        val owner = entryPoint().dataSyncQuotaOwner()
+        when (val result = owner.acquire(DataSyncServiceOwner.DOWNLOAD)) {
+            is DataSyncQuotaAcquireResult.Granted -> {
+                dataSyncQuotaOwner = owner
+                dataSyncQuotaLease = result.lease
+            }
+            is DataSyncQuotaAcquireResult.Exhausted -> {
+                dataSyncQuotaOwner = owner
+                Log.e(TAG, "Shared dataSync quota is exhausted; Android timeout handling remains authoritative")
+            }
+        }
+    }
+
+    private fun releaseDataSyncQuotaLease(reason: String) {
+        val lease = dataSyncQuotaLease ?: return
+        dataSyncQuotaLease = null
+        runCatching { dataSyncQuotaOwner?.release(lease) }
+            .onFailure { error -> Log.w(TAG, "Unable to release dataSync quota lease ($reason)", error) }
+        dataSyncQuotaOwner = null
+    }
 
     private fun beginPendingCommand() {
         updateNotification(downloadItem = null, pendingCommand = true)

@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.streamvault.app.tvinput
 
 import android.content.ContentUris

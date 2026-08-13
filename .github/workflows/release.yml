@@ -192,7 +192,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [25, 28, 33, 35, 36]
+        api-level: [25, 26, 28, 32, 33, 35, 36]
 
     steps:
       - uses: actions/checkout@v4
@@ -215,6 +215,7 @@ jobs:
             ./gradlew --console=plain :app:connectedDebugAndroidTest -PcompatApi=${{ matrix.api-level }} -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.app.compat.PlatformCompatibilityMatrixTest --no-daemon
             if [ "${{ matrix.api-level }}" = "35" ] || [ "${{ matrix.api-level }}" = "36" ]; then
               ./gradlew --console=plain :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.app.service.DownloadForegroundServiceInstrumentationTest --no-daemon
+              ./gradlew --console=plain :data:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.data.manager.recording.PlatformReleaseSafetyInstrumentationTest --no-daemon
             fi
             if [ "${{ matrix.api-level }}" = "36" ]; then
               ./gradlew --console=plain :data:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.data.local.StreamVaultDatabaseMigrationTest --no-daemon
