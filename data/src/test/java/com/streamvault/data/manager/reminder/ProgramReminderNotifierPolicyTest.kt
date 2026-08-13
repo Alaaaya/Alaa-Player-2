@@ -17,6 +17,17 @@ class ProgramReminderNotifierPolicyTest {
     }
 
     @Test
+    fun `post notifications permission denial is blocked`() {
+        assertThat(
+            reminderNotificationBlockedReason(
+                notificationsEnabled = true,
+                channelImportance = NotificationManager.IMPORTANCE_DEFAULT,
+                hasPostNotificationsPermission = false
+            )
+        ).isEqualTo(ProgramReminderNotifier.NOTIFICATIONS_DISABLED_REASON)
+    }
+
+    @Test
     fun `disabled reminder channel is blocked`() {
         assertThat(
             reminderNotificationBlockedReason(

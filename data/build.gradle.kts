@@ -27,6 +27,11 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    lint {
+        baseline = file("lint-baseline.xml")
+        warningsAsErrors = true
+    }
+
     room {
         schemaDirectory("$projectDir/schemas")
     }

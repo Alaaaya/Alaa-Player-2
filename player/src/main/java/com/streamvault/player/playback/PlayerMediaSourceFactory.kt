@@ -42,7 +42,7 @@ internal fun liveMpegTsExtractorsFactory(): DefaultExtractorsFactory =
         // Xtream live ".ts" URLs are raw transport streams, not HLS segments. The HLS
         // mode path is more permissive about segment continuity, but it also enables
         // HLS-specific extractor behavior that does not match direct long-lived TS input.
-        .setTsExtractorMode(TsExtractor.MODE_SINGLE_PMT)
+        .setTsExtractorMode(DIRECT_LIVE_MPEG_TS_POLICY.media3ExtractorMode)
         .setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
                 or DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES

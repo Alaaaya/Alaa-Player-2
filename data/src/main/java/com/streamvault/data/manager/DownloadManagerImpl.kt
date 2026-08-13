@@ -38,7 +38,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
@@ -46,7 +45,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -73,6 +71,8 @@ class DownloadManagerImpl @Inject constructor(
     private val playbackPausedIds = ConcurrentHashMap.newKeySet<String>()
     private val schedulerMutex = Mutex()
     private val recoveryMutex = Mutex()
+    private val transferStateMachine = DownloadTransferStateMachine()
+    private val transferCopier = DownloadTransferCopier()
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val ownerId = UUID.randomUUID().toString()
     @Volatile private var recoveryComplete = false
@@ -433,11 +433,10 @@ class DownloadManagerImpl @Inject constructor(
                 val supportsResume = transfer.supportsResume
                 val target = runSuspendCatching { createOutputTarget(current, response.header("Content-Type"), append) }
                     .getOrElse { error ->
-                        if (!append) throw error
+                        if (!append) throw DownloadStorageException(error)
                         throw RestartFromZeroException(error)
                     }
                 var bytesWritten = if (append && current.outputUri != null) resumeFrom else 0L
-                var lastProgressUpdate = bytesWritten
                 current = current.copy(
                     outputUri = target.uri.toString(),
                     outputDisplayPath = target.displayPath,
@@ -451,16 +450,15 @@ class DownloadManagerImpl @Inject constructor(
 
                 target.output.use { output ->
                     body.byteStream().use { input ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        while (true) {
-                            coroutineContext.ensureActive()
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            bytesWritten += read.toLong()
+                        bytesWritten = transferCopier.copy(
+                            input = input,
+                            output = output,
+                            startingBytes = bytesWritten
+                        ) { progress ->
+                            bytesWritten = progress.bytesWritten
                             current = current.copy(bytesWritten = bytesWritten)
 
-                            if (bytesWritten - lastProgressUpdate >= PROGRESS_UPDATE_BYTES) {
+                            if (progress.shouldCheckpoint) {
                                 current = current.copy(
                                     outputUri = target.uri.toString(),
                                     outputDisplayPath = target.displayPath,
@@ -471,7 +469,6 @@ class DownloadManagerImpl @Inject constructor(
                                     heartbeatAt = System.currentTimeMillis()
                                 )
                                 downloadDao.update(current)
-                                lastProgressUpdate = bytesWritten
                             }
                         }
                     }
@@ -495,14 +492,21 @@ class DownloadManagerImpl @Inject constructor(
             }
         } catch (cancelled: CancellationException) {
             downloadDao.getByIdOnce(initial.id)?.let { entity ->
-                if (cancelled is PlaybackStartedCancellation || playbackPausedIds.contains(initial.id)) {
-                    resetInterruptedDownload(current, DownloadStatus.PAUSED, "Waiting for playback to stop")
-                } else if (cancelled is ForegroundServiceTimeoutCancellation) {
-                    pauseForForegroundServiceTimeout(current)
+                val cancellationKind = when {
+                    cancelled is PlaybackStartedCancellation || playbackPausedIds.contains(initial.id) ->
+                        DownloadCancellationKind.PLAYBACK_STARTED
+                    cancelled is ForegroundServiceTimeoutCancellation ->
+                        DownloadCancellationKind.FOREGROUND_SERVICE_TIMEOUT
+                    else -> DownloadCancellationKind.USER
+                }
+                val transition = transferStateMachine.cancellation(cancellationKind)
+                if (transition.resetOutput) {
+                    resetInterruptedDownload(current, transition.status, transition.reason.orEmpty())
                 } else {
                     downloadDao.update(
                         entity.copy(
-                            status = DownloadStatus.CANCELLED,
+                            status = transition.status,
+                            failureReason = transition.reason,
                             ownerId = null,
                             heartbeatAt = null
                         )
@@ -538,15 +542,20 @@ class DownloadManagerImpl @Inject constructor(
 
     private suspend fun handleDownloadFailure(entity: DownloadEntity, error: Throwable) {
         val reason = error.message ?: error::class.java.simpleName
-        if (!isTransient(error) || entity.retryCount >= MAX_RETRIES) {
-            resetInterruptedDownload(entity, DownloadStatus.FAILED, reason)
+        val transition = transferStateMachine.failure(
+            currentRetryCount = entity.retryCount,
+            kind = if (isTransient(error)) DownloadFailureKind.TRANSIENT else DownloadFailureKind.PERMANENT,
+            reason = reason
+        )
+        if (transition.status == DownloadStatus.FAILED) {
+            resetInterruptedDownload(entity, transition.status, transition.reason)
             return
         }
 
-        val retryCount = entity.retryCount + 1
-        resetInterruptedDownload(entity, DownloadStatus.PAUSED, reason, retryCount)
+        val retryCount = transition.retryCount
+        resetInterruptedDownload(entity, transition.status, transition.reason, retryCount)
         applicationScope.launch(Dispatchers.IO) {
-            delay(backoffMs(retryCount))
+            delay(requireNotNull(transition.retryAfterMillis))
             downloadDao.getByIdOnce(entity.id)
                 ?.takeIf { it.status == DownloadStatus.PAUSED && it.retryCount == retryCount }
                 ?.let { downloadDao.update(it.copy(status = DownloadStatus.PENDING)) }
@@ -605,6 +614,7 @@ class DownloadManagerImpl @Inject constructor(
     }
 
     private fun isTransient(error: Throwable): Boolean {
+        if (isPermanentDownloadStorageFailure(error)) return false
         val httpCode = (error as? HttpDownloadException)?.code
         return error is SocketException ||
             error is SocketTimeoutException ||
@@ -636,13 +646,6 @@ class DownloadManagerImpl @Inject constructor(
     private fun DownloadContentType.toPlaybackContentType(): ContentType = when (this) {
         DownloadContentType.MOVIE -> ContentType.MOVIE
         DownloadContentType.SERIES_EPISODE -> ContentType.SERIES_EPISODE
-    }
-
-    private fun backoffMs(retryCount: Int): Long = when (retryCount) {
-        1 -> 5_000L
-        2 -> 15_000L
-        3 -> 45_000L
-        else -> 300_000L
     }
 
     private suspend fun createOutputTarget(
@@ -770,8 +773,6 @@ class DownloadManagerImpl @Inject constructor(
     )
 
     private companion object {
-        const val DEFAULT_BUFFER_SIZE = 64 * 1024
-        const val PROGRESS_UPDATE_BYTES = 512 * 1024
         const val MAX_RETRIES = 5
         const val INTERRUPTED_RESUME_REASON =
             "Interrupted after app process stopped; validated output queued to resume."

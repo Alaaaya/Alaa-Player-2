@@ -70,8 +70,11 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run unit tests and coverage
-        run: ./gradlew --console=plain testDebugUnitTest koverXmlReportCi koverHtmlReportCi
+      - name: Run unit tests, lint, and coverage
+        run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline koverXmlReportCi koverHtmlReportCi
+
+      - name: Compile instrumentation release gates
+        run: ./gradlew --console=plain :app:assembleDebugAndroidTest :data:assembleDebugAndroidTest
 
       - name: Build release APK
         run: ./gradlew --console=plain :app:assembleRelease
@@ -119,7 +122,7 @@ jobs:
 
   publish-release:
     if: github.event_name == 'workflow_dispatch'
-    needs: build
+    needs: [build, platform-smoke]
     runs-on: ubuntu-latest
 
     steps:
@@ -182,3 +185,37 @@ jobs:
             dist/StreamVault.apk
           make_latest: true
           generate_release_notes: false
+
+  platform-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [25, 28, 33, 35, 36]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Run compatibility instrumentation suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: tv_1080p
+          script: |
+            chmod +x gradlew
+            ./gradlew --console=plain :app:connectedDebugAndroidTest -PcompatApi=${{ matrix.api-level }} -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.app.compat.PlatformCompatibilityMatrixTest --no-daemon
+            if [ "${{ matrix.api-level }}" = "35" ] || [ "${{ matrix.api-level }}" = "36" ]; then
+              ./gradlew --console=plain :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.app.service.DownloadForegroundServiceInstrumentationTest --no-daemon
+            fi
+            if [ "${{ matrix.api-level }}" = "36" ]; then
+              ./gradlew --console=plain :data:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.data.local.StreamVaultDatabaseMigrationTest --no-daemon
+            fi

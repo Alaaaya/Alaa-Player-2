@@ -606,7 +606,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Decide the supported direct-TS contract using a raw long-lived TS fixture and the historical stuck-window validation. Encode the mode as an app-owned policy value that can be asserted without reflection, update the stale name/assertion, and add a media-source/playback behavior test rather than relying only on an internal integer.
 - **Fix scope:** Local test/policy clarification; runtime change only if fixture evidence rejects `MODE_SINGLE_PMT`.
 - **Required tests:** Long-lived raw MPEG-TS beyond two minutes; discontinuity/multiple-PMT samples; duration remains live/unknown; reconnect behavior; keep the existing Android emulator 90-120 second live validation for any production-mode change.
-- **Resolution:** Verified the focused test now names and asserts the supported `MODE_SINGLE_PMT` policy. No runtime playback policy changed, so live-device validation is not applicable to this resolution.
+- **Resolution:** The focused test now asserts an app-owned `SINGLE_PMT` policy without reflecting on Media3 internals. A Robolectric-backed extractor fixture consumes 180 seconds of direct raw TS bytes and verifies the fixture remains live/unknown-duration input across the full stream. No runtime playback mode changed. Device validation is still required for discontinuity/multiple-PMT behavior and the repository's 90–120 second live playback window.
 
 ## Phase 2 verification and evidence
 
@@ -1214,6 +1214,7 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 - **Fix scope:** Testability refactor plus unit/instrumentation suite.
 - **Required tests:** All DOWNLOAD-001 cases, disk full, permission loss, 200/206/416, unknown length, cancellation at each boundary, retry ceiling/backoff, service null intent, timeout, and concurrent enqueue/playback.
 - **2026-07-29 audit:** The DOWNLOAD-001 subset is covered and passing. The remaining failure and platform boundaries above are still required, so this broader finding is not resolved.
+- **2026-08-14 implementation follow-up:** Added a production `DownloadTransferStateMachine` and injected, cancellable `DownloadTransferCopier`. Unit coverage now exercises retry ceilings/backoff, permanent versus transient failures, user/playback/FGS-timeout cancellation semantics, checkpoint cadence, cancellation propagation, and permanent disk/permission failures even while offline. MockWebServer replay covers unknown-length `200`, aligned `206`, exact-end `416`, and misaligned-range recovery. Room ownership and sticky-service policy tests remain green. Full SAF/quota adapter fault injection, service process-death, and API 35/36 device execution remain open, so TEST-002 stays **Needs improvement**.
 
 ### COMPAT-001 — Legacy-route decoding calls an API-33 overload on API 25–32
 
@@ -1399,6 +1400,8 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - **Primary ownership:** all modules plus CI/release engineering.
 - **Deliverables:** resolve MPEG-TS policy test against a real long-lived fixture; deterministic download state-machine tests; migration matrix; cancellation/fault-injection utilities; provider replay fixtures; API 25/35/36 platform suite; lint triage/baseline policy; performance counters.
 - **Exit criteria:** intended MPEG-TS policy and test agree; download process-death/range/SAF/quota matrix passes; zero test task failures; lint has zero unsuppressed errors and warnings cannot increase; release artifacts publish test evidence described below.
+
+**Implementation follow-up (2026-08-14):** TEST-001 now has an app-owned policy contract and a 180-second valid raw-TS extractor fixture with repeated PAT, two PMTs, PES payloads, and discontinuity indicators. TEST-002 has a production transfer state-machine seam, injected cancellable copy loop, explicit permanent storage-failure classification, retry/cancellation unit matrix, and MockWebServer range/unknown-length replay. Release workflow wiring now runs all JVM tests, app/data/player lint, instrumentation compilation, API 25/28/33/35/36 compatibility smoke tests, and the full migration matrix on API 36 before publishing. The app lint backlog is captured in a committed, warnings-as-errors baseline with a guard against silent baseline deletion. The local workspace has no ADB/emulator, so device execution, full SAF/quota fault injection, service process-death validation, and lint cleanup remain release gates rather than claimed completion.
 
 ## Finding coverage audit
 
