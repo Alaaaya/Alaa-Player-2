@@ -1100,7 +1100,7 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 | REMINDER-001 | Notification failure is swallowed and the reminder is marked delivered | Resolved (2026-07-29) | Medium |
 | CLOCK-001 | A future-dated `RUNNING` Xtream index job can suppress recovery indefinitely | Resolved (2026-07-29) | Medium |
 | TEST-002 | The download manager/service lacks complete boundary coverage | Needs improvement (2026-07-29 audit) | Medium |
-| COMPAT-001 | Legacy-route decoding calls an API-33 overload on API 25–32 | Needs improvement (2026-07-26 audit) | High |
+| COMPAT-001 | Legacy-route decoding calls an API-33 overload on API 25–32 | Implemented in code; API 25-32 device gate pending (2026-08-14) | High |
 
 ## Adversarial scenario matrix
 
