@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -30,7 +31,11 @@ class ProgramReminderNotifier @Inject constructor(
             val channelImportance = reminderChannelImportance()
             reminderNotificationBlockedReason(
                 notificationsEnabled = notificationManager.areNotificationsEnabled(),
-                channelImportance = channelImportance
+                channelImportance = channelImportance,
+                hasPostNotificationsPermission =
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED
             )?.let { reason ->
                 return ReminderNotificationResult.Blocked(reason)
             }
@@ -109,9 +114,11 @@ class ProgramReminderNotifier @Inject constructor(
 
 internal fun reminderNotificationBlockedReason(
     notificationsEnabled: Boolean,
-    channelImportance: Int?
+    channelImportance: Int?,
+    hasPostNotificationsPermission: Boolean = true
 ): String? = when {
-    !notificationsEnabled -> ProgramReminderNotifier.NOTIFICATIONS_DISABLED_REASON
+    !notificationsEnabled || !hasPostNotificationsPermission ->
+        ProgramReminderNotifier.NOTIFICATIONS_DISABLED_REASON
     channelImportance == NotificationManager.IMPORTANCE_NONE ->
         ProgramReminderNotifier.CHANNEL_DISABLED_REASON
     else -> null
