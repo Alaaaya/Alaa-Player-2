@@ -100,7 +100,7 @@ fun PlayerViewModel.restartCurrentProgram() {
 fun PlayerViewModel.retryStream(streamUrl: String, epgChannelId: String?) {
     if (isCatchUpPlayback.value) {
         val requestVersion = beginPlaybackSession()
-        viewModelScope.launch {
+        playbackSessionScope(requestVersion)?.launch {
             val streamInfo = resolvePlaybackStreamInfo(streamUrl, currentContentId, currentProviderId, currentContentType)
                 ?: return@launch
             if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch

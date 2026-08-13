@@ -2,9 +2,9 @@ package com.streamvault.app.ui.screens.player
 
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.ui.model.isArchivePlayable
-import com.streamvault.data.security.CredentialDecryptionException
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Program
+import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StreamInfo
 import kotlinx.coroutines.launch
 
@@ -34,7 +34,7 @@ internal suspend fun PlayerViewModel.startCatchUpPlayback(
 
     currentTitle = title
     pendingCatchUpUrls = candidates
-    triedAlternativeStreams.clear()
+    playerRecoveryCoordinator.clearStreamAttempts()
     updateStreamClass("Catch-up")
     appendRecoveryAction(recoveryAction)
 
@@ -43,7 +43,7 @@ internal suspend fun PlayerViewModel.startCatchUpPlayback(
     candidates.forEachIndexed { index, candidateUrl ->
         if (!isActivePlaybackSession(requestVersion)) return
         currentStreamUrl = candidateUrl
-        triedAlternativeStreams.add(candidateUrl)
+        playerRecoveryCoordinator.markStreamAttempt(candidateUrl)
         appendRecoveryAction("Trying catch-up candidate ${index + 1}/${candidates.size}")
         android.util.Log.i(
             "PlayerVM",
@@ -127,17 +127,19 @@ fun PlayerViewModel.playCatchUp(program: Program) {
             return@launch
         }
 
-        val catchUpUrls = try {
-            providerRepository.buildCatchUpUrls(providerId, streamId, start, end)
-        } catch (e: CredentialDecryptionException) {
+        val catchUpUrls = when (val catchUpResult = playerProviderCoordinator.buildCatchUpUrls(providerId, streamId, start, end)) {
+            is Result.Success -> catchUpResult.data
+            is Result.Error -> {
             if (!isActivePlaybackSession(requestVersion)) return@launch
-            setLastFailureReason(e.message ?: CredentialDecryptionException.MESSAGE)
+            setLastFailureReason(catchUpResult.message)
             showPlayerNotice(
-                message = e.message ?: CredentialDecryptionException.MESSAGE,
+                message = catchUpResult.message,
                 recoveryType = PlayerRecoveryType.SOURCE,
                 actions = buildRecoveryActions(PlayerRecoveryType.SOURCE)
             )
             return@launch
+            }
+            is Result.Loading -> return@launch
         }
         if (!isActivePlaybackSession(requestVersion)) return@launch
         if (catchUpUrls.isNotEmpty()) {

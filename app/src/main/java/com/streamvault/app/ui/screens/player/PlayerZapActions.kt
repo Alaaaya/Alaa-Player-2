@@ -281,8 +281,7 @@ internal fun PlayerViewModel.changeChannel(index: Int, isAutoFallback: Boolean =
         stopLiveTimeshift = playerEngine::stopLiveTimeshift,
         clearPreload = { playerEngine.preload(null) }
     )
-    currentResolvedPlaybackUrl = ""
-    currentResolvedStreamInfo = null
+    clearResolvedStream()
     val channel = channelList[index]
     currentChannelIndex = index
     currentContentId = channel.id
@@ -304,7 +303,7 @@ internal fun PlayerViewModel.changeChannel(index: Int, isAutoFallback: Boolean =
     // like normal playback (matching the smooth pro-mode preview).
     playerEngine.setScrubbingMode(false)
 
-    viewModelScope.launch {
+    playbackSessionScope(requestVersion)?.launch {
         val streamInfo = resolvePlaybackStreamInfo(channel.streamUrl, channel.id, channel.providerId, ContentType.LIVE)
             ?: return@launch
         if (!isActivePlaybackSession(requestVersion, channel.streamUrl)) return@launch
@@ -332,8 +331,8 @@ internal fun PlayerViewModel.changeChannel(index: Int, isAutoFallback: Boolean =
     showControlsFlow.value = false
     openChannelInfoOverlay()
 
-    triedAlternativeStreams.clear()
-    triedAlternativeStreams.add(channel.streamUrl)
+    playerRecoveryCoordinator.clearStreamAttempts()
+    playerRecoveryCoordinator.markStreamAttempt(channel.streamUrl)
     if (currentContentType == ContentType.LIVE && !isAutoFallback) scheduleZapBufferWatchdog(index)
 }
 
@@ -345,13 +344,13 @@ internal fun PlayerViewModel.preloadAdjacentChannel(currentIndex: Int) {
         playerEngine.preload(null)
         return
     }
-    viewModelScope.launch {
-        val provider = providerRepository.getProvider(nextChannel.providerId)
+    playbackSessionScope()?.launch {
+        val provider = playerProviderCoordinator.getProvider(nextChannel.providerId)
         if (!shouldPreloadAdjacentChannel(
                 streamUrl = nextChannel.streamUrl,
                 providerType = provider?.type,
                 maxConnections = provider?.maxConnections ?: 1,
-                preloadCoolingDown = nextChannel.providerId in livePreloadCooldownProviderIds
+                preloadCoolingDown = playerRecoveryCoordinator.isLivePreloadCoolingDown(nextChannel.providerId)
             )
         ) {
             playerEngine.preload(null)

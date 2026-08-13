@@ -14,7 +14,8 @@ internal fun PlayerViewModel.startProgressTracking() {
     progressTrackingJob?.cancel()
     if (currentContentType == ContentType.LIVE) return
 
-    progressTrackingJob = viewModelScope.launch {
+    val requestVersion = prepareRequestVersion
+    progressTrackingJob = playbackSessionScope(requestVersion)?.launch {
         while (true) {
             delay(30_000)
             if (!isAppInForeground || !playerEngine.isPlaying.value) continue
@@ -31,10 +32,9 @@ internal suspend fun PlayerViewModel.persistPlaybackProgress() {
         val history = buildPlaybackHistorySnapshot(pos, dur) ?: return
         logRepositoryFailure(
             operation = "Persist playback resume position",
-            result = playbackHistoryRepository.updateResumePosition(history)
+            result = playbackHistoryCoordinator.updateResumePosition(history)
         )
-        watchNextManager.refreshWatchNext()
-        launcherRecommendationsManager.refreshRecommendations()
+        playbackHistoryCoordinator.refreshPlaybackSurfaces()
     }
 }
 
@@ -43,7 +43,7 @@ internal fun PlayerViewModel.startTokenRenewalMonitoring(expirationTime: Long?) 
     tokenRenewalJob = null
     val expiry = expirationTime?.takeIf { it > 0L } ?: return
     val requestVersion = prepareRequestVersion
-    tokenRenewalJob = viewModelScope.launch {
+    tokenRenewalJob = playbackSessionScope(requestVersion)?.launch {
         while (true) {
             delay(LIFECYCLE_TOKEN_RENEWAL_CHECK_INTERVAL_MS)
             if (!playerEngine.isPlaying.value) continue
@@ -76,7 +76,7 @@ fun PlayerViewModel.onAppBackgrounded() {
     if (currentContentType != ContentType.LIVE) {
         viewModelScope.launch {
             persistPlaybackProgress()
-            playbackHistoryRepository.flushPendingProgress()
+            playbackHistoryCoordinator.flushPendingProgress()
         }
     }
 }
@@ -94,7 +94,7 @@ fun PlayerViewModel.onPlayerScreenDisposed() {
     if (currentContentType != ContentType.LIVE) {
         viewModelScope.launch {
             persistPlaybackProgress()
-            playbackHistoryRepository.flushPendingProgress()
+            playbackHistoryCoordinator.flushPendingProgress()
         }
     }
     playerEngine.stopLiveTimeshift()
@@ -120,7 +120,7 @@ fun PlayerViewModel.handOffPlaybackToMultiView() {
     }
     playerEngine.stopLiveTimeshift()
     stopLiveTranslationSession()
-    livePreviewHandoffManager.clear(playerEngine)
+    playerPreviewCoordinator.clear(playerEngine)
 }
 
 internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine) {
@@ -131,7 +131,7 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
     numericInputCommitJob?.cancel()
     numericInputFeedbackJob?.cancel()
     playerNoticeHideJob?.cancel()
-    epgJob?.cancel()
+    epgCoordinator.cancel()
     playlistJob?.cancel()
     controlsHideJob?.cancel()
     zapOverlayJob?.cancel()
@@ -144,7 +144,7 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
     thumbnailPreloadJob?.cancel()
     inFlightThumbnailPreloadKey = null
     lastCompletedThumbnailPreloadKey = null
-    seekThumbnailProvider.clearCache()
+    playerThumbnailCoordinator.clearCache()
 
     val activeEngine = playerEngine
     val channel = currentChannel.value
@@ -157,7 +157,7 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
         && activeEngine.playbackState.value != PlaybackState.ERROR
 
     if (canReverseHandoff) {
-        livePreviewHandoffManager.beginReverseHandoff(
+        playerPreviewCoordinator.beginReverseHandoff(
             channel = channel!!,
             streamInfo = streamInfo!!,
             engine = activeEngine,
@@ -165,7 +165,7 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
         )
         mainPlayerEngine.resetForReuse()
     } else {
-        livePreviewHandoffManager.clear(activeEngine)
+        playerPreviewCoordinator.clear(activeEngine)
         if (activeEngine === mainPlayerEngine) {
             mainPlayerEngine.resetForReuse()
         } else {

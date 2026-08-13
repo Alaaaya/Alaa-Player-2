@@ -17,15 +17,15 @@ internal suspend fun PlayerViewModel.persistPlaybackCompletion() {
     ) ?: return
     logRepositoryFailure(
         operation = "Mark playback watched",
-        result = markAsWatched(completedHistory)
+        result = playbackHistoryCoordinator.markAsWatched(completedHistory)
     )
-    watchNextManager.refreshWatchNext()
-    launcherRecommendationsManager.refreshRecommendations()
+    playbackHistoryCoordinator.refreshPlaybackSurfaces()
 }
 
 internal fun PlayerViewModel.handlePlaybackEnded() {
     if (currentContentType == ContentType.LIVE) return
-    viewModelScope.launch {
+    val requestVersion = prepareRequestVersion
+    playbackSessionScope(requestVersion)?.launch {
         persistPlaybackCompletion()
         if (currentContentType == ContentType.SERIES_EPISODE) {
             val position = playerEngine.currentPosition.value
@@ -42,7 +42,7 @@ internal fun PlayerViewModel.handlePlaybackEnded() {
 
 internal fun PlayerViewModel.startAutoPlayCountdown(episode: Episode) {
     autoPlayCountdownJob?.cancel()
-    autoPlayCountdownJob = viewModelScope.launch {
+    autoPlayCountdownJob = playbackSessionScope()?.launch {
         for (remaining in AUTO_PLAY_COUNTDOWN_SECONDS downTo 1) {
             _autoPlayCountdown.value = AutoPlayCountdownUiState(
                 episode = episode,
