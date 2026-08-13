@@ -6,12 +6,10 @@ import com.streamvault.data.local.dao.StalkerRemoteIdentityDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.entity.StalkerRemoteIdentityEntity
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.util.KeyedMutexRegistry
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /** Collision-safe, persistent translation between portal IDs and local Long IDs. */
 @Singleton
@@ -33,7 +31,7 @@ class StalkerRemoteIdentityResolver private constructor(
         transactionRunner: DatabaseTransactionRunner
     ) : this(dao, transactionRunner, null, Unit)
 
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private val locks = KeyedMutexRegistry<String>()
 
     suspend fun resolveAll(
         providerId: Long,
@@ -43,7 +41,7 @@ class StalkerRemoteIdentityResolver private constructor(
         val normalizedIds = rawIds.map(String::trim).filter(String::isNotEmpty).distinct().sorted()
         if (normalizedIds.isEmpty()) return emptyMap()
         val key = "$providerId/${contentType.name}"
-        return locks.computeIfAbsent(key) { Mutex() }.withLock {
+        return locks.withLock(key) {
             transactionRunner.inTransaction {
                 normalizedIds.associateWith { rawId -> resolveLocked(providerId, contentType, rawId) }
             }
@@ -72,7 +70,7 @@ class StalkerRemoteIdentityResolver private constructor(
             rawId to existingByName[name.lowercase(Locale.ROOT)]?.categoryId
         }
         val key = "$providerId/${contentType.name}"
-        return locks.computeIfAbsent(key) { Mutex() }.withLock {
+        return locks.withLock(key) {
             transactionRunner.inTransaction {
                 normalized.associate { (rawId, _) ->
                     rawId to resolveLocked(providerId, contentType, rawId, preferred[rawId])

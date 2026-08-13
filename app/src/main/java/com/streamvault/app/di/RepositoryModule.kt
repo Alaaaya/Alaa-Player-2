@@ -18,6 +18,8 @@ import com.streamvault.data.provider.JellyfinCapabilityFactory
 import com.streamvault.data.provider.M3uCapabilityFactory
 import com.streamvault.data.provider.StalkerCapabilityFactory
 import com.streamvault.data.provider.XtreamCapabilityFactory
+import com.streamvault.data.remote.xtream.PlaybackObservationCoordinator
+import com.streamvault.data.remote.xtream.PlaybackObservationSink
 import com.streamvault.data.validation.ProviderSetupInputValidatorImpl
 import com.streamvault.domain.manager.ParentalPinVerifier
 import com.streamvault.domain.manager.ProviderSetupInputValidator
@@ -26,6 +28,8 @@ import com.streamvault.data.repository.*
 import com.streamvault.domain.manager.ParentalControlSessionStore
 import com.streamvault.domain.repository.*
 import com.streamvault.domain.provider.ProviderCapabilityRegistry
+import com.streamvault.domain.provider.ProviderSourceRegistry
+import com.streamvault.app.plugins.StreamVaultPluginManager
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -132,6 +136,12 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindCredentialCrypto(impl: AndroidKeystoreCredentialCrypto): CredentialCrypto
+
+    @Binds @Singleton
+    abstract fun bindProviderSourceRegistry(impl: StreamVaultPluginManager): ProviderSourceRegistry
+
+    @Binds @Singleton
+    abstract fun bindPlaybackObservationSink(impl: PlaybackObservationCoordinator): PlaybackObservationSink
 
     companion object {
         @Provides

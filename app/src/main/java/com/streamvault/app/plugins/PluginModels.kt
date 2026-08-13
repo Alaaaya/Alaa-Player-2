@@ -47,11 +47,20 @@ data class InstalledStreamVaultPlugin(
     val manifest: StreamVaultPluginManifest,
     val enabled: Boolean,
     val statusLabel: String = "",
-    val lastMessage: String = ""
+    val lastMessage: String = "",
+    val discoveryState: PluginDiscoveryState = PluginDiscoveryState.READY
 ) {
     val displayName: String
         get() = manifest.name.ifBlank { appLabel.ifBlank { packageName } }
 }
+
+enum class PluginDiscoveryState { LOADING, READY, PARTIAL, TIMED_OUT, ERROR }
+
+data class PluginDiscoveryStatus(
+    val state: PluginDiscoveryState,
+    val message: String = ""
+)
+
 
 data class StreamVaultPluginOwner(
     val packageName: String,

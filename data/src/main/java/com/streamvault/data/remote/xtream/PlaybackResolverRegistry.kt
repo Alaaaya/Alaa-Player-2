@@ -10,7 +10,7 @@ import com.streamvault.domain.provider.PlaybackRequest
 import com.streamvault.domain.provider.ProviderContentReference
 
 /** Resolves a typed provider playback capability without constructing provider sessions itself. */
-internal class PlaybackResolutionCoordinator(
+class PlaybackResolverRegistry(
     private val providerCapabilities: ProviderCapabilityResolver
 ) {
     suspend fun resolve(
@@ -53,7 +53,8 @@ internal class PlaybackResolutionCoordinator(
                     playbackTransportPolicy = resolved.playbackTransportPolicy,
                     allowInvalidSsl = resolved.allowInvalidSsl,
                     proxyHost = resolved.proxyHost,
-                    proxyPort = resolved.proxyPort
+                    proxyPort = resolved.proxyPort,
+                    observations = resolved.observations
                 )
             }
             is Result.Error -> {

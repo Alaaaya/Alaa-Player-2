@@ -26,6 +26,11 @@ import com.streamvault.domain.model.DrmScheme
 import com.streamvault.domain.model.M3uConfig
 import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderEpgSyncMode
+import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.provider.PluginProviderSource
+import com.streamvault.domain.provider.PluginSourceIdentity
+import com.streamvault.domain.provider.ProviderSource
+import com.streamvault.domain.provider.ProviderSourceRegistry
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
@@ -39,18 +44,20 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
@@ -65,14 +72,17 @@ class StreamVaultPluginManager @Inject constructor(
     private val pluginProviderOwnershipDao: PluginProviderOwnershipDao,
     private val combinedM3uRepository: CombinedM3uRepository,
     private val tvInputChannelSyncManager: TvInputChannelSyncManager,
+    private val pluginWorkCoordinator: PluginWorkCoordinator,
     private val okHttpClient: OkHttpClient,
     private val json: Json
-) {
+) : ProviderSourceRegistry {
     private val prefs = context.getSharedPreferences("streamvault_plugins", Context.MODE_PRIVATE)
     private val discoveryLock = Any()
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val refreshLock = Any()
-    private var refreshJob: Job? = null
+    private val pluginMutationMutex = Mutex()
+    private val _discoveryStates =
+        MutableStateFlow<Map<StreamVaultPluginComponent, PluginDiscoveryStatus>>(emptyMap())
+    val discoveryStates: StateFlow<Map<StreamVaultPluginComponent, PluginDiscoveryStatus>> =
+        _discoveryStates.asStateFlow()
 
     @Volatile
     private var cachedDiscovery: List<InstalledStreamVaultPlugin>? = null
@@ -86,7 +96,7 @@ class StreamVaultPluginManager @Inject constructor(
             // Package broadcasts are the authoritative lifecycle signal. Reconcile immediately
             // instead of waiting for the next process start, especially after external uninstall.
             val pendingResult = goAsync()
-            backgroundScope.launch {
+            pluginWorkCoordinator.launchReconciliation {
                 try {
                     reconcilePluginProviders()
                 } catch (cancelled: CancellationException) {
@@ -118,16 +128,68 @@ class StreamVaultPluginManager @Inject constructor(
     suspend fun discoverPlugins(): List<InstalledStreamVaultPlugin> = withContext(Dispatchers.IO) {
         cachedDiscovery?.takeIf { System.currentTimeMillis() < discoveryExpiresAtMillis }?.let { return@withContext it }
         val resolveInfos = queryPluginServices()
-        val plugins = (withTimeoutOrNull(DISCOVERY_TOTAL_TIMEOUT_MILLIS) {
-            coroutineScope {
-                resolveInfos
-                    .map { resolveInfo -> async { resolvePlugin(resolveInfo) } }
-                    .awaitAll()
-                    .filterNotNull()
+        _discoveryStates.value = resolveInfos.mapNotNull(::componentOf)
+            .associateWith { PluginDiscoveryStatus(PluginDiscoveryState.LOADING) }
+        val plugins = supervisorScope {
+            // Each service has its own bound, so one dead service cannot erase results from
+            // services that already completed. Since all requests run concurrently, this is also
+            // a bounded global discovery window independent of the number of installed plugins.
+            val jobs = resolveInfos.map { resolveInfo ->
+                async {
+                    val component = componentOf(resolveInfo)
+                    val attempt = withTimeoutOrNull(DISCOVERY_PLUGIN_TIMEOUT_MILLIS) {
+                        runPluginCatching { resolvePlugin(resolveInfo) }
+                    }
+                    when {
+                        attempt == null -> {
+                            component?.let { key ->
+                                _discoveryStates.update {
+                                    it + (key to PluginDiscoveryStatus(
+                                        PluginDiscoveryState.TIMED_OUT,
+                                        "Plugin discovery timed out"
+                                    ))
+                                }
+                            }
+                            metadataOnlyPlugin(
+                                resolveInfo,
+                                "Plugin discovery timed out",
+                                PluginDiscoveryState.TIMED_OUT
+                            )
+                        }
+                        attempt.isFailure -> {
+                            val error = attempt.exceptionOrNull()
+                            component?.let { key ->
+                                _discoveryStates.update {
+                                    it + (key to PluginDiscoveryStatus(
+                                        PluginDiscoveryState.ERROR,
+                                        error?.message.orEmpty()
+                                    ))
+                                }
+                            }
+                            metadataOnlyPlugin(
+                                resolveInfo,
+                                error?.message.orEmpty().ifBlank { "Plugin discovery failed" },
+                                PluginDiscoveryState.ERROR
+                            )
+                        }
+                        else -> attempt.getOrNull().also { plugin ->
+                            if (component != null && plugin != null) {
+                                _discoveryStates.update {
+                                    it + (component to PluginDiscoveryStatus(
+                                        plugin.discoveryState,
+                                        plugin.lastMessage
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        } ?: resolveInfos.mapNotNull { resolveInfo ->
-            metadataOnlyPlugin(resolveInfo, "Plugin discovery timed out")
-        })
+            // The per-service timeout is also the global bound because all services are queried
+            // concurrently. Most importantly, awaitAll preserves completed services when one
+            // peer times out instead of replacing the whole result set.
+            jobs.awaitAll().filterNotNull()
+        }
             .sortedBy { it.displayName.lowercase() }
         migrateLegacyEnabledStates(plugins)
         plugins.map { plugin -> plugin.copy(enabled = isEnabled(plugin)) }.also { discovered ->
@@ -145,14 +207,59 @@ class StreamVaultPluginManager @Inject constructor(
      * malformed update, or manifest-ID rename is not proof that its provider is orphaned.
      */
     suspend fun reconcilePluginProviders() = withContext(Dispatchers.IO) {
-        val installedComponents = queryPluginServices().mapNotNull { resolveInfo ->
-            val serviceInfo = resolveInfo.serviceInfo ?: return@mapNotNull null
-            val packageName = serviceInfo.packageName ?: return@mapNotNull null
-            val serviceName = serviceInfo.name ?: return@mapNotNull null
-            StreamVaultPluginComponent(packageName, serviceName)
-        }.toSet()
-        orphanedPluginOwnerships(pluginProviderOwnershipDao.getAll(), installedComponents)
-            .forEach { ownership -> removeOwnedProvider(ownership) }
+        pluginMutationMutex.withLock {
+            val installedComponents = queryPluginServices().mapNotNull { resolveInfo ->
+                componentOf(resolveInfo)
+            }.toSet()
+            orphanedPluginOwnerships(pluginProviderOwnershipDao.getAll(), installedComponents)
+                .forEach { ownership ->
+                    if (removeOwnedProvider(ownership) == null) {
+                        clearPendingMutation(
+                            StreamVaultPluginOwner(
+                                ownership.packageName,
+                                ownership.serviceClassName,
+                                ownership.manifestId
+                            )
+                        )
+                    }
+                }
+            clearPendingMutationsForMissingComponents(installedComponents)
+
+            // A mutation checkpoint is written before contacting a plugin. Replaying it here
+            // closes process-death windows between remote enable/disable, provider import, and
+            // ownership persistence. An enabled source with missing ownership is also repaired.
+            discoverPlugins().forEach { plugin ->
+                val pending = pendingMutation(plugin.owner)
+                val desiredEnabled = pending ?: isEnabled(plugin)
+                if (pending != null) {
+                    val response = runPluginCatching {
+                        sendEnabledCommand(plugin, desiredEnabled)
+                    }.getOrNull() ?: return@forEach
+                    if (!response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, true)) {
+                        clearPendingMutation(plugin.owner)
+                        return@forEach
+                    }
+                    prefs.edit().putBoolean(enabledKey(plugin.owner), desiredEnabled).apply()
+                }
+                if (!plugin.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PROVIDER_M3U)) {
+                    if (pending != null) clearPendingMutation(plugin.owner)
+                    return@forEach
+                }
+                if (desiredEnabled) {
+                    if (pending != null || trackedOwnership(plugin) == null) {
+                        if (syncPluginProvider(plugin, onProgress = {}) == null) {
+                            prefs.edit().putBoolean(enabledKey(plugin.owner), true).apply()
+                            clearPendingMutation(plugin.owner)
+                        }
+                    }
+                } else if (pending != null) {
+                    if (removePluginProvider(plugin) == null) {
+                        prefs.edit().putBoolean(enabledKey(plugin.owner), false).apply()
+                        clearPendingMutation(plugin.owner)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun setPluginEnabled(
@@ -160,23 +267,19 @@ class StreamVaultPluginManager @Inject constructor(
         enabled: Boolean,
         onProgress: (String) -> Unit = {}
     ): PluginActionResult = withContext(Dispatchers.IO) {
-        val command = Bundle().apply {
-            putBoolean(StreamVaultPluginContract.KEY_ENABLED, enabled)
+        pluginMutationMutex.withLock mutation@{
+        if (!recordPendingMutation(plugin.owner, enabled)) {
+            return@mutation PluginActionResult(false, "Could not persist plugin operation checkpoint")
         }
         val response = runPluginCatching {
-            messengerClient.send(
-                packageName = plugin.packageName,
-                serviceClassName = plugin.serviceClassName,
-                what = StreamVaultPluginContract.MSG_SET_ENABLED,
-                data = command,
-                timeoutMillis = 120_000L
-            )
+            sendEnabledCommand(plugin, enabled)
         }.getOrElse { error ->
-            return@withContext PluginActionResult(false, error.message ?: "Plugin did not respond")
+            return@mutation PluginActionResult(false, error.message ?: "Plugin did not respond")
         }
 
         if (!response.getBoolean(StreamVaultPluginContract.KEY_SUCCESS, true)) {
-            return@withContext PluginActionResult(
+            clearPendingMutation(plugin.owner)
+            return@mutation PluginActionResult(
                 success = false,
                 message = response.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
                     .ifBlank { "Plugin rejected the request" }
@@ -185,16 +288,19 @@ class StreamVaultPluginManager @Inject constructor(
 
         prefs.edit().putBoolean(enabledKey(plugin.owner), enabled).apply()
         if (enabled && plugin.manifest.hasCapability(StreamVaultPluginContract.CAPABILITY_PROVIDER_M3U)) {
-            syncPluginProvider(plugin, onProgress)?.let { return@withContext it }
+            syncPluginProvider(plugin, onProgress)?.let { return@mutation it }
         } else if (!enabled) {
-            removePluginProvider(plugin)?.let { return@withContext it }
+            removePluginProvider(plugin)?.let { return@mutation it }
         }
 
+        clearPendingMutation(plugin.owner)
+        invalidateDiscovery()
         PluginActionResult(
             success = true,
             message = response.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
                 .ifBlank { if (enabled) "Plugin activated" else "Plugin deactivated" }
         )
+        }
     }
 
     suspend fun installApkFromUri(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
@@ -632,6 +738,19 @@ class StreamVaultPluginManager @Inject constructor(
         return null
     }
 
+    private suspend fun sendEnabledCommand(
+        plugin: InstalledStreamVaultPlugin,
+        enabled: Boolean
+    ): Bundle = messengerClient.send(
+        packageName = plugin.packageName,
+        serviceClassName = plugin.serviceClassName,
+        what = StreamVaultPluginContract.MSG_SET_ENABLED,
+        data = Bundle().apply {
+            putBoolean(StreamVaultPluginContract.KEY_ENABLED, enabled)
+        },
+        timeoutMillis = 120_000L
+    )
+
     private suspend fun removePluginProvider(plugin: InstalledStreamVaultPlugin): PluginActionResult? {
         val ownership = trackedOwnership(plugin) ?: return null
         return removeOwnedProvider(ownership)
@@ -676,28 +795,30 @@ class StreamVaultPluginManager @Inject constructor(
     }
 
     private fun refreshTvInputCatalogInBackground() {
-        synchronized(refreshLock) {
-            refreshJob?.cancel()
-            val newJob = backgroundScope.launch(start = CoroutineStart.LAZY) {
-                try {
-                    tvInputChannelSyncManager.refreshTvInputCatalog()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // Best-effort catalog refresh; the next provider/plugin change retries it.
-                } finally {
-                    val completedJob = currentCoroutineContext()[Job]
-                    synchronized(refreshLock) {
-                        if (refreshJob === completedJob) {
-                            refreshJob = null
-                        }
-                    }
-                }
-            }
-            refreshJob = newJob
-            newJob.start()
+        pluginWorkCoordinator.replaceCatalogRefresh(tvInputChannelSyncManager::refreshTvInputCatalog)
+    }
+
+    override suspend fun sources(): List<ProviderSource> = withContext(Dispatchers.IO) {
+        val pluginsByComponent = discoverPlugins().associateBy { it.owner.component }
+        pluginProviderOwnershipDao.getAll().mapNotNull { ownership ->
+            val component = StreamVaultPluginComponent(ownership.packageName, ownership.serviceClassName)
+            val plugin = pluginsByComponent[component] ?: return@mapNotNull null
+            PluginProviderSource(
+                identity = PluginSourceIdentity(
+                    packageName = plugin.packageName,
+                    serviceClassName = plugin.serviceClassName,
+                    manifestId = plugin.manifest.id
+                ),
+                providerId = ownership.providerId,
+                enabled = plugin.enabled,
+                capabilities = plugin.manifest.capabilities.toSet(),
+                backingProviderType = ProviderType.M3U
+            )
         }
     }
+
+    suspend fun pluginProviderSources(): List<PluginProviderSource> =
+        sources().filterIsInstance<PluginProviderSource>()
 
     private suspend fun resolvePlugin(resolveInfo: ResolveInfo): InstalledStreamVaultPlugin? = coroutineScope {
         val serviceInfo = resolveInfo.serviceInfo ?: return@coroutineScope null
@@ -731,13 +852,19 @@ class StreamVaultPluginManager @Inject constructor(
             manifest = manifest,
             enabled = false,
             statusLabel = status?.getString(StreamVaultPluginContract.KEY_STATUS_LABEL).orEmpty(),
-            lastMessage = status?.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty()
+            lastMessage = status?.getString(StreamVaultPluginContract.KEY_MESSAGE).orEmpty(),
+            discoveryState = if (status == null || manifestResult.await() == null) {
+                PluginDiscoveryState.PARTIAL
+            } else {
+                PluginDiscoveryState.READY
+            }
         )
     }
 
     private fun metadataOnlyPlugin(
         resolveInfo: ResolveInfo,
-        errorMessage: String
+        errorMessage: String,
+        discoveryState: PluginDiscoveryState = PluginDiscoveryState.TIMED_OUT
     ): InstalledStreamVaultPlugin? {
         val serviceInfo = resolveInfo.serviceInfo ?: return null
         val packageName = serviceInfo.packageName ?: return null
@@ -755,7 +882,8 @@ class StreamVaultPluginManager @Inject constructor(
             appLabel = appLabel,
             manifest = manifest,
             enabled = false,
-            lastMessage = errorMessage
+            lastMessage = errorMessage,
+            discoveryState = discoveryState
         )
     }
 
@@ -814,6 +942,13 @@ class StreamVaultPluginManager @Inject constructor(
             @Suppress("DEPRECATION")
             packageManager.queryIntentServices(intent, PackageManager.GET_META_DATA)
         }
+    }
+
+    private fun componentOf(resolveInfo: ResolveInfo): StreamVaultPluginComponent? {
+        val serviceInfo = resolveInfo.serviceInfo ?: return null
+        val packageName = serviceInfo.packageName ?: return null
+        val serviceName = serviceInfo.name ?: return null
+        return StreamVaultPluginComponent(packageName, serviceName)
     }
 
     private fun launchPackageInstaller(apkFile: File): Result<Unit> {
@@ -922,14 +1057,47 @@ class StreamVaultPluginManager @Inject constructor(
     private fun enabledKey(owner: StreamVaultPluginOwner): String =
         "enabled.${owner.packageName}.${owner.serviceClassName}.${owner.manifestId}"
 
+    private fun pendingMutationKey(owner: StreamVaultPluginOwner): String =
+        "pending.${owner.packageName}|${owner.serviceClassName}|${owner.manifestId}"
+
+    private fun recordPendingMutation(owner: StreamVaultPluginOwner, enabled: Boolean): Boolean =
+        prefs.edit().putBoolean(pendingMutationKey(owner), enabled).commit()
+
+    private fun pendingMutation(owner: StreamVaultPluginOwner): Boolean? =
+        pendingMutationKey(owner).let { key ->
+            if (prefs.contains(key)) prefs.getBoolean(key, false) else null
+        }
+
+    private fun clearPendingMutation(owner: StreamVaultPluginOwner) {
+        prefs.edit().remove(pendingMutationKey(owner)).apply()
+    }
+
+    private fun clearPendingMutationsForMissingComponents(
+        installedComponents: Set<StreamVaultPluginComponent>
+    ) {
+        val editor = prefs.edit()
+        prefs.all.keys.asSequence()
+            .filter { it.startsWith(PENDING_MUTATION_PREFIX) }
+            .forEach { key ->
+                val identity = key.removePrefix(PENDING_MUTATION_PREFIX).split('|', limit = 3)
+                if (identity.size < 2 ||
+                    StreamVaultPluginComponent(identity[0], identity[1]) !in installedComponents
+                ) {
+                    editor.remove(key)
+                }
+            }
+        editor.apply()
+    }
+
     private fun legacyEnabledKey(pluginId: String): String = "enabled.$pluginId"
 
     private companion object {
         const val DISCOVERY_CACHE_TTL_MILLIS = 30_000L
         const val DISCOVERY_REQUEST_TIMEOUT_MILLIS = 1_500L
-        const val DISCOVERY_TOTAL_TIMEOUT_MILLIS = 5_000L
+        const val DISCOVERY_PLUGIN_TIMEOUT_MILLIS = 2_500L
         const val PLAYBACK_HANDLER_TIMEOUT_MILLIS = 5_000L
         const val PLAYBACK_TOTAL_TIMEOUT_MILLIS = 5_000L
+        const val PENDING_MUTATION_PREFIX = "pending."
     }
 }
 

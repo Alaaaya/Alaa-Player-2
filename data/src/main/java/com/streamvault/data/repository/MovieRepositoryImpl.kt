@@ -76,9 +76,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import com.streamvault.domain.util.KeyedMutexRegistry
+import com.streamvault.domain.util.BoundedKeySet
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -104,6 +103,7 @@ class MovieRepositoryImpl @Inject constructor(
     private val typedProviderClientFactory: TypedProviderClientFactory
 ) : MovieRepository {
     private companion object {
+        const val MAX_BACKGROUND_CATEGORY_REFRESHES = 256
         const val TAG = "MovieRepository"
         const val SEARCH_RESULT_LIMIT = 200
         const val SEARCH_OVERSAMPLE_LIMIT = 500
@@ -140,9 +140,8 @@ class MovieRepositoryImpl @Inject constructor(
         val id: Long
     )
 
-    private val xtreamCategoryLoadLocks = ConcurrentHashMap<String, Mutex>()
-    private val freshXtreamCategories = ConcurrentHashMap.newKeySet<String>()
-    private val backgroundRefreshes = ConcurrentHashMap.newKeySet<String>()
+    private val xtreamCategoryLoadLocks = KeyedMutexRegistry<String>()
+    private val backgroundRefreshes = BoundedKeySet<String>(MAX_BACKGROUND_CATEGORY_REFRESHES)
     private val repositoryScope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO.limitedParallelism(XTREAM_CATEGORY_HYDRATION_CONCURRENCY)
     )
@@ -651,7 +650,7 @@ class MovieRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamInfo(movie: Movie): Result<StreamInfo> = try {
-        xtreamStreamUrlResolver.resolveWithMetadata(
+        xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = movie.streamUrl,
             fallbackProviderId = movie.providerId,
             fallbackStreamId = movie.streamId,
@@ -1590,7 +1589,6 @@ class MovieRepositoryImpl @Inject constructor(
         val hydration = movieCategoryHydrationDao.get(providerId, categoryId)
         if (provider.type == ProviderType.XTREAM_CODES) {
             if (localCount > 0) {
-                freshXtreamCategories.add(key)
             } else {
                 syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.MOVIE, categoryId)
             }
@@ -1641,8 +1639,8 @@ class MovieRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true
     ) {
         val key = "$providerId:$categoryId"
-        if (!backgroundRefreshes.add(key)) return
         repositoryScope.launch {
+            if (!backgroundRefreshes.awaitAdd(key)) return@launch
             try {
                 val provider = loadCompatibilityProvider(providerId) ?: return@launch
                 if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) {
@@ -1712,18 +1710,17 @@ class MovieRepositoryImpl @Inject constructor(
         requestedPage: Int? = null
     ) {
         val key = "$providerId:$categoryId"
-        val lock = xtreamCategoryLoadLocks.getOrPut(key) { Mutex() }
-        lock.withLock {
+        xtreamCategoryLoadLocks.withLock(key) {
             val persistedHydration = movieCategoryHydrationDao.get(providerId, categoryId)
-            if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return
+            if (requestedPage != null && (persistedHydration?.lastSuccessfulPage ?: 0) >= requestedPage) return@withLock
             val stalkerProvider = createStalkerProvider(providerId)
-            if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.MOVIE, categoryId)) return
+            if (!allowWildcard && stalkerProvider.isWildcardCategory(ContentType.MOVIE, categoryId)) return@withLock
             var currentCount = localCount ?: movieDao.getCountByCategory(providerId, categoryId).first()
             var currentHydration = persistedHydration ?: hydration
             if ((currentHydration?.isComplete == true && currentCount > 0) ||
                 (!loadCompletely && currentCount >= requiredCount)
-            ) return
-            if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return
+            ) return@withLock
+            if (currentCount == 0 && currentHydration?.isEmptyRetryCoolingDown() == true) return@withLock
 
             val isPreviewLoad = requiredCount <= STALKER_PREVIEW_REQUIRED_COUNT_THRESHOLD
             val isInitialCategoryFill = !isPreviewLoad && currentCount < STALKER_INITIAL_CATEGORY_FILL_COUNT

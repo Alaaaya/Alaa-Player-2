@@ -55,6 +55,24 @@ class BoundedExpiringCache<K, V>(
     fun remove(key: K): V? = entries.remove(key)?.value
 
     @Synchronized
+    fun removeIf(predicate: (K, V) -> Boolean): Int {
+        var removed = 0
+        val iterator = entries.entries.iterator()
+        while (iterator.hasNext()) {
+            val (key, entry) = iterator.next()
+            if (predicate(key, entry.value)) {
+                iterator.remove()
+                removed++
+            }
+        }
+        return removed
+    }
+
+    /** Proactively expires stale entries without requiring a lookup of the same key. */
+    @Synchronized
+    fun sweep() = sweepAll()
+
+    @Synchronized
     fun clear() {
         entries.clear()
     }

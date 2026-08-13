@@ -47,8 +47,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import com.streamvault.domain.util.KeyedMutexRegistry
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -57,7 +56,6 @@ import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import com.streamvault.data.remote.NetworkTimeoutConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -133,7 +131,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
         private const val MIN_REFRESH_INTERVAL_MS = 5L * 60L * 1000L // 5 minutes
     }
 
-    private val sourceRefreshMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val sourceRefreshMutexes = KeyedMutexRegistry<Long>()
 
     // Dedicated client for EPG downloads: longer read timeout for large/slow feeds,
     // and no automatic Accept-Encoding: gzip (we handle gzip manually via maybeDecompressGzip).
@@ -213,6 +211,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
         epgProgrammeDao.deleteBySource(id)
         epgChannelDao.deleteBySource(id)
         epgSourceDao.delete(id)
+        sourceRefreshMutexes.forget(id)
         resolveAffectedProviders(affectedProviderIds)
     }
 
@@ -285,8 +284,7 @@ class EpgSourceRepositoryImpl @Inject constructor(
         sourceId: Long,
         resolveAffectedProviders: Boolean
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val mutex = sourceRefreshMutexes.computeIfAbsent(sourceId) { Mutex() }
-        mutex.withLock {
+        sourceRefreshMutexes.withLock(sourceId) {
             val source = epgSourceDao.getById(sourceId)
                 ?: return@withLock Result.error("Source not found")
 

@@ -17,15 +17,17 @@ data class ResolvedStreamUrl(
     val playbackTransportPolicy: PlaybackTransportPolicy? = null,
     val allowInvalidSsl: Boolean = false,
     val proxyHost: String = "",
-    val proxyPort: Int? = null
+    val proxyPort: Int? = null,
+    val observations: List<com.streamvault.domain.provider.PlaybackObservation> = emptyList()
 )
 
 /** Provider-neutral playback entry point. Provider selection is owned by the capability registry. */
 @Singleton
-class XtreamStreamUrlResolver @Inject constructor(
-    providerCapabilities: com.streamvault.data.provider.ProviderCapabilityResolver
+class ProviderPlaybackResolver @Inject constructor(
+    providerCapabilities: com.streamvault.data.provider.ProviderCapabilityResolver,
+    private val observationCoordinator: PlaybackObservationSink? = null
 ) {
-    private val playbackCoordinator = PlaybackResolutionCoordinator(providerCapabilities)
+    private val playbackCoordinator = PlaybackResolverRegistry(providerCapabilities)
 
     fun isInternalStreamUrl(url: String?): Boolean =
         XtreamUrlFactory.isInternalStreamUrl(url) || StalkerUrlFactory.isInternalStreamUrl(url)
@@ -96,7 +98,33 @@ class XtreamStreamUrlResolver @Inject constructor(
             isStalkerSource = stalkerToken != null
         )
     }
+
+    /** Explicit resolve-and-commit boundary for callers that want learned playback observations. */
+    suspend fun resolveAndCommitMetadata(
+        url: String,
+        fallbackProviderId: Long? = null,
+        fallbackStreamId: Long? = null,
+        fallbackContentType: ContentType? = null,
+        fallbackContainerExtension: String? = null,
+        preferStableUrl: Boolean = false
+    ): ResolvedStreamUrl? = resolveWithMetadata(
+        url,
+        fallbackProviderId,
+        fallbackStreamId,
+        fallbackContentType,
+        fallbackContainerExtension,
+        preferStableUrl
+    ).also { resolved ->
+        resolved?.let {
+            checkNotNull(observationCoordinator) {
+                "Playback observation coordinator is required for resolveAndCommitMetadata"
+            }.persist(it.observations)
+        }
+    }
 }
+
+/** Compatibility alias for callers migrating to the provider-neutral resolver name. */
+typealias XtreamStreamUrlResolver = ProviderPlaybackResolver
 
 private fun XtreamStreamKind.toContentType(): ContentType = when (this) {
     XtreamStreamKind.LIVE -> ContentType.LIVE

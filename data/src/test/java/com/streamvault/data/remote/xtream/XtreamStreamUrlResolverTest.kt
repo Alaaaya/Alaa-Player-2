@@ -35,6 +35,7 @@ import com.streamvault.data.remote.stalker.StalkerSeriesDetails
 import com.streamvault.data.remote.stalker.StalkerSession
 import com.streamvault.data.remote.stalker.StalkerStreamKind
 import com.streamvault.data.remote.stalker.StalkerUrlFactory
+import com.streamvault.data.remote.xtream.PlaybackObservationSink
 import com.streamvault.domain.model.ContentType
 import com.streamvault.data.security.CredentialCrypto
 import com.streamvault.domain.model.LiveStreamFormatMode
@@ -42,6 +43,8 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.StalkerPortalLearning
+import com.streamvault.domain.provider.PlaybackObservation
+import com.streamvault.domain.provider.StalkerPlaybackObservation
 import com.streamvault.domain.repository.ProviderSnapshotRepository
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -699,6 +702,56 @@ class XtreamStreamUrlResolverTest {
         }
     }
 
+    @Test
+    fun resolveAndCommitMetadata_commits_learned_playback_observations() {
+        runBlocking {
+            val sink = RecordingPlaybackObservationSink()
+            val resolver = XtreamStreamUrlResolver(
+                providerDao = FakeProviderDao(
+                    Provider(
+                        id = 14,
+                        name = "Stalker",
+                        type = ProviderType.STALKER_PORTAL,
+                        serverUrl = "https://portal.example.com",
+                        stalkerMacAddress = "00:1A:79:12:34:56",
+                        stalkerDeviceProfile = "MAG250",
+                        stalkerDeviceTimezone = "UTC",
+                        stalkerDeviceLocale = "en"
+                    )
+                ),
+                credentialCrypto = credentialCrypto,
+                stalkerApiService = FakeStalkerApiService(),
+                preferencesRepository = preferencesRepository(),
+                observationSink = sink
+            )
+            val internalUrl = StalkerUrlFactory.buildInternalStreamUrl(
+                providerId = 14,
+                kind = StalkerStreamKind.LIVE,
+                itemId = 77,
+                cmd = "http://edge.example.com/live/77.m3u8",
+                containerExtension = "m3u8"
+            )
+
+            resolver.resolveAndCommitMetadata(internalUrl)
+
+            assertThat(sink.observations).hasSize(1)
+            assertThat(sink.observations.single()).isInstanceOf(StalkerPlaybackObservation::class.java)
+        }
+    }
+
+    @Test
+    fun resolveAndCommitMetadata_requires_an_observation_sink() {
+        runBlocking {
+            val resolver = xtreamResolver()
+
+            val error = org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+                runBlocking { resolver.resolveAndCommitMetadata("https://edge.example.com/live.m3u8") }
+            }
+
+            assertThat(error).hasMessageThat().contains("observation coordinator")
+        }
+    }
+
     private class FakeProviderDao(
         override val fixtureProvider: Provider?
     ) : ProviderDao(), ProviderFixtureSource {
@@ -864,7 +917,8 @@ private fun XtreamStreamUrlResolver(
     providerDao: ProviderDao,
     credentialCrypto: CredentialCrypto,
     stalkerApiService: StalkerApiService,
-    preferencesRepository: PreferencesRepository
+    preferencesRepository: PreferencesRepository,
+    observationSink: PlaybackObservationSink? = null
 ): XtreamStreamUrlResolver {
     val provider = requireNotNull((providerDao as? ProviderFixtureSource)?.fixtureProvider)
     val snapshots = object : ProviderSnapshotRepository {
@@ -904,7 +958,15 @@ private fun XtreamStreamUrlResolver(
             JellyfinCapabilityFactory(clients)
         )
     )
-    return XtreamStreamUrlResolver(ProviderCapabilityResolver(snapshots, registry))
+    return XtreamStreamUrlResolver(ProviderCapabilityResolver(snapshots, registry), observationSink)
+}
+
+private class RecordingPlaybackObservationSink : PlaybackObservationSink {
+    val observations = mutableListOf<PlaybackObservation>()
+
+    override suspend fun persist(observations: List<PlaybackObservation>) {
+        this.observations += observations
+    }
 }
 
 private interface ProviderFixtureSource {

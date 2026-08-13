@@ -161,11 +161,11 @@ UI uses `ScheduleRecording`/`RecordingManager`. `RecordingManagerImpl` persists 
 
 ### Plugins
 
-`StreamVaultPluginManager` discovers Android services implementing the plugin action, reads a manifest over Messenger or service metadata, enables/disables plugins in its own preferences, invokes plugin operations, imports plugin-provided catalog data into an M3U provider mapping, and refreshes TV input/catalog state. Discovery currently performs synchronous `runBlocking(Dispatchers.IO)` Messenger calls (ARCH-006).
+`StreamVaultPluginManager` discovers Android services implementing the plugin action, reads manifests over bounded concurrent Messenger calls or service metadata, and publishes first-class plugin source identities. Lifecycle-owned work serializes enable/disable/import/remove operations and repairs interrupted or uninstalled plugin ownership (ARCH-006).
 
 ### App upgrades and database migrations
 
-App update checking starts from `StreamVaultApp` and stores cached release metadata in `PreferencesRepository`; install UI/service logic lives under `app/update`. Room database upgrades are handled by the large explicit migration chain in `StreamVaultDatabase`, with schema JSON emitted by the Room Gradle plugin. Migration correctness is deferred to Phase 4, but its concentration is recorded in ARCH-007.
+App update checking starts from `StreamVaultApp` and stores cached release metadata in `PreferencesRepository`; install UI/service logic lives under `app/update`. Room schema/DAO declaration remains in `StreamVaultDatabase`, while executable migrations are grouped into three version-era files behind one validated contiguous registry. Committed schema JSON and every exported-origin-to-current device test form the upgrade gate (ARCH-007).
 
 ## Phase 1 findings summary
 
@@ -174,10 +174,10 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 | ARCH-001 | Implemented in code; API 25 migration evidence pending (2026-08-11) | High | Explicit provider capabilities and complete typed registries now drive synchronization and runtime provider execution. | Architectural |
 | ARCH-002 | Implemented in code; API 25 migration evidence pending (2026-08-11) | High | Stable provider identity, typed encrypted configuration/runtime storage, and generation-bound Stalker learning replace the authoritative union row. | Architectural |
 | ARCH-003 | Implemented in code; device validation pending (2026-08-12) | High | Provider plans, activation receipts, durable continuation scheduling, state publication, index execution, and workflow admission are separated; the remaining `SyncManager` compatibility façade is approximately 2,451 lines. | Architectural |
-| ARCH-004 | Confirmed defect + architectural concern | Medium | The all-provider playback resolver contains contradictory dispatch and mixes URL resolution with Stalker session construction and persistence. | Local first; architectural follow-up |
+| ARCH-004 | Implemented and verified (2026-08-13) | Medium | Provider-neutral playback resolution is split from generation-fenced observation persistence. | Architectural |
 | ARCH-005 | Architectural concern | High | `PlayerViewModel` is a 25+ dependency feature orchestrator that crosses domain/data/player boundaries. | Architectural |
-| ARCH-006 | Highly likely defect | High | Plugin discovery performs multiple blocking IPC calls and maps plugin providers into M3U records. | Local + architectural |
-| ARCH-007 | Architectural concern | Medium | Database schema and the full migration history are concentrated in one multi-thousand-line class. | Architectural |
+| ARCH-006 | Implemented and verified (2026-08-13) | High | Plugin discovery is bounded/cancellable and plugins have stable first-class source identity with lifecycle repair. | Local + architectural |
+| ARCH-007 | Implemented and device-verified (2026-08-13) | Medium | Migrations are version-grouped behind a complete registry and every exported historical schema reaches v75. | Architectural |
 | ARCH-008 | Resolved in code; device validation pending | Medium | Startup launches several overlapping background pipelines with independent work identities and state stores. | Architectural |
 
 ## Detailed Phase 1 findings
@@ -193,7 +193,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Replace the monolithic interface with explicit capabilities (`ProviderAuthenticator`, `LiveCatalogSource`, `VodCatalogSource`, `SeriesCatalogSource`, `GuideSource`, `PlaybackResolver`, `CatchUpSource`) and a registry/factory keyed by provider type. Make `SyncManager` orchestrate capability results rather than provider types. M3U, Jellyfin, plugins, and local sources should implement only supported capabilities.
 - **Fix scope:** Architectural; can be introduced incrementally behind adapters.
 - **Required tests:** A provider capability contract test suite; registry completeness test for every `ProviderType`; unsupported-capability tests returning typed results rather than exceptions; end-to-end sync/playback tests using one fake per capability combination.
-- **Implementation (2026-08-11):** Removed `IptvProvider`; introduced the seven explicit capability interfaces, typed `Available`/`Unsupported`/`Restricted`/`ConfigurationError` resolution, one validated factory per provider type, and the documented capability matrix. Full sync, section retry, and guide orchestration resolve through `ProviderSyncAdapterRegistry`; section implementations no longer re-dispatch on `ProviderType`. Detail hydration, on-demand guide, playback, catch-up, recording-source resolution, and setup resolve through the same capability boundary. Jellyfin movie/series retry is supported, configured M3U XMLTV exposes a cache-backed guide, and absent features return typed results. Architecture tests reject direct protocol-client construction outside `TypedProviderClientFactory`, reintroduction of `IptvProvider`, provider-type redispatch in `SyncManager`, and provider-type branching in the runtime playback/recording/guide boundaries. Stalker playback cache/learning side effects deliberately remain behind its adapter for ARCH-004/WP5.
+- **Implementation (2026-08-11; ARCH-004 follow-up 2026-08-13):** Removed `IptvProvider`; introduced the seven explicit capability interfaces, typed `Available`/`Unsupported`/`Restricted`/`ConfigurationError` resolution, one validated factory per provider type, and the documented capability matrix. Full sync, section retry, and guide orchestration resolve through `ProviderSyncAdapterRegistry`; section implementations no longer re-dispatch on `ProviderType`. Detail hydration, on-demand guide, playback, catch-up, recording-source resolution, and setup resolve through the same capability boundary. Jellyfin movie/series retry is supported, configured M3U XMLTV exposes a cache-backed guide, and absent features return typed results. Architecture tests reject direct protocol-client construction outside `TypedProviderClientFactory`, reintroduction of `IptvProvider`, provider-type redispatch in `SyncManager`, and provider-type branching in the runtime playback/recording/guide boundaries. Stalker playback observations are now returned from resolution and persisted separately through generation fencing.
 
 ### ARCH-002 — Core domain model is polluted by Stalker transport, fingerprint, and learned state
 
@@ -241,7 +241,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 
 ### ARCH-004 — Playback resolver has contradictory provider dispatch and hidden side effects
 
-- **Classification:** Confirmed defect and architectural concern
+- **Classification:** Implemented and verified (2026-08-13)
 - **Severity:** Medium
 - **Where:** `data/.../remote/xtream/XtreamStreamUrlResolver.kt:45-227`, especially `resolveWithMetadata`; Stalker provider cache and learning helpers in the same class.
 - **Current behavior:** A class named `XtreamStreamUrlResolver` resolves Xtream, Stalker, M3U, and Jellyfin. In its exhaustive provider `when`, `ProviderType.M3U` is handled at lines 217-224 and then listed again with Jellyfin at lines 225-226. Kotlin accepts this, and the forced data-module compile passed, but the second M3U label contradicts the preceding pass-through behavior. The resolver also decrypts provider state, constructs/caches a full `StalkerProvider`, authenticates/resolves a link, and persists learned Stalker playback behavior.
@@ -250,6 +250,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Immediately remove the duplicate M3U label and add exhaustive provider-routing tests. Rename/split this into a provider-neutral `PlaybackResolverRegistry` with independent Xtream, Stalker, M3U, and Jellyfin resolvers. Return explicit `PlaybackResolution` plus optional observations; persist observations in a separate coordinator with compare/version semantics rather than inside resolution.
 - **Fix scope:** Duplicate-label fix is local; side-effect/cache correction is architectural.
 - **Required tests:** One routing test per provider for internal and direct URLs; blank/missing provider cases; Stalker cache invalidation after every configuration field changes; concurrent resolve/edit; temporary-link expiry/renewal; observation persistence conflict tests.
+- **Implementation (2026-08-13):** Replaced provider-type dispatch in the former Xtream-named resolver with the provider-neutral `ProviderPlaybackResolver`/`PlaybackResolverRegistry` boundary backed by independently registered playback capabilities. Resolution now returns `PlaybackResolution` observations without persisting them; `PlaybackObservationCoordinator` owns explicit generation-fenced persistence, and production callers opt into `resolveAndCommitMetadata`. The old class name remains only as a compatibility type alias. Routing, Stalker configuration replacement, temporary-link behavior, and stale-generation compare-and-set coverage are present in the resolver/provider snapshot suites.
 
 ### ARCH-005 — `PlayerViewModel` crosses every layer and is a feature-level god object
 
@@ -265,7 +266,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 
 ### ARCH-006 — Plugin discovery blocks callers and plugins are not first-class providers
 
-- **Classification:** Highly likely defect
+- **Classification:** Implemented and verified (2026-08-13)
 - **Severity:** High
 - **Where:** `app/.../plugins/StreamVaultPluginManager.kt`, especially `resolvePlugin`, `readManifestFromService`, `refreshTvInputCatalogInBackground`, and provider mapping/import methods.
 - **Current behavior:** Discovery resolves each service and uses `runBlocking(Dispatchers.IO)` for status and manifest Messenger calls with 2.5s and 3s timeouts. These calls are sequential per plugin and are invoked from non-suspending discovery helpers. Background TV refresh creates an unowned `CoroutineScope(Dispatchers.IO)`. Plugin catalog identity is persisted as a mapping to an M3U provider, so plugin lifecycle and provider lifecycle are coupled indirectly by names/IDs and preferences.
@@ -274,10 +275,11 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Make discovery/status loading suspending and concurrent with a bounded global timeout, expose per-plugin loading/error state, and run it in a lifecycle-owned scope. Model plugins as a provider/source capability with stable package/service/manifest identity and explicit uninstall/disable cleanup. Replace the ad-hoc scope with injected application work coordination or WorkManager if durable.
 - **Fix scope:** Local for blocking calls/scope; architectural for provider modeling.
 - **Required tests:** Main-thread discovery test; multiple slow/dead plugin services; timeout/cancellation; uninstall during import; duplicate manifest IDs; mapping cleanup and TV catalog consistency; process death during catalog import.
+- **Implementation (2026-08-13):** Discovery is suspending, concurrent per service, bounded by request and global timeouts, cancellation-safe, and exposes per-component loading/partial/timeout/error state. Application-owned `PluginWorkCoordinator` replaces ad-hoc scopes. Plugins implement the domain `ProviderSourceRegistry` as first-class `PluginProviderSource` values with package/service/manifest identity, capabilities, enabled state, and an explicitly labeled backing storage representation. Enable/disable mutations are serialized and checkpointed before IPC; startup and package broadcasts replay interrupted import/removal work, repair missing ownership, and remove providers only when their exact Android service component is absent.
 
 ### ARCH-007 — Database definition and migration history are too concentrated to audit safely
 
-- **Classification:** Architectural concern
+- **Classification:** Implemented and device-verified (2026-08-13)
 - **Severity:** Medium
 - **Where:** `data/.../local/StreamVaultDatabase.kt` and generated `data/schemas`.
 - **Current behavior:** One multi-thousand-line Room database class declares a large entity set and a long sequence of handwritten migrations. The forced compile emitted dozens of migration override warnings and two warnings about inferred intersection types in migration code, in addition to schema-related warning noise.
@@ -286,6 +288,7 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Split migrations into versioned files grouped by feature, introduce reusable migration assertions/backfill helpers, and maintain an explicit schema-invariant checklist. Treat warnings as errors after cleaning the current baseline. Keep Room schema exports under version control and test every supported historical start version.
 - **Fix scope:** Architectural organization; individual warning fixes are local.
 - **Required tests:** Room MigrationTestHelper coverage from every shipped schema to current; multi-hop and direct-chain equivalence; data-preservation fixtures for every provider, EPG assignment, recording, history, and plugin mapping; downgrade/restore incompatibility messaging.
+- **Implementation (2026-08-13):** `StreamVaultDatabase` now contains the Room schema/DAO surface and compatibility aliases only. All 74 adjacent migrations are physically grouped into `LegacyMigrationsV1To24`, `LegacyMigrationsV24To49`, and `FeatureMigrationsV49To75`, with shared SQL/backfill validation in `MigrationSupport` and one ordered production registry. `DATABASE_MIGRATION_INVARIANTS.md` records the review checklist; registry validation fails on any missing, duplicate, non-adjacent, or reordered version. Historical ownership defects were repaired for parental-control fields, FTS definitions/triggers, provider HTTP/Stalker fields, plugin/alarm cleanup, hydration/state-table reintroduction, and final `sync_metadata` convergence. The Android `MigrationTestHelper` class now validates every exported origin (v1 and v3-v74; no v2 export exists) against v75 using the exact production registry, alongside populated provider/favorite/EPG/recording/history fixtures. All 37 tests passed on `Television_1080p(AVD) - 16` on 2026-08-13.
 
 ### ARCH-008 — Background work is fragmented across independently scheduled pipelines
 
@@ -394,7 +397,7 @@ Phase 2 should review these files/modules first, in this order:
 | WORK-001 | Local database maintenance is incorrectly gated on connectivity | Resolved (2026-08-01) | Medium |
 | WORK-002 | Recording reconciliation retries every error without classification/cap | Resolved (2026-07-29) | Medium |
 | UPDATE-001 | Failed automatic update checks suppress another attempt for 24 hours | Resolved (2026-07-29) | Medium |
-| MEMORY-001 | Process-lifetime maps grow with provider/category/host/media identities | Architectural concern | Medium |
+| MEMORY-001 | Process-lifetime maps grow with provider/category/host/media identities | Implemented and verified (2026-08-13) | Medium |
 | PERSIST-001 | The central preferences DataStore has no explicit corruption recovery | Implemented; boundary verification pending (2026-07-30) | Medium |
 | TEST-001 | The player suite asserts the opposite MPEG-TS extractor policy from production | Resolved (2026-07-26) | Medium |
 
@@ -564,7 +567,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 
 ### MEMORY-001 — Process-lifetime maps grow with provider/category/host/media identities
 
-- **Classification:** Architectural concern
+- **Classification:** Implemented and verified (2026-08-13)
 - **Severity:** Medium
 - **Where:** `PlayerDataSourceFactoryProvider.clientsByKey:42-78`; `PlayerAddressHealthStore`; `Media3PlayerEngine.promotedLiveHlsBufferReasonsByMediaId:225,1764`; `AudioCompatibilityMemoryStore`; movie/series category caches and locks; `EpgSourceRepositoryImpl.sourceRefreshMutexes:81,218`; URL resolver Stalker-provider registry.
 - **Current behavior:** Singleton/long-lived maps, sets, and per-media preference keys have no maximum, comprehensive TTL sweep, or deletion hook. Keys are data/network driven; player client keys include address/proxy variations. `SyncManager.onProviderDeleted` does not invalidate these other registries.
@@ -573,6 +576,7 @@ The urgent shared fixes are cancellation-safe HTTP, recording/timeshift lifecycl
 - **Recommended correction:** Set ownership/bounds for every registry: provider-delete invalidation, LRU/TTL with proactive sweep, removal of unused mutexes, and a small fixed set of client profiles. Version/cap persisted compatibility memory.
 - **Fix scope:** Shared cache policy plus local hooks.
 - **Required tests:** 100,000 unique keys remain within fixed bounds; delete/re-add; TTL without same-key lookup; concurrent eviction/use; active calls survive client policy.
+- **Implementation (2026-08-13):** Added shared bounded/expiring cache, bounded-key-set, and idle self-releasing keyed-mutex policies. Applied fixed limits/TTL or lifecycle removal to player clients, address health, promoted-HLS reasons, versioned audio compatibility memory, movie/series/EPG locks and in-flight sets, sync/work locks, Stalker resolver/auth/URL/identity caches, and provider deletion hooks. Stress tests exercise 100,000 unique keys, TTL sweeping without same-key access, delete/re-add, eviction during active use, and lock replacement safety; evicting a client reference does not cancel an already active OkHttp call.
 
 ### PERSIST-001 — The central preferences DataStore has no explicit corruption recovery
 
@@ -1046,7 +1050,7 @@ The main feature risks are cross-store transitions: provider edits expose partia
 - **Fix scope:** Migration test infrastructure/CI; no production migration omission was found.
 - **Required tests:** 61/60/57/oldest-supported→62, every provider type, defaults/FKs/indexes, registry parity, and downgrade if supported.
 - **Resolution:** Added an Android Room migration test for the 61→62 production migration and verifies both newly added provider policy columns.
-- **2026-07-27 implementation:** A populated v60 provider fixture now migrates through the current v66 schema and verifies retained provider data plus v62 policy defaults; v65→66 has its own schema fixture. Coverage for every supported upgrade origin and production-registry parity remains required. **Status: Needs improvement.**
+- **2026-08-13 completion:** The production registry is contiguous through v75 and the Android migration suite now opens every committed historical schema artifact (v1 and v3-v74; v2 was never exported), runs its exact production path to v75, and validates the final Room schema. Populated targeted fixtures cover provider variants, favorites/groups, EPG assignment, recording/reminder state, history, plugin ownership, provider snapshots, and foreign-key preservation. All 37 migration tests passed on `Television_1080p(AVD) - 16`. **Status: Resolved.**
 
 ## Phase 4 verification and evidence
 
@@ -1359,7 +1363,7 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - Runtime routing: setup, full/section/native-guide sync, movie/series hydration, on-demand guide, playback, catch-up, and recording source resolution route through registry adapters. `SyncManager` retains lock/progress/commit-fence ownership for WP5, but no longer switches on `ProviderType` for full, section, or guide dispatch. Jellyfin VOD/series retry and optional configured M3U guide behavior are covered.
 - Persistence/compatibility: Room 72→73 adds encrypted typed configuration, account/runtime, and generation-bound learning storage; 73→74 rebuilds stable providers and validates all foreign keys. Typed pending revisions retain legacy recovery decoding. Backup v11 is config-only for Stalker transient state and v0–10 imports remain supported.
 - Verification: domain 125/125, data 924/924, and app 279/279 JVM tests pass; Android-test sources compile. Focused Room 72→73 and 72→74 migration tests pass on the available API 36 emulator with all four provider types, encrypted credentials, pending revisions, Stalker learning, active state, dependent catalog rows, stable IDs, and zero FK violations.
-- Remaining evidence: API 25 migration execution is unavailable in the installed Android SDK/emulator set. The broader historical migration instrumentation class is not yet a clean release gate because 16 older schema-fixture tests still fail independently of the passing 72→74 cases. ARCH-001 and ARCH-002 are therefore implemented in code, with this device/migration evidence explicitly pending rather than claimed complete.
+- Remaining evidence: API 25 migration execution is unavailable in the installed Android SDK/emulator set. On the available API 36 TV emulator, the repaired historical suite is now a clean release gate: all 37 migration tests pass, including every committed historical origin to v75. ARCH-001 and ARCH-002 therefore retain only the explicit API 25 device-evidence caveat.
 
 ### WP4 — Bounded ingestion and provider correctness
 

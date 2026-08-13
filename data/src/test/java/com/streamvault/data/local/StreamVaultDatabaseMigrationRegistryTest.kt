@@ -11,8 +11,10 @@ class StreamVaultDatabaseMigrationRegistryTest {
         assertThat(migrations).hasSize(StreamVaultDatabaseMigrationRegistry.CURRENT_VERSION - 1)
         assertThat(migrations.map { it.startVersion })
             .containsExactlyElementsIn(1 until STREAM_VAULT_DATABASE_VERSION)
+            .inOrder()
         assertThat(migrations.map { it.endVersion })
             .containsExactlyElementsIn(2..STREAM_VAULT_DATABASE_VERSION)
+            .inOrder()
     }
 
     @Test

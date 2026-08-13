@@ -38,8 +38,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
@@ -49,7 +47,7 @@ import java.io.InputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import com.streamvault.data.remote.NetworkTimeoutConfig
-import java.util.concurrent.ConcurrentHashMap
+import com.streamvault.domain.util.KeyedMutexRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -77,7 +75,7 @@ class EpgRepositoryImpl @Inject constructor(
     private fun List<Program>.shiftAll(offsetMs: Long): List<Program> =
         if (offsetMs == 0L) this else map { it.shifted(offsetMs) }
 
-    private val providerRefreshMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val providerRefreshMutexes = KeyedMutexRegistry<Long>()
 
     private val epgHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
@@ -267,7 +265,7 @@ class EpgRepositoryImpl @Inject constructor(
 
     override suspend fun refreshEpg(providerId: Long, epgUrl: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            providerRefreshMutex(providerId).withLock {
+            providerRefreshMutexes.withLock(providerId) {
                 val stagingProviderId = -providerId
                 val providerTimezoneId = (providerCapabilityResolver?.snapshot(providerId)?.configuration as? StalkerConfig)
                     ?.device
@@ -365,7 +363,7 @@ class EpgRepositoryImpl @Inject constructor(
     }
 
     override fun onProviderDeleted(providerId: Long) {
-        providerRefreshMutexes.remove(providerId)
+        // Entries are reference-counted and removed after the final refresh exits.
     }
 
     override suspend fun getResolvedProgramsForChannels(
@@ -430,6 +428,4 @@ class EpgRepositoryImpl @Inject constructor(
         return channelIds.associateWith { id -> grouped[id]?.firstOrNull() }
     }
 
-    private fun providerRefreshMutex(providerId: Long): Mutex =
-        providerRefreshMutexes.computeIfAbsent(providerId) { Mutex() }
 }
