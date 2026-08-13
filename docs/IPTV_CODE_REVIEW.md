@@ -263,6 +263,8 @@ App update checking starts from `StreamVaultApp` and stores cached release metad
 - **Recommended correction:** Introduce a `PlaybackSessionCoordinator` with an immutable session ID/state machine and scoped child jobs. Separate content resolution, provider playback resolution, player control/recovery, guide timeline, history, cast, and recording into explicit collaborators. ViewModel should translate coordinator state to UI and dispatch user intents. Depend on domain/app contracts rather than `data` concrete classes.
 - **Fix scope:** Architectural; migrate one session concern at a time.
 - **Required tests:** Stale-event/session-ID tests; rapid zap and content-switch tests; cancellation at every preparation stage; token renewal racing stop/release; recovery/cast/recording interactions; ViewModel lifecycle destruction while work is active.
+- **Implementation (2026-08-13):** Added `PlaybackSessionCoordinator` with parent-owned session scopes and stale-session rejection; split engine, preparation, content/provider resolution, EPG/guide, playback context, preview handoff, timeshift, recovery state/execution, history, recording, cast, translation, playlist, and preference responsibilities into feature collaborators. Engine handoff is ViewModel-scoped, recovery resolves the active engine dynamically, recovery URL history survives recovery transitions, EPG callbacks are session-keyed, and resolution failure messages remain attached to the current resolution result.
+- **Verification:** Focused coordinator/regression tests and the full `:app:testDebugUnitTest` suite pass. Live/device validation remains pending.
 
 ### ARCH-006 — Plugin discovery blocks callers and plugins are not first-class providers
 
