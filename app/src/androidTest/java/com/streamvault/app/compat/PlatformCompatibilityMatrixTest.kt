@@ -13,7 +13,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Small, repeatable platform contract suite. CI runs this class on API 25, 28, 33, 35, and 36 with
+ * Small, repeatable platform contract suite. CI runs this class on API 25, 26, 28, 32, 33, 35,
+ * and 36 with
  * -PcompatApi so a green host JVM test cannot hide a platform-only regression.
  */
 @RunWith(AndroidJUnit4::class)
@@ -45,6 +46,28 @@ class PlatformCompatibilityMatrixTest {
         assertThat(
             ExternalDestination.fromLegacyRoute("provider_setup?importUri=%not-a-valid-escape")
         ).isEqualTo(ExternalDestination.ProviderSetup())
+    }
+
+    @Test
+    fun encodedReturnRouteAndRepeatedParametersRemainSafe() {
+        assertThat(
+            ExternalDestination.fromLegacyRoute(
+                "movie_detail/42?returnRoute=live_tv%3Fcategory%3Dnews%2520east"
+            )
+        ).isEqualTo(
+            ExternalDestination.MovieDetail(
+                movieId = 42L,
+                returnRoute = "live_tv?category=news%20east"
+            )
+        )
+
+        assertThat(
+            ExternalDestination.fromLegacyRoute(
+                "movie_detail/42?returnRoute=live_tv&returnRoute=home"
+            )
+        ).isEqualTo(
+            ExternalDestination.MovieDetail(movieId = 42L, returnRoute = "home")
+        )
     }
 
     @Test

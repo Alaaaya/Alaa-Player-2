@@ -1092,10 +1092,10 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 
 | ID | Finding | Classification | Severity |
 |---|---|---|---|
-| PLATFORM-001 | Boot recovery starts a prohibited `dataSync` foreground service before enqueuing durable work | Needs improvement (2026-07-26 audit) | High |
-| PLATFORM-002 | Recording and downloads share the six-hour `dataSync` quota without timeout handling | Needs improvement (2026-07-26 audit) | High |
+| PLATFORM-001 | Boot recovery starts a prohibited `dataSync` foreground service before enqueuing durable work | Implemented in code; API 35/36 device gate pending (2026-08-14) | High |
+| PLATFORM-002 | Recording and downloads share the six-hour `dataSync` quota without timeout handling | Partially resolved; reduced-quota and restart/finalization device gates pending (2026-08-14) | High |
 | DOWNLOAD-001 | Process-killed downloads remain permanently `DOWNLOADING` | Resolved (2026-07-29) | High |
-| ALARM-001 | Exact-alarm permission revocation cancels schedules with no grant-time restoration | Needs improvement (2026-07-26 audit) | High |
+| ALARM-001 | Exact-alarm permission revocation cancels schedules with no grant-time restoration | Implemented in code; revoke/regrant stopped-app device gate pending (2026-08-14) | High |
 | BACKUP-003 | Backup inspection/import has unbounded parsing and quadratic conflict scans | Resolved (2026-07-29) | High |
 | REMINDER-001 | Notification failure is swallowed and the reminder is marked delivered | Resolved (2026-07-29) | Medium |
 | CLOCK-001 | A future-dated `RUNNING` Xtream index job can suppress recovery indefinitely | Resolved (2026-07-29) | Medium |
@@ -1133,6 +1133,8 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 - **Required tests:** API 35/36 boot broadcast with FGS restriction enabled; verify no receiver crash, worker enqueued, future alarms restored, overdue windows classified, and app never needs to be opened.
 - **2026-07-26 audit:** The receiver now enqueues `RecordingReconcileWorker` instead of starting the service, which is the required direction. It still lacks the API 35/36 boot-restriction fixture and evidence that every service-start boundary rejects safely while preserving the pending recording. **Status: Needs improvement.**
 
+- **2026-08-14 implementation follow-up:** `RecordingRestoreReceiver` is now WorkManager-only for boot, package replacement, and exact-alarm permission restoration. The API 35/36 release matrix dispatches the production receiver through an explicit broadcast and asserts one durable one-shot reconciliation work item. The connected API 35/36 execution is still pending in this environment, so boot-restriction/no-crash evidence remains a release gate.
+
 ### PLATFORM-002 — Recording and downloads share the six-hour data-sync quota without timeout handling
 
 - **Classification / severity:** Confirmed defect — High
@@ -1143,6 +1145,8 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 - **Fix scope:** Recording/download execution architecture and platform compatibility.
 - **Required tests:** Reduced quota via device config; one >6h recording; cumulative recording/download use; timeout during read/write/finalization; restart/reconcile; no ANR/crash and truthful partial state.
 - **2026-07-26 audit:** Both services now override `Service.onTimeout`, cancel/join their owned work, persist an explicit timeout outcome, and stop themselves. A shared quota owner, reduced-quota device fixtures, and restart/finalization coverage are still absent. **Status: Needs improvement.**
+
+- **2026-08-14 implementation follow-up:** Added the persisted application-level `DataSyncQuotaOwner`, with one shared six-hour/24-hour ledger, recording/download leases, process-restart accrual, abandoned-session recovery, quota-window rollover, and service release on normal destruction or Android timeout. Both services now use the same owner while retaining their existing timeout persistence paths. Deterministic shared-budget tests pass; reduced-quota `device_config`, long-running I/O, process-kill, and finalization device evidence remain open. **Status: Partially resolved; Needs improvement until the device gates pass.**
 
 ### DOWNLOAD-001 — Process-killed downloads remain permanently DOWNLOADING
 
@@ -1167,6 +1171,8 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 - **Required tests:** Revoke (alarms disappear), grant broadcast, rapid grant/revoke race, app stopped, reboot, package replace, overdue reminder/recording, duplicate restoration, and permission denied after data restore.
 - **Resolution:** Both persisted schedule restore receivers now handle Android's exact-alarm permission-state broadcast and reuse their existing idempotent recording/reminder restoration paths.
 - **2026-07-27 implementation:** Recording runs and reminders now persist whether their exact alarm is armed. Restoration explicitly rechecks the capability, marks eligible entries unarmed when unavailable, and marks them armed only after rescheduling succeeds. Revoke/grant race and stopped-app device coverage remain required. **Status: Needs improvement.**
+
+- **2026-08-14 implementation follow-up:** The release matrix now delivers the exact-alarm permission broadcast to the production recording restore receiver twice and verifies WorkManager uniqueness, with the manifest carrying the same action for both recording and reminder restore receivers. Real permission revoke/regrant, stopped-app, overdue-entry, and exactly-once alarm restoration still require a connected API 35/36 device. **Status: Implemented in code; device gate pending.**
 
 ### BACKUP-003 — Backup inspection/import has unbounded parsing and quadratic conflict scans
 
@@ -1227,6 +1233,8 @@ Phase 5 should stress these boundaries: process death/cancellation during commit
 - **Required tests:** API 25, 26, 28, 32, and 33 instrumented route parsing; encoded UTF-8, `+`, malformed `%`, duplicate keys, long values, provider import URI, and return route; lint must have zero unsuppressed runtime/API errors.
 - **Resolution:** Legacy routes now use the API-compatible string-charset decoder and discard malformed query values rather than crashing navigation.
 - **2026-07-26 audit:** The local API-compatibility change and a JVM malformed-value test are present. API-25--32 device smoke coverage and the required zero-unsuppressed-runtime/API-lint gate are still absent. **Status: Needs improvement.**
+
+- **2026-08-14 implementation follow-up:** The route parser now uses the API-compatible string-charset decoder and the instrumentation matrix covers API 25, 26, 28, 32, 33, 35, and 36 with UTF-8, `+`, malformed, duplicate, and encoded return-route cases. `:app:lintDebug` passes; the baseline contains no unsuppressed `NewApi`, `InlinedApi`, `UnsafeOptInUsageError`, or foreground-service/API runtime findings, although broader historical lint backlog remains baselined. Physical API 25-32 execution remains CI-gated. **Status: Implemented in code; device gate pending.**
 
 ## Phase 5 verification and evidence
 
@@ -1314,6 +1322,8 @@ WP0 and the initial WP7 harness can start immediately. WP1 establishes the cance
 - **Primary ownership:** `app`/`data` manifests; recording/download services and receivers; WorkManager scheduling; navigation compatibility; Room migration tests.
 - **Deliverables:** WorkManager-first boot recovery; exact-alarm grant restoration and unarmed state; `Service.onTimeout`/quota-safe terminal handling or replacement APIs; API-compatible route decoding; populated 61→62 and supported-version→62 migration fixtures.
 - **Exit criteria:** API 25 route/deep-link smoke passes; API 35/36 boot restriction and reduced `dataSync` quota fixtures pass; revoke/re-grant restores exactly one alarm; Room production registry parity and every supported upgrade fixture pass; no unsuppressed runtime/API lint error.
+
+**WP0 implementation follow-up (2026-08-14):** Boot recovery remains WorkManager-first, both `dataSync` services now participate in a persisted shared quota ledger and retain timeout finalization, exact-alarm restore receivers are manifest-registered and idempotent through unique work/armed-state persistence, and the route compatibility matrix is wired for API 25/26/28/32/33/35/36. `:app:lintDebug` passes with no unsuppressed runtime/API findings. The migration registry remains contiguous through v75 and the populated API 36 suite remains 37/37. Connected API 25-36 execution, reduced-quota controls, stopped-app permission races, process-kill/finalization, and API 25 migration execution are still release gates; WP0 is therefore not fully closed.
 
 ### WP1 — Cancellation and resource ownership
 

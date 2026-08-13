@@ -43,8 +43,8 @@ class RecordingReconcileWorker(
     }
 
     companion object {
-        private const val PERIODIC_WORK_NAME = "RecordingReconcileWorker"
-        private const val ONE_SHOT_WORK_NAME = "RecordingReconcileWorkerOneShot"
+        private const val PERIODIC_WORK_NAME = RECORDING_RECONCILE_PERIODIC_WORK_NAME
+        private const val ONE_SHOT_WORK_NAME = RECORDING_RECONCILE_ONE_SHOT_WORK_NAME
         private const val KEY_ONE_SHOT = "one_shot"
 
         fun enqueuePeriodic(context: Context) {
@@ -75,6 +75,8 @@ class RecordingReconcileWorker(
     }
 }
 
+internal const val RECORDING_RECONCILE_PERIODIC_WORK_NAME = "RecordingReconcileWorker"
+internal const val RECORDING_RECONCILE_ONE_SHOT_WORK_NAME = "RecordingReconcileWorkerOneShot"
 internal const val RECORDING_RECONCILE_MAX_ONE_SHOT_ATTEMPTS = 3
 internal const val RECORDING_RECONCILE_BACKOFF_MILLIS = 30_000L
 internal const val RECONCILIATION_DIAGNOSTIC_OUTCOME = "outcome"

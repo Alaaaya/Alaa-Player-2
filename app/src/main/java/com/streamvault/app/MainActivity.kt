@@ -277,6 +277,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterPlayerPictureInPictureModeIfEligible(requirePlaying: Boolean = true): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         if (!supportsPictureInPicture() || isInPictureInPictureMode) {
             return false
         }
@@ -290,6 +291,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyPlayerPictureInPictureParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!supportsPictureInPicture()) return
         runCatching {
             PictureInPictureCompat.apply(this, playerPictureInPictureState)
