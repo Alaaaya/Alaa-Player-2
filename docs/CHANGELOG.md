@@ -13,15 +13,29 @@ All notable product changes are recorded in this document.
 - Added Stalker VOD browsing with paged loading, on-demand catalog expansion, and complete-category loading as an option.
 - Added M3U VOD classification to distinguish movie and series entries during playlist imports.
 - Added bounded XMLTV ingestion with deterministic timezone-policy handling for large or inconsistent guide feeds.
+- Added capability-based provider routing with typed configurations and stable provider identities across supported sources.
+- Added checkpointed, idempotent backup restore with semantic ID mapping, partial-result reporting, and bounded import validation.
+- Added WorkManager-first recovery for scheduled work, including boot, package replacement, and exact-alarm permission changes.
+- Added shared data-sync quota accounting and timeout finalization for recording and download operations.
+- Added durable process-death download reconciliation with safe resume and restart handling.
+- Added complete historical Room migration coverage through the current database schema.
 - Added durable provider workflow checkpoints, configuration revisions, and recovery state for resumable background operations.
 - Added plugin provider ownership and playback-routing support for safer plugin integrations.
+- Added session-scoped playback coordination and recovery to prevent stale preparation work from changing the active player.
 - Added app-update policy and worker support for channel-aware update checks.
 
 ### Changed
 
 - Improved Stalker bulk live synchronization to tolerate slow large catalogs, detect stalled transfers, retry transient failures, and fall back to category loading when needed.
 - Improved Stalker playback resolution with content capability detection and direct-media fallback for portals that return non-standard playback responses.
+- Improved provider ingestion with bounded M3U, XMLTV, and Jellyfin processing that preserves the last committed catalog when a refresh fails or exceeds limits.
+- Improved provider isolation for Stalker sessions, portal expiry recovery, timezone-aware dates, and collision-resistant remote IDs.
 - Improved cancellation and recovery across downloads, reminders, backups, provider synchronization, and Jellyfin catalog pagination.
+- Improved recording, timeshift, and plugin IPC resource ownership so cancellation and cleanup cannot outlive their sessions.
+- Improved provider-scoped progress and serialized workflow admission so concurrent work cannot overwrite another provider's state.
+- Improved plugin discovery with bounded cancellation, stable source identity, and lifecycle reconciliation.
+- Improved playback progress persistence with coalesced writes, lifecycle flushes, and targeted Watch Next updates.
+- Improved local database maintenance and long-lived caches so offline maintenance works and provider-owned entries are evicted safely.
 - Improved XMLTV parsing and EPG-source handling to apply ingestion limits, preserve source policies, and recover cleanly from interrupted refreshes.
 
 ### Fixed
@@ -31,6 +45,10 @@ All notable product changes are recorded in this document.
 - Fixed Stalker Series loading for portals that expose series through VOD endpoints, with improved category mapping and fallback behavior.
 - Fixed Stalker VOD and Series requests so mixed VOD/Series portal responses are classified correctly.
 - Fixed Jellyfin image authentication so account-scoped image URLs use the correct provider credentials.
+- Fixed failed provider replacements so the previously active configuration and catalog remain usable until the replacement is committed.
+- Fixed reminder delivery failures so they remain observable and retryable instead of being marked as delivered.
+- Fixed legacy external-route decoding on API 25–32.
+- Fixed failed live-history writes so returning to the same channel can retry persistence.
 - Fixed provider deletion and backup restore cleanup by recording durable work and resuming safely after interruption.
 
 ## [1.0.16] - 2026-06-19

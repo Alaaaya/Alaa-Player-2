@@ -15,11 +15,14 @@ internal suspend fun PlayerViewModel.persistPlaybackCompletion() {
         positionMs = durationMs.coerceAtLeast(playerEngine.currentPosition.value),
         durationMs = durationMs
     ) ?: return
+    val result = playbackHistoryCoordinator.markAsWatched(completedHistory)
     logRepositoryFailure(
         operation = "Mark playback watched",
-        result = playbackHistoryCoordinator.markAsWatched(completedHistory)
+        result = result
     )
-    playbackHistoryCoordinator.refreshPlaybackSurfaces()
+    if (result.isSuccess) {
+        playbackHistoryCoordinator.refreshPlaybackSurfaces()
+    }
 }
 
 internal fun PlayerViewModel.handlePlaybackEnded() {
