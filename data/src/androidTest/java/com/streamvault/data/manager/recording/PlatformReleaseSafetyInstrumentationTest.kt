@@ -11,6 +11,8 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.manager.reminder.ProgramReminderRestoreReceiver
+import com.streamvault.data.manager.reminder.ProgramReminderRestoreWorker
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.junit.Before
@@ -71,10 +73,51 @@ class PlatformReleaseSafetyInstrumentationTest {
         assertThat(work).hasSize(1)
     }
 
+    @Test
+    fun bootBroadcastEnqueuesDurableReminderRecovery() {
+        sendToReminderRestoreReceiver(Intent(Intent.ACTION_BOOT_COMPLETED))
+
+        val work = workManager
+            .getWorkInfosForUniqueWork(ProgramReminderRestoreWorker.ONE_SHOT_WORK_NAME)
+            .get(10, TimeUnit.SECONDS)
+
+        assertThat(work).hasSize(1)
+        assertThat(work.single().tags).contains(ProgramReminderRestoreWorker::class.java.name)
+    }
+
+    @Test
+    fun exactAlarmPermissionBroadcastsCoalesceForBothRestorationLanes() {
+        val permissionAction = "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
+        sendToRecordingRestoreReceiver(Intent(permissionAction))
+        sendToRecordingRestoreReceiver(Intent(permissionAction))
+        sendToReminderRestoreReceiver(Intent(permissionAction))
+        sendToReminderRestoreReceiver(Intent(permissionAction))
+
+        assertThat(
+            workManager
+                .getWorkInfosForUniqueWork(RECORDING_RECONCILE_ONE_SHOT_WORK_NAME)
+                .get(10, TimeUnit.SECONDS)
+        ).hasSize(1)
+        assertThat(
+            workManager
+                .getWorkInfosForUniqueWork(ProgramReminderRestoreWorker.ONE_SHOT_WORK_NAME)
+                .get(10, TimeUnit.SECONDS)
+        ).hasSize(1)
+    }
+
     private fun sendToRecordingRestoreReceiver(intent: Intent) {
         context.sendBroadcast(
             intent.setComponent(
                 ComponentName(context, RecordingRestoreReceiver::class.java)
+            )
+        )
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    }
+
+    private fun sendToReminderRestoreReceiver(intent: Intent) {
+        context.sendBroadcast(
+            intent.setComponent(
+                ComponentName(context, ProgramReminderRestoreReceiver::class.java)
             )
         )
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()

@@ -120,7 +120,9 @@ class DataSyncQuotaOwner @Inject constructor(
                     .put(KEY_PROCESS_ID, session.processId)
             )
         }
-        preferences.edit {
+        // Lease acquisition/release is release-gate state. Commit synchronously so a process kill
+        // cannot lose the ledger update that is needed to reconcile the next process.
+        preferences.edit(commit = true) {
             putLong(KEY_WINDOW_STARTED_AT, ledger.windowStartedAtMs)
             putLong(KEY_CONSUMED_MS, ledger.consumedMs)
             putString(KEY_SESSIONS, sessions.toString())
