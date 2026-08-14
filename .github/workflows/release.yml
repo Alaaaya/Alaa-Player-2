@@ -217,6 +217,6 @@ jobs:
               ./gradlew --console=plain :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.app.service.DownloadForegroundServiceInstrumentationTest --no-daemon
               ./gradlew --console=plain :data:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.data.manager.recording.PlatformReleaseSafetyInstrumentationTest --no-daemon
             fi
-            if [ "${{ matrix.api-level }}" = "36" ]; then
+            if [ "${{ matrix.api-level }}" = "25" ] || [ "${{ matrix.api-level }}" = "36" ]; then
               ./gradlew --console=plain :data:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.streamvault.data.local.StreamVaultDatabaseMigrationTest --no-daemon
             fi
