@@ -75,7 +75,6 @@ class DownloadManagerImpl @Inject constructor(
     private val transferCopier = DownloadTransferCopier()
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val ownerId = UUID.randomUUID().toString()
-    @Volatile private var recoveryComplete = false
     @Volatile private var playbackActive = false
 
     init {
@@ -272,8 +271,10 @@ class DownloadManagerImpl @Inject constructor(
     )
 
     private suspend fun ensureInterruptedDownloadsRecovered(): Int = recoveryMutex.withLock {
-        if (recoveryComplete) return@withLock 0
-        check(activeJobs.isEmpty()) { "Cannot recover downloads while this process owns active jobs" }
+        // Re-scan whenever the scheduler is idle. A process can observe an orphan after the
+        // application-start coroutine has already run, and a cached one-time result would leave
+        // that durable row unowned until a later process restart.
+        if (activeJobs.isNotEmpty()) return@withLock 0
         val interrupted = downloadDao.getOrphanedDownloading(ownerId)
         interrupted.forEach { entity ->
             val targetLength = outputLength(entity)
@@ -330,7 +331,6 @@ class DownloadManagerImpl @Inject constructor(
                 }
             }
         }
-        recoveryComplete = true
         interrupted.size
     }
 
@@ -677,10 +677,11 @@ class DownloadManagerImpl @Inject constructor(
 
         if (!treeUri.isNullOrBlank()) {
             val tree = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
-            val file = tree?.createFile(mimeType, fileName)
-                ?: error("Could not create download file in selected folder")
+                ?: throw FileNotFoundException("Selected download folder is unavailable")
+            val file = tree.createFile(mimeType, fileName)
+                ?: throw FileNotFoundException("Could not create download file in selected folder")
             val output = context.contentResolver.openOutputStream(file.uri)
-                ?: error("Could not open selected download file")
+                ?: throw FileNotFoundException("Could not open selected download file")
             return@withContext OutputTarget(
                 uri = file.uri,
                 displayPath = file.name ?: fileName,
