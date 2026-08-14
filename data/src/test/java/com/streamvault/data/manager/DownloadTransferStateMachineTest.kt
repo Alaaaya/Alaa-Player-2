@@ -157,5 +157,10 @@ class DownloadTransferStateMachineTest {
     fun `permission loss is permanent even when the network is unavailable`() {
         assertThat(isPermanentDownloadStorageFailure(FileNotFoundException("Permission denied"))).isTrue()
         assertThat(isPermanentDownloadStorageFailure(SecurityException("tree revoked"))).isTrue()
+        assertThat(
+            isPermanentDownloadStorageFailure(
+                DownloadStorageException(FileNotFoundException("selected folder revoked"))
+            )
+        ).isTrue()
     }
 }
