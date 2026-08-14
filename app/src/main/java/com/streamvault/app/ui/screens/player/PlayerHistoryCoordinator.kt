@@ -45,6 +45,10 @@ class PlayerHistoryCoordinator @Inject constructor(
     internal suspend fun updateResumePosition(history: PlaybackHistory): Result<Unit> =
         repository.updateResumePosition(history)
 
+    internal suspend fun updateWatchNextProgress(history: PlaybackHistory) {
+        watchNextManager.updateWatchNextProgress(history)
+    }
+
     internal suspend fun flushPendingProgress(): Result<Unit> =
         repository.flushPendingProgress()
 

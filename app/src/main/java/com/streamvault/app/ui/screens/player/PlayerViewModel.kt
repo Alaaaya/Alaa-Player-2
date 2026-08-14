@@ -1100,6 +1100,7 @@ class PlayerViewModel @Inject constructor(
         } else {
             PlaybackResolutionUiState.Resolving
         }
+        val contentSwitchFlush = queueContentSwitchProgressFlush()
         val requestVersion = beginPlaybackSession()
         val shouldReloadPlaylist = applyPrepareSessionState(
             streamUrl = streamUrl,
@@ -1123,6 +1124,8 @@ class PlayerViewModel @Inject constructor(
 
         if (!hasArchiveRequest) {
             playbackSessionScope(requestVersion)?.launch {
+                contentSwitchFlush?.join()
+                if (!isActivePlaybackSession(requestVersion)) return@launch
                 if (playerPreviewCoordinator.tryAdoptFullscreenHandoff(
                         channelId = internalChannelId,
                         providerId = providerId,
@@ -1266,7 +1269,8 @@ class PlayerViewModel @Inject constructor(
             hasArchiveRequest = hasArchiveRequest,
             archiveStartMs = archiveStartMs,
             archiveEndMs = archiveEndMs,
-            archiveTitle = archiveTitle
+            archiveTitle = archiveTitle,
+            contentSwitchFlush = contentSwitchFlush
         )
     }
 

@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.player
 import androidx.lifecycle.viewModelScope
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Result
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
@@ -18,7 +19,8 @@ internal fun PlayerViewModel.finalizePreparedPlaybackContext(
     hasArchiveRequest: Boolean,
     archiveStartMs: Long?,
     archiveEndMs: Long?,
-    archiveTitle: String?
+    archiveTitle: String?,
+    contentSwitchFlush: Job?
 ) {
     if (shouldReloadPlaylist) {
         currentCategoryId = categoryId
@@ -37,6 +39,8 @@ internal fun PlayerViewModel.finalizePreparedPlaybackContext(
     if (currentContentType == ContentType.LIVE && hasArchiveRequest) {
         playerEngine.stopLiveTimeshift()
         playbackSessionScope(requestVersion)?.launch {
+            contentSwitchFlush?.join()
+            if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
             val catchUpUrls = when (val catchUpResult = playerProviderCoordinator.buildCatchUpUrls(
                     providerId = currentProviderId,
                     streamId = currentContentId,

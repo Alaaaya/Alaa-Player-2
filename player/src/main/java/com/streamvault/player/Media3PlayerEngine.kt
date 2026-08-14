@@ -392,7 +392,7 @@ class Media3PlayerEngine @Inject constructor(
                     if (now - lastPlaybackSupportSnapshotAtMs >= 30_000L) {
                         lastPlaybackSupportSnapshotAtMs = now
                         val snapshot = buildPlaybackSupportSnapshot()
-                        scope.launch(Dispatchers.IO) { playbackSupportSnapshotStore.write(snapshot) }
+                        playbackSupportSnapshotStore.write(snapshot)
                     }
                 }
                 if (promoteLiveHlsBufferIfNeeded()) {

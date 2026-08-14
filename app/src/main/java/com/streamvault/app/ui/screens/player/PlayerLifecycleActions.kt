@@ -5,10 +5,52 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.player.PlaybackState
 import com.streamvault.player.PlayerEngine
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private const val LIFECYCLE_TOKEN_RENEWAL_LEAD_MS = 60_000L
 private const val LIFECYCLE_TOKEN_RENEWAL_CHECK_INTERVAL_MS = 10_000L
+
+/** Captures the old content before prepare mutates the shared playback context. */
+internal fun PlayerViewModel.queueContentSwitchProgressFlush(): Job? {
+    if (currentContentType == ContentType.LIVE) return null
+    val history = buildPlaybackHistorySnapshot(
+        positionMs = playerEngine.currentPosition.value,
+        durationMs = playerEngine.duration.value
+    )
+    return viewModelScope.launch {
+        if (history != null) {
+            val result = playbackHistoryCoordinator.updateResumePosition(history)
+            logRepositoryFailure(
+                operation = "Flush playback progress for content switch",
+                result = result
+            )
+            if (result.isSuccess) {
+                playbackHistoryCoordinator.updateWatchNextProgress(history)
+            }
+        }
+        logRepositoryFailure(
+            operation = "Flush pending playback progress for content switch",
+            result = playbackHistoryCoordinator.flushPendingProgress()
+        )
+    }
+}
+
+/**
+ * Queues a lifecycle-boundary flush and returns the job so a transition owner can await it.
+ * The job remains in viewModelScope, so a caller that only needs to request the flush may safely
+ * ignore the return value.
+ */
+internal fun PlayerViewModel.queueForcedProgressFlush(): Job? {
+    if (currentContentType == ContentType.LIVE) return null
+    return viewModelScope.launch {
+        persistPlaybackProgress()
+        logRepositoryFailure(
+            operation = "Flush pending playback progress at lifecycle boundary",
+            result = playbackHistoryCoordinator.flushPendingProgress()
+        )
+    }
+}
 
 internal fun PlayerViewModel.startProgressTracking() {
     progressTrackingJob?.cancel()
@@ -30,11 +72,14 @@ internal suspend fun PlayerViewModel.persistPlaybackProgress() {
 
     if (pos > 0 && dur > 0) {
         val history = buildPlaybackHistorySnapshot(pos, dur) ?: return
+        val result = playbackHistoryCoordinator.updateResumePosition(history)
         logRepositoryFailure(
             operation = "Persist playback resume position",
-            result = playbackHistoryCoordinator.updateResumePosition(history)
+            result = result
         )
-        playbackHistoryCoordinator.refreshPlaybackSurfaces()
+        if (result.isSuccess) {
+            playbackHistoryCoordinator.updateWatchNextProgress(history)
+        }
     }
 }
 
@@ -66,19 +111,14 @@ internal fun PlayerViewModel.startTokenRenewalMonitoring(expirationTime: Long?) 
     }
 }
 
-fun PlayerViewModel.onAppBackgrounded() {
-    if (!isAppInForeground) return
+fun PlayerViewModel.onAppBackgrounded(): Job? {
+    if (!isAppInForeground) return null
     isAppInForeground = false
     shouldResumeAfterForeground = playerEngine.isPlaying.value
     if (shouldResumeAfterForeground) {
         playerEngine.pause()
     }
-    if (currentContentType != ContentType.LIVE) {
-        viewModelScope.launch {
-            persistPlaybackProgress()
-            playbackHistoryCoordinator.flushPendingProgress()
-        }
-    }
+    return queueForcedProgressFlush()
 }
 
 fun PlayerViewModel.onAppForegrounded() {
@@ -90,16 +130,12 @@ fun PlayerViewModel.onAppForegrounded() {
     shouldResumeAfterForeground = false
 }
 
-fun PlayerViewModel.onPlayerScreenDisposed() {
-    if (currentContentType != ContentType.LIVE) {
-        viewModelScope.launch {
-            persistPlaybackProgress()
-            playbackHistoryCoordinator.flushPendingProgress()
-        }
-    }
+fun PlayerViewModel.onPlayerScreenDisposed(): Job? {
+    val progressFlush = queueForcedProgressFlush()
     playerEngine.stopLiveTimeshift()
     stopLiveTranslationSession()
     clearPlaybackTimers()
+    return progressFlush
 }
 
 internal fun PlayerViewModel.clearPlaybackTimers() {
@@ -114,13 +150,12 @@ internal fun PlayerViewModel.clearPlaybackTimers() {
     _sleepTimerUiState.value = SleepTimerUiState()
 }
 
-fun PlayerViewModel.handOffPlaybackToMultiView() {
-    if (currentContentType != ContentType.LIVE) {
-        viewModelScope.launch { persistPlaybackProgress() }
-    }
+fun PlayerViewModel.handOffPlaybackToMultiView(): Job? {
+    val progressFlush = queueForcedProgressFlush()
     playerEngine.stopLiveTimeshift()
     stopLiveTranslationSession()
     playerPreviewCoordinator.clear(playerEngine)
+    return progressFlush
 }
 
 internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine) {
