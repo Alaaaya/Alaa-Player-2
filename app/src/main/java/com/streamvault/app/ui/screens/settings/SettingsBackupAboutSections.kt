@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
@@ -14,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
@@ -31,6 +31,7 @@ import com.streamvault.domain.manager.DriveAuthState
 
 internal fun LazyListScope.settingsBackupSection(
     onCreateBackup: () -> Unit,
+    onManageLocalBackups: () -> Unit,
     onShareBackup: () -> Unit,
     onRestoreBackup: () -> Unit,
     onCreateBackupUsb: (() -> Unit)? = null,
@@ -41,6 +42,10 @@ internal fun LazyListScope.settingsBackupSection(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
+            SettingsSectionHeader(
+                title = stringResource(R.string.settings_backup_restore),
+                subtitle = stringResource(R.string.settings_backup_subtitle)
+            )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -68,6 +73,14 @@ internal fun LazyListScope.settingsBackupSection(
                 subtitle = stringResource(R.string.settings_restore_subtitle),
                 accent = Secondary,
                 onClick = onRestoreBackup,
+                modifier = Modifier.fillMaxWidth()
+            )
+            BackupActionCard(
+                icon = "≡",
+                title = stringResource(R.string.settings_manage_local_backups),
+                subtitle = stringResource(R.string.settings_manage_local_backups_subtitle),
+                accent = OnSurface,
+                onClick = onManageLocalBackups,
                 modifier = Modifier.fillMaxWidth()
             )
             if (onCreateBackupUsb != null && onRestoreBackupUsb != null) {
@@ -102,7 +115,8 @@ internal fun LazyListScope.settingsDriveBackupSection(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onPush: () -> Unit,
-    onPull: () -> Unit
+    onPull: () -> Unit,
+    onManageBackups: () -> Unit,
 ) {
     item(key = "settings_drive_section") {
         Column(
@@ -155,10 +169,34 @@ internal fun LazyListScope.settingsDriveBackupSection(
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    BackupActionCard(
+                        icon = "≡",
+                        title = stringResource(R.string.settings_manage_drive_backups),
+                        subtitle = stringResource(R.string.settings_manage_drive_backups_subtitle),
+                        accent = OnSurface,
+                        onClick = onManageBackups,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+internal fun formatSnapshotDetails(snapshot: com.streamvault.domain.manager.DriveBackupSnapshot): String {
+    val date = snapshot.modifiedAtMs?.let {
+        java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.SHORT,
+            java.text.DateFormat.SHORT,
+        ).format(java.util.Date(it))
+    } ?: stringResource(R.string.settings_drive_unknown_backup_date)
+    val size = if (snapshot.sizeBytes > 0L) {
+        "${snapshot.sizeBytes / 1024L} KB"
+    } else {
+        stringResource(R.string.settings_drive_backup_size_unknown)
+    }
+    return "$date · $size"
 }
 
 @androidx.compose.runtime.Composable
@@ -239,14 +277,35 @@ private fun BackupActionCard(
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         modifier = modifier
     ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(text = icon, style = MaterialTheme.typography.titleLarge, color = accent, fontWeight = FontWeight.Bold)
-            Text(text = title, style = MaterialTheme.typography.titleSmall, color = accent, textAlign = TextAlign.Center)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim, textAlign = TextAlign.Center)
+            Text(
+                text = icon,
+                modifier = Modifier.width(34.dp),
+                style = MaterialTheme.typography.headlineSmall,
+                color = accent,
+                fontWeight = FontWeight.Bold,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = OnSurface,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OnSurfaceDim,
+                )
+            }
         }
     }
 }

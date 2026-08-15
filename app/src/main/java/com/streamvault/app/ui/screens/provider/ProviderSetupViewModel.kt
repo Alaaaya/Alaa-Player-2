@@ -11,7 +11,9 @@ import com.streamvault.data.remote.xtream.XtreamRequestException
 import com.streamvault.data.remote.xtream.XtreamResponseTooLargeException
 import com.streamvault.data.security.CredentialDecryptionException
 import com.streamvault.domain.manager.BackupConflictStrategy
+import com.streamvault.domain.manager.BackupRestoreOutcome
 import com.streamvault.domain.manager.DriveAuthState
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.Result as DomainResult
@@ -166,35 +168,102 @@ class ProviderSetupViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isImportingBackup = true,
+                    driveBackupOptions = emptyList(),
                     syncProgress = "Downloading from Drive...",
                     validationError = null,
-                    error = null
+                    error = null,
+                    pendingDriveCredentials = null
                 )
             }
-            when (val pullResult = driveBackupSyncManager.pullBackup()) {
+            when (val listResult = driveBackupSyncManager.listBackups()) {
                 is DomainResult.Success -> {
-                    // Best-effort companion fetch (M3). Failures are non-fatal.
-                    val credentials = (driveBackupSyncManager.pullCredentials() as? DomainResult.Success)?.data
-                    _uiState.update {
-                        it.copy(
-                            isImportingBackup = false,
-                            pendingDriveCredentials = credentials,
-                        )
+                    if (listResult.data.isEmpty()) {
+                        _uiState.update {
+                            it.copy(
+                                isImportingBackup = false,
+                                syncProgress = null,
+                                pendingDriveCredentials = null,
+                                error = "Drive pull failed: no backups found",
+                            )
+                        }
+                    } else if (listResult.data.size > 1) {
+                        _uiState.update {
+                            it.copy(
+                                isImportingBackup = false,
+                                syncProgress = null,
+                                driveBackupOptions = listResult.data,
+                            )
+                        }
+                    } else {
+                        downloadBackupFromDrive(listResult.data.single().id)
                     }
-                    inspectBackup(pullResult.data.localUriString)
                 }
                 is DomainResult.Error -> {
                     _uiState.update {
                         it.copy(
                             isImportingBackup = false,
                             syncProgress = null,
-                            error = "Drive pull failed: ${pullResult.message}"
+                            driveBackupOptions = emptyList(),
+                            pendingDriveCredentials = null,
+                            error = "Drive pull failed: ${listResult.message}"
                         )
                     }
                 }
                 is DomainResult.Loading -> Unit
             }
         }
+    }
+
+    fun selectDriveBackup(snapshotId: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isImportingBackup = true,
+                    driveBackupOptions = emptyList(),
+                    syncProgress = "Downloading from Drive...",
+                    validationError = null,
+                    error = null,
+                    pendingDriveCredentials = null,
+                )
+            }
+            downloadBackupFromDrive(snapshotId)
+        }
+    }
+
+    fun dismissDriveBackupOptions() {
+        _uiState.update { it.copy(driveBackupOptions = emptyList()) }
+    }
+
+    private suspend fun downloadBackupFromDrive(snapshotId: String) {
+        when (val pullResult = driveBackupSyncManager.pullBackup(snapshotId)) {
+            is DomainResult.Success -> {
+                    // New bundles carry credentials with the exact backup
+                    // snapshot. Legacy standalone backups fall back to the
+                    // old companion credentials file.
+                    val credentials = pullResult.data.credentials
+                        ?: (driveBackupSyncManager.pullCredentials() as? DomainResult.Success)?.data
+                    _uiState.update {
+                        it.copy(
+                            isImportingBackup = false,
+                            driveBackupOptions = emptyList(),
+                            pendingDriveCredentials = credentials,
+                        )
+                    }
+                    inspectBackup(pullResult.data.localUriString, preserveDriveCredentials = true)
+                }
+                is DomainResult.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isImportingBackup = false,
+                            syncProgress = null,
+                            driveBackupOptions = emptyList(),
+                            pendingDriveCredentials = null,
+                            error = "Drive pull failed: ${pullResult.message}"
+                        )
+                    }
+                }
+                is DomainResult.Loading -> Unit
+            }
     }
 
     private suspend fun applyPendingDriveCredentials() {
@@ -925,13 +994,18 @@ class ProviderSetupViewModel @Inject constructor(
         }
     }
 
-    fun inspectBackup(uriString: String) {
+    fun inspectBackup(uriString: String, preserveDriveCredentials: Boolean = false) {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     syncProgress = "Reading backup...",
                     validationError = null,
-                    error = null
+                    error = null,
+                    pendingDriveCredentials = if (preserveDriveCredentials) {
+                        it.pendingDriveCredentials
+                    } else {
+                        null
+                    }
                 )
             }
             val result = importBackup.inspect(InspectBackupCommand(uriString))
@@ -939,6 +1013,7 @@ class ProviderSetupViewModel @Inject constructor(
                 when (result) {
                     is InspectBackupResult.Error -> state.copy(
                         syncProgress = null,
+                        pendingDriveCredentials = null,
                         error = "Import failed: ${result.message}"
                     )
 
@@ -958,7 +1033,8 @@ class ProviderSetupViewModel @Inject constructor(
             it.copy(
                 backupPreview = null,
                 pendingBackupUri = null,
-                backupImportPlan = BackupImportPlan()
+                backupImportPlan = BackupImportPlan(),
+                pendingDriveCredentials = null
             )
         }
     }
@@ -1015,7 +1091,10 @@ class ProviderSetupViewModel @Inject constructor(
         val plan = capturedPlan ?: return
         viewModelScope.launch {
             val result = importBackup.confirm(ImportBackupCommand(uriString, plan))
-            if (result is ImportBackupResult.Success) {
+            val completed = (result as? ImportBackupResult.Success)
+                ?.result
+                ?.outcome == BackupRestoreOutcome.COMPLETE
+            if (completed) {
                 applyPendingDriveCredentials()
             }
             val hasProviders = if (result is ImportBackupResult.Success) {
@@ -1027,9 +1106,9 @@ class ProviderSetupViewModel @Inject constructor(
                 state.copy(
                     isImportingBackup = false,
                     syncProgress = null,
-                    backupPreview = null,
-                    pendingBackupUri = null,
-                    backupImportPlan = BackupImportPlan(),
+                    backupPreview = if (completed) null else state.backupPreview,
+                    pendingBackupUri = if (completed) null else state.pendingBackupUri,
+                    backupImportPlan = if (completed) BackupImportPlan() else state.backupImportPlan,
                     backupImportSuccess = hasProviders,
                     error = if (result is ImportBackupResult.Error) {
                         "Import failed: ${result.message}"
@@ -1275,6 +1354,7 @@ data class ProviderSetupState(
     val backupImportPlan: BackupImportPlan = BackupImportPlan(),
     val pendingDriveCredentials: List<ProviderCredentials>? = null,
     val driveSignedIn: Boolean = false,
+    val driveBackupOptions: List<DriveBackupSnapshot> = emptyList(),
     val epgSyncMode: ProviderEpgSyncMode = ProviderEpgSyncMode.BACKGROUND,
     val stalkerCatalogMode: StalkerCatalogMode = StalkerCatalogMode.ON_DEMAND,
     val xtreamLiveSyncMode: ProviderXtreamLiveSyncMode = ProviderXtreamLiveSyncMode.AUTO,

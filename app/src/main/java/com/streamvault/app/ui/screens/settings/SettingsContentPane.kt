@@ -25,6 +25,7 @@ internal fun SettingsContentPane(
     onChooseRecordingFolder: () -> Unit,
     onUseUsbRecordingStorage: (() -> Unit)?,
     onCreateBackup: () -> Unit,
+    onManageLocalBackups: () -> Unit,
     onCreateBackupUsb: (() -> Unit)?,
     onRestoreBackupUsb: (() -> Unit)?,
     onShareBackup: () -> Unit,
@@ -169,6 +170,7 @@ internal fun SettingsContentPane(
         } else if (dialogState.selectedCategory == 5) {
             settingsBackupSection(
                 onCreateBackup = onCreateBackup,
+                onManageLocalBackups = onManageLocalBackups,
                 onShareBackup = onShareBackup,
                 onRestoreBackup = onRestoreBackup,
                 onCreateBackupUsb = onCreateBackupUsb,
@@ -179,7 +181,8 @@ internal fun SettingsContentPane(
                 onSignIn = onDriveSignIn,
                 onSignOut = onDriveSignOut,
                 onPush = onDrivePush,
-                onPull = onDrivePull
+                onPull = onDrivePull,
+                onManageBackups = viewModel::manageDriveBackups,
             )
         } else if (dialogState.selectedCategory == 6) {
             epgSourcesSection(

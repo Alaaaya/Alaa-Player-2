@@ -6,6 +6,14 @@ All notable product changes are recorded in this document.
 
 ### Added
 
+- Added picker-free Android TV local backup export and restore, publishing exports to `Downloads/StreamVault` when available and falling back to app-managed storage when a system document picker is unavailable.
+- Added provider credential snapshots to new local backup exports so restored providers can sync without manual password re-entry.
+- Added local backup management with confirmation-based deletion for StreamVault-created Downloads, app-private, registered SAF, and supported Fire TV USB exports.
+- Added timestamped Google Drive backup bundles containing the exact exported JSON and its matching provider credentials, with newest-first snapshot selection, ten-backup retention, and compatibility with legacy Drive backup formats.
+- Added Google Drive snapshot management and deletion in Settings, plus multi-snapshot selection in both Settings and provider onboarding before the normal import preview.
+- Added portable provider and catalog identities for favorites and playback history, including series and episode relationships, so restores can resolve records after local database IDs change.
+- Added Android TV DPAD-aware scrolling, scroll guidance, initial focus, and footer-to-form focus routing for the backup import preview.
+- Added the living backup/restore review and expanded Google Drive setup documentation covering supported flows, compatibility, privacy, and remaining limitations.
 - Added generic Stalker/Ministra compatibility discovery across portal endpoints, authentication modes, and device profiles.
 - Added Stalker portal transport controls for custom headers, API/player User-Agents, HTTP proxies, request rules, and TLS handling.
 - Added Stalker catalog readiness tracking, persisted portal capability state, diagnostics, and playback recovery telemetry.
@@ -26,6 +34,11 @@ All notable product changes are recorded in this document.
 
 ### Changed
 
+- Changed local backup naming to include milliseconds and collision handling, and changed successful SAF exports to be tracked as app-managed backups for later cleanup.
+- Changed Drive push, pull, listing, and deletion operations to serialize access, classify authorization/network/payload failures, and keep pending credentials tied to the selected backup snapshot.
+- Changed backup import/export admission to enforce bounded byte, JSON, and credential limits while removing rejected partial staging files and failed picker-free export targets.
+- Changed backup checksum validation to prefer the exact exported JSON bytes while retaining compatibility with legacy parsed-object checksums.
+- Changed backup restore conflict detection and replacement scopes to use provider identity, stable content identity, and group names instead of relying only on local Room IDs.
 - Improved Stalker bulk live synchronization to tolerate slow large catalogs, detect stalled transfers, retry transient failures, and fall back to category loading when needed.
 - Improved Stalker playback resolution with content capability detection and direct-media fallback for portals that return non-standard playback responses.
 - Improved provider ingestion with bounded M3U, XMLTV, and Jellyfin processing that preserves the last committed catalog when a refresh fails or exceeds limits.
@@ -40,6 +53,15 @@ All notable product changes are recorded in this document.
 
 ### Fixed
 
+- Fixed checksum-mismatch failures in release-built and Google Drive-round-tripped backups by pinning serialized backup DTO fields, accepting earlier obfuscated field aliases, and preserving the original exported JSON text.
+- Fixed repeated imports of the same backup after a provider or restored data was deleted by reopening completed restore checkpoints and applying the selected conflict strategy again.
+- Fixed portable favorites, groups, and playback-history restoration across changed provider/catalog IDs, including unresolved-reference reporting, provider resynchronization, and safe replacement of affected provider/type scopes.
+- Fixed stale Google Drive credentials and snapshot state leaking into normal imports, failed pulls, dismissals, sign-out, and incomplete restores; credentials are now applied only after a complete restore, and sign-out revokes Drive access before clearing the local session.
+- Fixed partial restore handling so the selected source and import plan remain available for retry while credentials and completion state are cleared only after a complete restore.
+- Fixed Google Drive backup races and mismatched backup/credential generations by bundling the matching snapshots, validating selected file IDs before deletion, and cleaning up legacy credential companions when required.
+- Fixed oversized, malformed, and failed backup transfers so they are rejected with classified errors and do not leave partial local, cache, or Drive staging files behind.
+- Fixed Android TV backup actions that previously depended on an unavailable document-picker app, and broadened file-manager intent handling for generic JSON MIME types.
+- Fixed backup preview focus trapping on Cancel/Import by moving initial focus into the dialog body and routing DPAD Up back to the scrollable form.
 - Fixed Stalker VOD loading for very large catalogs by paging within safe limits instead of aborting the catalog.
 - Fixed Stalker poster, backdrop, and channel artwork loading when portals return relative image paths.
 - Fixed Stalker Series loading for portals that expose series through VOD endpoints, with improved category mapping and fallback behavior.

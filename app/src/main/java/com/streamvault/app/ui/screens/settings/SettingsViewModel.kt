@@ -1135,8 +1135,19 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(userMessage = null) }
     }
 
-    fun exportConfig(uriString: String, onSuccess: (() -> Unit)? = null) {
-        backupActions.exportConfig(viewModelScope, uriString, onSuccess)
+    fun exportConfig(
+        uriString: String,
+        onSuccess: (() -> Unit)? = null,
+        successMessage: String? = null,
+        onFinished: ((Boolean) -> Unit)? = null,
+    ) {
+        backupActions.exportConfig(
+            scope = viewModelScope,
+            uriString = uriString,
+            onSuccess = onSuccess,
+            successMessage = successMessage,
+            onFinished = onFinished,
+        )
     }
 
     fun inspectBackup(uriString: String) {
@@ -1199,6 +1210,26 @@ class SettingsViewModel @Inject constructor(
 
     fun pullFromDrive() {
         driveBackupActions.pullBackup(viewModelScope)
+    }
+
+    fun selectDriveBackup(snapshotId: String) {
+        driveBackupActions.selectBackup(viewModelScope, snapshotId)
+    }
+
+    fun dismissDriveBackupOptions() {
+        driveBackupActions.dismissBackupOptions()
+    }
+
+    fun manageDriveBackups() {
+        driveBackupActions.manageBackups(viewModelScope)
+    }
+
+    fun dismissDriveBackupManagement() {
+        driveBackupActions.dismissBackupManagement()
+    }
+
+    fun deleteDriveBackup(snapshotId: String) {
+        driveBackupActions.deleteBackup(viewModelScope, snapshotId)
     }
 
     fun stopRecording(recordingId: String) {

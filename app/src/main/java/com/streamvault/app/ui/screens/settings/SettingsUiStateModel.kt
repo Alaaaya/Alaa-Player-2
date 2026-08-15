@@ -6,6 +6,7 @@ import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.manager.DriveAuthState
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.manager.ProviderCredentials
@@ -122,6 +123,10 @@ data class SettingsUiState(
     val driveLastPullAt: Long? = null,
     val drivePendingSignIn: DriveSignInRequest? = null,
     val driveIsBusy: Boolean = false,
+    /** Drive snapshots waiting for the user to choose one before preview/import. */
+    val driveBackupOptions: List<DriveBackupSnapshot> = emptyList(),
+    /** Drive snapshots shown in the explicit manage/delete screen. */
+    val driveBackupManagementOptions: List<DriveBackupSnapshot> = emptyList(),
     // M3 — credentials downloaded by pullBackup, waiting to be applied
     // to providers once the import confirm completes.
     val pendingDriveCredentials: List<ProviderCredentials>? = null,

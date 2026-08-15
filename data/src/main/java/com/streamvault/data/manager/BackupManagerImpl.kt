@@ -5,6 +5,7 @@ import com.streamvault.domain.model.Provider as StableProvider
 import android.content.Context
 import android.net.Uri
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonParseException
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
@@ -22,6 +23,7 @@ import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
+import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.ProviderAccountRuntimeEntity
@@ -59,6 +61,7 @@ import com.streamvault.domain.manager.PortableProviderPreferencesBackup
 import com.streamvault.domain.manager.PortableVirtualGroupReference
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.manager.ScheduledRecordingBackup
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.ContentType
@@ -84,6 +87,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -95,7 +100,9 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.Writer
 import java.lang.reflect.Type
+import java.net.URI
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.zip.CRC32
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -121,6 +128,7 @@ class BackupManagerImpl @Inject constructor(
     private val providerConfigurationCodec: ProviderConfigurationCodec? = null,
     private val backupRestoreCheckpointDao: BackupRestoreCheckpointDao? = null,
     private val channelDao: ChannelDao,
+    private val seriesDao: SeriesDao,
     private val epgSourceDao: EpgSourceDao? = null
 ) : BackupManager {
 
@@ -186,8 +194,11 @@ class BackupManagerImpl @Inject constructor(
                 }
             }
 
-            val providers = providerEntities.mapNotNull { entity ->
-                providerSnapshotRepository?.getSnapshot(entity.id)?.toLegacyProvider()?.copy(
+            val sourceProviders = providerEntities.mapNotNull { entity ->
+                providerSnapshotRepository?.getSnapshot(entity.id)?.toLegacyProvider()
+            }
+            val providers = sourceProviders.map { provider ->
+                provider.copy(
                     password = "",  // Strip credentials from backup export
                     stalkerLastBootstrapRecipe = StalkerBootstrapRecipe.GENERIC_SAFE,
                     stalkerLastPlaybackMode = null,
@@ -198,11 +209,12 @@ class BackupManagerImpl @Inject constructor(
                     stalkerTransportConsentAt = 0L
                 )
             }
-            if (providers.size != providerEntities.size) {
+            if (sourceProviders.size != providerEntities.size) {
                 return@withContext com.streamvault.domain.model.Result.error(
                     "Cannot export backup because one or more providers have no typed configuration snapshot"
                 )
             }
+            val providerCredentials = sourceProviders.mapNotNull { it.toBackupCredentials() }
             val providerSnapshots = providers.map { provider ->
                 val configuration = when (val config = provider.toTypedConfiguration()) {
                     is com.streamvault.domain.model.XtreamConfig -> config.copy(password = "")
@@ -239,7 +251,9 @@ class BackupManagerImpl @Inject constructor(
             val seriesFavs = providerIds.flatMap { providerId ->
                 favoriteDao.getAllByType(providerId, "SERIES").first().map { it.toDomain() }
             }
-            val allFavorites = liveFavs + movieFavs + seriesFavs
+            val allFavorites = (liveFavs + movieFavs + seriesFavs).map { favorite ->
+                favorite.withPortableIdentity(channelDao, movieDao, seriesDao)
+            }
 
             // Gather all custom groups
             val liveGroups = providerIds.flatMap { providerId ->
@@ -254,6 +268,7 @@ class BackupManagerImpl @Inject constructor(
             val allGroups = liveGroups + movieGroups + seriesGroups
 
             val playbackHistory = playbackHistoryDao.getAllSync().map { it.toDomain() }
+                .map { history -> history.withPortableIdentity(channelDao, movieDao, seriesDao, episodeDao) }
             val multiViewPresets = mapOf(
                 "preset_1" to preferencesRepository.getMultiViewPreset(0).first(),
                 "preset_2" to preferencesRepository.getMultiViewPreset(1).first(),
@@ -296,18 +311,31 @@ class BackupManagerImpl @Inject constructor(
                 protectedCategories = protectedCategories,
                 scheduledRecordings = scheduledRecordings,
                 portableProviderPreferences = buildPortableProviderPreferences(providers),
+                providerCredentials = providerCredentials.takeIf { it.isNotEmpty() },
                 epgSources = epgSourceDao?.getAllSync()?.map { it.toDomain() }
             )
 
             // Compute checksum over the data without checksum field
             val backupWithChecksum = backupData.copy(checksum = buildSha256Checksum(backupData))
 
-            // 2. Serialize and write to URI
-            openBackupOutputStream(uriString)?.use { outputStream ->
-                OutputStreamWriter(outputStream).use { writer ->
-                    writeBackupDataJson(writer, backupWithChecksum)
+            // 2. Serialize and write to URI with the same admission limit used
+            // by restore. This prevents the app from producing a backup that
+            // its own importer must reject.
+            val outputStream = openBackupOutputStream(uriString)
+                ?: return@withContext com.streamvault.domain.model.Result.error("Failed to open output stream")
+            try {
+                BoundedOutputStream(outputStream, MAX_BACKUP_BYTES).use { boundedOutput ->
+                    OutputStreamWriter(boundedOutput, Charsets.UTF_8).use { writer ->
+                        writeBackupDataJson(writer, backupWithChecksum)
+                    }
                 }
-            } ?: return@withContext com.streamvault.domain.model.Result.error("Failed to open output stream")
+            } catch (tooLarge: BackupOutputTooLargeException) {
+                deleteFileUriTarget(uriString)
+                return@withContext com.streamvault.domain.model.Result.error(
+                    "Backup exceeds the maximum supported size of $MAX_BACKUP_BYTES bytes",
+                    tooLarge
+                )
+            }
 
             com.streamvault.domain.model.Result.success(Unit)
         } catch (e: Exception) {
@@ -317,15 +345,16 @@ class BackupManagerImpl @Inject constructor(
 
     override suspend fun inspectBackup(uriString: String): Result<BackupPreview> = withContext(Dispatchers.IO) {
         try {
-            val rawBackupData = readBackupData(uriString)
+            val parsedBackup = readBackupData(uriString)
                 ?: return@withContext Result.error("Failed to open input stream")
+            val rawBackupData = parsedBackup.data
             if (rawBackupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext Result.error("Unsupported backup version")
             }
             if (rawBackupData.isStructurallyEmpty()) {
                 return@withContext Result.error("Backup file does not contain any importable data")
             }
-            if (!verifyChecksum(rawBackupData)) {
+            if (!verifyChecksum(parsedBackup)) {
                 return@withContext Result.error("Backup file is corrupted (checksum mismatch)")
             }
             val backupData = rawBackupData.withLegacyProviderProjection()
@@ -356,19 +385,60 @@ class BackupManagerImpl @Inject constructor(
                 .filter { it.status == RecordingStatus.SCHEDULED }
 
             val providersByIdentity = existingProviders.associateBy { it.backupIdentity() }
-            val groupKeys = existingGroups.mapTo(hashSetOf()) { it.name.lowercase() to it.contentType }
-            val favoriteKeys = existingFavorites.mapTo(hashSetOf()) { Triple(it.contentId, it.contentType, it.groupId) }
-            val historyKeys = existingHistory.mapTo(hashSetOf()) { Triple(it.contentId, it.contentType, it.providerId) }
+            val backupProviderIdMap = backupData.providers.orEmpty().mapNotNull { provider ->
+                providersByIdentity[provider.backupIdentity()]?.let { stored ->
+                    provider.id to stored.id
+                }
+            }.toMap()
+            val groupKeys = existingGroups.mapTo(hashSetOf()) {
+                SavedGroupConflictKey(it.providerId, it.name.lowercase(), it.contentType)
+            }
+            val groupNameById = existingGroups.associate { group ->
+                group.id to SavedGroupConflictKey(group.providerId, group.name.lowercase(), group.contentType)
+            }
+            val favoriteKeys = existingFavorites.map { favorite ->
+                val domainFavorite = favorite.toDomain().withPortableIdentity(channelDao, movieDao, seriesDao)
+                SavedFavoriteConflictKey(
+                    providerId = favorite.providerId,
+                    contentType = favorite.contentType,
+                    remoteContentId = domainFavorite.remoteContentId ?: "legacy:${favorite.contentId}",
+                    group = favorite.groupId?.let { groupNameById[it]?.name }
+                )
+            }.toHashSet()
+            val historyKeys = existingHistory.map { history ->
+                val domainHistory = history.toDomain().withPortableIdentity(channelDao, movieDao, seriesDao, episodeDao)
+                SavedHistoryConflictKey(
+                    providerId = history.providerId,
+                    contentType = history.contentType,
+                    remoteContentId = domainHistory.remoteContentId ?: "legacy:${history.contentId}"
+                )
+            }.toHashSet()
             val protectedCategoryKeys = existingProtectedCategories.mapTo(hashSetOf()) { (provider, name, type) ->
                 Triple(provider.id, name, type)
             }
             val providerConflicts = backupData.providers.orEmpty().count { it.backupIdentity() in providersByIdentity }
-            val groupConflicts = backupData.virtualGroups.orEmpty().count { (it.name.lowercase() to it.contentType) in groupKeys }
+            val groupConflicts = backupData.virtualGroups.orEmpty().count { group ->
+                val targetProviderId = backupProviderIdMap[group.providerId] ?: return@count false
+                SavedGroupConflictKey(targetProviderId, group.name.lowercase(), group.contentType) in groupKeys
+            }
             val favoriteConflicts = backupData.favorites.orEmpty().count {
-                Triple(it.contentId, it.contentType, it.groupId) in favoriteKeys
+                val targetProviderId = backupProviderIdMap[it.providerId] ?: return@count false
+                SavedFavoriteConflictKey(
+                    providerId = targetProviderId,
+                    contentType = it.contentType,
+                    remoteContentId = it.remoteContentId ?: "legacy:${it.contentId}",
+                    group = it.groupId?.let { groupId ->
+                        backupData.virtualGroups.orEmpty().firstOrNull { group -> group.id == groupId }?.name?.lowercase()
+                    }
+                ) in favoriteKeys
             }
             val historyConflicts = backupData.playbackHistory.orEmpty().count {
-                Triple(it.contentId, it.contentType, it.providerId) in historyKeys
+                val targetProviderId = backupProviderIdMap[it.providerId] ?: return@count false
+                SavedHistoryConflictKey(
+                    providerId = targetProviderId,
+                    contentType = it.contentType,
+                    remoteContentId = it.remoteContentId ?: "legacy:${it.contentId}"
+                ) in historyKeys
             }
             val protectedCategoryConflicts = backupData.protectedCategories.orEmpty().count { incoming ->
                 val provider = providersByIdentity[incoming.backupIdentity()] ?: return@count false
@@ -411,8 +481,9 @@ class BackupManagerImpl @Inject constructor(
         plan: BackupImportPlan
     ): com.streamvault.domain.model.Result<BackupImportResult> = withContext(Dispatchers.IO) {
         try {
-            val rawBackupData = readBackupData(uriString)
+            val parsedBackup = readBackupData(uriString)
                 ?: return@withContext com.streamvault.domain.model.Result.error("Failed to open input stream")
+            val rawBackupData = parsedBackup.data
 
             if (rawBackupData.version > CURRENT_BACKUP_VERSION) {
                 return@withContext com.streamvault.domain.model.Result.error("Unsupported backup version")
@@ -420,7 +491,7 @@ class BackupManagerImpl @Inject constructor(
             if (rawBackupData.isStructurallyEmpty()) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file does not contain any importable data")
             }
-            if (!verifyChecksum(rawBackupData)) {
+            if (!verifyChecksum(parsedBackup)) {
                 return@withContext com.streamvault.domain.model.Result.error("Backup file is corrupted (checksum mismatch)")
             }
             val backupData = rawBackupData.withLegacyProviderProjection()
@@ -428,9 +499,11 @@ class BackupManagerImpl @Inject constructor(
             val restoreKey = buildRestoreKey(rawBackupData, plan)
             var checkpoint = loadOrCreateCheckpoint(restoreKey)
             if (checkpoint.state == RESTORE_STATE_COMPLETE) {
-                return@withContext com.streamvault.domain.model.Result.success(
-                    checkpoint.toImportResult(plan, backupData)
-                )
+                // A completed restore is a durable crash-recovery boundary, not a one-time
+                // consumption marker. The user may intentionally import the same backup again
+                // after deleting a provider or other restored data. Reopen the checkpoint so the
+                // normal conflict strategy can safely skip or replace the current destination.
+                checkpoint = checkpoint.reopenForExplicitReplay()
             }
 
             var storedProviders = loadStoredProviders()
@@ -469,6 +542,10 @@ class BackupManagerImpl @Inject constructor(
                 storedProviders = roomRestoreResult.storedProviders
                 importedSections += roomRestoreResult.importedSections
                 skippedSections += roomRestoreResult.skippedSections
+                unresolvedReferences += roomRestoreResult.unresolvedReferences
+                if (roomRestoreResult.unresolvedReferences.isNotEmpty()) {
+                    failedSections += "Saved library/history: ${roomRestoreResult.unresolvedReferences.size} unresolved"
+                }
                 checkpoint = roomCheckpoint
             } else {
                 importedSections += importedRoomSections(backupData, plan)
@@ -624,6 +701,32 @@ class BackupManagerImpl @Inject constructor(
         return dao.get(restoreKey) ?: fresh
     }
 
+    private suspend fun BackupRestoreCheckpointEntity.reopenForExplicitReplay(): BackupRestoreCheckpointEntity {
+        val reopened = copy(
+            roomComplete = false,
+            preferencesComplete = false,
+            presetsComplete = false,
+            schedulesComplete = false,
+            state = RESTORE_STATE_RUNNING,
+            preferenceSnapshotJson = null,
+            lastError = null,
+            updatedAt = System.currentTimeMillis()
+        )
+        val dao = backupRestoreCheckpointDao ?: return reopened
+        dao.update(
+            restoreKey = restoreKey,
+            roomComplete = false,
+            preferencesComplete = false,
+            presetsComplete = false,
+            schedulesComplete = false,
+            state = RESTORE_STATE_RUNNING,
+            lastError = null,
+            updatedAt = reopened.updatedAt
+        )
+        dao.setPreferenceSnapshot(restoreKey, null, reopened.updatedAt)
+        return reopened
+    }
+
     private suspend fun BackupRestoreCheckpointEntity.persist(
         clearPreferenceSnapshot: Boolean = false
     ): BackupRestoreCheckpointEntity {
@@ -701,44 +804,22 @@ class BackupManagerImpl @Inject constructor(
         if (!plan.importPlaybackHistory || backupData.playbackHistory == null) add("Playback History")
     }
 
-    private fun BackupRestoreCheckpointEntity.toImportResult(
-        plan: BackupImportPlan,
-        backupData: BackupData
-    ): BackupImportResult {
-        val imported = buildList {
-            if (roomComplete) addAll(importedRoomSections(backupData, plan))
-            if (preferencesComplete) add("Preferences")
-            if (presetsComplete) add("Split Screen Presets")
-            if (schedulesComplete) add("Recording Schedules")
-        }
-        val skipped = buildList {
-            if (!roomComplete) addAll(skippedRoomSections(backupData, plan))
-            if (!plan.importPreferences ||
-                (backupData.preferences == null && backupData.portableProviderPreferences == null)
-            ) {
-                add("Preferences")
-            }
-            if (!plan.importMultiViewPresets || backupData.multiViewPresets == null) add("Split Screen Presets")
-            if (!plan.importRecordingSchedules || backupData.scheduledRecordings == null) add("Recording Schedules")
-        }
-        return BackupImportResult(
-            outcome = when (state) {
-                RESTORE_STATE_COMPLETE -> BackupRestoreOutcome.COMPLETE
-                RESTORE_STATE_FAILED_BEFORE_COMMIT -> BackupRestoreOutcome.FAILED_BEFORE_COMMIT
-                else -> BackupRestoreOutcome.PARTIAL
-            },
-            importedSections = imported.distinct(),
-            skippedSections = skipped.distinct(),
-            failedSections = lastError?.let(::listOf).orEmpty()
-        )
-    }
+    private data class ParsedBackup(
+        val data: BackupData,
+        val rawJson: ByteArray,
+    )
 
-    private fun verifyChecksum(backupData: BackupData): Boolean {
+    private fun verifyChecksum(parsedBackup: ParsedBackup): Boolean {
+        val backupData = parsedBackup.data
         val storedChecksum = backupData.checksum ?: return true // no checksum = legacy backup, skip verification
         val dataWithoutChecksum = backupData.copy(checksum = null)
 
         return if (storedChecksum.startsWith(SHA256_PREFIX)) {
-            buildSha256Checksum(dataWithoutChecksum) == storedChecksum
+            // Prefer the exact exported bytes. Release builds previously let R8 rename
+            // reflected DTO fields, so parsing and serializing the object again could
+            // change its wire representation even though the file itself was intact.
+            buildRawSha256Checksum(parsedBackup.rawJson) == storedChecksum ||
+                buildSha256Checksum(dataWithoutChecksum) == storedChecksum
         } else {
             verifyLegacyCrc32Checksum(dataWithoutChecksum, storedChecksum)
         }
@@ -750,6 +831,19 @@ class BackupManagerImpl @Inject constructor(
             writeBackupDataJson(writer, backupData.copy(checksum = null))
         }
         return SHA256_PREFIX + digest.digest().joinToString(separator = "") { "%02x".format(it) }
+    }
+
+    private fun buildRawSha256Checksum(rawJson: ByteArray): String? {
+        val json = rawJson.toString(Charsets.UTF_8)
+        val match = RAW_CHECKSUM_FIELD_PATTERN.find(json) ?: return null
+        var prefix = json.substring(0, match.range.first)
+        val suffix = json.substring(match.range.last + 1)
+        if (!match.value.endsWith(",") && prefix.endsWith(',')) {
+            prefix = prefix.dropLast(1)
+        }
+        val payload = (prefix + suffix).toByteArray(Charsets.UTF_8)
+        val digest = MessageDigest.getInstance("SHA-256").digest(payload)
+        return SHA256_PREFIX + digest.joinToString(separator = "") { "%02x".format(it) }
     }
 
     private fun verifyLegacyCrc32Checksum(backupData: BackupData, checksum: String): Boolean {
@@ -770,6 +864,7 @@ class BackupManagerImpl @Inject constructor(
             writeNamedJsonField(jsonWriter, "preferences", backupData.preferences, MAP_STRING_STRING_TYPE)
             writeNamedJsonField(jsonWriter, "providers", backupData.providers, PROVIDER_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "providerSnapshots", backupData.providerSnapshots, PROVIDER_SNAPSHOT_LIST_TYPE)
+            writeNamedJsonField(jsonWriter, "providerCredentials", backupData.providerCredentials, PROVIDER_CREDENTIALS_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "favorites", backupData.favorites, FAVORITE_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "virtualGroups", backupData.virtualGroups, VIRTUAL_GROUP_LIST_TYPE)
             writeNamedJsonField(jsonWriter, "playbackHistory", backupData.playbackHistory, PLAYBACK_HISTORY_LIST_TYPE)
@@ -817,38 +912,55 @@ class BackupManagerImpl @Inject constructor(
         }
     }
 
-    private fun readBackupData(uriString: String): BackupData? {
-        return openBackupInputStream(uriString)?.use { inputStream ->
-            BoundedInputStream(inputStream, MAX_BACKUP_BYTES).use { boundedInput ->
-                AdmissionCheckingReader(
-                    InputStreamReader(boundedInput, Charsets.UTF_8),
-                    MAX_JSON_DEPTH,
-                    MAX_FIELD_CHARS
-                ).use { admissionReader ->
-                    try {
-                        JsonReader(admissionReader).use { jsonReader ->
-                            readBackupData(jsonReader).also(::validateBackupDataLimits)
-                        }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (admission: BackupAdmissionException) {
-                        throw admission
-                    } catch (error: Exception) {
-                        if (error is MalformedJsonException ||
-                            error is EOFException ||
-                            error is JsonParseException ||
-                            error is IllegalStateException
-                        ) {
-                            throw BackupAdmissionException(
-                                BackupAdmissionReason.MALFORMED,
-                                "Backup JSON is malformed or truncated"
-                            ).also { it.initCause(error) }
-                        }
-                        throw error
-                    }
+    private fun readBackupData(uriString: String): ParsedBackup? {
+        val rawJson = openBackupInputStream(uriString)?.use(::readBoundedBytes) ?: return null
+        val data = try {
+            AdmissionCheckingReader(
+                InputStreamReader(ByteArrayInputStream(rawJson), Charsets.UTF_8),
+                MAX_JSON_DEPTH,
+                MAX_FIELD_CHARS
+            ).use { admissionReader ->
+                JsonReader(admissionReader).use { jsonReader ->
+                    readBackupData(jsonReader).also(::validateBackupDataLimits)
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (admission: BackupAdmissionException) {
+            throw admission
+        } catch (error: Exception) {
+            if (error is MalformedJsonException ||
+                error is EOFException ||
+                error is JsonParseException ||
+                error is IllegalStateException
+            ) {
+                throw BackupAdmissionException(
+                    BackupAdmissionReason.MALFORMED,
+                    "Backup JSON is malformed or truncated"
+                ).also { it.initCause(error) }
+            }
+            throw error
         }
+        return ParsedBackup(data = data, rawJson = rawJson)
+    }
+
+    private fun readBoundedBytes(input: java.io.InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > MAX_BACKUP_BYTES) {
+                throw BackupAdmissionException(
+                    BackupAdmissionReason.BYTE_LIMIT,
+                    "Backup exceeds the ${MAX_BACKUP_BYTES / (1024 * 1024)} MiB import limit"
+                )
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     private fun readBackupData(reader: JsonReader): BackupData {
@@ -857,6 +969,7 @@ class BackupManagerImpl @Inject constructor(
         var preferences: Map<String, String>? = null
         var providers: List<com.streamvault.domain.model.LegacyProvider>? = null
         var providerSnapshots: List<ProviderBackupSnapshot>? = null
+        var providerCredentials: List<ProviderCredentials>? = null
         var favorites: List<com.streamvault.domain.model.Favorite>? = null
         var virtualGroups: List<com.streamvault.domain.model.VirtualGroup>? = null
         var playbackHistory: List<com.streamvault.domain.model.PlaybackHistory>? = null
@@ -899,6 +1012,8 @@ class BackupManagerImpl @Inject constructor(
                 "providers" -> providers = readLimitedArray(reader, PROVIDER_TYPE, MAX_PROVIDERS, "providers")
                 "providerSnapshots" -> providerSnapshots =
                     readLimitedArray(reader, PROVIDER_SNAPSHOT_TYPE, MAX_PROVIDERS, "provider snapshots")
+                "providerCredentials" -> providerCredentials =
+                    readLimitedArray(reader, PROVIDER_CREDENTIALS_TYPE, MAX_PROVIDERS, "provider credentials")
                 "favorites" -> favorites = readLimitedArray(reader, FAVORITE_TYPE, MAX_SECTION_ITEMS, "favorites")
                 "virtualGroups" -> virtualGroups =
                     readLimitedArray(reader, VIRTUAL_GROUP_TYPE, MAX_SECTION_ITEMS, "groups")
@@ -936,6 +1051,7 @@ class BackupManagerImpl @Inject constructor(
             preferences = preferences,
             providers = providers,
             providerSnapshots = providerSnapshots,
+            providerCredentials = providerCredentials,
             favorites = favorites,
             virtualGroups = virtualGroups,
             playbackHistory = playbackHistory,
@@ -966,7 +1082,7 @@ class BackupManagerImpl @Inject constructor(
                     "Backup has too many $label"
                 )
             }
-            val item = gson.fromJson<T>(reader, type)
+            val item = readLegacyAwareValue<T>(reader, type)
                 ?: throw BackupAdmissionException(
                     BackupAdmissionReason.MALFORMED,
                     "Backup contains a null $label entry"
@@ -975,6 +1091,63 @@ class BackupManagerImpl @Inject constructor(
         }
         reader.endArray()
         return result
+    }
+
+    private fun <T> readLegacyAwareValue(reader: JsonReader, type: Type): T? {
+        val element = gson.fromJson<JsonElement>(reader, JsonElement::class.java)
+            ?: return null
+        if (element.isJsonNull) return null
+        return gson.fromJson(normalizeLegacyBackupElement(element, type), type)
+    }
+
+    /**
+     * Release builds before the backup wire schema was pinned let R8 rename fields in
+     * domain.manager DTOs to a, b, c, ... . Accept those files while writing the stable
+     * source field names in new builds.
+     */
+    private fun normalizeLegacyBackupElement(element: JsonElement, type: Type): JsonElement {
+        if (!element.isJsonObject) return element
+        val fieldNames = when (type) {
+            PROVIDER_SNAPSHOT_TYPE -> listOf(
+                "provider", "accountRuntime", "xtreamConfig", "m3uConfig", "stalkerConfig", "jellyfinConfig"
+            )
+            BACKUP_PROVIDER_REFERENCE_TYPE -> listOf("serverUrl", "username", "stalkerMacAddress")
+            PORTABLE_CATEGORY_REFERENCE_TYPE -> listOf("provider", "name", "type", "remoteCategoryId")
+            PORTABLE_GROUP_REFERENCE_TYPE -> listOf("provider", "name", "contentType")
+            PORTABLE_CHANNEL_REFERENCE_TYPE -> listOf("provider", "streamId", "name", "streamUrl")
+            PROTECTED_CATEGORY_TYPE -> listOf(
+                "providerServerUrl", "providerUsername", "providerStalkerMacAddress",
+                "categoryId", "categoryName", "type"
+            )
+            SCHEDULED_RECORDING_TYPE -> listOf(
+                "providerServerUrl", "providerUsername", "providerStalkerMacAddress", "channelId",
+                "channelName", "streamUrl", "scheduledStartMs", "scheduledEndMs", "requestedStartMs",
+                "requestedEndMs", "paddingBeforeMs", "paddingAfterMs", "programTitle", "recurrence",
+                "recurringRuleId"
+            )
+            else -> return element
+        }
+        val objectValue = element.asJsonObject
+        fieldNames.forEachIndexed { index, fieldName ->
+            val legacyName = ('a'.code + index).toChar().toString()
+            if (!objectValue.has(fieldName) && objectValue.has(legacyName)) {
+                objectValue.add(fieldName, objectValue.remove(legacyName))
+            }
+        }
+        when (type) {
+            PORTABLE_CATEGORY_REFERENCE_TYPE,
+            PORTABLE_GROUP_REFERENCE_TYPE,
+            PORTABLE_CHANNEL_REFERENCE_TYPE -> {
+                objectValue.get("provider")?.let { provider ->
+                    objectValue.add(
+                        "provider",
+                        normalizeLegacyBackupElement(provider, BACKUP_PROVIDER_REFERENCE_TYPE)
+                    )
+                }
+            }
+            else -> Unit
+        }
+        return objectValue
     }
 
     private fun readStringMap(
@@ -1069,43 +1242,43 @@ class BackupManagerImpl @Inject constructor(
                 )
             }
             when (field) {
-                "providers" -> providers =
+                "providers", "a" -> providers =
                     readLimitedArray<BackupProviderReference>(
                         reader,
                         BACKUP_PROVIDER_REFERENCE_TYPE,
                         MAX_PROVIDERS,
                         "portable providers"
                     ).orEmpty()
-                "activeProvider" -> activeProvider =
-                    gson.fromJson(reader, BACKUP_PROVIDER_REFERENCE_TYPE)
-                "guideDefaultCategory" -> guideDefaultCategory =
-                    gson.fromJson(reader, PORTABLE_CATEGORY_REFERENCE_TYPE)
-                "guideDefaultVirtualCategoryId" -> guideDefaultVirtualCategoryId =
+                "activeProvider", "b" -> activeProvider =
+                    readLegacyAwareValue(reader, BACKUP_PROVIDER_REFERENCE_TYPE)
+                "guideDefaultCategory", "c" -> guideDefaultCategory =
+                    readLegacyAwareValue(reader, PORTABLE_CATEGORY_REFERENCE_TYPE)
+                "guideDefaultVirtualCategoryId", "d" -> guideDefaultVirtualCategoryId =
                     reader.nextNullableLong()
-                "guideDefaultCategorySpecified" -> guideDefaultCategorySpecified =
+                "guideDefaultCategorySpecified", "e" -> guideDefaultCategorySpecified =
                     reader.nextBoolean()
-                "promotedLiveGroups" -> promotedLiveGroups =
+                "promotedLiveGroups", "f" -> promotedLiveGroups =
                     readLimitedArray<PortableVirtualGroupReference>(
                         reader,
                         PORTABLE_GROUP_REFERENCE_TYPE,
                         MAX_SECTION_ITEMS,
                         "promoted groups"
                     ).orEmpty()
-                "hiddenChannels" -> hiddenChannels =
+                "hiddenChannels", "g" -> hiddenChannels =
                     readLimitedArray<PortableChannelReference>(
                         reader,
                         PORTABLE_CHANNEL_REFERENCE_TYPE,
                         MAX_SECTION_ITEMS,
                         "hidden channels"
                     ).orEmpty()
-                "hiddenCategories" -> hiddenCategories =
+                "hiddenCategories", "h" -> hiddenCategories =
                     readLimitedArray<PortableCategoryReference>(
                         reader,
                         PORTABLE_CATEGORY_REFERENCE_TYPE,
                         MAX_SECTION_ITEMS,
                         "hidden categories"
                     ).orEmpty()
-                "unresolvedReferences" -> unresolvedReferences =
+                "unresolvedReferences", "i" -> unresolvedReferences =
                     readLimitedArray<String>(
                         reader,
                         STRING_TYPE,
@@ -1141,6 +1314,7 @@ class BackupManagerImpl @Inject constructor(
         require(data.preferences.orEmpty().size <= MAX_PREFERENCES) { "Backup has too many preferences" }
         require(data.providers.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many providers" }
         require(data.providerSnapshots.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many provider snapshots" }
+        require(data.providerCredentials.orEmpty().size <= MAX_PROVIDERS) { "Backup has too many provider credentials" }
         data.providerSnapshots.orEmpty().forEach { it.configuration() }
         require(data.favorites.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many favorites" }
         require(data.virtualGroups.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many groups" }
@@ -1205,7 +1379,10 @@ class BackupManagerImpl @Inject constructor(
                 categoryRepository.getCategories(provider.id).first().filter { it.type == type }
             }
         }
-        val activeProviderId = preferencesRepository.lastActiveProviderId.first()
+        // Older app versions persisted -1 when there was no active provider. It is a
+        // sentinel, not a provider reference, and must not make an otherwise valid
+        // backup partial on restore.
+        val activeProviderId = preferencesRepository.lastActiveProviderId.first()?.takeIf { it > 0L }
         val activeProvider = activeProviderId?.let(referencesById::get).also { reference ->
             if (activeProviderId != null && reference == null) {
                 unresolved += "Active provider id $activeProviderId was not found during export"
@@ -1303,24 +1480,46 @@ class BackupManagerImpl @Inject constructor(
      * restore code that still expects the compatibility envelope.
      */
     private fun BackupData.withLegacyProviderProjection(): BackupData {
-        val snapshots = providerSnapshots ?: return this
+        val snapshots = providerSnapshots
         // Treat an explicitly empty legacy projection like an omitted one. This keeps v11's
         // typed section authoritative while still honoring non-empty v0-10 provider payloads.
-        if (!providers.isNullOrEmpty()) return this
-        return copy(
-            providers = snapshots.map { snapshot ->
+        val projectedProviders = if (!providers.isNullOrEmpty()) {
+            providers.orEmpty()
+        } else if (snapshots != null) {
+            snapshots.map { snapshot ->
                 snapshot.configuration().toLegacyProvider(
                     snapshot.provider,
                     snapshot.accountRuntime ?: ProviderAccountRuntime()
                 )
             }
-        )
+        } else {
+            return this
+        }
+        val hydratedProviders = projectedProviders.map { provider ->
+            val credentials = providerCredentials.orEmpty().firstOrNull { credential ->
+                normalizeProviderServerUrl(credential.serverUrl) == normalizeProviderServerUrl(provider.serverUrl) &&
+                    credential.username.trim() == provider.username.trim()
+            }
+            if (credentials == null || provider.password.isNotBlank()) {
+                provider
+            } else {
+                provider.copy(password = credentials.password)
+            }
+        }
+        return copy(providers = hydratedProviders)
+    }
+
+    private fun deleteFileUriTarget(uriString: String) {
+        if (uriString.isFileUriString()) {
+            uriString.toFileUriTarget()?.delete()
+        }
     }
 
     private fun BackupData.isStructurallyEmpty(): Boolean =
         preferences.isNullOrEmpty() &&
             providers.isNullOrEmpty() &&
             providerSnapshots.isNullOrEmpty() &&
+            providerCredentials.isNullOrEmpty() &&
             favorites.isNullOrEmpty() &&
             virtualGroups.isNullOrEmpty() &&
             playbackHistory.isNullOrEmpty() &&
@@ -1412,7 +1611,11 @@ class BackupManagerImpl @Inject constructor(
         portable: PortableProviderPreferencesBackup,
         storedProviders: List<Provider>
     ): List<String> {
-        val unresolved = portable.unresolvedReferences.toMutableList()
+        // Backups written by older releases may contain this known false-positive warning.
+        // It describes a missing active-provider sentinel, not a broken provider reference.
+        val unresolved = portable.unresolvedReferences
+            .filterNot { it == LEGACY_NO_ACTIVE_PROVIDER_WARNING }
+            .toMutableList()
         val channels = channelDao
         fun resolveProvider(reference: BackupProviderReference) =
             storedProviders.findUnambiguousPortableProvider(reference)
@@ -1649,13 +1852,15 @@ class BackupManagerImpl @Inject constructor(
                     add("Providers")
                     add("Saved Library")
                     add("Playback History")
-                }
+                },
+                unresolvedReferences = emptyList()
             )
         }
 
         var storedProviders = initialStoredProviders
         val importedSections = mutableListOf<String>()
         val skippedSections = mutableListOf<String>()
+        val unresolvedReferences = mutableListOf<String>()
 
         transactionRunner.inTransaction {
             if (plan.importProviders) {
@@ -1763,7 +1968,7 @@ class BackupManagerImpl @Inject constructor(
             }
 
             if (plan.importSavedLibrary) {
-                restoreSavedLibrary(
+                unresolvedReferences += restoreSavedLibrary(
                     backupData = backupData,
                     storedProviders = storedProviders,
                     conflictStrategy = plan.conflictStrategy
@@ -1775,7 +1980,7 @@ class BackupManagerImpl @Inject constructor(
 
             if (plan.importPlaybackHistory) {
                 backupData.playbackHistory?.let { history ->
-                    restorePlaybackHistory(
+                    unresolvedReferences += restorePlaybackHistory(
                         history = history,
                         storedProviders = storedProviders,
                         backupProviders = backupData.providers.orEmpty(),
@@ -1792,7 +1997,8 @@ class BackupManagerImpl @Inject constructor(
         return RoomRestoreResult(
             storedProviders = storedProviders,
             importedSections = importedSections,
-            skippedSections = skippedSections
+            skippedSections = skippedSections,
+            unresolvedReferences = unresolvedReferences
         )
     }
 
@@ -1800,19 +2006,46 @@ class BackupManagerImpl @Inject constructor(
         backupData: BackupData,
         storedProviders: List<Provider>,
         conflictStrategy: BackupConflictStrategy
-    ) {
+    ): List<String> {
+        val unresolvedReferences = mutableListOf<String>()
         val providerIdMap = resolveProviderIdMap(storedProviders, backupData.providers.orEmpty())
         val groupIdMap = mutableMapOf<Long, Long>()
+        if (conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING) {
+            val replaceScopes = buildSet<Pair<Long, ContentType>> {
+                backupData.virtualGroups.orEmpty().forEach { group ->
+                    providerIdMap[group.providerId]?.let { providerId ->
+                        add(providerId to group.contentType)
+                    }
+                }
+                backupData.favorites.orEmpty().forEach { favorite ->
+                    providerIdMap[favorite.providerId]?.let { providerId ->
+                        add(providerId to favorite.contentType)
+                    }
+                }
+            }
+            replaceScopes.forEach { (providerId, contentType) ->
+                favoriteDao.deleteByProviderAndType(providerId, contentType.name)
+                if (backupData.virtualGroups != null) {
+                    virtualGroupDao.deleteByProviderAndType(providerId, contentType.name)
+                }
+            }
+        }
         backupData.virtualGroups?.let { groups ->
             val existingGroups = buildList {
-                providerIdMap.values.distinct().forEach { providerId ->
-                    addAll(virtualGroupDao.getByType(providerId, "LIVE").first())
-                    addAll(virtualGroupDao.getByType(providerId, "MOVIE").first())
-                    addAll(virtualGroupDao.getByType(providerId, "SERIES").first())
+                if (conflictStrategy == BackupConflictStrategy.KEEP_EXISTING) {
+                    providerIdMap.values.distinct().forEach { providerId ->
+                        addAll(virtualGroupDao.getByType(providerId, "LIVE").first())
+                        addAll(virtualGroupDao.getByType(providerId, "MOVIE").first())
+                        addAll(virtualGroupDao.getByType(providerId, "SERIES").first())
+                    }
                 }
             }
             groups.forEach { group ->
-                val resolvedProviderId = providerIdMap[group.providerId] ?: return@forEach
+                val resolvedProviderId = providerIdMap[group.providerId]
+                if (resolvedProviderId == null) {
+                    unresolvedReferences += "Group ${group.name} provider ${group.providerId} could not be matched"
+                    return@forEach
+                }
                 val conflict = existingGroups.firstOrNull {
                     it.providerId == resolvedProviderId &&
                         it.name.equals(group.name, ignoreCase = true) &&
@@ -1831,11 +2064,30 @@ class BackupManagerImpl @Inject constructor(
 
         backupData.favorites?.let { favorites ->
             favorites.forEach { favorite ->
-                val resolvedProviderId = providerIdMap[favorite.providerId] ?: return@forEach
-                val resolvedGroupId = favorite.groupId?.let { groupIdMap[it] }
+                val resolvedProviderId = providerIdMap[favorite.providerId]
+                if (resolvedProviderId == null) {
+                    unresolvedReferences += "Favorite provider ${favorite.providerId} could not be matched"
+                    return@forEach
+                }
+                val resolvedGroupId = favorite.groupId?.let { groupId ->
+                    groupIdMap[groupId] ?: run {
+                        unresolvedReferences += "Favorite ${favorite.contentType} refers to missing group $groupId"
+                        return@forEach
+                    }
+                }
+                val resolvedContentId = resolvePortableContentId(
+                    providerId = resolvedProviderId,
+                    contentType = favorite.contentType,
+                    remoteContentId = favorite.remoteContentId,
+                    legacyContentId = favorite.contentId
+                )
+                if (resolvedContentId == null) {
+                    unresolvedReferences += "Favorite ${favorite.contentType} ${favorite.remoteContentId} could not be matched"
+                    return@forEach
+                }
                 val existing = favoriteDao.get(
                     providerId = resolvedProviderId,
-                    contentId = favorite.contentId,
+                    contentId = resolvedContentId,
                     contentType = favorite.contentType.name,
                     groupId = resolvedGroupId
                 )
@@ -1846,6 +2098,7 @@ class BackupManagerImpl @Inject constructor(
                     favorite.copy(
                         id = 0L,
                         providerId = resolvedProviderId,
+                        contentId = resolvedContentId,
                         groupId = resolvedGroupId
                     ).toEntity()
                 )
@@ -1881,7 +2134,28 @@ class BackupManagerImpl @Inject constructor(
                 isProtected = true
             )
         }
+        return unresolvedReferences
     }
+
+    private suspend fun resolvePortableContentId(
+        providerId: Long,
+        contentType: ContentType,
+        remoteContentId: String?,
+        legacyContentId: Long
+    ): Long? {
+        if (remoteContentId == null) return legacyContentId
+        return when (contentType) {
+            ContentType.LIVE -> remoteContentId.toLongOrNull()?.let { channelDao.getByStreamId(providerId, it)?.id }
+            ContentType.MOVIE -> remoteContentId.toLongOrNull()?.let { movieDao.getByStreamId(providerId, it)?.id }
+            ContentType.SERIES -> resolveSeries(providerId, remoteContentId)?.id
+            ContentType.SERIES_EPISODE,
+            ContentType.VOD -> null
+        }
+    }
+
+    private suspend fun resolveSeries(providerId: Long, remoteSeriesId: String): com.streamvault.data.local.entity.SeriesEntity? =
+        seriesDao.getByProviderSeriesId(providerId, remoteSeriesId)
+            ?: remoteSeriesId.toLongOrNull()?.let { seriesDao.getBySeriesId(providerId, it) }
 
     private fun resolveProviderIdMap(
         storedProviders: List<Provider>,
@@ -1901,35 +2175,75 @@ class BackupManagerImpl @Inject constructor(
         storedProviders: List<Provider>,
         backupProviders: List<com.streamvault.domain.model.LegacyProvider>,
         conflictStrategy: BackupConflictStrategy
-    ) {
+    ): List<String> {
+        val unresolvedReferences = mutableListOf<String>()
         val providerIdMap = resolveProviderIdMap(storedProviders, backupProviders)
 
         if (providerIdMap.isEmpty()) {
-            return
+            return history.map { "History provider ${it.providerId} could not be matched" }
+        }
+
+        val resolvedItems = mutableListOf<ResolvedHistoryItem>()
+        val blockedProviderIds = mutableSetOf<Long>()
+        history.forEach { item ->
+            val resolvedProviderId = providerIdMap[item.providerId]
+            if (resolvedProviderId == null) {
+                unresolvedReferences += "History provider ${item.providerId} could not be matched"
+                return@forEach
+            }
+            val resolvedIdentity = resolvePortableHistoryIdentity(
+                providerId = resolvedProviderId,
+                item = item
+            )
+            if (resolvedIdentity == null) {
+                unresolvedReferences += "History ${item.contentType} ${item.remoteContentId} could not be matched"
+                blockedProviderIds += resolvedProviderId
+                return@forEach
+            }
+            resolvedItems += ResolvedHistoryItem(
+                providerId = resolvedProviderId,
+                item = item,
+                identity = resolvedIdentity
+            )
         }
 
         val providersToResync = when (conflictStrategy) {
-            BackupConflictStrategy.REPLACE_EXISTING -> providerIdMap.values.toMutableSet()
+            BackupConflictStrategy.REPLACE_EXISTING -> providerIdMap.values
+                .filterNot { it in blockedProviderIds }
+                .toMutableSet()
             BackupConflictStrategy.KEEP_EXISTING -> linkedSetOf()
         }
 
         if (conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING) {
-            providerIdMap.values.distinct().forEach { providerId ->
+            providersToResync.forEach { providerId ->
                 playbackHistoryDao.deleteByProvider(providerId)
             }
         }
 
-        history.forEach { item ->
-            val resolvedProviderId = providerIdMap[item.providerId] ?: return@forEach
+        resolvedItems.forEach { resolvedItem ->
+            if (conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING &&
+                resolvedItem.providerId in blockedProviderIds
+            ) {
+                return@forEach
+            }
+            val item = resolvedItem.item
+            val resolvedProviderId = resolvedItem.providerId
+            val resolvedIdentity = resolvedItem.identity
             if (conflictStrategy == BackupConflictStrategy.KEEP_EXISTING) {
                 val existing = playbackHistoryDao.get(
-                    contentId = item.contentId,
+                    contentId = resolvedIdentity.contentId,
                     contentType = item.contentType.name,
                     providerId = resolvedProviderId
                 )
                 if (existing != null) return@forEach
             }
-            playbackHistoryDao.insertOrUpdate(item.copy(providerId = resolvedProviderId).toEntity())
+            playbackHistoryDao.insertOrUpdate(
+                item.copy(
+                    providerId = resolvedProviderId,
+                    contentId = resolvedIdentity.contentId,
+                    seriesId = resolvedIdentity.seriesId
+                ).toEntity()
+            )
             providersToResync += resolvedProviderId
         }
 
@@ -1937,12 +2251,61 @@ class BackupManagerImpl @Inject constructor(
             movieDao.syncWatchProgressFromHistoryByProvider(providerId)
             episodeDao.syncWatchProgressFromHistoryByProvider(providerId)
         }
+        return unresolvedReferences
     }
+
+    private data class ResolvedHistoryItem(
+        val providerId: Long,
+        val item: com.streamvault.domain.model.PlaybackHistory,
+        val identity: ResolvedContentIdentity
+    )
+
+    private suspend fun resolvePortableHistoryIdentity(
+        providerId: Long,
+        item: com.streamvault.domain.model.PlaybackHistory
+    ): ResolvedContentIdentity? {
+        if (item.remoteContentId == null && item.remoteSeriesId == null) {
+            return ResolvedContentIdentity(contentId = item.contentId, seriesId = item.seriesId)
+        }
+
+        return when (item.contentType) {
+            ContentType.LIVE -> item.remoteContentId
+                ?.toLongOrNull()
+                ?.let { channelDao.getByStreamId(providerId, it)?.id }
+                ?.let { ResolvedContentIdentity(contentId = it) }
+            ContentType.MOVIE -> item.remoteContentId
+                ?.toLongOrNull()
+                ?.let { movieDao.getByStreamId(providerId, it)?.id }
+                ?.let { ResolvedContentIdentity(contentId = it) }
+            ContentType.SERIES -> item.remoteContentId
+                ?.let { resolveSeries(providerId, it)?.id }
+                ?.let { ResolvedContentIdentity(contentId = it) }
+            ContentType.SERIES_EPISODE -> {
+                val remoteSeriesId = item.remoteSeriesId ?: return null
+                val localSeries = resolveSeries(providerId, remoteSeriesId) ?: return null
+                val remoteEpisodeId = item.remoteContentId?.toLongOrNull() ?: return null
+                episodeDao.getByProviderSeriesAndEpisodeId(
+                    providerId = providerId,
+                    seriesId = localSeries.id,
+                    episodeId = remoteEpisodeId
+                )?.let { episode ->
+                    ResolvedContentIdentity(contentId = episode.id, seriesId = localSeries.id)
+                }
+            }
+            ContentType.VOD -> null
+        }
+    }
+
+    private data class ResolvedContentIdentity(
+        val contentId: Long,
+        val seriesId: Long? = null
+    )
 
     private data class RoomRestoreResult(
         val storedProviders: List<Provider>,
         val importedSections: List<String>,
-        val skippedSections: List<String>
+        val skippedSections: List<String>,
+        val unresolvedReferences: List<String>
     )
 
     private suspend fun loadStoredProviders(): List<Provider> = providerDao.getAllSync().mapNotNull { entity ->
@@ -2033,6 +2396,38 @@ internal fun countScheduledRecordingConflicts(
             }
         }
     }
+
+    private class BoundedOutputStream(
+        private val delegate: OutputStream,
+        private val maxBytes: Long,
+    ) : OutputStream() {
+        private var bytesWritten = 0L
+
+        override fun write(value: Int) {
+            consume(1L)
+            delegate.write(value)
+        }
+
+        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+            consume(length.toLong())
+            delegate.write(buffer, offset, length)
+        }
+
+        override fun flush() = delegate.flush()
+
+        override fun close() = delegate.close()
+
+        private fun consume(count: Long) {
+            if (count < 0L || bytesWritten > maxBytes - count) {
+                throw BackupOutputTooLargeException(
+                    "Backup exceeds the ${maxBytes / (1024 * 1024)} MiB export limit"
+                )
+            }
+            bytesWritten += count
+        }
+    }
+
+    private class BackupOutputTooLargeException(message: String) : IOException(message)
 
     /**
      * Rejects hostile JSON structure while characters are still being consumed by Gson.
@@ -2135,11 +2530,11 @@ internal class BackupAdmissionException(
 ) : IOException(message)
 
 private fun Provider.backupIdentity(): Triple<String, String, String> =
-    Triple(serverUrl, username, stalkerMacAddress)
+    Triple(normalizeProviderServerUrl(serverUrl), username.trim(), stalkerMacAddress.normalizedIdentity())
 
 private fun Provider.toBackupProviderReference() = BackupProviderReference(
-    serverUrl = serverUrl,
-    username = username,
+    serverUrl = normalizeProviderServerUrl(serverUrl),
+    username = username.trim(),
     stalkerMacAddress = stalkerMacAddress.takeIf { it.isNotBlank() }
 )
 
@@ -2148,10 +2543,38 @@ private fun Iterable<Provider>.findUnambiguousPortableProvider(
 ): Provider? {
     val normalizedMac = reference.stalkerMacAddress.normalizedIdentity()
     return filter { provider ->
-        provider.serverUrl == reference.serverUrl &&
-            (provider.type == ProviderType.M3U || provider.username == reference.username) &&
+        normalizeProviderServerUrl(provider.serverUrl) == normalizeProviderServerUrl(reference.serverUrl) &&
+            (provider.type == ProviderType.M3U || provider.username.trim() == reference.username.trim()) &&
             provider.stalkerMacAddress.normalizedIdentity() == normalizedMac
     }.singleOrNull()
+}
+
+/**
+ * Provider URLs are identities, not display strings. The setup flow normally stores a
+ * canonical value, but backups can cross releases/devices where harmless differences such as
+ * a trailing slash, URL scheme/host case, or an explicit default port are present.
+ */
+private fun normalizeProviderServerUrl(value: String): String {
+    val trimmed = value.trim()
+    return runCatching {
+        val uri = URI(trimmed)
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        val host = uri.host?.lowercase(Locale.ROOT)
+        if (scheme.isNullOrBlank() || host.isNullOrBlank()) {
+            return@runCatching trimmed.trimEnd('/').lowercase(Locale.ROOT)
+        }
+        val port = when {
+            uri.port < 0 -> ""
+            scheme == "http" && uri.port == 80 -> ""
+            scheme == "https" && uri.port == 443 -> ""
+            else -> ":${uri.port}"
+        }
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        "$scheme://$host$port$path$query"
+    }.getOrElse {
+        trimmed.trimEnd('/').lowercase(Locale.ROOT)
+    }
 }
 
 private fun List<com.streamvault.domain.model.Category>.resolvePortableCategory(
@@ -2199,10 +2622,18 @@ private fun PortableChannelReference.unresolvedLabel(kind: String): String =
 private fun String?.normalizedIdentity(): String = orEmpty().trim().lowercase()
 
 private fun ProtectedCategoryBackup.backupIdentity(): Triple<String, String, String> =
-    Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
+    Triple(
+        normalizeProviderServerUrl(providerServerUrl),
+        providerUsername.trim(),
+        providerStalkerMacAddress.normalizedIdentity()
+    )
 
 private fun ScheduledRecordingBackup.backupIdentity(): Triple<String, String, String> =
-    Triple(providerServerUrl, providerUsername, providerStalkerMacAddress.orEmpty())
+    Triple(
+        normalizeProviderServerUrl(providerServerUrl),
+        providerUsername.trim(),
+        providerStalkerMacAddress.normalizedIdentity()
+    )
 
 internal fun com.streamvault.domain.model.RecordingItem.toScheduledRecordingBackup(
     provider: com.streamvault.domain.model.LegacyProvider,
@@ -2379,9 +2810,122 @@ private fun ScheduledRecordingBackup.toImportOutcome(
 private fun ScheduledRecordingBackup.hasStableRecurringIdentity(): Boolean =
     recurrence != RecordingRecurrence.NONE && !recurringRuleId.isNullOrBlank()
 
+private suspend fun com.streamvault.domain.model.Favorite.withPortableIdentity(
+    channelDao: ChannelDao,
+    movieDao: MovieDao,
+    seriesDao: SeriesDao
+): com.streamvault.domain.model.Favorite =
+    copy(
+        remoteContentId = remoteContentId ?: resolvePortableContentId(
+            channelDao = channelDao,
+            movieDao = movieDao,
+            seriesDao = seriesDao,
+            providerId = providerId,
+            contentType = contentType,
+            localContentId = contentId
+        )
+    )
+
+private suspend fun com.streamvault.domain.model.PlaybackHistory.withPortableIdentity(
+    channelDao: ChannelDao,
+    movieDao: MovieDao,
+    seriesDao: SeriesDao,
+    episodeDao: EpisodeDao
+): com.streamvault.domain.model.PlaybackHistory {
+    val episode = if (contentType == ContentType.SERIES_EPISODE) {
+        episodeDao.getById(contentId)?.takeIf { it.providerId == providerId }
+    } else {
+        null
+    }
+    val series = when {
+        episode != null -> seriesDao.getById(episode.seriesId)?.takeIf { it.providerId == providerId }
+        else -> seriesId?.let { id -> seriesDao.getById(id)?.takeIf { it.providerId == providerId } }
+    }
+    return copy(
+        remoteContentId = remoteContentId ?: when (contentType) {
+            ContentType.LIVE -> channelDao.getById(contentId)
+                ?.takeIf { it.providerId == providerId }
+                ?.streamId
+                ?.takeIf { it > 0L }
+                ?.toString()
+            ContentType.MOVIE -> movieDao.getById(contentId)
+                ?.takeIf { it.providerId == providerId }
+                ?.streamId
+                ?.takeIf { it > 0L }
+                ?.toString()
+            ContentType.SERIES -> series?.remoteKey()
+            ContentType.SERIES_EPISODE -> episode?.episodeId
+                ?.takeIf { it > 0L }
+                ?.toString()
+            ContentType.VOD -> null
+        },
+        remoteSeriesId = remoteSeriesId ?: if (contentType == ContentType.SERIES_EPISODE) {
+            series?.remoteKey()
+        } else {
+            null
+        }
+    )
+}
+
+private suspend fun resolvePortableContentId(
+    channelDao: ChannelDao,
+    movieDao: MovieDao,
+    seriesDao: SeriesDao,
+    providerId: Long,
+    contentType: ContentType,
+    localContentId: Long
+): String? = when (contentType) {
+    ContentType.LIVE -> channelDao.getById(localContentId)
+        ?.takeIf { it.providerId == providerId }
+        ?.streamId
+        ?.takeIf { it > 0L }
+        ?.toString()
+    ContentType.MOVIE -> movieDao.getById(localContentId)
+        ?.takeIf { it.providerId == providerId }
+        ?.streamId
+        ?.takeIf { it > 0L }
+        ?.toString()
+    ContentType.SERIES -> seriesDao.getById(localContentId)
+        ?.takeIf { it.providerId == providerId }
+        ?.remoteKey()
+    ContentType.SERIES_EPISODE,
+    ContentType.VOD -> null
+}
+
+private fun com.streamvault.data.local.entity.SeriesEntity.remoteKey(): String? =
+    providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesId.takeIf { it > 0L }?.toString()
+
+private data class SavedGroupConflictKey(
+    val providerId: Long,
+    val name: String,
+    val contentType: ContentType
+)
+
+private data class SavedFavoriteConflictKey(
+    val providerId: Long,
+    val contentType: ContentType,
+    val remoteContentId: String,
+    val group: String?
+)
+
+private data class SavedHistoryConflictKey(
+    val providerId: Long,
+    val contentType: ContentType,
+    val remoteContentId: String
+)
+
 private fun com.streamvault.domain.model.LegacyProvider.toSecureEntityForBackup(
     credentialCrypto: CredentialCrypto
 ) = copy(password = credentialCrypto.encryptIfNeeded(password)).toEntity()
+
+private fun Provider.toBackupCredentials(): ProviderCredentials? {
+    if (username.isBlank() || password.isBlank()) return null
+    return ProviderCredentials(
+        serverUrl = serverUrl,
+        username = username,
+        password = password,
+    )
+}
 
 private fun Iterable<Provider>.findMatchingProvider(
     serverUrl: String,
@@ -2389,8 +2933,8 @@ private fun Iterable<Provider>.findMatchingProvider(
     stalkerMacAddress: String?
 ): Provider? {
     val candidates = filter {
-        it.serverUrl == serverUrl &&
-            (it.type == ProviderType.M3U || it.username == username)
+        normalizeProviderServerUrl(it.serverUrl) == normalizeProviderServerUrl(serverUrl) &&
+            (it.type == ProviderType.M3U || it.username.trim() == username.trim())
     }
     val normalizedMacAddress = stalkerMacAddress
         ?.trim()
@@ -2406,6 +2950,7 @@ private fun Iterable<Provider>.findMatchingProvider(
 }
 
 private const val SHA256_PREFIX = "sha256:"
+private val RAW_CHECKSUM_FIELD_PATTERN = Regex("\\\"checksum\\\"\\s*:\\s*\\\"[^\\\"]*\\\"\\s*,?")
 
     private fun com.streamvault.domain.model.ProviderConfiguration.toBackupSnapshot(
     provider: StableProvider,
@@ -2425,11 +2970,14 @@ private const val RESTORE_SNAPSHOT_PRESET_1 = "__restore_snapshot_preset_1"
 private const val RESTORE_SNAPSHOT_PRESET_2 = "__restore_snapshot_preset_2"
 private const val RESTORE_SNAPSHOT_PRESET_3 = "__restore_snapshot_preset_3"
 private const val CURRENT_BACKUP_VERSION = 11
+private const val LEGACY_NO_ACTIVE_PROVIDER_WARNING =
+    "Active provider id -1 was not found during export"
 private const val FILE_URI_SCHEME = "file"
 private val PORTABLE_VIRTUAL_CATEGORY_IDS = setOf(-998L, -999L)
 private val MAP_STRING_STRING_TYPE: Type = object : TypeToken<Map<String, String>>() {}.type
 private val PROVIDER_TYPE: Type = com.streamvault.domain.model.LegacyProvider::class.java
 private val PROVIDER_SNAPSHOT_TYPE: Type = ProviderBackupSnapshot::class.java
+private val PROVIDER_CREDENTIALS_TYPE: Type = ProviderCredentials::class.java
 private val FAVORITE_TYPE: Type = com.streamvault.domain.model.Favorite::class.java
 private val VIRTUAL_GROUP_TYPE: Type = com.streamvault.domain.model.VirtualGroup::class.java
 private val PLAYBACK_HISTORY_TYPE: Type = com.streamvault.domain.model.PlaybackHistory::class.java
@@ -2443,6 +2991,7 @@ private val LONG_TYPE: Type = java.lang.Long::class.java
 private val STRING_TYPE: Type = String::class.java
 private val PROVIDER_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.LegacyProvider>>() {}.type
 private val PROVIDER_SNAPSHOT_LIST_TYPE: Type = object : TypeToken<List<ProviderBackupSnapshot>>() {}.type
+private val PROVIDER_CREDENTIALS_LIST_TYPE: Type = object : TypeToken<List<ProviderCredentials>>() {}.type
 private val EPG_SOURCE_TYPE: Type = com.streamvault.domain.model.EpgSource::class.java
 private val EPG_SOURCE_LIST_TYPE: Type =
     object : TypeToken<List<com.streamvault.domain.model.EpgSource>>() {}.type

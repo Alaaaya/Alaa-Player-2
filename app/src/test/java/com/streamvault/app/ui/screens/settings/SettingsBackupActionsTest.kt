@@ -3,10 +3,12 @@ package com.streamvault.app.ui.screens.settings
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupImportResult
+import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.manager.BackupRestoreOutcome
 import com.streamvault.domain.usecase.ExportBackup
 import com.streamvault.domain.usecase.ImportBackup
 import com.streamvault.domain.usecase.ImportBackupResult
+import com.streamvault.domain.usecase.InspectBackupResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -69,5 +71,48 @@ class SettingsBackupActionsTest {
         assertThat(uiState.value.pendingBackupUri).isNull()
         assertThat(uiState.value.backupImportPlan).isEqualTo(BackupImportPlan())
         assertThat(onSuccessCalled).isTrue()
+    }
+
+    @Test
+    fun normalInspect_clearsCredentialsPendingFromAnEarlierDrivePull() = runTest(StandardTestDispatcher()) {
+        val uiState = MutableStateFlow(
+            SettingsUiState(
+                pendingDriveCredentials = listOf(
+                    com.streamvault.domain.manager.ProviderCredentials(
+                        serverUrl = "https://example.com",
+                        username = "alice",
+                        password = "secret"
+                    )
+                )
+            )
+        )
+        val actions = SettingsBackupActions(exportBackup, importBackup, uiState)
+        whenever(importBackup.inspect(org.mockito.kotlin.any())).thenReturn(
+            InspectBackupResult.Success(
+                uriString = "content://local-backup",
+                preview = BackupPreview(
+                    version = 12,
+                    providerCount = 0,
+                    favoriteCount = 0,
+                    groupCount = 0,
+                    playbackHistoryCount = 0,
+                    multiViewPresetCount = 0,
+                    preferenceCount = 0,
+                    protectedCategoryCount = 0,
+                    scheduledRecordingCount = 0,
+                    providerConflicts = 0,
+                    favoriteConflicts = 0,
+                    groupConflicts = 0,
+                    historyConflicts = 0,
+                    protectedCategoryConflicts = 0,
+                    recordingConflicts = 0
+                )
+            )
+        )
+
+        actions.inspectBackup(this, "content://local-backup")
+        advanceUntilIdle()
+
+        assertThat(uiState.value.pendingDriveCredentials).isNull()
     }
 }
