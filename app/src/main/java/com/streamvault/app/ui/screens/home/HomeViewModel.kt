@@ -43,6 +43,10 @@ import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.LiveStreamProgramRequest
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.M3uClassificationRepository
+import com.streamvault.domain.repository.M3uCategoryItem
+import com.streamvault.domain.repository.M3uClassificationTarget
+import com.streamvault.domain.repository.M3uSeriesAssignment
 import com.streamvault.domain.util.AdultContentVisibilityPolicy
 import com.streamvault.domain.usecase.GetCustomCategories
 import com.streamvault.domain.usecase.UnlockParentalCategory
@@ -77,6 +81,7 @@ class HomeViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val epgRepository: EpgRepository,
     private val playbackHistoryRepository: PlaybackHistoryRepository,
+    private val m3uClassificationRepository: M3uClassificationRepository,
     private val getCustomCategories: GetCustomCategories,
     private val unlockParentalCategory: UnlockParentalCategory,
     private val parentalControlManager: ParentalControlManager,
@@ -1602,6 +1607,82 @@ class HomeViewModel @Inject constructor(
     fun onDismissDialog() {
         _uiState.update { it.copy(showDialog = false, selectedChannelForDialog = null) }
     }
+
+    fun moveM3uChannelToMovies(channel: Channel) {
+        if (!isM3uUiContext()) return
+        viewModelScope.launch {
+            when (val result = m3uClassificationRepository.classifyChannel(
+                providerId = channel.providerId,
+                channelId = channel.id,
+                target = M3uClassificationTarget.MOVIE
+            )) {
+                is Result.Success -> {
+                    onDismissDialog()
+                    _uiState.update { it.copy(userMessage = "Moved '${channel.name}' to Movies") }
+                }
+                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
+                Result.Loading -> Unit
+            }
+        }
+    }
+
+    fun moveM3uChannelToSeries(channel: Channel, assignment: M3uSeriesAssignment) {
+        if (!isM3uUiContext()) return
+        viewModelScope.launch {
+            when (val result = m3uClassificationRepository.classifyChannel(
+                providerId = channel.providerId,
+                channelId = channel.id,
+                target = M3uClassificationTarget.SERIES,
+                series = assignment
+            )) {
+                is Result.Success -> {
+                    onDismissDialog()
+                    _uiState.update { it.copy(userMessage = "Moved '${channel.name}' to Series") }
+                }
+                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
+                Result.Loading -> Unit
+            }
+        }
+    }
+
+    fun loadM3uCategoryItems(category: Category, onLoaded: (List<M3uCategoryItem>) -> Unit) {
+        if (!isM3uUiContext()) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            when (val result = m3uClassificationRepository.getCategoryItems(providerId, category.id)) {
+                is Result.Success -> onLoaded(result.data)
+                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
+                Result.Loading -> Unit
+            }
+        }
+    }
+
+    fun organizeM3uCategory(
+        category: Category,
+        target: M3uClassificationTarget,
+        seriesAssignments: Map<Long, M3uSeriesAssignment> = emptyMap()
+    ) {
+        if (!isM3uUiContext()) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            when (val result = m3uClassificationRepository.classifyCategory(
+                providerId = providerId,
+                categoryId = category.id,
+                target = target,
+                seriesAssignments = seriesAssignments
+            )) {
+                is Result.Success -> {
+                    dismissCategoryOptions()
+                    _uiState.update { it.copy(userMessage = "M3U category rule saved") }
+                }
+                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
+                Result.Loading -> Unit
+            }
+        }
+    }
+
+    private fun isM3uUiContext(): Boolean =
+        !_uiState.value.isCombinedLiveSource && _uiState.value.provider?.type == ProviderType.M3U
 
     fun onShowHiddenChannelsDialog() {
         _uiState.update { it.copy(showHiddenChannelsDialog = true) }

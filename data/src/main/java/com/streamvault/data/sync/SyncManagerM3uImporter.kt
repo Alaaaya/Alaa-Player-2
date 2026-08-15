@@ -3,8 +3,10 @@ package com.streamvault.data.sync
 import android.util.Log
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.local.entity.MovieEntity
+import com.streamvault.data.local.dao.M3uClassificationDao
 import com.streamvault.data.parser.M3uParser
 import com.streamvault.data.parser.M3uMediaKind
+import com.streamvault.data.parser.M3uSourceIdentity
 import com.streamvault.data.parser.M3uVodClassifier
 import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.http.useCancellableResponse
@@ -15,6 +17,9 @@ import com.streamvault.data.util.AdultContentClassifier
 import com.streamvault.data.util.UrlSecurityPolicy
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.LegacyProvider as Provider
+import com.streamvault.domain.repository.M3uClassificationRepository
+import com.streamvault.domain.repository.M3uClassificationTarget
+import com.streamvault.domain.repository.M3uSeriesAssignment
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress
 import kotlinx.coroutines.NonCancellable
@@ -39,7 +44,9 @@ internal class SyncManagerM3uImporter(
     private val progress: (Long, ((String) -> Unit)?, String) -> Unit,
     private val emitProgress: (Long, SyncProgress) -> Unit,
     private val sizeLimits: CatalogSizeLimits = CatalogSizeLimits(),
-    private val vodClassifier: M3uVodClassifier = M3uVodClassifier()
+    private val vodClassifier: M3uVodClassifier = M3uVodClassifier(),
+    private val classificationDao: M3uClassificationDao? = null,
+    private val classificationRepository: M3uClassificationRepository? = null
 ) {
     suspend fun importPlaylist(
         provider: Provider,
@@ -74,6 +81,13 @@ internal class SyncManagerM3uImporter(
         val movieBatch = ArrayList<MovieEntity>(batchSize)
         val seenLiveStreamIds = if (includeLive) mutableSetOf<Long>() else null
         val seenMovieStreamIds = if (includeMovies) mutableSetOf<Long>() else null
+        val seriesToReconcile = mutableListOf<Pair<Long, M3uSeriesAssignment?>>()
+        val persistedOverrides = classificationDao?.getOverrides(provider.id).orEmpty()
+        val itemOverrides = persistedOverrides.associateBy { it.sourceKey }
+        // A movie that was automatically classified before the override tables existed may
+        // have no source key, but its destination-independent stream id is still recoverable.
+        val itemOverridesByStreamId = persistedOverrides.associateBy { it.streamId }
+        val categoryRules = classificationDao?.getCategoryRules(provider.id).orEmpty().associateBy { it.groupKey }
         var header = M3uParser.M3uHeader()
         var liveCount = 0
         var movieCount = 0
@@ -174,25 +188,73 @@ internal class SyncManagerM3uImporter(
                         val safeLogoUrl = UrlSecurityPolicy.sanitizeImportedAssetUrl(entry.tvgLogo)
                         val safeCatchUpSource = UrlSecurityPolicy.sanitizeImportedAssetUrl(entry.catchUpSource)
 
+                        val sourceKey = M3uSourceIdentity.fromEntry(provider.id, entry)
+                        val sourceStableId = M3uSourceIdentity.stableLongId(provider.id, entry)
+                        val override = itemOverrides[sourceKey] ?: itemOverridesByStreamId[sourceStableId]
+                        val groupRule = categoryRules[M3uSourceIdentity.groupKey(entry.groupTitle)]
+                        val manualTarget = (override?.targetType ?: groupRule?.targetType)
+                            ?.let { target -> runCatching { M3uClassificationTarget.valueOf(target) }.getOrNull() }
+                        if (manualTarget == M3uClassificationTarget.SERIES) {
+                            if (!includeLive) return@parseStreaming
+                            val groupTitle = entry.groupTitle.ifBlank { "Uncategorized" }
+                            val stableStreamId = override?.streamId
+                                ?: sourceStableId
+                            if (seenLiveStreamIds?.add(stableStreamId) != true) return@parseStreaming
+                            val categoryId = liveCategories.idFor(groupTitle)
+                            channelBatch.add(
+                                ChannelEntity(
+                                    streamId = stableStreamId,
+                                    name = entry.name,
+                                    logoUrl = safeLogoUrl,
+                                    groupTitle = groupTitle,
+                                    categoryId = categoryId,
+                                    categoryName = groupTitle,
+                                    epgChannelId = entry.tvgId ?: entry.tvgName,
+                                    number = entry.tvgChno ?: 0,
+                                    streamUrl = entry.url,
+                                    catchUpSupported = !entry.catchUp.isNullOrBlank() ||
+                                        !entry.catchUpSource.isNullOrBlank() ||
+                                        !entry.timeshift.isNullOrBlank(),
+                                    catchUpDays = entry.catchUpDays ?: 0,
+                                    catchUpSource = safeCatchUpSource,
+                                    providerId = provider.id,
+                                    isAdult = AdultContentClassifier.isAdultCategoryName(groupTitle)
+                                )
+                            )
+                            seriesToReconcile += stableStreamId to override?.toSeriesAssignment()
+                            liveCount++
+                            if (channelBatch.size >= batchSize) flushChannelBatch(provider.id, sessionId, channelBatch)
+                            return@parseStreaming
+                        }
+
                         val mediaClassification = vodClassifier.classify(
                             entry = entry,
-                            override = if (provider.m3uVodClassificationEnabled) null else M3uMediaKind.LIVE
+                            override = when {
+                                manualTarget == M3uClassificationTarget.MOVIE -> M3uMediaKind.VOD
+                                manualTarget == M3uClassificationTarget.LIVE -> M3uMediaKind.LIVE
+                                provider.m3uVodClassificationEnabled -> null
+                                else -> M3uMediaKind.LIVE
+                            }
                         )
                         if (mediaClassification.isVod) {
                             if (!includeMovies) return@parseStreaming
-                            val groupTitle = entry.groupTitle.ifBlank { "Uncategorized" }
-                            val stableStreamId = stableId(
-                                providerId = provider.id,
-                                contentType = ContentType.MOVIE,
-                                tvgId = entry.tvgId,
-                                url = entry.url,
-                                title = entry.name,
-                                groupTitle = groupTitle,
-                                hasher = stableLongHasher
-                            )
+                            val groupTitle = if (manualTarget == M3uClassificationTarget.MOVIE) {
+                                "Movies"
+                            } else {
+                                entry.groupTitle.ifBlank { "Uncategorized" }
+                            }
+                            val stableStreamId = override?.streamId
+                                ?: sourceStableId
                             if (seenMovieStreamIds?.add(stableStreamId) != true) return@parseStreaming
                             if (movieCount >= sizeLimits.maxMoviesPerProvider) throw CatalogAdmissionExceeded("M3U movie limit exceeded")
-                            val categoryId = movieCategories.idFor(groupTitle)
+                            val categoryId = if (manualTarget == M3uClassificationTarget.MOVIE) {
+                                manualCategoryId(provider.id, ContentType.MOVIE, stableLongHasher)
+                            } else {
+                                movieCategories.idFor(groupTitle)
+                            }
+                            if (manualTarget == M3uClassificationTarget.MOVIE) {
+                                movieCategories.register("Movies", categoryId)
+                            }
                             if (movieCategories.count > sizeLimits.maxM3uCategoriesPerType) throw CatalogAdmissionExceeded("M3U movie category limit exceeded")
                             val isAdult = AdultContentClassifier.isAdultCategoryName(groupTitle)
                             movieBatch.add(
@@ -217,15 +279,8 @@ internal class SyncManagerM3uImporter(
                         } else {
                             if (!includeLive) return@parseStreaming
                             val groupTitle = entry.groupTitle.ifBlank { "Uncategorized" }
-                            val stableStreamId = stableId(
-                                providerId = provider.id,
-                                contentType = ContentType.LIVE,
-                                tvgId = entry.tvgId,
-                                url = entry.url,
-                                title = entry.name,
-                                groupTitle = groupTitle,
-                                hasher = stableLongHasher
-                            )
+                            val stableStreamId = override?.streamId
+                                ?: sourceStableId
                             if (seenLiveStreamIds?.add(stableStreamId) != true) return@parseStreaming
                             if (liveCount >= sizeLimits.maxChannelsPerProvider) throw CatalogAdmissionExceeded("M3U live-channel limit exceeded")
                             val categoryId = liveCategories.idFor(groupTitle)
@@ -287,6 +342,20 @@ internal class SyncManagerM3uImporter(
                 includeMovies = effectiveMovies,
                 afterCatalogApply = afterCatalogApply
             )
+            if (classificationRepository != null) {
+                seriesToReconcile.forEach { (streamId, assignment) ->
+                    when (val result = classificationRepository.classifyChannelByStream(
+                        provider.id,
+                        streamId,
+                        M3uClassificationTarget.SERIES,
+                        assignment
+                    )) {
+                        is com.streamvault.domain.model.Result.Error ->
+                            warnings += result.message
+                        else -> Unit
+                    }
+                }
+            }
         } finally {
             withContext(NonCancellable) {
                 syncCatalogStore.discardStagedImport(provider.id, sessionId)
@@ -475,6 +544,19 @@ internal class SyncManagerM3uImporter(
                 }
             }
         }
+    }
+
+    private fun manualCategoryId(providerId: Long, type: ContentType, hasher: StableLongHasher): Long =
+        hasher.hash("m3u-manual-category:$providerId:${type.name}").coerceAtLeast(1L)
+
+    private fun com.streamvault.data.local.entity.M3uClassificationOverrideEntity.toSeriesAssignment(): M3uSeriesAssignment? {
+        val name = seriesName?.takeIf(String::isNotBlank) ?: return null
+        return M3uSeriesAssignment(
+            seriesName = name,
+            seasonNumber = seasonNumber ?: 1,
+            episodeNumber = episodeNumber ?: 0,
+            episodeTitle = episodeTitle
+        )
     }
 }
 

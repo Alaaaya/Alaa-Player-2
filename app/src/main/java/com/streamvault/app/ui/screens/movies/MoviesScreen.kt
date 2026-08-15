@@ -281,7 +281,10 @@ fun MoviesScreen(
             },
             onAddToGroup = { group -> viewModel.addToGroup(movie, group) },
             onRemoveFromGroup = { group -> viewModel.removeFromGroup(movie, group) },
-            onCreateGroup = { name -> viewModel.createCustomGroup(name) }
+            onCreateGroup = { name -> viewModel.createCustomGroup(name) },
+            onMoveBackToLive = if (uiState.isM3uProvider) {
+                { viewModel.moveM3uMovieBackToLive(movie) }
+            } else null
         )
     }
 

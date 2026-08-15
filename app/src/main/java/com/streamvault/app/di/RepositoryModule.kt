@@ -84,6 +84,9 @@ abstract class RepositoryModule {
     abstract fun bindPlaybackHistoryRepository(impl: PlaybackHistoryRepositoryImpl): PlaybackHistoryRepository
 
     @Binds @Singleton
+    abstract fun bindM3uClassificationRepository(impl: M3uClassificationRepositoryImpl): M3uClassificationRepository
+
+    @Binds @Singleton
     abstract fun bindExternalRatingsRepository(impl: ExternalRatingsRepositoryImpl): ExternalRatingsRepository
 
     @Binds @Singleton

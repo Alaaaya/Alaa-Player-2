@@ -431,6 +431,9 @@ abstract class ChannelDao {
     @Query("SELECT * FROM channels WHERE id = :id")
     abstract suspend fun getById(id: Long): ChannelEntity?
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun insert(channel: ChannelEntity): Long
+
     @Query("SELECT * FROM channels WHERE provider_id = :providerId AND stream_id = :streamId LIMIT 1")
     abstract suspend fun getByStreamId(providerId: Long, streamId: Long): ChannelEntity?
 
@@ -475,6 +478,9 @@ abstract class ChannelDao {
     @Query("SELECT * FROM channels WHERE provider_id = :providerId")
     abstract suspend fun getByProviderSync(providerId: Long): List<ChannelEntity>
 
+    @Query("SELECT * FROM channels WHERE provider_id = :providerId AND category_id = :categoryId")
+    abstract suspend fun getByCategorySync(providerId: Long, categoryId: Long): List<ChannelEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun insertAll(channels: List<ChannelEntity>)
 
@@ -492,6 +498,9 @@ abstract class ChannelDao {
 
     @Query("DELETE FROM channels WHERE id IN (:ids)")
     abstract suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("DELETE FROM channels WHERE id = :id")
+    abstract suspend fun deleteById(id: Long)
 
     @Transaction
     open suspend fun replaceAll(providerId: Long, channels: List<ChannelEntity>) {
@@ -1619,6 +1628,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun getById(id: Long): MovieEntity?
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(movie: MovieEntity): Long
+
     @Query("SELECT * FROM movies WHERE provider_id = :providerId")
     suspend fun getByProviderSync(providerId: Long): List<MovieEntity>
 
@@ -1752,6 +1764,9 @@ interface MovieDao {
 
     @Query("DELETE FROM movies WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("DELETE FROM movies WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM movies WHERE provider_id = :providerId AND category_id = :categoryId AND stream_id NOT IN (:remoteIds)")
     suspend fun deleteMissingByCategory(providerId: Long, categoryId: Long, remoteIds: List<Long>)
@@ -2626,6 +2641,9 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun getById(id: Long): SeriesEntity?
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(series: SeriesEntity): Long
+
     @Query("SELECT * FROM series WHERE provider_id = :providerId")
     suspend fun getByProviderSync(providerId: Long): List<SeriesEntity>
 
@@ -2702,6 +2720,9 @@ interface SeriesDao {
 
     @Query("DELETE FROM series WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("DELETE FROM series WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Transaction
     suspend fun replaceAll(providerId: Long, series: List<SeriesEntity>) {
@@ -2812,8 +2833,17 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE series_id = :seriesId ORDER BY season_number ASC, episode_number ASC")
     suspend fun getBySeriesSync(seriesId: Long): List<EpisodeBrowseEntity>
 
+    @Query("SELECT * FROM episodes WHERE series_id = :seriesId ORDER BY season_number ASC, episode_number ASC")
+    suspend fun getEntitiesBySeriesSync(seriesId: Long): List<EpisodeEntity>
+
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun getById(id: Long): EpisodeEntity?
+
+    @Query("SELECT * FROM episodes WHERE provider_id = :providerId AND episode_id = :episodeId LIMIT 1")
+    suspend fun getByProviderAndEpisodeId(providerId: Long, episodeId: Long): EpisodeEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(episode: EpisodeEntity): Long
 
     @Query(
         "SELECT * FROM episodes WHERE provider_id = :providerId AND series_id = :seriesId AND episode_id = :episodeId LIMIT 1"
@@ -2911,6 +2941,9 @@ interface EpisodeDao {
 
     @Query("DELETE FROM episodes WHERE series_id = :seriesId")
     suspend fun deleteBySeries(seriesId: Long)
+
+    @Query("DELETE FROM episodes WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM episodes WHERE series_id NOT IN (SELECT id FROM series)")
     suspend fun deleteOrphans(): Int
@@ -3334,8 +3367,24 @@ abstract class FavoriteDao {
     @Query("DELETE FROM favorites WHERE provider_id = :providerId AND content_id = :contentId AND content_type = :contentType AND (:groupId IS NULL AND group_id IS NULL OR group_id = :groupId)")
     abstract suspend fun delete(providerId: Long, contentId: Long, contentType: String, groupId: Long?)
 
+    @Query("DELETE FROM favorites WHERE provider_id = :providerId AND content_id = :contentId AND content_type = :contentType")
+    abstract suspend fun deleteByContent(providerId: Long, contentId: Long, contentType: String)
+
     @Query("DELETE FROM favorites WHERE provider_id = :providerId AND content_type = :contentType")
     abstract suspend fun deleteByProviderAndType(providerId: Long, contentType: String)
+
+    @Query(
+        "UPDATE favorites SET content_id = :newContentId, content_type = :newContentType, " +
+            "group_id = NULL, group_key = 0 WHERE provider_id = :providerId " +
+            "AND content_id = :oldContentId AND content_type = :oldContentType"
+    )
+    abstract suspend fun migrateContent(
+        providerId: Long,
+        oldContentId: Long,
+        oldContentType: String,
+        newContentId: Long,
+        newContentType: String
+    )
 
     @Query("DELETE FROM favorites WHERE content_type = 'LIVE' AND content_id NOT IN (SELECT id FROM channels)")
     abstract suspend fun deleteMissingLiveFavorites(): Int
@@ -3516,6 +3565,22 @@ interface PlaybackHistoryDao {
 
     @Query("DELETE FROM playback_history WHERE content_id = :contentId AND content_type = :contentType AND provider_id = :providerId")
     suspend fun delete(contentId: Long, contentType: String, providerId: Long)
+
+    @Query(
+        "UPDATE playback_history SET content_id = :newContentId, content_type = :newContentType, " +
+            "series_id = :newSeriesId, season_number = :seasonNumber, episode_number = :episodeNumber " +
+            "WHERE content_id = :oldContentId AND content_type = :oldContentType AND provider_id = :providerId"
+    )
+    suspend fun migrateContent(
+        oldContentId: Long,
+        oldContentType: String,
+        newContentId: Long,
+        newContentType: String,
+        providerId: Long,
+        newSeriesId: Long? = null,
+        seasonNumber: Int? = null,
+        episodeNumber: Int? = null
+    )
 
     @Query("DELETE FROM playback_history")
     suspend fun deleteAll()

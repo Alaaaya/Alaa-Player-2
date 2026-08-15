@@ -281,7 +281,10 @@ fun SeriesScreen(
             },
             onAddToGroup = { group -> viewModel.addToGroup(series, group) },
             onRemoveFromGroup = { group -> viewModel.removeFromGroup(series, group) },
-            onCreateGroup = { name -> viewModel.createCustomGroup(name) }
+            onCreateGroup = { name -> viewModel.createCustomGroup(name) },
+            onMoveBackToLive = if (uiState.isM3uProvider) {
+                { viewModel.moveM3uSeriesBackToLive(series) }
+            } else null
         )
     }
 

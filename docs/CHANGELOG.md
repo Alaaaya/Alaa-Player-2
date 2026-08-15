@@ -19,7 +19,7 @@ All notable product changes are recorded in this document.
 - Added Stalker catalog readiness tracking, persisted portal capability state, diagnostics, and playback recovery telemetry.
 - Added generic Stalker catalog and playback support across Live TV, VOD, Movies, and Series.
 - Added Stalker VOD browsing with paged loading, on-demand catalog expansion, and complete-category loading as an option.
-- Added M3U VOD classification to distinguish movie and series entries during playlist imports.
+- Added M3U-only VOD classification and manual organization: users can classify imported entries as Movies or Series from Live TV long-press menus, review and group episodes into series with editable names, seasons, and episode numbers, and move items back to Live TV; persisted provider/source overrides survive refreshes and use app-owned destinations without exposing source group names or emojis, while non-M3U providers remain unchanged.
 - Added bounded XMLTV ingestion with deterministic timezone-policy handling for large or inconsistent guide feeds.
 - Added capability-based provider routing with typed configurations and stable provider identities across supported sources.
 - Added checkpointed, idempotent backup restore with semantic ID mapping, partial-result reporting, and bounded import validation.

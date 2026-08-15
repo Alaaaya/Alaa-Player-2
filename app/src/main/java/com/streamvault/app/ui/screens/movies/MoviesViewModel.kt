@@ -22,6 +22,7 @@ import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.M3uClassificationRepository
 import com.streamvault.domain.usecase.ContinueWatchingResult
 import com.streamvault.domain.usecase.ContinueWatchingScope
 import com.streamvault.domain.usecase.GetContinueWatching
@@ -81,7 +82,8 @@ class MoviesViewModel @Inject constructor(
     private val favoriteRepository: FavoriteRepository,
     private val getContinueWatching: GetContinueWatching,
     private val getCustomCategories: GetCustomCategories,
-    private val parentalControlManager: ParentalControlManager
+    private val parentalControlManager: ParentalControlManager,
+    private val m3uClassificationRepository: M3uClassificationRepository
 ) : ViewModel() {
     private companion object {
         const val UNCATEGORIZED = "Uncategorized"
@@ -132,6 +134,7 @@ class MoviesViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         hasActiveProvider = provider != null,
+                        isM3uProvider = provider?.type == ProviderType.M3U,
                         isLoading = if (provider == null) false else it.isLoading,
                         isLoadingSelectedCategory = if (provider == null) false else it.isLoadingSelectedCategory,
                         isLoadingPreviewRows = if (provider == null) false else it.isLoadingPreviewRows
@@ -737,6 +740,21 @@ class MoviesViewModel @Inject constructor(
 
     fun onDismissDialog() {
         _uiState.update { it.copy(showDialog = false, selectedMovieForDialog = null) }
+    }
+
+    fun moveM3uMovieBackToLive(movie: Movie) {
+        viewModelScope.launch {
+            val provider = providerRepository.getActiveProvider().first() ?: return@launch
+            if (provider.type != ProviderType.M3U) return@launch
+            when (val result = m3uClassificationRepository.moveMovieBackToLive(provider.id, movie.id)) {
+                is Result.Success -> {
+                    onDismissDialog()
+                    _uiState.update { it.copy(userMessage = "Moved '${movie.name}' back to Live TV") }
+                }
+                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
+                Result.Loading -> Unit
+            }
+        }
     }
 
     fun addFavorite(movie: Movie) {
@@ -1402,6 +1420,7 @@ data class MoviesUiState(
     val continueWatching: List<PlaybackHistory> = emptyList(),
     val hasProviders: Boolean = false,
     val hasActiveProvider: Boolean = false,
+    val isM3uProvider: Boolean = false,
     val isLoading: Boolean = true,
     val isLoadingPreviewRows: Boolean = false,
     val hasMorePreviewRows: Boolean = false,
