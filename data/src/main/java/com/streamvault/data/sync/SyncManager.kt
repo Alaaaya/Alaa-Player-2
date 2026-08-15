@@ -9,6 +9,7 @@ import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.EpisodeDao
 import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
+import com.streamvault.data.local.dao.M3uClassificationDao
 import com.streamvault.data.local.dao.ProgramDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderWorkflowDao
@@ -92,6 +93,7 @@ import com.streamvault.domain.model.XtreamConfig
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.EpgSourceRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
+import com.streamvault.domain.repository.M3uClassificationRepository
 import com.streamvault.domain.repository.ProviderSnapshotRepository
 import com.streamvault.domain.sync.Section
 import com.streamvault.domain.sync.SyncProgress
@@ -215,7 +217,9 @@ class SyncManager @Inject constructor(
     private val providerWorkLocks: ProviderWorkLockRegistry,
     private val providerSyncLocks: ProviderSyncLockRegistry,
     private val stalkerPlaybackCapabilityCache: StalkerPlaybackCapabilityCache,
-    private val providerSyncWorkScheduler: ProviderSyncWorkScheduler
+    private val providerSyncWorkScheduler: ProviderSyncWorkScheduler,
+    private val m3uClassificationDao: M3uClassificationDao? = null,
+    private val m3uClassificationRepository: M3uClassificationRepository? = null
 ) : ProviderSyncCommands, CatalogHydrationCommands, ProviderSyncStateSource, ProviderSyncLifecycle {
     private val syncProviderSnapshotAdapter = SyncProviderSnapshotAdapter(providerSnapshotRepository)
     private val syncStatusPublicationCoordinator = SyncStatusPublicationCoordinator(
@@ -402,7 +406,9 @@ class SyncManager @Inject constructor(
         syncCatalogStore = syncCatalogStore,
         retryTransient = { block -> retryTransient(block = block) },
         progress = ::progress,
-        emitProgress = ::emitProviderProgress
+        emitProgress = ::emitProviderProgress,
+        classificationDao = m3uClassificationDao,
+        classificationRepository = m3uClassificationRepository
     )
     private val m3uCatalogExecutor by lazy {
         M3uCatalogSyncExecutor(

@@ -240,6 +240,10 @@ internal class CategoryAccumulator(
         return categoryIds.getOrPut(name) { stableId(providerId, type, name, hasher) }
     }
 
+    fun register(name: String, categoryId: Long) {
+        categoryIds.putIfAbsent(name, categoryId)
+    }
+
     fun entities(): List<CategoryEntity> {
         return categoryIds.map { (name, id) ->
             CategoryEntity(

@@ -32,6 +32,49 @@ import com.streamvault.domain.model.StalkerTransportMode
 import com.streamvault.domain.model.XmltvTimezonePolicy
 
 @Entity(
+    tableName = "m3u_classification_overrides",
+    primaryKeys = ["provider_id", "source_key"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id"])]
+)
+data class M3uClassificationOverrideEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "source_key") val sourceKey: String,
+    @ColumnInfo(name = "stream_id") val streamId: Long,
+    @ColumnInfo(name = "target_type") val targetType: String,
+    @ColumnInfo(name = "group_key") val groupKey: String = "",
+    @ColumnInfo(name = "series_key") val seriesKey: String? = null,
+    @ColumnInfo(name = "series_name") val seriesName: String? = null,
+    @ColumnInfo(name = "season_number") val seasonNumber: Int? = null,
+    @ColumnInfo(name = "episode_number") val episodeNumber: Int? = null,
+    @ColumnInfo(name = "episode_title") val episodeTitle: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "m3u_category_classification_rules",
+    primaryKeys = ["provider_id", "group_key"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id"])]
+)
+data class M3uCategoryClassificationRuleEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "group_key") val groupKey: String,
+    @ColumnInfo(name = "target_type") val targetType: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
     tableName = "providers",
     indices = [Index(value = ["type"]), Index(value = ["is_active"])]
 )

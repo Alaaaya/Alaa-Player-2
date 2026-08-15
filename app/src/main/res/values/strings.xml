@@ -164,6 +164,20 @@
     <string name="category_options_clear_recent">Clear All Recent</string>
     <string name="category_options_pin">Pin Category</string>
     <string name="category_options_unpin">Unpin Category</string>
+    <string name="m3u_organize_items">Organize M3U Items</string>
+    <string name="m3u_move_to_movies">Move to Movies</string>
+    <string name="m3u_move_to_series">Move to Series</string>
+    <string name="m3u_move_back_to_live">Move back to Live TV</string>
+    <string name="m3u_series_name">Series name</string>
+    <string name="m3u_episode_number">Episode number</string>
+    <string name="m3u_season_number">Season number</string>
+    <string name="m3u_classify">Classify</string>
+    <string name="m3u_classification_saved">M3U classification saved</string>
+    <string name="m3u_category_rule_subtitle">Choose a default for this M3U group. Individual channels can still be overridden.</string>
+    <string name="m3u_keep_live">Keep as Live TV</string>
+    <string name="m3u_series_review_title">Organize series in %1$s</string>
+    <string name="m3u_series_review_subtitle">Review the automatic suggestions or assign each entry to a series, season, and episode.</string>
+    <string name="m3u_episode_unresolved">Episode number unresolved — it will remain flagged for correction.</string>
     <string name="category_pinned">Pinned %1$s.</string>
     <string name="category_unpinned">Unpinned %1$s.</string>
 
