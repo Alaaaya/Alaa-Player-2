@@ -20,6 +20,8 @@ data class BackupData(
     val providers: List<Provider>? = null,
     /** v11 authoritative provider payload; v0-10 continue to use [providers]. */
     val providerSnapshots: List<ProviderBackupSnapshot>? = null,
+    /** Credentials paired with provider snapshots so local restores can sync immediately. */
+    val providerCredentials: List<ProviderCredentials>? = null,
     val favorites: List<com.streamvault.domain.model.Favorite>? = null,
     val virtualGroups: List<com.streamvault.domain.model.VirtualGroup>? = null,
     val playbackHistory: List<PlaybackHistory>? = null,

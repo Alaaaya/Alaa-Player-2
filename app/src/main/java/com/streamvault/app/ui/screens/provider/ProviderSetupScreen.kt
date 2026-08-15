@@ -93,6 +93,7 @@ import com.streamvault.domain.model.StalkerCompatibilityProfileIds
 import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportChallengeReason
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
 import android.graphics.Bitmap
@@ -710,6 +711,14 @@ fun ProviderSetupScreen(
             onImportRecordingSchedulesChanged = { viewModel.setImportRecordingSchedules(it) },
             isImporting = uiState.isImportingBackup,
             onConfirm = { viewModel.confirmBackupImport() }
+        )
+    }
+
+    if (uiState.driveBackupOptions.isNotEmpty()) {
+        DriveBackupSnapshotChoiceDialog(
+            snapshots = uiState.driveBackupOptions,
+            onSelect = viewModel::selectDriveBackup,
+            onDismiss = viewModel::dismissDriveBackupOptions,
         )
     }
 
@@ -3318,6 +3327,61 @@ private fun ImportOptionsDialog(
             )
         }
     )
+}
+
+@Composable
+private fun DriveBackupSnapshotChoiceDialog(
+    snapshots: List<DriveBackupSnapshot>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    PremiumDialog(
+        title = stringResource(R.string.settings_drive_choose_backup_title),
+        subtitle = stringResource(R.string.settings_drive_choose_backup_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.52f,
+        heightFraction = 0.82f,
+        bodyHeightFraction = 0.64f,
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                snapshots.forEach { snapshot ->
+                    SmallActionButton(
+                        text = snapshot.fileName,
+                        isLoading = false,
+                        onClick = { onSelect(snapshot.id) },
+                    )
+                    Text(
+                        text = formatDriveSnapshotDetails(snapshot),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurface.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.settings_drive_cancel_backup_choice),
+                onClick = onDismiss,
+            )
+        },
+    )
+}
+
+private fun formatDriveSnapshotDetails(snapshot: DriveBackupSnapshot): String {
+    val date = snapshot.modifiedAtMs?.let {
+        java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.SHORT,
+            java.text.DateFormat.SHORT,
+        ).format(java.util.Date(it))
+    } ?: "Date unavailable"
+    val size = if (snapshot.sizeBytes > 0L) "${snapshot.sizeBytes / 1024L} KB" else "Size unavailable"
+    return "$date · $size"
 }
 
 @Composable

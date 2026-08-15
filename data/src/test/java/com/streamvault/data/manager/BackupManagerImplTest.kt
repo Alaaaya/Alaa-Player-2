@@ -16,6 +16,7 @@ import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
+import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.ProviderConfigEntity
@@ -23,7 +24,10 @@ import com.streamvault.data.provider.ProviderConfigurationCodec
 import com.streamvault.data.local.entity.EpgSourceEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
 import com.streamvault.data.local.entity.ChannelEntity
+import com.streamvault.data.local.entity.EpisodeEntity
+import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.RecordingScheduleEntity
+import com.streamvault.data.local.entity.SeriesEntity
 import com.streamvault.data.local.entity.VirtualGroupEntity
 import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.provider.toProviderSnapshot
@@ -38,6 +42,7 @@ import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableChannelReference
 import com.streamvault.domain.manager.PortableProviderPreferencesBackup
 import com.streamvault.domain.manager.PortableVirtualGroupReference
+import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.manager.RecordingScheduleImportDisposition
 import com.streamvault.domain.manager.ScheduledRecordingBackup
@@ -65,6 +70,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -83,6 +89,38 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class BackupManagerImplTest {
+
+    @Test
+    fun `release obfuscated backup fields remain importable`() = runBlocking {
+        val payload = """{"version":11,"portableProviderPreferences":{"a":[{"a":"https://example.com","b":"user"}],"e":false,"f":[],"g":[],"h":[],"i":[]}}"""
+        val checksum = "sha256:" + MessageDigest.getInstance("SHA-256")
+            .digest(payload.toByteArray())
+            .joinToString(separator = "") { "%02x".format(it) }
+        val json = """{"version":11,"checksum":"$checksum","portableProviderPreferences":{"a":[{"a":"https://example.com","b":"user"}],"e":false,"f":[],"g":[],"h":[],"i":[]}}"""
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val uriString = "content://obfuscated-backup"
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(anyOrNull())).thenReturn(ByteArrayInputStream(json.toByteArray()))
+
+        val manager = backupManagerForValidation(context)
+        val readMethod = BackupManagerImpl::class.java
+            .getDeclaredMethod("readBackupData", String::class.java)
+            .apply { isAccessible = true }
+        val parsed = readMethod.invoke(manager, uriString)
+        val dataField = parsed!!::class.java.getDeclaredField("data").apply { isAccessible = true }
+        val data = dataField.get(parsed) as BackupData
+
+        assertThat(data.portableProviderPreferences?.providers?.single()?.serverUrl)
+            .isEqualTo("https://example.com")
+        assertThat(data.portableProviderPreferences?.providers?.single()?.username)
+            .isEqualTo("user")
+
+        val verifyMethod = BackupManagerImpl::class.java
+            .getDeclaredMethod("verifyChecksum", parsed::class.java)
+            .apply { isAccessible = true }
+        assertThat(verifyMethod.invoke(manager, parsed) as Boolean).isTrue()
+    }
 
     @Test
     fun `importConfig preserves explicit EPG source timezone interpretation`() = runBlocking {
@@ -425,6 +463,7 @@ class BackupManagerImplTest {
             movieDao = mock(),
             episodeDao = mock(),
             channelDao = mock(),
+            seriesDao = mock(),
             categoryRepository = mock(),
             recordingScheduleDao = mock(),
             recordingManager = mock(),
@@ -532,6 +571,7 @@ class BackupManagerImplTest {
             transactionRunner = transactionRunner,
             gson = gson,
             channelDao = mock(),
+            seriesDao = mock(),
             providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
@@ -658,6 +698,7 @@ class BackupManagerImplTest {
             transactionRunner = transactionRunner,
             gson = gson,
             channelDao = mock(),
+            seriesDao = mock(),
             providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
@@ -678,6 +719,458 @@ class BackupManagerImplTest {
         assertThat(transactionRunner.calls).isEqualTo(1)
         verify(favoriteDao).insert(any())
         verify(playbackHistoryDao).insertOrUpdate(any())
+    }
+
+    @Test
+    fun `importConfig resolves saved library and episode history through remote catalog ids`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val favoriteDao: FavoriteDao = mock()
+        val playbackHistoryDao: PlaybackHistoryDao = mock()
+        val movieDao: MovieDao = mock()
+        val episodeDao: EpisodeDao = mock()
+        val seriesDao: SeriesDao = mock()
+        val gson = Gson()
+        val backupProvider = Provider(
+            id = 100L,
+            name = "Provider",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user"
+        )
+        val targetMovie = MovieEntity(
+            id = 188L,
+            streamId = 9001L,
+            name = "Movie",
+            providerId = 7L
+        )
+        val targetSeries = SeriesEntity(
+            id = 200L,
+            seriesId = 3001L,
+            providerSeriesId = "series-remote",
+            name = "Series",
+            providerId = 7L
+        )
+        val targetEpisode = EpisodeEntity(
+            id = 300L,
+            episodeId = 7001L,
+            title = "Episode",
+            episodeNumber = 1,
+            seasonNumber = 1,
+            seriesId = targetSeries.id,
+            providerId = 7L
+        )
+        val backupData = BackupData(
+            providers = listOf(backupProvider),
+            favorites = listOf(
+                Favorite(
+                    providerId = backupProvider.id,
+                    contentId = 88L,
+                    contentType = ContentType.MOVIE,
+                    remoteContentId = "9001"
+                )
+            ),
+            playbackHistory = listOf(
+                PlaybackHistory(
+                    contentId = 55L,
+                    contentType = ContentType.SERIES_EPISODE,
+                    providerId = backupProvider.id,
+                    remoteContentId = "7001",
+                    remoteSeriesId = "series-remote",
+                    title = "Episode",
+                    streamUrl = "https://stream.example.test/episode.mp4"
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://remote-id-restore"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backupData).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(
+            listOf(
+                ProviderEntity(
+                    id = 7L,
+                    name = "Target Provider",
+                    type = ProviderType.XTREAM_CODES,
+                    serverUrl = backupProvider.serverUrl,
+                    username = backupProvider.username
+                )
+            )
+        )
+        whenever(movieDao.getByStreamId(7L, 9001L)).thenReturn(targetMovie)
+        whenever(seriesDao.getByProviderSeriesId(7L, "series-remote")).thenReturn(targetSeries)
+        whenever(episodeDao.getByProviderSeriesAndEpisodeId(7L, targetSeries.id, 7001L))
+            .thenReturn(targetEpisode)
+        whenever(favoriteDao.get(any(), any(), any(), any())).thenReturn(null)
+        whenever(playbackHistoryDao.get(any(), any(), any())).thenReturn(null)
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = mock(),
+            providerDao = providerDao,
+            favoriteDao = favoriteDao,
+            virtualGroupDao = mock(),
+            playbackHistoryDao = playbackHistoryDao,
+            movieDao = movieDao,
+            episodeDao = episodeDao,
+            categoryRepository = mock(),
+            recordingScheduleDao = mock(),
+            recordingManager = mock(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson,
+            channelDao = mock(),
+            seriesDao = seriesDao,
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://remote-id-restore",
+            plan = BackupImportPlan(
+                importPreferences = false,
+                importProviders = false,
+                importSavedLibrary = true,
+                importPlaybackHistory = true,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.KEEP_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val imported = (result as Result.Success).data
+        assertThat(imported.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
+        assertThat(imported.unresolvedReferences).isEmpty()
+        verify(favoriteDao).insert(argThat {
+            providerId == 7L && contentId == targetMovie.id && contentType.name == ContentType.MOVIE.name
+        })
+        verify(playbackHistoryDao).insertOrUpdate(argThat {
+            providerId == 7L &&
+                contentId == targetEpisode.id &&
+                seriesId == targetSeries.id &&
+                contentType == ContentType.SERIES_EPISODE
+        })
+    }
+
+    @Test
+    fun `replace saved library removes old groups and restores memberships into new groups`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val favoriteDao: FavoriteDao = mock()
+        val virtualGroupDao: VirtualGroupDao = mock()
+        val movieDao: MovieDao = mock()
+        val gson = Gson()
+        val backupProvider = Provider(
+            id = 100L,
+            name = "Provider",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user"
+        )
+        val targetMovie = MovieEntity(
+            id = 188L,
+            streamId = 9001L,
+            name = "Movie",
+            providerId = 7L
+        )
+        val backupData = BackupData(
+            providers = listOf(backupProvider),
+            virtualGroups = listOf(
+                com.streamvault.domain.model.VirtualGroup(
+                    id = 10L,
+                    providerId = backupProvider.id,
+                    name = "Pinned",
+                    contentType = ContentType.MOVIE
+                )
+            ),
+            favorites = listOf(
+                Favorite(
+                    providerId = backupProvider.id,
+                    contentId = 88L,
+                    contentType = ContentType.MOVIE,
+                    remoteContentId = "9001",
+                    groupId = 10L
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://replace-library"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backupData).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(
+            listOf(
+                ProviderEntity(
+                    id = 7L,
+                    name = "Target Provider",
+                    type = ProviderType.XTREAM_CODES,
+                    serverUrl = backupProvider.serverUrl,
+                    username = backupProvider.username
+                )
+            )
+        )
+        whenever(movieDao.getByStreamId(7L, 9001L)).thenReturn(targetMovie)
+        whenever(virtualGroupDao.insert(any())).thenReturn(88L)
+        whenever(favoriteDao.get(any(), any(), any(), any())).thenReturn(null)
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = mock(),
+            providerDao = providerDao,
+            favoriteDao = favoriteDao,
+            virtualGroupDao = virtualGroupDao,
+            playbackHistoryDao = mock(),
+            movieDao = movieDao,
+            episodeDao = mock(),
+            categoryRepository = mock(),
+            recordingScheduleDao = mock(),
+            recordingManager = mock(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson,
+            channelDao = mock(),
+            seriesDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://replace-library",
+            plan = BackupImportPlan(
+                importPreferences = false,
+                importProviders = false,
+                importSavedLibrary = true,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.REPLACE_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat((result as Result.Success).data.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
+        verify(favoriteDao).deleteByProviderAndType(7L, ContentType.MOVIE.name)
+        verify(virtualGroupDao).deleteByProviderAndType(7L, ContentType.MOVIE.name)
+        verify(virtualGroupDao).insert(argThat {
+            id == 0L && providerId == 7L && name == "Pinned" && contentType == ContentType.MOVIE
+        })
+        verify(favoriteDao).insert(argThat {
+            providerId == 7L && contentId == targetMovie.id && groupId == 88L
+        })
+    }
+
+    @Test
+    fun `replace history does not delete a provider when any portable item is unresolved`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val playbackHistoryDao: PlaybackHistoryDao = mock()
+        val movieDao: MovieDao = mock()
+        val gson = Gson()
+        val backupProvider = Provider(
+            id = 100L,
+            name = "Provider",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user"
+        )
+        val targetMovie = MovieEntity(
+            id = 188L,
+            streamId = 9001L,
+            name = "Movie",
+            providerId = 7L
+        )
+        val backupData = BackupData(
+            providers = listOf(backupProvider),
+            playbackHistory = listOf(
+                PlaybackHistory(
+                    contentId = 1L,
+                    contentType = ContentType.MOVIE,
+                    providerId = backupProvider.id,
+                    remoteContentId = "9001",
+                    title = "Known",
+                    streamUrl = "https://stream.example.test/known.mp4"
+                ),
+                PlaybackHistory(
+                    contentId = 2L,
+                    contentType = ContentType.MOVIE,
+                    providerId = backupProvider.id,
+                    remoteContentId = "9999",
+                    title = "Missing",
+                    streamUrl = "https://stream.example.test/missing.mp4"
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://replace-history-safe"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backupData).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(
+            listOf(
+                ProviderEntity(
+                    id = 7L,
+                    name = "Target Provider",
+                    type = ProviderType.XTREAM_CODES,
+                    serverUrl = backupProvider.serverUrl,
+                    username = backupProvider.username
+                )
+            )
+        )
+        whenever(movieDao.getByStreamId(7L, 9001L)).thenReturn(targetMovie)
+        whenever(movieDao.getByStreamId(7L, 9999L)).thenReturn(null)
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = mock(),
+            providerDao = providerDao,
+            favoriteDao = mock(),
+            virtualGroupDao = mock(),
+            playbackHistoryDao = playbackHistoryDao,
+            movieDao = movieDao,
+            episodeDao = mock(),
+            categoryRepository = mock(),
+            recordingScheduleDao = mock(),
+            recordingManager = mock(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson,
+            channelDao = mock(),
+            seriesDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://replace-history-safe",
+            plan = BackupImportPlan(
+                importPreferences = false,
+                importProviders = false,
+                importSavedLibrary = false,
+                importPlaybackHistory = true,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false,
+                conflictStrategy = BackupConflictStrategy.REPLACE_EXISTING
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val imported = (result as Result.Success).data
+        assertThat(imported.outcome).isEqualTo(BackupRestoreOutcome.PARTIAL)
+        assertThat(imported.unresolvedReferences).isNotEmpty()
+        verify(playbackHistoryDao, never()).deleteByProvider(7L)
+        verify(playbackHistoryDao, never()).insertOrUpdate(any())
+    }
+
+    @Test
+    fun `inspectBackup uses provider and stable content identities for saved conflicts`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val favoriteDao: FavoriteDao = mock()
+        val playbackHistoryDao: PlaybackHistoryDao = mock()
+        val virtualGroupDao: VirtualGroupDao = mock()
+        val categoryRepository: CategoryRepository = mock()
+        val recordingManager: RecordingManager = mock()
+        val movieDao: MovieDao = mock()
+        val sourceProvider = Provider(
+            id = 100L,
+            name = "Source",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user"
+        )
+        val targetProvider = sourceProvider.copy(id = 7L, name = "Target")
+        val existingGroup = VirtualGroupEntity(
+            id = 77L,
+            providerId = targetProvider.id,
+            name = "Pinned",
+            contentType = ContentType.MOVIE
+        )
+        val existingFavorite = com.streamvault.data.local.entity.FavoriteEntity(
+            id = 55L,
+            providerId = targetProvider.id,
+            contentId = 188L,
+            contentType = ContentType.MOVIE,
+            groupId = existingGroup.id
+        )
+        val gson = Gson()
+        val backupData = BackupData(
+            providers = listOf(sourceProvider),
+            virtualGroups = listOf(
+                com.streamvault.domain.model.VirtualGroup(
+                    id = 10L,
+                    providerId = sourceProvider.id,
+                    name = "Pinned",
+                    contentType = ContentType.MOVIE
+                )
+            ),
+            favorites = listOf(
+                Favorite(
+                    providerId = sourceProvider.id,
+                    contentId = 88L,
+                    contentType = ContentType.MOVIE,
+                    remoteContentId = "9001",
+                    groupId = 10L
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://preview-identities"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backupData).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider.toEntity()))
+        whenever(virtualGroupDao.getByType(targetProvider.id, ContentType.LIVE.name))
+            .thenReturn(flowOf(emptyList()))
+        whenever(virtualGroupDao.getByType(targetProvider.id, ContentType.MOVIE.name))
+            .thenReturn(flowOf(listOf(existingGroup)))
+        whenever(virtualGroupDao.getByType(targetProvider.id, ContentType.SERIES.name))
+            .thenReturn(flowOf(emptyList()))
+        whenever(favoriteDao.getAllByType(any(), any())).thenReturn(flowOf(listOf(existingFavorite)))
+        whenever(playbackHistoryDao.getAllSync()).thenReturn(emptyList())
+        whenever(categoryRepository.getCategories(targetProvider.id)).thenReturn(flowOf(emptyList()))
+        whenever(recordingManager.observeRecordingItems()).thenReturn(flowOf(emptyList()))
+        whenever(movieDao.getById(existingFavorite.contentId)).thenReturn(
+            MovieEntity(
+                id = existingFavorite.contentId,
+                streamId = 9001L,
+                name = "Movie",
+                providerId = targetProvider.id
+            )
+        )
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = mock(),
+            providerDao = providerDao,
+            favoriteDao = favoriteDao,
+            virtualGroupDao = virtualGroupDao,
+            playbackHistoryDao = playbackHistoryDao,
+            movieDao = movieDao,
+            episodeDao = mock(),
+            categoryRepository = categoryRepository,
+            recordingScheduleDao = mock(),
+            recordingManager = recordingManager,
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson,
+            channelDao = mock(),
+            seriesDao = mock(),
+            providerSnapshotRepository = snapshotRepositoryFor(targetProvider)
+        )
+
+        val result = manager.inspectBackup("content://preview-identities")
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val preview = (result as Result.Success).data
+        assertThat(preview.groupConflicts).isEqualTo(1)
+        assertThat(preview.favoriteConflicts).isEqualTo(1)
     }
 
     @Test
@@ -746,6 +1239,7 @@ class BackupManagerImplTest {
             },
             gson = gson,
             channelDao = mock(),
+            seriesDao = mock(),
             providerSnapshotRepository = snapshotRepositoryFor(backupProvider.copy(id = 7L))
         )
 
@@ -971,6 +1465,116 @@ class BackupManagerImplTest {
         assertThat(portable.hiddenChannels.single().name).isEqualTo("World News")
         assertThat(portable.hiddenCategories.single().remoteCategoryId).isEqualTo(50L)
         assertThat(portable.unresolvedReferences).isEmpty()
+    }
+
+    @Test
+    fun `local backup credentials hydrate redacted provider before restore`() {
+        val manager = backupManagerForValidation(mock())
+        val provider = Provider(
+            id = 9L,
+            name = "Source",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "http://EXAMPLE.com:80/",
+            username = " user ",
+            password = "",
+        )
+        val backup = BackupData(
+            providers = listOf(provider),
+            providerCredentials = listOf(
+                ProviderCredentials(
+                    serverUrl = "HTTP://example.com",
+                    username = "user",
+                    password = "secret",
+                )
+            )
+        )
+
+        val projectionMethod = BackupManagerImpl::class.java
+            .getDeclaredMethod("withLegacyProviderProjection", BackupData::class.java)
+            .apply { isAccessible = true }
+        val hydrated = projectionMethod.invoke(manager, backup) as BackupData
+
+        assertThat(hydrated.providers?.single()?.password).isEqualTo("secret")
+    }
+
+    @Test
+    fun `portable export ignores the legacy no-active-provider sentinel`() = runBlocking {
+        val context: Context = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        val categoryRepository: CategoryRepository = mock()
+        val provider = Provider(
+            id = 2L,
+            name = "Source",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user"
+        )
+        whenever(preferencesRepository.lastActiveProviderId).thenReturn(flowOf(-1L))
+        whenever(preferencesRepository.guideDefaultCategoryId).thenReturn(flowOf(null))
+        whenever(preferencesRepository.promotedLiveGroupIds).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getHiddenChannelIds(provider.id)).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getHiddenCategoryIds(eq(provider.id), any()))
+            .thenReturn(flowOf(emptySet()))
+        whenever(categoryRepository.getCategories(provider.id)).thenReturn(flowOf(emptyList()))
+
+        val portable = backupManagerForValidation(
+            context = context,
+            preferencesRepository = preferencesRepository,
+            categoryRepository = categoryRepository
+        ).buildPortableProviderPreferences(listOf(provider))
+
+        assertThat(portable.activeProvider).isNull()
+        assertThat(portable.unresolvedReferences)
+            .doesNotContain("Active provider id -1 was not found during export")
+    }
+
+    @Test
+    fun `portable import matches provider identity across harmless url formatting differences`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val preferencesRepository: PreferencesRepository = mock()
+        val providerDao: ProviderDao = mock()
+        val categoryRepository: CategoryRepository = mock()
+        val reference = BackupProviderReference("http://EXAMPLE.com:80/", " user ")
+        val targetProvider = Provider(
+            id = 7L,
+            name = "Target",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "HTTP://example.COM",
+            username = "user"
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(providerDao.getAllSync()).thenReturn(listOf(targetProvider.toEntity()))
+        whenever(categoryRepository.getCategories(targetProvider.id)).thenReturn(flowOf(emptyList()))
+        whenever(contentResolver.openInputStream(Uri.parse("content://portable-normalized-identity")))
+            .thenReturn(
+                ByteArrayInputStream(
+                    Gson().toJson(
+                        BackupData(
+                            portableProviderPreferences = PortableProviderPreferencesBackup(
+                                providers = listOf(reference),
+                                activeProvider = reference,
+                                unresolvedReferences = listOf(
+                                    "Active provider id -1 was not found during export"
+                                )
+                            )
+                        )
+                    ).toByteArray()
+                )
+            )
+
+        val result = backupManagerForValidation(
+            context = context,
+            preferencesRepository = preferencesRepository,
+            providerDao = providerDao,
+            categoryRepository = categoryRepository,
+            storedProviders = listOf(targetProvider)
+        ).importConfig("content://portable-normalized-identity", preferencesOnlyPlan())
+
+        val imported = (result as Result.Success).data
+        assertThat(imported.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
+        assertThat(imported.unresolvedReferences).isEmpty()
+        verify(preferencesRepository).setLastActiveProviderId(targetProvider.id)
     }
 
     @Test
@@ -1321,12 +1925,16 @@ class BackupManagerImplTest {
     }
 
     @Test
-    fun `importConfig retry is a no-op after the same restore checkpoint completed`() = runBlocking {
+    fun `importConfig replays a completed restore when the same backup is explicitly imported again`() = runBlocking {
         val context: Context = mock()
         val contentResolver: ContentResolver = mock()
         val providerDao: ProviderDao = mock()
         val checkpointDao: BackupRestoreCheckpointDao = mock()
+        val credentialCrypto: CredentialCrypto = mock()
         whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+        whenever(providerDao.insert(any())).thenReturn(42L)
+        whenever(credentialCrypto.encryptIfNeeded(any())).thenReturn("")
         whenever(contentResolver.openInputStream(Uri.parse("content://backup-complete-retry"))).thenReturn(
             ByteArrayInputStream(
                 Gson().toJson(
@@ -1356,12 +1964,24 @@ class BackupManagerImplTest {
         val result = backupManagerForValidation(
             context = context,
             providerDao = providerDao,
+            credentialCrypto = credentialCrypto,
             checkpointDao = checkpointDao
         ).importConfig("content://backup-complete-retry")
 
         assertThat(result).isInstanceOf(Result.Success::class.java)
         assertThat((result as Result.Success).data.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
-        verify(providerDao, never()).getAllSync()
+        verify(providerDao, org.mockito.kotlin.atLeastOnce()).getAllSync()
+        verify(providerDao).insert(any())
+        verify(checkpointDao).update(
+            any(),
+            eq(false),
+            eq(false),
+            eq(false),
+            eq(false),
+            eq("RUNNING"),
+            anyOrNull(),
+            any()
+        )
         Unit
     }
 
@@ -1402,7 +2022,8 @@ class BackupManagerImplTest {
                 override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
             },
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            seriesDao = mock()
         )
 
         val result = manager.importConfig(
@@ -1547,7 +2168,8 @@ class BackupManagerImplTest {
                 override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
             },
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            seriesDao = mock()
         )
 
         val result = manager.importConfig(
@@ -1608,7 +2230,8 @@ class BackupManagerImplTest {
                 override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
             },
             gson = gson,
-            channelDao = mock()
+            channelDao = mock(),
+            seriesDao = mock()
         )
 
         val result = manager.importConfig(
@@ -2079,6 +2702,7 @@ class BackupManagerImplTest {
         providerConfigurationCodec = ProviderConfigurationCodec(Gson(), credentialCrypto),
         backupRestoreCheckpointDao = checkpointDao,
         channelDao = channelDao,
+        seriesDao = mock(),
         epgSourceDao = epgSourceDao
     )
 

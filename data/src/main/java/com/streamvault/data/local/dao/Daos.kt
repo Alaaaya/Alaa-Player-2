@@ -431,6 +431,9 @@ abstract class ChannelDao {
     @Query("SELECT * FROM channels WHERE id = :id")
     abstract suspend fun getById(id: Long): ChannelEntity?
 
+    @Query("SELECT * FROM channels WHERE provider_id = :providerId AND stream_id = :streamId LIMIT 1")
+    abstract suspend fun getByStreamId(providerId: Long, streamId: Long): ChannelEntity?
+
     @Query(
         """
         SELECT c.id, c.stream_id, c.name, c.logo_url, c.group_title, c.category_id, c.category_name, c.stream_url,
@@ -2813,6 +2816,11 @@ interface EpisodeDao {
     suspend fun getById(id: Long): EpisodeEntity?
 
     @Query(
+        "SELECT * FROM episodes WHERE provider_id = :providerId AND series_id = :seriesId AND episode_id = :episodeId LIMIT 1"
+    )
+    suspend fun getByProviderSeriesAndEpisodeId(providerId: Long, seriesId: Long, episodeId: Long): EpisodeEntity?
+
+    @Query(
         """
         SELECT COUNT(*)
         FROM episodes
@@ -3326,6 +3334,9 @@ abstract class FavoriteDao {
     @Query("DELETE FROM favorites WHERE provider_id = :providerId AND content_id = :contentId AND content_type = :contentType AND (:groupId IS NULL AND group_id IS NULL OR group_id = :groupId)")
     abstract suspend fun delete(providerId: Long, contentId: Long, contentType: String, groupId: Long?)
 
+    @Query("DELETE FROM favorites WHERE provider_id = :providerId AND content_type = :contentType")
+    abstract suspend fun deleteByProviderAndType(providerId: Long, contentType: String)
+
     @Query("DELETE FROM favorites WHERE content_type = 'LIVE' AND content_id NOT IN (SELECT id FROM channels)")
     abstract suspend fun deleteMissingLiveFavorites(): Int
 
@@ -3408,6 +3419,9 @@ interface VirtualGroupDao {
 
     @Query("DELETE FROM virtual_groups WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM virtual_groups WHERE provider_id = :providerId AND content_type = :contentType")
+    suspend fun deleteByProviderAndType(providerId: Long, contentType: String)
 }
 
 @Dao

@@ -21,14 +21,21 @@ internal class SettingsBackupActions(
     private val importBackup: ImportBackup,
     private val uiState: MutableStateFlow<SettingsUiState>
 ) {
-    fun exportConfig(scope: CoroutineScope, uriString: String, onSuccess: (() -> Unit)? = null) {
+    fun exportConfig(
+        scope: CoroutineScope,
+        uriString: String,
+        onSuccess: (() -> Unit)? = null,
+        successMessage: String? = null,
+        onFinished: ((Boolean) -> Unit)? = null,
+    ) {
         scope.launch {
             uiState.update {
                 it.copy(
                     isSyncing = true,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
-                    syncCanCancel = false
+                    syncCanCancel = false,
+                    pendingDriveCredentials = null
                 )
             }
             val result = exportBackup(ExportBackupCommand(uriString))
@@ -44,10 +51,11 @@ internal class SettingsBackupActions(
                     userMessage = if (result is ExportBackupResult.Error) {
                         "Export failed: ${result.message}"
                     } else {
-                        "Configuration exported successfully"
+                        successMessage ?: "Configuration exported successfully"
                     }
                 )
             }
+            onFinished?.invoke(result is ExportBackupResult.Success)
         }
     }
 
@@ -58,7 +66,8 @@ internal class SettingsBackupActions(
                     isSyncing = true,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
-                    syncCanCancel = false
+                    syncCanCancel = false,
+                    pendingDriveCredentials = null
                 )
             }
             val result = importBackup.inspect(InspectBackupCommand(uriString))
@@ -90,7 +99,8 @@ internal class SettingsBackupActions(
             it.copy(
                 backupPreview = null,
                 pendingBackupUri = null,
-                backupImportPlan = BackupImportPlan()
+                backupImportPlan = BackupImportPlan(),
+                pendingDriveCredentials = null
             )
         }
     }

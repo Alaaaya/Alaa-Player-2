@@ -17,8 +17,12 @@ import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupImportResult
+import com.streamvault.domain.manager.BackupRestoreOutcome
 import com.streamvault.domain.manager.DriveAuthState
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.streamvault.domain.manager.DriveBackupSyncManager
+import com.streamvault.domain.manager.ProviderCredentials
+import com.streamvault.domain.model.Result as DomainResult
 import com.streamvault.domain.usecase.ImportBackup
 import com.streamvault.domain.usecase.ImportBackupResult
 import com.streamvault.domain.usecase.ValidateAndAddProvider
@@ -39,6 +43,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
@@ -178,6 +183,72 @@ class ProviderSetupViewModelTest {
         assertThat(viewModel.uiState.value.pendingBackupUri).isNull()
         assertThat(viewModel.uiState.value.isImportingBackup).isFalse()
         assertThat(viewModel.uiState.value.error).isNull()
+    }
+
+    @Test
+    fun `partial backup import does not apply pending Drive credentials`() = runTest {
+        whenever(importBackup.confirm(any())).thenReturn(
+            ImportBackupResult.Success(
+                BackupImportResult(
+                    outcome = BackupRestoreOutcome.PARTIAL,
+                    failedSections = listOf("Saved library/history: 1 unresolved")
+                )
+            )
+        )
+        val viewModel = ProviderSetupViewModel(
+            providerRepository = providerRepository,
+            combinedM3uRepository = combinedM3uRepository,
+            validateAndAddProvider = validateAndAddProvider,
+            importBackup = importBackup,
+            driveBackupSyncManager = driveBackupSyncManager,
+            providerQrPairingManager = providerQrPairingManager,
+        )
+        val credentials = listOf(
+            ProviderCredentials(
+                serverUrl = "https://example.com",
+                username = "alice",
+                password = "secret"
+            )
+        )
+        val field = ProviderSetupViewModel::class.java.getDeclaredField("_uiState").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val stateFlow = field.get(viewModel) as kotlinx.coroutines.flow.MutableStateFlow<ProviderSetupState>
+        stateFlow.value = stateFlow.value.copy(
+            pendingBackupUri = "content://drive-backup.json",
+            backupImportPlan = BackupImportPlan(),
+            pendingDriveCredentials = credentials
+        )
+
+        viewModel.confirmBackupImport()
+        advanceUntilIdle()
+
+        verify(providerRepository, org.mockito.kotlin.never()).updateProviderPassword(any(), any(), any())
+        assertThat(viewModel.uiState.value.pendingDriveCredentials).isEqualTo(credentials)
+        assertThat(viewModel.uiState.value.pendingBackupUri).isEqualTo("content://drive-backup.json")
+    }
+
+    @Test
+    fun `drive import shows snapshot choice before downloading when multiple exist`() = runTest {
+        val snapshots = listOf(
+            DriveBackupSnapshot("new", "streamvault_backup_bundle_new.json"),
+            DriveBackupSnapshot("old", "streamvault_backup_bundle_old.json"),
+        )
+        whenever(driveBackupSyncManager.listBackups()).thenReturn(DomainResult.Success(snapshots))
+        val viewModel = ProviderSetupViewModel(
+            providerRepository = providerRepository,
+            combinedM3uRepository = combinedM3uRepository,
+            validateAndAddProvider = validateAndAddProvider,
+            importBackup = importBackup,
+            driveBackupSyncManager = driveBackupSyncManager,
+            providerQrPairingManager = providerQrPairingManager,
+        )
+
+        viewModel.importBackupFromDrive()
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.driveBackupOptions).isEqualTo(snapshots)
+        assertThat(viewModel.uiState.value.isImportingBackup).isFalse()
+        verify(driveBackupSyncManager, never()).pullBackup(any())
     }
 
     @Test
