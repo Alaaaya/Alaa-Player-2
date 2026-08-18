@@ -5,6 +5,7 @@ import com.streamvault.domain.model.Provider as StableProvider
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.RecordingRecurrence
 import kotlinx.coroutines.flow.Flow
 import com.streamvault.domain.model.Result
@@ -14,7 +15,7 @@ import com.streamvault.domain.model.StalkerConfig
 import com.streamvault.domain.model.JellyfinConfig
 
 data class BackupData(
-    val version: Int = 12,
+    val version: Int = 13,
     val checksum: String? = null,
     val preferences: Map<String, String>? = null,
     val providers: List<Provider>? = null,
@@ -30,7 +31,13 @@ data class BackupData(
     val protectedCategories: List<ProtectedCategoryBackup>? = null,
     val scheduledRecordings: List<ScheduledRecordingBackup>? = null,
     val portableProviderPreferences: PortableProviderPreferencesBackup? = null,
+    val recordingStorage: RecordingStorageBackup? = null,
     val epgSources: List<com.streamvault.domain.model.EpgSource>? = null,
+    val providerEpgAssignments: List<ProviderEpgAssignmentBackup>? = null,
+    val manualEpgMappings: List<ManualEpgMappingBackup>? = null,
+    val m3uClassificationOverrides: List<M3uClassificationOverrideBackup>? = null,
+    val m3uClassificationRules: List<M3uClassificationRuleBackup>? = null,
+    val programReminders: List<ProgramReminderBackup>? = null,
     /** User-created combined M3U sources, represented by portable provider identities. */
     val combinedM3uProfiles: List<CombinedM3uProfileBackup>? = null,
     /** The selected live source, represented without local provider/profile IDs. */
@@ -82,13 +89,19 @@ data class PortableProviderPreferencesBackup(
     val unresolvedReferences: List<String> = emptyList(),
     /** Per-channel playback choices, resolved through portable channel identity on import. */
     val channelPreferences: List<PortableChannelPreferenceReference> = emptyList(),
-    val channelPreferencesSpecified: Boolean = false
+    val channelPreferencesSpecified: Boolean = false,
+    /** The user's Home start category, resolved by provider/category identity on import. */
+    val homeDefaultCategory: PortableCategoryReference? = null,
+    val homeDefaultVirtualCategoryId: Long? = null,
+    val homeDefaultCategorySpecified: Boolean = false
 )
 
 data class BackupProviderReference(
     val serverUrl: String,
     val username: String,
-    val stalkerMacAddress: String? = null
+    val stalkerMacAddress: String? = null,
+    /** Added in v13; null keeps old backups importable. */
+    val providerType: ProviderType? = null
 )
 
 data class PortableCategoryReference(
@@ -131,7 +144,11 @@ data class PortableEpgTimeShiftReference(
 data class PortableVariantSelectionReference(
     val provider: BackupProviderReference,
     val logicalGroupId: String,
-    val rawItemId: Long
+    /** Legacy local catalog id. Kept for importing backups written before portable ids existed. */
+    val rawItemId: Long,
+    /** Provider/catalog identity used by current backups; never a local Room id. */
+    val remoteItemId: String? = null,
+    val contentType: ContentType? = null
 )
 
 data class CombinedM3uProfileBackup(
@@ -162,7 +179,8 @@ data class ProtectedCategoryBackup(
     val providerStalkerMacAddress: String? = null,
     val categoryId: Long,
     val categoryName: String,
-    val type: ContentType
+    val type: ContentType,
+    val providerType: ProviderType? = null
 )
 
 data class ScheduledRecordingBackup(
@@ -180,7 +198,59 @@ data class ScheduledRecordingBackup(
     val paddingAfterMs: Long? = null,
     val programTitle: String? = null,
     val recurrence: RecordingRecurrence = RecordingRecurrence.NONE,
-    val recurringRuleId: String? = null
+    val recurringRuleId: String? = null,
+    val providerType: ProviderType? = null
+)
+
+data class RecordingStorageBackup(
+    val fileNamePattern: String,
+    val retentionDays: Int? = null,
+    val maxSimultaneousRecordings: Int = 2
+)
+
+data class ProviderEpgAssignmentBackup(
+    val provider: BackupProviderReference,
+    val sourceUrl: String,
+    val priority: Int = 0,
+    val enabled: Boolean = true
+)
+
+data class ManualEpgMappingBackup(
+    val channel: PortableChannelReference,
+    val sourceUrl: String? = null,
+    val xmltvChannelId: String? = null,
+    val sourceType: String = "NONE",
+    val matchType: String? = null,
+    val confidence: Float = 0f,
+    val source: String? = null
+)
+
+data class M3uClassificationOverrideBackup(
+    val provider: BackupProviderReference,
+    val sourceKey: String,
+    val streamId: Long,
+    val targetType: String,
+    val groupKey: String = "",
+    val seriesKey: String? = null,
+    val seriesName: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val episodeTitle: String? = null
+)
+
+data class M3uClassificationRuleBackup(
+    val provider: BackupProviderReference,
+    val groupKey: String,
+    val targetType: String
+)
+
+data class ProgramReminderBackup(
+    val provider: BackupProviderReference,
+    val channelId: String,
+    val channelName: String,
+    val programTitle: String,
+    val programStartTime: Long,
+    val leadTimeMinutes: Int = 5
 )
 
 enum class BackupConflictStrategy {
