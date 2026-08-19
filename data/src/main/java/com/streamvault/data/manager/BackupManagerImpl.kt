@@ -15,6 +15,7 @@ import com.google.gson.stream.MalformedJsonException
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.M3uClassificationDao
@@ -32,6 +33,7 @@ import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
+import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.ProviderAccountRuntimeEntity
 import com.streamvault.data.local.entity.ProviderConfigEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
@@ -159,6 +161,7 @@ class BackupManagerImpl @Inject constructor(
     private val backupRestoreCheckpointDao: BackupRestoreCheckpointDao? = null,
     private val channelDao: ChannelDao,
     private val seriesDao: SeriesDao,
+    private val categoryDao: CategoryDao? = null,
     private val epgSourceDao: EpgSourceDao? = null,
     private val combinedM3uProfileDao: CombinedM3uProfileDao? = null,
     private val combinedM3uProfileMemberDao: CombinedM3uProfileMemberDao? = null,
@@ -3891,11 +3894,29 @@ class BackupManagerImpl @Inject constructor(
                     it.name.equals(protectedCategory.categoryName, ignoreCase = true)
             }
             if (resolvedCategory == null) {
-                blockedProtectionScopes += scope
-                unresolvedReferences += "Protected category '${protectedCategory.categoryName}' was not found for ${provider.serverUrl}"
-                return@forEach
+                val placeholderDao = categoryDao
+                if (placeholderDao == null) {
+                    blockedProtectionScopes += scope
+                    unresolvedReferences += "Protected category '${protectedCategory.categoryName}' was not found for ${provider.serverUrl}"
+                    return@forEach
+                }
+                // Provider rows may have been deleted before import. Create the remote
+                // category shell now so the first catalog sync can update it in place and
+                // retain the user's protection choice.
+                placeholderDao.insertAll(
+                    listOf(
+                        CategoryEntity(
+                            categoryId = protectedCategory.categoryId,
+                            name = protectedCategory.categoryName,
+                            type = protectedCategory.type,
+                            providerId = provider.id,
+                            isUserProtected = true
+                        )
+                    )
+                )
             }
-            protectedByScope.getOrPut(scope) { linkedSetOf() } += resolvedCategory.id
+            protectedByScope.getOrPut(scope) { linkedSetOf() } +=
+                (resolvedCategory?.id ?: protectedCategory.categoryId)
         }
         protectedByScope.forEach { (scope, categoryIds) ->
             if (conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING && scope in blockedProtectionScopes) {

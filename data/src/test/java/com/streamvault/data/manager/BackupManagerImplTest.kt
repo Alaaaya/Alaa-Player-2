@@ -15,6 +15,7 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
@@ -24,6 +25,7 @@ import com.streamvault.data.provider.ProviderConfigurationCodec
 import com.streamvault.data.local.entity.EpgSourceEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
 import com.streamvault.data.local.entity.ChannelEntity
+import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.RecordingScheduleEntity
@@ -46,6 +48,7 @@ import com.streamvault.domain.manager.PortableEpgTimeShiftReference
 import com.streamvault.domain.manager.PortableProviderPreferencesBackup
 import com.streamvault.domain.manager.PortableVariantSelectionReference
 import com.streamvault.domain.manager.PortableVirtualGroupReference
+import com.streamvault.domain.manager.ProtectedCategoryBackup
 import com.streamvault.domain.manager.CombinedM3uProfileBackup
 import com.streamvault.domain.manager.CombinedM3uProfileMemberBackup
 import com.streamvault.domain.manager.ProviderCredentials
@@ -102,6 +105,108 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class BackupManagerImplTest {
+
+    @Test
+    fun `import creates protected category placeholder when provider catalog was deleted`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val providerDao: ProviderDao = mock()
+        val categoryRepository: CategoryRepository = mock()
+        val categoryDao: CategoryDao = mock()
+        val gson = Gson()
+        val backupProvider = Provider(
+            id = 100L,
+            name = "Provider",
+            type = ProviderType.XTREAM_CODES,
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+        val targetProvider = backupProvider.copy(id = 7L)
+        val backup = BackupData(
+            protectedCategories = listOf(
+                ProtectedCategoryBackup(
+                    providerServerUrl = backupProvider.serverUrl,
+                    providerUsername = backupProvider.username,
+                    categoryId = 42L,
+                    categoryName = "Locked Sports",
+                    type = ContentType.LIVE,
+                    providerType = ProviderType.XTREAM_CODES
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(Uri.parse("content://protected-placeholder"))).thenReturn(
+            ByteArrayInputStream(gson.toJson(backup).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(
+            listOf(
+                ProviderEntity(
+                    id = targetProvider.id,
+                    name = targetProvider.name,
+                    type = targetProvider.type,
+                    serverUrl = targetProvider.serverUrl,
+                    username = targetProvider.username,
+                    password = targetProvider.password
+                )
+            )
+        )
+        whenever(categoryRepository.getCategories(targetProvider.id)).thenReturn(flowOf(emptyList()))
+
+        val manager = BackupManagerImpl(
+            context = context,
+            preferencesRepository = mock(),
+            credentialCrypto = mock(),
+            providerDao = providerDao,
+            favoriteDao = mock(),
+            virtualGroupDao = mock(),
+            playbackHistoryDao = mock(),
+            movieDao = mock(),
+            episodeDao = mock(),
+            categoryRepository = categoryRepository,
+            recordingScheduleDao = mock(),
+            recordingManager = mock(),
+            transactionRunner = object : DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
+            gson = gson,
+            channelDao = mock(),
+            seriesDao = mock(),
+            categoryDao = categoryDao,
+            providerSnapshotRepository = snapshotRepositoryFor(targetProvider)
+        )
+
+        val result = manager.importConfig(
+            uriString = "content://protected-placeholder",
+            plan = BackupImportPlan(
+                importPreferences = false,
+                importProviders = false,
+                importSavedLibrary = true,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat((result as Result.Success).data.unresolvedReferences).isEmpty()
+        verify(categoryDao).insertAll(argThat { rows ->
+            rows.single() == CategoryEntity(
+                categoryId = 42L,
+                name = "Locked Sports",
+                type = ContentType.LIVE,
+                providerId = targetProvider.id,
+                isUserProtected = true
+            )
+        })
+        verify(categoryRepository).setCategoryProtection(
+            providerId = targetProvider.id,
+            categoryId = 42L,
+            type = ContentType.LIVE,
+            isProtected = true
+        )
+        Unit
+    }
 
     @Test
     fun `custom backup parser preserves newly portable user state sections`() = runBlocking {

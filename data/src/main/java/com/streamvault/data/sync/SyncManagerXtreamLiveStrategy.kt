@@ -86,9 +86,11 @@ internal class SyncManagerXtreamLiveStrategy(
         val filteredRawLiveCategories = rawLiveCategories.orEmpty().filterNot { category ->
             category.categoryId.toLongOrNull() in hiddenLiveCategoryIds
         }
-        val visibleResolvedCategories = resolvedCategories
-            ?.filterNot { category -> category.categoryId in hiddenLiveCategoryIds }
-            ?.takeIf { it.isNotEmpty() }
+        // Hidden categories still need a catalog shell after a provider is restored. The
+        // channel fetch intentionally skips them, but filtering them out of the category
+        // snapshot as well means a provider whose old rows were deleted can never recreate
+        // the hidden category itself.
+        val resolvedCatalogCategories = resolvedCategories?.takeIf { it.isNotEmpty() }
 
         var fullPayload = CatalogSyncPayload<Channel>(
             catalogResult = CatalogStrategyResult.EmptyValid("full"),
@@ -103,7 +105,7 @@ internal class SyncManagerXtreamLiveStrategy(
             when (val fullResult = fullPayload.catalogResult) {
                 is CatalogStrategyResult.Success -> return fullPayload.copy(
                     categories = catalogStrategySupport.mergePreferredAndFallbackCategories(
-                        visibleResolvedCategories,
+                        resolvedCatalogCategories,
                         fullPayload.categories ?: catalogStrategySupport.buildFallbackLiveCategories(provider.id, fullResult.items)
                     ),
                     warnings = emptyList(),
@@ -114,7 +116,7 @@ internal class SyncManagerXtreamLiveStrategy(
                 )
                 is CatalogStrategyResult.Partial -> return fullPayload.copy(
                     categories = catalogStrategySupport.mergePreferredAndFallbackCategories(
-                        visibleResolvedCategories,
+                        resolvedCatalogCategories,
                         fullPayload.categories ?: catalogStrategySupport.buildFallbackLiveCategories(provider.id, fullResult.items)
                     ),
                     warnings = emptyList(),
@@ -144,7 +146,7 @@ internal class SyncManagerXtreamLiveStrategy(
         return CatalogSyncPayload(
             catalogResult = categoryPayload.catalogResult,
             categories = catalogStrategySupport.mergePreferredAndFallbackCategories(
-                visibleResolvedCategories,
+                resolvedCatalogCategories,
                 categoryPayload.categories
             ),
             warnings = (categoryPayload.warnings + catalogStrategySupport.strategyWarnings(fullPayload.catalogResult)).distinct(),
