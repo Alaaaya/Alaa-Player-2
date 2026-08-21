@@ -1060,11 +1060,13 @@ class BackupManagerImpl @Inject constructor(
                         val preferenceUnresolved = portablePreferences?.let { portable ->
                             restorePortableProviderPreferences(
                                 if (backupData.version >= 14 && (
-                                        backupData.portableHiddenContent != null ||
+                                        portable.hiddenCategories.isNotEmpty() ||
+                                            backupData.portableHiddenContent != null ||
                                             backupData.portableContentPreferences != null ||
                                             backupData.portableVariantChoices != null
                                         )) {
                                     portable.copy(
+                                        hiddenCategories = emptyList(),
                                         hiddenChannels = emptyList(),
                                         channelPreferences = emptyList(),
                                         channelPreferencesSpecified = false,
@@ -2663,6 +2665,8 @@ class BackupManagerImpl @Inject constructor(
                 legacyHistoryPayloads.forEach { add(RESTORE_SECTION_PLAYBACK_HISTORY to it) }
             }
             if (plan.importPreferences) {
+                backupData.portableProviderPreferences?.hiddenCategories.orEmpty()
+                    .forEach { add(RESTORE_SECTION_HIDDEN_CATEGORIES to it) }
                 backupData.portableSearchHistory.orEmpty().forEach { add(RESTORE_SECTION_SEARCH_HISTORY to it) }
                 backupData.portableContentPreferences.orEmpty().forEach { add(RESTORE_SECTION_CONTENT_PREFERENCES to it) }
                 backupData.portableVariantChoices.orEmpty().forEach { add(RESTORE_SECTION_VARIANT_CHOICES to it) }
@@ -2689,6 +2693,7 @@ class BackupManagerImpl @Inject constructor(
                     is PortableVariantChoiceBackup -> add(payload.selectedContent.provider)
                     is PortableManualEpgMappingV14Backup -> add(payload.content.provider)
                     is PortableMultiViewPresetV14Backup -> addAll(payload.channels.map { it.provider })
+                    is PortableCategoryReference -> add(payload.provider)
                     is ScheduledRecordingBackup -> payload.channel?.provider?.let(::add)
                 }
             }
@@ -2709,6 +2714,9 @@ class BackupManagerImpl @Inject constructor(
                             add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_PROTECTED_CONTENT, type))
                         }
                         add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_HIDDEN_CONTENT, ContentType.LIVE))
+                        ContentType.entries.forEach { type ->
+                            add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_HIDDEN_CATEGORIES, type))
+                        }
                         add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_MANUAL_EPG, ContentType.LIVE))
                     }
                     if (plan.importPlaybackHistory) persistedContentTypes.forEach { type ->
@@ -2749,29 +2757,34 @@ class BackupManagerImpl @Inject constructor(
                 is PortableVariantChoiceBackup -> payload.selectedContent
                 is PortableManualEpgMappingV14Backup -> payload.content
                 is PortableMultiViewPresetV14Backup -> null
+                is PortableCategoryReference -> payload
                 is ScheduledRecordingBackup -> payload.channel
                 is PortableSearchHistoryBackup -> null
                 is ReplaceScopePayload -> null
                 else -> error("Unsupported portable restore payload ${payload::class.java.simpleName}")
             }
+            val contentReference = reference as? PortableContentReference
             val providerReference = when (payload) {
                 is PortableCustomGroupBackup -> payload.provider
                 is PortableSearchHistoryBackup -> payload.provider
                 is PortableMultiViewPresetV14Backup -> null
+                is PortableCategoryReference -> payload.provider
                 is ScheduledRecordingBackup -> payload.channel?.provider
                 is ReplaceScopePayload -> payload.provider
-                else -> checkNotNull(reference).provider
+                else -> checkNotNull(contentReference).provider
             }
             val providerKey = providerReference?.stableIdentityKey() ?: GLOBAL_RESTORE_PROVIDER_KEY
             val stableKey = when (payload) {
                 is PortableCustomGroupBackup ->
                     "$providerKey|${payload.contentType.name}:group:${payload.name.trim().lowercase(Locale.ROOT)}"
+                is PortableCategoryReference ->
+                    "$providerKey|${payload.type.name}:category:${payload.remoteCategoryId ?: payload.name.trim().lowercase(Locale.ROOT)}"
                 is PortableSearchHistoryBackup ->
                     "$providerKey|search:${payload.contentScope}:${payload.query.trim().lowercase(Locale.ROOT)}"
                 is PortableMultiViewPresetV14Backup -> "$providerKey|multiview:${payload.name}"
                 is ScheduledRecordingBackup -> "$providerKey|recording:${payload.recurringRuleId ?: "${payload.scheduledStartMs}:${payload.channel?.remoteContentId}"}"
                 is ReplaceScopePayload -> "$providerKey|scope:${payload.targetSection}:${payload.contentType?.name.orEmpty()}"
-                else -> "$providerKey|${reference!!.contentType.name}:${reference.remoteContentId}"
+                else -> "$providerKey|${contentReference!!.contentType.name}:${contentReference.remoteContentId}"
             }
             BackupRestoreItemEntity(
                 jobId = restoreKey,
@@ -2780,7 +2793,7 @@ class BackupManagerImpl @Inject constructor(
                     storedProviders.findUnambiguousPortableProvider(portable)?.id
                 },
                 section = section,
-                contentType = reference?.contentType?.name
+                contentType = contentReference?.contentType?.name
                     ?: (payload as? PortableCustomGroupBackup)?.contentType?.name
                     ?: (payload as? ReplaceScopePayload)?.contentType?.name,
                 stableReferenceKey = stableKey,
@@ -2819,6 +2832,7 @@ class BackupManagerImpl @Inject constructor(
                     is PortableVariantChoiceBackup -> add(payload.selectedContent.provider)
                     is PortableManualEpgMappingV14Backup -> add(payload.content.provider)
                     is PortableMultiViewPresetV14Backup -> addAll(payload.channels.map { it.provider })
+                    is PortableCategoryReference -> add(payload.provider)
                     is ScheduledRecordingBackup -> payload.channel?.provider?.let(::add)
                     is ReplaceScopePayload -> payload.provider?.let(::add)
                 }
@@ -5671,6 +5685,7 @@ private const val RESTORE_SECTION_CUSTOM_GROUPS = "CUSTOM_GROUPS"
 private const val RESTORE_SECTION_PLAYBACK_HISTORY = "PLAYBACK_HISTORY"
 private const val RESTORE_SECTION_PROTECTED_CONTENT = "PROTECTED_CONTENT"
 private const val RESTORE_SECTION_HIDDEN_CONTENT = "HIDDEN_CONTENT"
+private const val RESTORE_SECTION_HIDDEN_CATEGORIES = "HIDDEN_CATEGORIES"
 private const val RESTORE_SECTION_CONTENT_PREFERENCES = "CONTENT_PREFERENCES"
 private const val RESTORE_SECTION_VARIANT_CHOICES = "VARIANT_CHOICES"
 private const val RESTORE_SECTION_MANUAL_EPG = "MANUAL_EPG"

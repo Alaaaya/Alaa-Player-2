@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.google.gson.Gson
 import com.streamvault.data.local.dao.BackupRestoreLedgerDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.dao.ChannelEpgMappingDao
 import com.streamvault.data.local.dao.EpgSourceDao
@@ -17,11 +18,13 @@ import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.BackupRestoreItemEntity
 import com.streamvault.data.local.entity.ChannelEntity
+import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.provider.toProviderSnapshot
 import com.streamvault.domain.manager.BackupProviderReference
 import com.streamvault.domain.manager.PortableContentReference
+import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableCustomGroupBackup
 import com.streamvault.domain.manager.PortableFavoriteBackup
 import com.streamvault.domain.manager.PortableMultiViewPresetV14Backup
@@ -404,6 +407,80 @@ class PendingBackupRestoreCoordinatorTest {
             updatedAt = any()
         )
         verify(ledger).refreshJobCounts(eq("job"), any())
+        Unit
+    }
+
+    @Test
+    fun `provider pass applies hidden category after category catalog is available`() = runBlocking {
+        val ledger: BackupRestoreLedgerDao = mock()
+        val providerDao: ProviderDao = mock()
+        val preferences: PreferencesRepository = mock()
+        val categoryDao: CategoryDao = mock()
+        val gson = Gson()
+        val provider = ProviderEntity(id = 77, name = "Provider", type = ProviderType.XTREAM_CODES)
+        val reference = PortableCategoryReference(
+            provider = BackupProviderReference(
+                serverUrl = "https://example.com",
+                username = "user",
+                providerType = provider.type
+            ),
+            name = "News",
+            type = ContentType.LIVE,
+            remoteCategoryId = 55
+        )
+        val item = BackupRestoreItemEntity(
+            id = 12,
+            jobId = "job",
+            providerIdentityKey = "https://example.com|user|XTREAM_CODES|",
+            localProviderId = 77,
+            section = "HIDDEN_CATEGORIES",
+            contentType = "LIVE",
+            stableReferenceKey = "provider|LIVE:CATEGORY:55",
+            referenceJson = gson.toJson(reference),
+            payloadJson = gson.toJson(reference),
+            createdAt = 1,
+            updatedAt = 1
+        )
+        whenever(providerDao.getById(77)).thenReturn(provider)
+        whenever(ledger.getRetryableItemsByLocalProviderId(77)).thenReturn(listOf(item))
+        whenever(ledger.getRetryableItems("__GLOBAL__")).thenReturn(emptyList())
+        whenever(categoryDao.getByProviderAndTypeSync(77, ContentType.LIVE.name)).thenReturn(
+            listOf(CategoryEntity(categoryId = 55, name = "News", type = ContentType.LIVE, providerId = 77))
+        )
+
+        val coordinator = PendingBackupRestoreCoordinator(
+            ledgerDao = ledger,
+            providerDao = providerDao,
+            favoriteDao = mock(),
+            virtualGroupDao = mock(),
+            playbackHistoryDao = mock(),
+            channelDao = mock(),
+            movieDao = mock(),
+            seriesDao = mock(),
+            episodeDao = mock(),
+            searchHistoryDao = mock(),
+            channelPreferenceDao = mock(),
+            channelEpgMappingDao = mock(),
+            epgSourceDao = mock(),
+            categoryDao = categoryDao,
+            preferencesRepository = preferences,
+            providerSnapshotRepository = mock(),
+            recordingManager = mock(),
+            gson = gson
+        )
+
+        val result = coordinator.applyForProvider(77)
+
+        assertThat(result.appliedCount).isEqualTo(1)
+        verify(preferences).setCategoryHidden(77, ContentType.LIVE, 55L, true)
+        verify(ledger).updateItemStatus(
+            itemId = eq(12),
+            status = eq(BackupRestoreItemEntity.STATUS_APPLIED),
+            localProviderId = eq(77),
+            attemptIncrement = eq(1),
+            lastError = isNull(),
+            updatedAt = any()
+        )
         Unit
     }
 

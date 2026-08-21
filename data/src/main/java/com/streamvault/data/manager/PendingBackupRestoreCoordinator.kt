@@ -5,6 +5,7 @@ import com.streamvault.data.local.dao.BackupRestoreLedgerDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.dao.ChannelEpgMappingDao
+import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.EpgSourceDao
 import com.streamvault.data.local.dao.EpisodeDao
 import com.streamvault.data.local.dao.FavoriteDao
@@ -15,6 +16,7 @@ import com.streamvault.data.local.dao.SearchHistoryDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.BackupRestoreItemEntity
+import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.ChannelPreferenceEntity
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
@@ -22,6 +24,7 @@ import com.streamvault.data.local.entity.PlaybackHistoryEntity
 import com.streamvault.data.local.entity.SearchHistoryEntity
 import com.streamvault.data.local.entity.VirtualGroupEntity
 import com.streamvault.domain.manager.PortableContentReference
+import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableCustomGroupBackup
 import com.streamvault.domain.manager.PortableFavoriteBackup
 import com.streamvault.domain.manager.PortablePlaybackHistoryBackup
@@ -77,7 +80,8 @@ class PendingBackupRestoreCoordinator @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val providerSnapshotRepository: ProviderSnapshotRepository,
     private val recordingManager: RecordingManager,
-    private val gson: Gson
+    private val gson: Gson,
+    private val categoryDao: CategoryDao? = null
 ) {
     private data class ReplaceScopePayload(
         val provider: BackupProviderReference?,
@@ -209,6 +213,7 @@ class PendingBackupRestoreCoordinator @Inject constructor(
         SECTION_PLAYBACK_HISTORY -> applyPlaybackHistory(item, providerId)
         SECTION_PROTECTED_CONTENT -> applyProtectedContent(item, providerId)
         SECTION_HIDDEN_CONTENT -> applyHiddenContent(item, providerId)
+        SECTION_HIDDEN_CATEGORIES -> applyHiddenCategory(item, providerId)
         SECTION_CONTENT_PREFERENCES -> applyContentPreference(item, providerId)
         SECTION_VARIANT_CHOICES -> applyVariantChoice(item, providerId)
         SECTION_MANUAL_EPG -> applyManualEpg(item, providerId)
@@ -263,6 +268,10 @@ class PendingBackupRestoreCoordinator @Inject constructor(
         }
         SECTION_PROTECTED_CONTENT -> resolveContent(providerId, gson.fromJson(item.payloadJson, PortableProtectedContentBackup::class.java).content) != null
         SECTION_HIDDEN_CONTENT -> resolveContent(providerId, gson.fromJson(item.payloadJson, PortableHiddenContentBackup::class.java).content) != null
+        SECTION_HIDDEN_CATEGORIES -> resolveHiddenCategory(
+            providerId,
+            gson.fromJson(item.payloadJson, PortableCategoryReference::class.java)
+        ) != null
         SECTION_CONTENT_PREFERENCES -> resolveContent(providerId, gson.fromJson(item.payloadJson, PortableContentPreferenceBackup::class.java).content) != null
         SECTION_VARIANT_CHOICES -> resolveContent(providerId, gson.fromJson(item.payloadJson, PortableVariantChoiceBackup::class.java).selectedContent) != null
         SECTION_MANUAL_EPG -> {
@@ -293,6 +302,9 @@ class PendingBackupRestoreCoordinator @Inject constructor(
                 null -> Unit
             }
             SECTION_HIDDEN_CONTENT -> preferencesRepository.setHiddenChannelIds(providerId, emptySet())
+            SECTION_HIDDEN_CATEGORIES -> scope.contentType?.let { type ->
+                preferencesRepository.setHiddenCategoryIds(providerId, type, emptySet())
+            }
             SECTION_CONTENT_PREFERENCES -> channelPreferenceDao.deleteByProvider(providerId)
             SECTION_VARIANT_CHOICES -> {
                 preferencesRepository.clearPreferredLiveVariants(providerId)
@@ -410,6 +422,28 @@ class PendingBackupRestoreCoordinator @Inject constructor(
         if (backup.content.contentType != ContentType.LIVE) return false
         preferencesRepository.setChannelHidden(providerId, resolved.localId, true)
         return true
+    }
+
+    private suspend fun applyHiddenCategory(item: BackupRestoreItemEntity, providerId: Long): Boolean {
+        val reference = gson.fromJson(
+            item.payloadJson,
+            PortableCategoryReference::class.java
+        )
+        val category = resolveHiddenCategory(providerId, reference) ?: return false
+        preferencesRepository.setCategoryHidden(providerId, reference.type, category.categoryId, true)
+        return true
+    }
+
+    private suspend fun resolveHiddenCategory(
+        providerId: Long,
+        reference: PortableCategoryReference
+    ): CategoryEntity? {
+        val candidates = categoryDao?.getByProviderAndTypeSync(providerId, reference.type.name).orEmpty()
+        reference.remoteCategoryId?.let { remoteId ->
+            candidates.singleOrNull { it.categoryId == remoteId }?.let { return it }
+        }
+        val normalizedName = reference.name.trim().lowercase(Locale.ROOT)
+        return candidates.filter { it.name.trim().lowercase(Locale.ROOT) == normalizedName }.singleOrNull()
     }
 
     private suspend fun applyContentPreference(item: BackupRestoreItemEntity, providerId: Long): Boolean {
@@ -637,6 +671,7 @@ class PendingBackupRestoreCoordinator @Inject constructor(
         const val SECTION_PLAYBACK_HISTORY = "PLAYBACK_HISTORY"
         const val SECTION_PROTECTED_CONTENT = "PROTECTED_CONTENT"
         const val SECTION_HIDDEN_CONTENT = "HIDDEN_CONTENT"
+        const val SECTION_HIDDEN_CATEGORIES = "HIDDEN_CATEGORIES"
         const val SECTION_CONTENT_PREFERENCES = "CONTENT_PREFERENCES"
         const val SECTION_VARIANT_CHOICES = "VARIANT_CHOICES"
         const val SECTION_MANUAL_EPG = "MANUAL_EPG"
