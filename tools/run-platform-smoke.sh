@@ -5,6 +5,10 @@ set -eu
 api_level="${1:?API level is required}"
 compat_abi="${2:-x86_64}"
 
+if [ "$api_level" = "35" ] || [ "$api_level" = "36" ]; then
+  ./tools/wait-for-emulator.sh
+fi
+
 ./gradlew --console=plain \
   :app:connectedDebugAndroidTest \
   "-PcompatApi=${api_level}" \
