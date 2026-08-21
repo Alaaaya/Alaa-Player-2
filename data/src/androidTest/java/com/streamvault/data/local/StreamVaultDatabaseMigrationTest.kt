@@ -1,5 +1,6 @@
 package com.streamvault.data.local
 
+import android.database.Cursor
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
@@ -1742,10 +1743,94 @@ class StreamVaultDatabaseMigrationTest {
     }
 
     private fun countRows(db: SupportSQLiteDatabase, sql: String): Int {
+        val normalizedSql = sql.trim().replace(Regex("\\s+"), " ")
+        tableValuedPragmaQuery(normalizedSql, "table_info")?.let { (table, whereClause) ->
+            return countPragmaRows(db, "table_info", table, whereClause)
+        }
+        tableValuedPragmaQuery(normalizedSql, "foreign_key_list")?.let { (table, whereClause) ->
+            return countPragmaRows(db, "foreign_key_list", table, whereClause)
+        }
+        tableValuedPragmaQuery(normalizedSql, "index_list")?.let { (table, whereClause) ->
+            return countPragmaRows(db, "index_list", table, whereClause)
+        }
+        if (normalizedSql.equals("SELECT COUNT(*) FROM pragma_foreign_key_check", ignoreCase = true)) {
+            return countPragmaRows(db, "foreign_key_check", null, null)
+        }
+
         db.query(sql).use { cursor ->
             if (!cursor.moveToFirst()) return 0
             return cursor.getInt(0)
         }
+    }
+
+    private fun tableValuedPragmaQuery(sql: String, pragma: String): Pair<String, String?>? {
+        val match = Regex(
+            "SELECT COUNT\\(\\*\\) FROM pragma_$pragma\\('([^']+)'\\)(?: WHERE (.+))?",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(sql) ?: return null
+        return match.groupValues[1] to match.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun countPragmaRows(
+        db: SupportSQLiteDatabase,
+        pragma: String,
+        table: String?,
+        whereClause: String?
+    ): Int {
+        val sql = if (table == null) {
+            "PRAGMA $pragma"
+        } else {
+            "PRAGMA $pragma('$table')"
+        }
+        var count = 0
+        db.query(sql).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (whereClause == null || matchesPragmaWhere(cursor, whereClause)) {
+                    count++
+                }
+            }
+        }
+        return count
+    }
+
+    private fun matchesPragmaWhere(cursor: Cursor, whereClause: String): Boolean {
+        return whereClause.split(Regex("\\s+AND\\s+", RegexOption.IGNORE_CASE)).all { condition ->
+            val normalizedCondition = condition.trim()
+            val inMatch = Regex(
+                "`?([A-Za-z_][A-Za-z0-9_]*)`?\\s+IN\\s*\\((.*)\\)",
+                RegexOption.IGNORE_CASE
+            ).matchEntire(normalizedCondition)
+            if (inMatch != null) {
+                val actualValue = pragmaColumnValue(cursor, inMatch.groupValues[1])
+                inMatch.groupValues[2]
+                    .split(Regex("\\s*,\\s*"))
+                    .map(::parseSqlLiteral)
+                    .contains(actualValue)
+            } else {
+                val equalsMatch = Regex(
+                    "`?([A-Za-z_][A-Za-z0-9_]*)`?\\s*=\\s*(.+)",
+                    RegexOption.IGNORE_CASE
+                ).matchEntire(normalizedCondition)
+                    ?: error("Unsupported PRAGMA assertion: $condition")
+                pragmaColumnValue(cursor, equalsMatch.groupValues[1]) ==
+                    parseSqlLiteral(equalsMatch.groupValues[2])
+            }
+        }
+    }
+
+    private fun pragmaColumnValue(cursor: Cursor, columnName: String): String? {
+        val columnIndex = cursor.getColumnIndex(columnName)
+        if (columnIndex < 0 || cursor.isNull(columnIndex)) return null
+        return cursor.getString(columnIndex)
+    }
+
+    private fun parseSqlLiteral(rawValue: String): String? {
+        val value = rawValue.trim()
+        if (value.equals("NULL", ignoreCase = true)) return null
+        if (value.length >= 2 && value.first() == '\'' && value.last() == '\'') {
+            return value.substring(1, value.length - 1).replace("''", "'")
+        }
+        return value
     }
 
     private fun exists(db: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Boolean {
