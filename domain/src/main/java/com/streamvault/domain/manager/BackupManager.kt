@@ -41,7 +41,18 @@ data class BackupData(
     /** User-created combined M3U sources, represented by portable provider identities. */
     val combinedM3uProfiles: List<CombinedM3uProfileBackup>? = null,
     /** The selected live source, represented without local provider/profile IDs. */
-    val activeLiveSource: ActiveLiveSourceBackup? = null
+    val activeLiveSource: ActiveLiveSourceBackup? = null,
+    /** v14 user-owned catalog state. These records never contain local Room identifiers. */
+    val portableFavorites: List<PortableFavoriteBackup>? = null,
+    val portableCustomGroups: List<PortableCustomGroupBackup>? = null,
+    val portablePlaybackHistory: List<PortablePlaybackHistoryBackup>? = null,
+    val portableProtectedContent: List<PortableProtectedContentBackup>? = null,
+    val portableSearchHistory: List<PortableSearchHistoryBackup>? = null,
+    val portableHiddenContent: List<PortableHiddenContentBackup>? = null,
+    val portableContentPreferences: List<PortableContentPreferenceBackup>? = null,
+    val portableVariantChoices: List<PortableVariantChoiceBackup>? = null,
+    val portableManualEpgMappings: List<PortableManualEpgMappingV14Backup>? = null,
+    val portableMultiViewPresetsV14: List<PortableMultiViewPresetV14Backup>? = null
 )
 
 data class ProviderBackupSnapshot(
@@ -121,7 +132,9 @@ data class PortableChannelReference(
     val provider: BackupProviderReference,
     val streamId: Long,
     val name: String,
-    val streamUrl: String
+    val streamUrl: String,
+    /** Remote category identity used to hydrate hidden categories before deferred restore. */
+    val remoteCategoryId: Long? = null
 )
 
 data class PortableChannelPreferenceReference(
@@ -148,7 +161,96 @@ data class PortableVariantSelectionReference(
     val rawItemId: Long,
     /** Provider/catalog identity used by current backups; never a local Room id. */
     val remoteItemId: String? = null,
-    val contentType: ContentType? = null
+    val contentType: ContentType? = null,
+    val remoteCategoryId: Long? = null
+)
+
+/**
+ * Stable identity for provider-owned catalog content in v14 backups.
+ *
+ * [remoteContentId] is the provider's identity, never a Room primary key. Parent and category
+ * identities are included where providers only guarantee identity inside that scope. Name and URL
+ * are matching fallbacks and may only be used when they identify exactly one local row.
+ */
+data class PortableContentReference(
+    val provider: BackupProviderReference,
+    val contentType: ContentType,
+    val remoteContentId: String,
+    val parentRemoteContentId: String? = null,
+    val remoteCategoryId: String? = null,
+    val name: String? = null,
+    val urlFallback: String? = null
+)
+
+data class PortableFavoriteBackup(
+    val content: PortableContentReference,
+    val position: Int = 0,
+    val addedAt: Long = 0L
+)
+
+data class PortableCustomGroupBackup(
+    val provider: BackupProviderReference,
+    val contentType: ContentType,
+    val name: String,
+    val icon: String? = null,
+    val position: Int = 0,
+    val createdAt: Long = 0L,
+    val members: List<PortableFavoriteBackup> = emptyList()
+)
+
+data class PortablePlaybackHistoryBackup(
+    val content: PortableContentReference,
+    val resumePositionMs: Long = 0L,
+    val totalDurationMs: Long = 0L,
+    val lastWatchedAt: Long = 0L,
+    val watchCount: Int = 1,
+    val watchedStatus: String = "IN_PROGRESS",
+    val posterUrl: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null
+)
+
+data class PortableProtectedContentBackup(
+    val content: PortableContentReference
+)
+
+data class PortableHiddenContentBackup(
+    val content: PortableContentReference
+)
+
+data class PortableContentPreferenceBackup(
+    val content: PortableContentReference,
+    val aspectRatio: String? = null,
+    val audioVideoOffsetMs: Int? = null
+)
+
+data class PortableVariantChoiceBackup(
+    val logicalGroupId: String,
+    val selectedContent: PortableContentReference
+)
+
+data class PortableManualEpgMappingV14Backup(
+    val content: PortableContentReference,
+    val sourceUrl: String? = null,
+    val xmltvChannelId: String? = null,
+    val sourceType: String = "NONE",
+    val matchType: String? = null,
+    val confidence: Float = 0f,
+    val source: String? = null
+)
+
+data class PortableMultiViewPresetV14Backup(
+    val name: String,
+    val channels: List<PortableContentReference>
+)
+
+data class PortableSearchHistoryBackup(
+    val query: String,
+    val contentScope: String,
+    /** Null means the search was global rather than provider-scoped. */
+    val provider: BackupProviderReference? = null,
+    val usedAt: Long,
+    val useCount: Int = 1
 )
 
 data class CombinedM3uProfileBackup(
@@ -199,7 +301,9 @@ data class ScheduledRecordingBackup(
     val programTitle: String? = null,
     val recurrence: RecordingRecurrence = RecordingRecurrence.NONE,
     val recurringRuleId: String? = null,
-    val providerType: ProviderType? = null
+    val providerType: ProviderType? = null,
+    /** v14 portable channel identity; [channelId] remains only for v0-v13 compatibility. */
+    val channel: PortableContentReference? = null
 )
 
 data class RecordingStorageBackup(
@@ -331,6 +435,7 @@ data class RecordingScheduleImportSummary(
  */
 enum class BackupRestoreOutcome {
     COMPLETE,
+    WAITING_FOR_SYNC,
     PARTIAL,
     FAILED_BEFORE_COMMIT
 }
@@ -341,7 +446,11 @@ data class BackupImportResult(
     val skippedSections: List<String> = emptyList(),
     val failedSections: List<String> = emptyList(),
     val unresolvedReferences: List<String> = emptyList(),
-    val recordingScheduleImport: RecordingScheduleImportSummary? = null
+    val recordingScheduleImport: RecordingScheduleImportSummary? = null,
+    val restoreJobId: String? = null,
+    val pendingCount: Int = 0,
+    val unresolvedCount: Int = 0,
+    val affectedProviders: List<BackupProviderReference> = emptyList()
 )
 
 interface BackupManager {
@@ -362,4 +471,39 @@ interface BackupManager {
         uriString: String,
         plan: BackupImportPlan = BackupImportPlan()
     ): Result<BackupImportResult>
+}
+
+data class BackupRestoreProviderStatus(
+    val providerIdentityKey: String,
+    val localProviderId: Long? = null,
+    val appliedCount: Int = 0,
+    val pendingCount: Int = 0,
+    val unresolvedCount: Int = 0,
+    val failedCount: Int = 0,
+    val items: List<BackupRestoreItemStatus> = emptyList()
+)
+
+data class BackupRestoreItemStatus(
+    val id: Long,
+    val section: String,
+    val contentType: String? = null,
+    val status: String,
+    val attempts: Int,
+    val lastError: String? = null
+)
+
+data class BackupRestoreJobStatus(
+    val jobId: String,
+    val backupVersion: Int,
+    val status: String,
+    val providers: List<BackupRestoreProviderStatus>,
+    val updatedAt: Long
+)
+
+interface BackupRestoreStatusStore {
+    fun observeRestoreJobs(): Flow<List<BackupRestoreJobStatus>>
+    suspend fun retryProviders(providerIds: Set<Long>)
+    suspend fun dismissItem(itemId: Long)
+    suspend fun dismissProvider(jobId: String, providerIdentityKey: String)
+    suspend fun dismissRestore(jobId: String)
 }
