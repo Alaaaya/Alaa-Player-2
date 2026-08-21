@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 
 @Composable
 internal fun SettingsContentPane(
@@ -25,6 +25,7 @@ internal fun SettingsContentPane(
     onChooseRecordingFolder: () -> Unit,
     onUseUsbRecordingStorage: (() -> Unit)?,
     onCreateBackup: () -> Unit,
+    onManageLocalBackups: () -> Unit,
     onCreateBackupUsb: (() -> Unit)?,
     onRestoreBackupUsb: (() -> Unit)?,
     onShareBackup: () -> Unit,
@@ -168,7 +169,10 @@ internal fun SettingsContentPane(
             )
         } else if (dialogState.selectedCategory == 5) {
             settingsBackupSection(
+                uiState = uiState,
+                viewModel = viewModel,
                 onCreateBackup = onCreateBackup,
+                onManageLocalBackups = onManageLocalBackups,
                 onShareBackup = onShareBackup,
                 onRestoreBackup = onRestoreBackup,
                 onCreateBackupUsb = onCreateBackupUsb,
@@ -179,7 +183,8 @@ internal fun SettingsContentPane(
                 onSignIn = onDriveSignIn,
                 onSignOut = onDriveSignOut,
                 onPush = onDrivePush,
-                onPull = onDrivePull
+                onPull = onDrivePull,
+                onManageBackups = viewModel::manageDriveBackups,
             )
         } else if (dialogState.selectedCategory == 6) {
             epgSourcesSection(

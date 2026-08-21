@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.ui.model.orderedByRequestedRawIds
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncStateSource
 import com.streamvault.app.update.AppUpdateActionState
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.isRemoteVersionNewer
@@ -17,7 +17,7 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackHistory
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Series
@@ -74,7 +74,7 @@ class DashboardViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val getContinueWatching: GetContinueWatching,
     private val getCustomCategories: GetCustomCategories,
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncStateSource,
     private val appUpdateInstaller: AppUpdateInstaller,
     private val recordingManager: RecordingManager
 ) : ViewModel() {
@@ -657,7 +657,8 @@ class DashboardViewModel @Inject constructor(
         val resumeItem = continueWatching.firstOrNull()
         if (resumeItem != null) {
             val detail = when (resumeItem.contentType) {
-                ContentType.MOVIE -> appContext.getString(R.string.dashboard_resume_movie)
+                ContentType.MOVIE,
+                ContentType.VOD -> appContext.getString(R.string.dashboard_resume_movie)
                 ContentType.SERIES -> appContext.getString(R.string.dashboard_resume_series)
                 ContentType.SERIES_EPISODE -> {
                     if (resumeItem.seasonNumber != null && resumeItem.episodeNumber != null) {

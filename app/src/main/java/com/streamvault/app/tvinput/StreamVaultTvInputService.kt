@@ -1,3 +1,5 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.streamvault.app.tvinput
 
 import android.content.ContentUris
@@ -22,9 +24,11 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.StreamInfo
+import com.streamvault.domain.util.BoundedExpiringCache
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.player.playback.applyUnsafeTlsBypass
+import com.streamvault.player.playback.applyPlaybackTransportPolicy
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +38,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Proxy
-import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 
@@ -47,7 +50,13 @@ class StreamVaultTvInputService : TvInputService() {
     @Inject
     lateinit var okHttpClient: OkHttpClient
 
-    private val playbackClients = ConcurrentHashMap<PlaybackClientKey, OkHttpClient>()
+    // TV input sessions can observe many proxy/transport combinations over the service
+    // lifetime. Keep only a small, expiring set of derived clients; eviction drops the cache
+    // reference and never closes a client that may still be serving an active tune.
+    private val playbackClients = BoundedExpiringCache<PlaybackClientKey, OkHttpClient>(
+        maxEntries = 8,
+        ttlMillis = 15L * 60L * 1_000L
+    )
 
     override fun onCreateSession(inputId: String): Session = StreamVaultSession(this)
 
@@ -184,18 +193,25 @@ class StreamVaultTvInputService : TvInputService() {
 
     private fun OkHttpClient.forPlayback(streamInfo: StreamInfo): OkHttpClient {
         val proxy = streamInfo.httpProxy()
-        if (!streamInfo.allowInvalidSsl && proxy == null) {
+        if (streamInfo.playbackTransportPolicy == null &&
+            !streamInfo.allowInvalidSsl &&
+            proxy == null
+        ) {
             return this
         }
         val key = PlaybackClientKey(
+            transportPolicy = streamInfo.playbackTransportPolicy,
             allowInvalidSsl = streamInfo.allowInvalidSsl,
             proxyHost = streamInfo.proxyHost.trim(),
             proxyPort = streamInfo.proxyPort
         )
-        return playbackClients.computeIfAbsent(key) {
+        return playbackClients.getOrPut(key) {
             newBuilder()
                 .apply {
-                    if (streamInfo.allowInvalidSsl) {
+                    val transportPolicy = streamInfo.playbackTransportPolicy
+                    if (transportPolicy != null) {
+                        applyPlaybackTransportPolicy(transportPolicy)
+                    } else if (streamInfo.allowInvalidSsl) {
                         applyUnsafeTlsBypass()
                     }
                     proxy?.let { proxy(it) }
@@ -211,6 +227,7 @@ class StreamVaultTvInputService : TvInputService() {
     }
 
     private data class PlaybackClientKey(
+        val transportPolicy: com.streamvault.domain.model.PlaybackTransportPolicy?,
         val allowInvalidSsl: Boolean,
         val proxyHost: String,
         val proxyPort: Int?

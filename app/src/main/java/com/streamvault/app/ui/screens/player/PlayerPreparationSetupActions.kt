@@ -100,7 +100,7 @@ internal fun PlayerViewModel.applyPrepareSessionState(
     if (currentContentType == ContentType.LIVE && currentCombinedProfileId != null) {
         val activeCombinedProfileId = currentCombinedProfileId
         viewModelScope.launch {
-            val members = activeCombinedProfileId?.let { combinedM3uRepository.getProfile(it)?.members }.orEmpty()
+            val members = activeCombinedProfileId?.let { playerPlaylistCoordinator.getProfile(it)?.members }.orEmpty()
             if (currentCombinedProfileId == activeCombinedProfileId) {
                 currentCombinedProfileMembers = members
             }
@@ -117,7 +117,7 @@ internal fun PlayerViewModel.applyPrepareSessionState(
         clearSeriesEpisodeContext()
     }
     if (currentContentType != ContentType.LIVE) {
-        lastRecordedLivePlaybackKey = null
+        livePlaybackRecordCoordinator.reset()
         recentChannelsJob?.cancel()
         recentChannelsFlow.value = emptyList()
         lastVisitedCategoryJob?.cancel()
@@ -125,8 +125,7 @@ internal fun PlayerViewModel.applyPrepareSessionState(
         playerEngine.stopLiveTimeshift()
     }
 
-    hasRetriedWithSoftwareDecoder = false
-    hasRetriedWithAvcMovieVariant = false
+    playerRecoveryCoordinator.resetPreparationAttempts()
     playerEngine.setDecoderModes(
         audioMode = preferredAudioDecoderMode,
         videoMode = preferredVideoDecoderMode
@@ -138,9 +137,9 @@ internal fun PlayerViewModel.applyPrepareSessionState(
     )
     updateStreamClass(streamClassLabel)
 
-    triedAlternativeStreams.clear()
+    playerRecoveryCoordinator.clearStreamAttempts()
     if (!hasArchiveRequest) {
-        triedAlternativeStreams.add(streamUrl)
+        playerRecoveryCoordinator.markStreamAttempt(streamUrl)
     }
 
     return shouldReloadPlaylist

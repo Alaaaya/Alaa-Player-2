@@ -1,5 +1,7 @@
 package com.streamvault.app.cast
 
+import com.streamvault.domain.model.PlaybackTransportPolicy
+
 /**
  * Media payload sent to a Chromecast receiver.
  *
@@ -20,6 +22,7 @@ data class CastMediaRequest(
     val rewriteRequiredReason: CastRewriteRequiredReason? = null,
     val headers: Map<String, String> = emptyMap(),
     val userAgent: String? = null,
+    val playbackTransportPolicy: PlaybackTransportPolicy? = null,
     val allowInvalidSsl: Boolean = false,
     val proxyHost: String = "",
     val proxyPort: Int? = null
@@ -33,7 +36,8 @@ enum class CastRewriteRequiredReason {
     CUSTOM_HEADERS,
     CUSTOM_USER_AGENT,
     PROXY,
-    INVALID_SSL
+    INVALID_SSL,
+    SCOPED_TRANSPORT
 }
 
 enum class CastConnectionState {

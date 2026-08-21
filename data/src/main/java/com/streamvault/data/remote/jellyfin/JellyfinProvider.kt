@@ -6,16 +6,22 @@ import com.google.gson.reflect.TypeToken
 import com.streamvault.data.local.entity.EpisodeEntity
 import com.streamvault.data.local.entity.MovieEntity
 import com.streamvault.data.local.entity.SeriesEntity
-import com.streamvault.domain.model.Provider
+import com.streamvault.data.remote.http.useCancellableResponse
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.Result
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.FilterInputStream
+import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import java.net.URLEncoder
 
 @Singleton
@@ -29,6 +35,12 @@ class JellyfinProvider @Inject constructor(
         private const val REQUEST_TIMEOUT_SECONDS = 60L
         private const val QUICK_CONNECT_TIMEOUT_MILLIS = 120_000L
         private const val QUICK_CONNECT_POLL_INTERVAL_MILLIS = 2_000L
+        /** Kept deliberately small: catalog endpoints are explicitly paged. */
+        const val PAGE_SIZE = 100
+        const val MAX_PAGE_BYTES = 4L * 1024L * 1024L
+        const val MAX_EPISODES_PER_SERIES = 10_000
+        const val MAX_ITEM_FIELD_CHARS = 65_536
+        const val MAX_ITEM_COLLECTION_ENTRIES = 128
     }
 
     private val itemsResponseType = object : TypeToken<JellyfinItemsResponseDto>() {}.type
@@ -42,6 +54,7 @@ class JellyfinProvider @Inject constructor(
             }
             Result.success(session.accessToken)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.error("Jellyfin authentication failed: ${e.message}", e)
         }
     }
@@ -75,13 +88,14 @@ class JellyfinProvider @Inject constructor(
             }
             Result.error("Quick Connect timed out waiting for approval")
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.error("Jellyfin Quick Connect failed: ${e.message}", e)
         }
     }
 
-    suspend fun fetchMovies(provider: Provider): Result<List<MovieEntity>> = try {
-        val items = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            fetchItems(provider, "/Items", mapOf(
+    suspend fun fetchMoviesPage(provider: Provider, startIndex: Int): Result<JellyfinPage<MovieEntity>> = try {
+        val page = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            fetchItemsPage(provider, "/Items", startIndex, mapOf(
                 "IncludeItemTypes" to "Movie",
                 "Recursive" to "true",
                 "EnableImages" to "false",
@@ -89,14 +103,15 @@ class JellyfinProvider @Inject constructor(
                 "Fields" to "Overview,ProviderIds,ProductionYear,PremiereDate,RunTimeTicks,Genres,CommunityRating,ImageTags,BackdropImageTags,MediaSources,DateCreated,Path"
             ))
         }
-        Result.success(items.map { item -> buildMovieEntity(item, provider) })
+        Result.success(page.map { item -> buildMovieEntity(item, provider) })
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         Result.error("Failed to load Jellyfin movies: ${e.message}", e)
     }
 
-    suspend fun fetchSeries(provider: Provider): Result<List<SeriesEntity>> = try {
-        val items = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            fetchItems(provider, "/Items", mapOf(
+    suspend fun fetchSeriesPage(provider: Provider, startIndex: Int): Result<JellyfinPage<SeriesEntity>> = try {
+        val page = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            fetchItemsPage(provider, "/Items", startIndex, mapOf(
                 "IncludeItemTypes" to "Series",
                 "Recursive" to "true",
                 "EnableImages" to "false",
@@ -104,21 +119,46 @@ class JellyfinProvider @Inject constructor(
                 "Fields" to "Overview,ProviderIds,ProductionYear,PremiereDate,RunTimeTicks,Genres,CommunityRating,ImageTags,BackdropImageTags,DateCreated,DateLastMediaAdded,Path"
             ))
         }
-        Result.success(items.map { item -> buildSeriesEntity(item, provider) })
+        Result.success(page.map { item -> buildSeriesEntity(item, provider) })
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         Result.error("Failed to load Jellyfin series: ${e.message}", e)
     }
 
     suspend fun fetchEpisodes(provider: Provider, seriesRemoteId: String, seriesLocalId: Long): Result<List<EpisodeEntity>> = try {
-        val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            fetchSeriesEpisodes(provider, seriesRemoteId)
-        }
-        Result.success(response.map { item -> buildEpisodeEntity(item, provider, seriesLocalId) })
+        val episodes = ArrayList<EpisodeEntity>()
+        val seenEpisodeIds = HashSet<Long>()
+        var startIndex = 0
+        var expectedTotal: Int? = null
+        do {
+            val page = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                fetchSeriesEpisodesPage(provider, seriesRemoteId, startIndex)
+            }
+            if (page.totalRecordCount > MAX_EPISODES_PER_SERIES) {
+                throw JellyfinCatalogLimitException("Jellyfin series exceeds $MAX_EPISODES_PER_SERIES episodes")
+            }
+            expectedTotal = expectedTotal ?: page.totalRecordCount
+            if (page.totalRecordCount != expectedTotal || page.items.isEmpty() && startIndex < expectedTotal) {
+                throw JellyfinPaginationException("Jellyfin episode catalog changed or ended early")
+            }
+            page.items.map { item -> buildEpisodeEntity(item, provider, seriesLocalId) }.forEach { episode ->
+                if (!seenEpisodeIds.add(episode.episodeId)) {
+                    throw JellyfinPaginationException("Jellyfin episode pagination repeated an item")
+                }
+                episodes += episode
+            }
+            if (episodes.size > MAX_EPISODES_PER_SERIES) {
+                throw JellyfinCatalogLimitException("Jellyfin series exceeds $MAX_EPISODES_PER_SERIES episodes")
+            }
+            startIndex = page.nextStartIndex
+        } while (startIndex < (expectedTotal ?: 0))
+        Result.success(episodes)
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         Result.error("Failed to load Jellyfin episodes: ${e.message}", e)
     }
 
-    private fun authenticateSession(serverUrl: String, username: String, password: String): JellyfinAuthenticatedSession {
+    private suspend fun authenticateSession(serverUrl: String, username: String, password: String): JellyfinAuthenticatedSession {
         val url = "${serverUrl.trimEnd('/')}/Users/AuthenticateByName"
         val payload = gson.toJson(JellyfinAuthenticateRequestDto(username = username, password = password))
         val request = Request.Builder()
@@ -138,7 +178,7 @@ class JellyfinProvider @Inject constructor(
         return JellyfinAuthenticatedSession(accessToken = token, userId = userId, userName = parsed.user?.name ?: username)
     }
 
-    private fun initiateQuickConnect(serverUrl: String): JellyfinQuickConnectInitiateResponseDto {
+    private suspend fun initiateQuickConnect(serverUrl: String): JellyfinQuickConnectInitiateResponseDto {
         val url = buildUrl(serverUrl, "/QuickConnect/Initiate", emptyMap())
         val request = Request.Builder()
             .url(url)
@@ -149,7 +189,7 @@ class JellyfinProvider @Inject constructor(
         return executeJsonRequest(request, object : TypeToken<JellyfinQuickConnectInitiateResponseDto>() {}.type, "Quick Connect initiation failed")
     }
 
-    private fun pollQuickConnectState(serverUrl: String, secret: String): JellyfinQuickConnectStatusResponseDto {
+    private suspend fun pollQuickConnectState(serverUrl: String, secret: String): JellyfinQuickConnectStatusResponseDto {
         val url = buildUrl(serverUrl, "/QuickConnect/Connect", mapOf("Secret" to secret))
         val request = Request.Builder()
             .url(url)
@@ -160,7 +200,7 @@ class JellyfinProvider @Inject constructor(
         return executeJsonRequest(request, object : TypeToken<JellyfinQuickConnectStatusResponseDto>() {}.type, "Quick Connect status failed")
     }
 
-    private fun authenticateWithQuickConnect(serverUrl: String, secret: String): Result<JellyfinQuickConnectAuthenticationResult> {
+    private suspend fun authenticateWithQuickConnect(serverUrl: String, secret: String): Result<JellyfinQuickConnectAuthenticationResult> {
         return try {
             val url = buildUrl(serverUrl, "/Users/AuthenticateWithQuickConnect", emptyMap())
             val request = Request.Builder()
@@ -179,30 +219,30 @@ class JellyfinProvider @Inject constructor(
                 ?: throw IllegalStateException("Quick Connect did not return a user id")
             Result.success(JellyfinQuickConnectAuthenticationResult(accessToken, userId, auth.user?.name ?: ""))
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Result.error("Quick Connect authentication failed: ${e.message}", e)
         }
     }
 
-    private fun fetchItems(provider: Provider, path: String, query: Map<String, String>): List<JellyfinItemDto> {
-        val url = buildUrl(provider.serverUrl, path, query)
+    private suspend fun fetchItemsPage(provider: Provider, path: String, startIndex: Int, query: Map<String, String>): JellyfinPage<JellyfinItemDto> {
+        val url = buildUrl(provider.serverUrl, path, query + mapOf("StartIndex" to startIndex.toString(), "Limit" to PAGE_SIZE.toString()))
         val request = Request.Builder()
             .url(url)
             .header("Authorization", buildJellyfinAuthorizationHeader(provider.serverUrl, provider.username, provider.password))
             .header("Accept", "application/json")
             .get()
             .build()
-        val body = executeRequest(request, "Jellyfin request failed")
-        if (body.isBlank()) return emptyList()
-        val parsed = gson.fromJson<JellyfinItemsResponseDto>(body, itemsResponseType)
-        return parsed.items.orEmpty().filter { !it.id.isNullOrBlank() }
+        return executeItemsPage(request, "Jellyfin request failed", startIndex)
     }
 
-    private fun fetchSeriesEpisodes(provider: Provider, seriesRemoteId: String): List<JellyfinItemDto> {
+    private suspend fun fetchSeriesEpisodesPage(provider: Provider, seriesRemoteId: String, startIndex: Int): JellyfinPage<JellyfinItemDto> {
         try {
             val url = buildUrl(provider.serverUrl, "/Shows/$seriesRemoteId/Episodes", mapOf(
                 "Fields" to "Overview,ProviderIds,PremiereDate,RunTimeTicks,Genres,CommunityRating,ImageTags,MediaSources,ParentIndexNumber,IndexNumber",
                 "EnableImages" to "false",
-                "EnableUserData" to "false"
+                "EnableUserData" to "false",
+                "StartIndex" to startIndex.toString(),
+                "Limit" to PAGE_SIZE.toString()
             ))
             val request = Request.Builder()
                 .url(url)
@@ -210,10 +250,7 @@ class JellyfinProvider @Inject constructor(
                 .header("Accept", "application/json")
                 .get()
                 .build()
-            val body = executeRequest(request, "Jellyfin episodes request failed")
-            if (body.isBlank()) return emptyList()
-            val parsed = gson.fromJson<JellyfinSeriesEpisodesResponseDto>(body, seriesResponseType)
-            return parsed.items.orEmpty().filter { !it.id.isNullOrBlank() }
+            return executeItemsPage(request, "Jellyfin episodes request failed", startIndex)
         } catch (e: Exception) {
             android.util.Log.e("JellyfinEps", "fetchSeriesEpisodes error for seriesRemoteId=$seriesRemoteId url=${provider.serverUrl}: ${e::class.java.simpleName} msg='${e.message}'", e)
             throw e
@@ -225,9 +262,9 @@ class JellyfinProvider @Inject constructor(
         return MovieEntity(
             streamId = stableRemoteId(remoteId),
             name = item.name.orEmpty(),
-            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
+            posterUrl = buildImageUrl(provider.serverUrl, provider.id, remoteId, "Primary", item.imageTags?.get("Primary")),
             backdropUrl = item.backdropImageTags?.firstOrNull()?.let { tag ->
-                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, imageIndex = 0)
+                buildImageUrl(provider.serverUrl, provider.id, remoteId, "Backdrop", tag, imageIndex = 0)
             },
             categoryId = MOVIE_CATEGORY_ID,
             categoryName = "Movies",
@@ -253,9 +290,9 @@ class JellyfinProvider @Inject constructor(
             seriesId = stableRemoteId(remoteId),
             providerSeriesId = remoteId,
             name = item.name.orEmpty(),
-            posterUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
+            posterUrl = buildImageUrl(provider.serverUrl, provider.id, remoteId, "Primary", item.imageTags?.get("Primary")),
             backdropUrl = item.backdropImageTags?.firstOrNull()?.let { tag ->
-                buildImageUrl(provider.serverUrl, remoteId, "Backdrop", tag, imageIndex = 0)
+                buildImageUrl(provider.serverUrl, provider.id, remoteId, "Backdrop", tag, imageIndex = 0)
             },
             categoryId = SERIES_CATEGORY_ID,
             categoryName = "Series",
@@ -282,7 +319,7 @@ class JellyfinProvider @Inject constructor(
             seasonNumber = item.parentIndexNumber ?: 0,
             streamUrl = buildStreamUrl(provider.serverUrl, remoteId),
             containerExtension = item.primaryMediaSource?.container?.takeIf { it.isNotBlank() },
-            coverUrl = buildImageUrl(provider.serverUrl, remoteId, "Primary", item.imageTags?.get("Primary")),
+            coverUrl = buildImageUrl(provider.serverUrl, provider.id, remoteId, "Primary", item.imageTags?.get("Primary")),
             plot = item.overview,
             duration = item.runTimeTicks?.let(::ticksToDurationString),
             durationSeconds = item.runTimeTicks?.let(::ticksToSeconds)?.toInt() ?: 0,
@@ -294,24 +331,91 @@ class JellyfinProvider @Inject constructor(
         )
     }
 
-    private fun <T> executeJsonRequest(request: Request, responseType: java.lang.reflect.Type, errorPrefix: String): T {
+    private suspend fun <T> executeJsonRequest(request: Request, responseType: java.lang.reflect.Type, errorPrefix: String): T {
         val body = executeRequest(request, errorPrefix)
         @Suppress("UNCHECKED_CAST")
         return gson.fromJson<T>(body, responseType)
     }
 
-    private fun executeRequest(request: Request, errorPrefix: String): String {
+    private suspend fun executeRequest(request: Request, errorPrefix: String): String {
         okHttpClient.newBuilder()
             .callTimeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
             .newCall(request)
-            .execute()
-            .use { response ->
+            .useCancellableResponse { response ->
                 if (!response.isSuccessful) {
                     throw IllegalStateException("$errorPrefix with HTTP ${response.code}")
                 }
                 return response.body?.string().orEmpty()
             }
+    }
+
+    /** Decodes the response envelope incrementally; neither a String nor a whole JSON tree is retained. */
+    private suspend fun executeItemsPage(request: Request, errorPrefix: String, startIndex: Int): JellyfinPage<JellyfinItemDto> {
+        okHttpClient.newBuilder().callTimeout(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS).build().newCall(request).useCancellableResponse { response ->
+            if (!response.isSuccessful) throw IllegalStateException("$errorPrefix with HTTP ${response.code}")
+            val body = response.body ?: throw IllegalStateException("$errorPrefix with an empty body")
+            if (body.contentLength() > MAX_PAGE_BYTES) throw JellyfinResponseTooLargeException(body.contentLength(), MAX_PAGE_BYTES)
+            val reader = com.google.gson.stream.JsonReader(InputStreamReader(BoundedInputStream(body.byteStream(), MAX_PAGE_BYTES), body.contentType()?.charset(Charsets.UTF_8) ?: Charsets.UTF_8))
+            var total: Int? = null
+            var returnedStartIndex: Int? = null
+            val items = ArrayList<JellyfinItemDto>(PAGE_SIZE)
+            reader.use {
+                it.beginObject()
+                while (it.hasNext()) when (it.nextName()) {
+                    "TotalRecordCount" -> total = it.nextInt()
+                    "StartIndex" -> returnedStartIndex = it.nextInt()
+                    "Items" -> { it.beginArray(); while (it.hasNext()) { if (items.size >= PAGE_SIZE) throw JellyfinPaginationException("Jellyfin ignored requested page limit $PAGE_SIZE"); gson.fromJson<JellyfinItemDto>(it, JellyfinItemDto::class.java)?.also(::validateCatalogItem)?.takeIf { dto -> !dto.id.isNullOrBlank() }?.let(items::add) }; it.endArray() }
+                    else -> it.skipValue()
+                }
+                it.endObject()
+            }
+            val count = total ?: throw JellyfinPaginationException("Jellyfin response omitted TotalRecordCount")
+            if (
+                count < 0 ||
+                startIndex > count ||
+                returnedStartIndex?.let { it != startIndex } == true ||
+                items.size > count - startIndex ||
+                items.isEmpty() && startIndex < count
+            ) throw JellyfinPaginationException("Invalid Jellyfin pagination response")
+            return JellyfinPage(startIndex, count, items)
+        }
+    }
+
+    private fun validateCatalogItem(item: JellyfinItemDto) {
+        val scalarFields = listOf(
+            item.id,
+            item.name,
+            item.overview,
+            item.premiereDate,
+            item.dateCreated,
+            item.dateLastMediaAdded,
+            item.primaryMediaSource?.id,
+            item.primaryMediaSource?.container
+        )
+        if (scalarFields.any { it != null && it.length > MAX_ITEM_FIELD_CHARS }) {
+            throw JellyfinItemLimitException("Jellyfin item field exceeded $MAX_ITEM_FIELD_CHARS characters")
+        }
+        val collections = listOf(
+            item.providerIds.orEmpty().entries.map { it.key to it.value },
+            item.genres.orEmpty(),
+            item.imageTags.orEmpty().entries.map { it.key to it.value },
+            item.backdropImageTags.orEmpty(),
+            item.mediaSources.orEmpty()
+        )
+        if (collections.any { it.size > MAX_ITEM_COLLECTION_ENTRIES }) {
+            throw JellyfinItemLimitException("Jellyfin item collection exceeded $MAX_ITEM_COLLECTION_ENTRIES entries")
+        }
+        val collectionStrings = buildList {
+            item.providerIds.orEmpty().forEach { (key, value) -> add(key); add(value) }
+            addAll(item.genres.orEmpty())
+            item.imageTags.orEmpty().forEach { (key, value) -> add(key); add(value) }
+            addAll(item.backdropImageTags.orEmpty())
+            item.mediaSources.orEmpty().forEach { source -> add(source.id); add(source.container) }
+        }
+        if (collectionStrings.any { it != null && it.length > MAX_ITEM_FIELD_CHARS }) {
+            throw JellyfinItemLimitException("Jellyfin item field exceeded $MAX_ITEM_FIELD_CHARS characters")
+        }
     }
 
     private fun buildUrl(baseUrl: String, path: String, query: Map<String, String>): String {
@@ -323,12 +427,13 @@ class JellyfinProvider @Inject constructor(
     private fun buildStreamUrl(baseUrl: String, itemId: String): String =
         "${baseUrl.trimEnd('/')}/Videos/$itemId/stream"
 
-    private fun buildImageUrl(baseUrl: String, itemId: String, imageType: String, tag: String?, imageIndex: Int? = null): String {
+    private fun buildImageUrl(baseUrl: String, providerId: Long, itemId: String, imageType: String, tag: String?, imageIndex: Int? = null): String {
         val qs = buildList {
             tag?.takeIf { it.isNotBlank() }?.let { add("tag=${enc(it)}") }
         }.joinToString("&")
         val path = if (imageIndex != null) "/Items/$itemId/Images/$imageType/$imageIndex" else "/Items/$itemId/Images/$imageType"
-        return "${baseUrl.trimEnd('/')}$path${if (qs.isNotBlank()) "?$qs" else ""}"
+        val providerQuery = "streamvault_provider_id=$providerId"
+        return "${baseUrl.trimEnd('/')}$path?${listOf(qs, providerQuery).filter { it.isNotBlank() }.joinToString("&")}"
     }
 
     private fun stableRemoteId(value: String): Long {
@@ -363,6 +468,24 @@ private data class JellyfinAuthenticationResultDto(
 private data class JellyfinItemsResponseDto(
     @SerializedName("Items") val items: List<JellyfinItemDto>? = emptyList()
 )
+
+data class JellyfinPage<T>(val startIndex: Int, val totalRecordCount: Int, val items: List<T>) {
+    val nextStartIndex: Int get() = startIndex + items.size
+    fun <R> map(transform: (T) -> R): JellyfinPage<R> =
+        JellyfinPage(startIndex, totalRecordCount, items.map(transform))
+}
+
+class JellyfinResponseTooLargeException(val observedBytes: Long, val maxAllowedBytes: Long) : IOException("Jellyfin response exceeded safe page budget ($observedBytes B > $maxAllowedBytes B)")
+class JellyfinPaginationException(message: String) : IOException(message)
+class JellyfinCatalogLimitException(message: String) : IOException(message)
+class JellyfinItemLimitException(message: String) : IOException(message)
+
+private class BoundedInputStream(delegate: InputStream, private val limit: Long) : FilterInputStream(delegate) {
+    private var count = 0L
+    override fun read(): Int = super.read().also { if (it >= 0) record(1) }
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = super.read(buffer, offset, length).also { if (it > 0) record(it.toLong()) }
+    private fun record(read: Long) { count += read; if (count > limit) throw JellyfinResponseTooLargeException(count, limit) }
+}
 
 private data class JellyfinSeriesEpisodesResponseDto(
     @SerializedName("Items") val items: List<JellyfinItemDto>? = emptyList()

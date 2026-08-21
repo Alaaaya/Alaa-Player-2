@@ -27,6 +27,7 @@ private fun StreamInfo.castContextScore(): Int {
     if (headers.any { (name, value) -> name.isNotBlank() && value.isNotBlank() }) score += 4
     if (!userAgent.isNullOrBlank()) score += 2
     if (proxyHost.isNotBlank() || proxyPort != null) score += 2
+    if (playbackTransportPolicy != null) score += 2
     if (allowInvalidSsl) score += 2
     if (drmInfo != null) score += 2
     if (streamType != StreamType.UNKNOWN) score += 1

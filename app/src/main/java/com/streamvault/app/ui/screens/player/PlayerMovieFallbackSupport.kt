@@ -15,18 +15,18 @@ internal suspend fun PlayerViewModel.tryFallbackToAvcMovieVariant(
 ): Boolean {
     if (currentContentType != com.streamvault.domain.model.ContentType.MOVIE) return false
     if (currentProviderId <= 0L || currentContentId <= 0L) return false
-    if (hasRetriedWithAvcMovieVariant) return false
+    if (playerRecoveryCoordinator.retriedWithAvcMovieVariant) return false
     if (!isActivePlaybackSession(requestVersion, playbackUrl)) return false
 
-    val currentMovie = movieRepository.getMovie(currentContentId) ?: return false
-    val variants = movieRepository.getMovieVariants(currentContentId)
+    val currentMovie = playerContentResolver.getMovie(currentContentId) ?: return false
+    val variants = playerContentResolver.getMovieVariants(currentContentId)
     val fallbackVariant = selectAvcMovieFallbackVariant(currentMovie, variants) ?: return false
-    val fallbackMovie = movieRepository.getMovie(fallbackVariant.rawMovieId) ?: return false
-    val fallbackStreamInfo = movieRepository.getStreamInfo(fallbackMovie).getOrNull() ?: return false
+    val fallbackMovie = playerContentResolver.getMovie(fallbackVariant.rawMovieId) ?: return false
+    val fallbackStreamInfo = playerContentResolver.getMovieStreamInfo(fallbackMovie).getOrNull() ?: return false
 
     if (!isActivePlaybackSession(requestVersion, playbackUrl)) return false
 
-    hasRetriedWithAvcMovieVariant = true
+    playerRecoveryCoordinator.retriedWithAvcMovieVariant = true
     currentContentId = fallbackMovie.id
     currentStreamUrl = fallbackMovie.streamUrl
     currentTitle = fallbackMovie.name

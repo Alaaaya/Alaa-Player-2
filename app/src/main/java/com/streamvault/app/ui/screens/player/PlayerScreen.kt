@@ -168,6 +168,7 @@ fun PlayerScreen(
     val showControls by viewModel.showControls.collectAsStateWithLifecycle()
     val videoFormat by viewModel.videoFormat.collectAsStateWithLifecycle()
     val playerError by viewModel.playerError.collectAsStateWithLifecycle()
+    val playbackResolutionUiState by viewModel.playbackResolutionUiState.collectAsStateWithLifecycle()
     val currentProgram by viewModel.currentProgram.collectAsStateWithLifecycle()
     val nextProgram by viewModel.nextProgram.collectAsStateWithLifecycle()
     val programHistory by viewModel.programHistory.collectAsStateWithLifecycle()
@@ -970,14 +971,39 @@ fun PlayerScreen(
             }
         }
 
-        // Error overlay
-        if (playbackState == PlaybackState.ERROR) {
+        when (val resolutionState = playbackResolutionUiState) {
+            PlaybackResolutionUiState.Resolving -> Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator(color = Primary)
+                    Text("Resolving playback…", color = Color.White)
+                }
+            }
+            is PlaybackResolutionUiState.Failure -> PlayerErrorOverlay(
+                playerError = PlayerError.SourceError(resolutionState.message),
+                contentType = contentType,
+                hasAlternateStream = false,
+                hasLastChannel = false,
+                onAction = handlePlayerNoticeAction,
+                onBack = onBack
+            )
+            PlaybackResolutionUiState.Idle -> Unit
+        }
+
+        // Engine error overlay
+        if (playbackResolutionUiState == PlaybackResolutionUiState.Idle && playbackState == PlaybackState.ERROR) {
             PlayerErrorOverlay(
                 playerError = playerError,
                 contentType = contentType,
                 hasAlternateStream = viewModel.hasAlternateStream(),
                 hasLastChannel = viewModel.hasLastChannel(),
-                onAction = handlePlayerNoticeAction
+                onAction = handlePlayerNoticeAction,
+                onBack = onBack
             )
         }
 

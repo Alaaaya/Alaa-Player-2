@@ -7,6 +7,7 @@ import com.streamvault.domain.model.TimeshiftBackendPreference
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.player.playback.applyUnsafeTlsBypass
+import com.streamvault.player.playback.applyPlaybackTransportPolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -16,12 +17,15 @@ import java.net.Proxy
 import java.net.URI
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +49,8 @@ internal interface LiveTimeshiftManager {
     suspend fun stopSession()
     suspend fun createSnapshot(): LiveTimeshiftSnapshot?
     suspend fun releaseRetiredSnapshots()
+    fun detachComponentCallbacks()
+    suspend fun close()
 }
 
 internal data class DashSnapshotPlaylistSegment(
@@ -52,6 +58,18 @@ internal data class DashSnapshotPlaylistSegment(
     val durationMs: Long,
     val isInit: Boolean
 )
+
+internal suspend fun stopOwnedTimeshiftCapture(
+    activeCall: AtomicReference<okhttp3.Call?>,
+    captureJob: Job?,
+    deleteSessionFiles: () -> Unit
+) {
+    activeCall.get()?.cancel()
+    captureJob?.cancel()
+    activeCall.getAndSet(null)?.cancel()
+    captureJob?.join()
+    deleteSessionFiles()
+}
 
 internal fun buildDashSnapshotPlaylist(
     targetDurationSeconds: Int,
@@ -71,7 +89,6 @@ internal fun buildDashSnapshotPlaylist(
     appendLine("#EXT-X-ENDLIST")
 }
 
-@Singleton
 internal class DefaultLiveTimeshiftManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient
@@ -115,10 +132,13 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
     private var activeSession: Session? = null
     private val retiredSnapshotDirs = ArrayDeque<File>()
+    private var closed = false
+    private val callbacksRegistered = AtomicBoolean(true)
 
     override suspend fun startSession(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig) {
         withContext(Dispatchers.IO) {
             mutex.withLock {
+                if (closed) return@withLock
                 stopSessionLocked()
                 if (!config.enabled) {
                     _state.value = LiveTimeshiftState(enabled = false, status = LiveTimeshiftStatus.DISABLED)
@@ -208,6 +228,8 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 session.job = scope.launch {
                     try {
                         session.capture()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
                     } catch (t: Throwable) {
                         _state.value = _state.value.copy(
                             enabled = true,
@@ -228,6 +250,25 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
                 stopSessionLocked()
                 _state.value = LiveTimeshiftState(enabled = false, status = LiveTimeshiftStatus.DISABLED)
             }
+        }
+    }
+
+    override suspend fun close() {
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                if (closed) return@withLock
+                closed = true
+                stopSessionLocked()
+                _state.value = LiveTimeshiftState(enabled = false, status = LiveTimeshiftStatus.DISABLED)
+            }
+            detachComponentCallbacks()
+            scope.coroutineContext[Job]?.cancel()
+        }
+    }
+
+    override fun detachComponentCallbacks() {
+        if (callbacksRegistered.compareAndSet(true, false)) {
+            context.unregisterComponentCallbacks(this)
         }
     }
 
@@ -342,15 +383,15 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         val effectiveDepthMs: Long = config.effectiveDepthMs(backend)
         protected val sequence = AtomicLong(0L)
         protected val stateStartMs = System.currentTimeMillis()
-        @Volatile private var activeCall: okhttp3.Call? = null
+        private val activeCall = AtomicReference<okhttp3.Call?>()
 
         abstract suspend fun capture()
         abstract suspend fun createSnapshot(): LiveTimeshiftSnapshot?
 
         open suspend fun stop() {
-            activeCall?.cancel()
-            job?.cancel()
-            sessionDir.deleteRecursively()
+            stopOwnedTimeshiftCapture(activeCall, job) {
+                sessionDir.deleteRecursively()
+            }
         }
 
         protected fun makeRequest(url: String) = Request.Builder().url(url).apply {
@@ -360,23 +401,40 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
 
         protected fun trackCall(request: Request): okhttp3.Call {
             val call = httpClientFor(streamInfo).newCall(request)
-            activeCall = call
+            activeCall.set(call)
+            if (job?.isActive != true) {
+                activeCall.compareAndSet(call, null)
+                call.cancel()
+            }
             return call
         }
 
         private fun httpClientFor(streamInfo: StreamInfo): OkHttpClient {
             val proxy = streamInfo.httpProxy()
-            if (proxy == null) {
+            if (proxy == null && streamInfo.playbackTransportPolicy == null) {
                 return if (streamInfo.allowInvalidSsl) unsafeOkHttpClient else okHttpClient
             }
-            val key = "${streamInfo.allowInvalidSsl}:${streamInfo.proxyHost.trim()}:${streamInfo.proxyPort}"
+            val key = buildString {
+                append(streamInfo.playbackTransportPolicy)
+                append(':')
+                append(streamInfo.allowInvalidSsl)
+                append(':')
+                append(streamInfo.proxyHost.trim())
+                append(':')
+                append(streamInfo.proxyPort)
+            }
             return proxiedClients.computeIfAbsent(key) {
-                val builder = if (streamInfo.allowInvalidSsl) {
-                    okHttpClient.newBuilder().applyUnsafeTlsBypass()
-                } else {
-                    okHttpClient.newBuilder()
+                val transportPolicy = streamInfo.playbackTransportPolicy
+                val builder = when {
+                    transportPolicy != null ->
+                        okHttpClient.newBuilder()
+                            .applyPlaybackTransportPolicy(transportPolicy)
+                    streamInfo.allowInvalidSsl ->
+                        okHttpClient.newBuilder().applyUnsafeTlsBypass()
+                    else -> okHttpClient.newBuilder()
                 }
-                builder.proxy(proxy).build()
+                proxy?.let(builder::proxy)
+                builder.build()
             }
         }
 
@@ -387,9 +445,7 @@ internal class DefaultLiveTimeshiftManager @Inject constructor(
         }
 
         protected fun clearTrackedCall(call: okhttp3.Call) {
-            if (activeCall === call) {
-                activeCall = null
-            }
+            activeCall.compareAndSet(call, null)
         }
 
         protected fun <T> executeRequest(request: Request, block: (Response) -> T): T {

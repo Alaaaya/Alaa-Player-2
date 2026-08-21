@@ -2,6 +2,7 @@ package com.streamvault.app.ui.screens.settings
 
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.BackupImportPlan
+import com.streamvault.domain.manager.BackupRestoreOutcome
 import com.streamvault.domain.usecase.ExportBackup
 import com.streamvault.domain.usecase.ExportBackupCommand
 import com.streamvault.domain.usecase.ExportBackupResult
@@ -20,14 +21,21 @@ internal class SettingsBackupActions(
     private val importBackup: ImportBackup,
     private val uiState: MutableStateFlow<SettingsUiState>
 ) {
-    fun exportConfig(scope: CoroutineScope, uriString: String, onSuccess: (() -> Unit)? = null) {
+    fun exportConfig(
+        scope: CoroutineScope,
+        uriString: String,
+        onSuccess: (() -> Unit)? = null,
+        successMessage: String? = null,
+        onFinished: ((Boolean) -> Unit)? = null,
+    ) {
         scope.launch {
             uiState.update {
                 it.copy(
                     isSyncing = true,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
-                    syncCanCancel = false
+                    syncCanCancel = false,
+                    pendingDriveCredentials = null
                 )
             }
             val result = exportBackup(ExportBackupCommand(uriString))
@@ -43,10 +51,11 @@ internal class SettingsBackupActions(
                     userMessage = if (result is ExportBackupResult.Error) {
                         "Export failed: ${result.message}"
                     } else {
-                        "Configuration exported successfully"
+                        successMessage ?: "Configuration exported successfully"
                     }
                 )
             }
+            onFinished?.invoke(result is ExportBackupResult.Success)
         }
     }
 
@@ -57,7 +66,8 @@ internal class SettingsBackupActions(
                     isSyncing = true,
                     syncStartedAt = 0L,
                     syncSectionLabel = null,
-                    syncCanCancel = false
+                    syncCanCancel = false,
+                    pendingDriveCredentials = null
                 )
             }
             val result = importBackup.inspect(InspectBackupCommand(uriString))
@@ -89,7 +99,8 @@ internal class SettingsBackupActions(
             it.copy(
                 backupPreview = null,
                 pendingBackupUri = null,
-                backupImportPlan = BackupImportPlan()
+                backupImportPlan = BackupImportPlan(),
+                pendingDriveCredentials = null
             )
         }
     }
@@ -148,6 +159,9 @@ internal class SettingsBackupActions(
         scope.launch {
             val result = importBackup.confirm(ImportBackupCommand(uriString, plan))
             uiState.update { state ->
+                val importResult = (result as? ImportBackupResult.Success)?.result
+                val completed = importResult?.outcome == BackupRestoreOutcome.COMPLETE ||
+                    importResult?.outcome == BackupRestoreOutcome.WAITING_FOR_SYNC
                 state.copy(
                     isImportingBackup = false,
                     isSyncing = false,
@@ -156,14 +170,43 @@ internal class SettingsBackupActions(
                     } else {
                         "Configuration imported: ${(result as ImportBackupResult.Success).importedSummary}"
                     },
-                    backupPreview = null,
-                    pendingBackupUri = null,
-                    backupImportPlan = BackupImportPlan()
+                    // Preserve the source and plan after partial/failed-before-commit outcomes so
+                    // the user can retry the same durable checkpoint instead of starting over.
+                    backupPreview = if (completed) null else state.backupPreview,
+                    pendingBackupUri = if (completed) null else state.pendingBackupUri,
+                    backupImportPlan = if (completed) BackupImportPlan() else state.backupImportPlan,
+                    pendingRestoreJobId = importResult?.restoreJobId,
+                    pendingRestoreProviders = importResult?.affectedProviders.orEmpty(),
+                    selectedRestoreProviderIndices = emptySet()
                 )
             }
-            if (result is ImportBackupResult.Success) {
+            if (result is ImportBackupResult.Success &&
+                (result.result.outcome == BackupRestoreOutcome.COMPLETE ||
+                    result.result.outcome == BackupRestoreOutcome.WAITING_FOR_SYNC)
+            ) {
                 onSuccess?.invoke()
             }
+        }
+    }
+
+    fun toggleRestoreProvider(index: Int) {
+        uiState.update { state ->
+            val selected = state.selectedRestoreProviderIndices
+            state.copy(
+                selectedRestoreProviderIndices = if (index in selected) selected - index else selected + index
+            )
+        }
+    }
+
+    fun selectAllRestoreProviders() {
+        uiState.update { state ->
+            state.copy(selectedRestoreProviderIndices = state.pendingRestoreProviders.indices.toSet())
+        }
+    }
+
+    fun dismissRestoreSyncChooser() {
+        uiState.update { state ->
+            state.copy(pendingRestoreProviders = emptyList(), selectedRestoreProviderIndices = emptySet())
         }
     }
 }

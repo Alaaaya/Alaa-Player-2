@@ -18,6 +18,8 @@ import com.streamvault.domain.model.EpgOverrideCandidate
 import com.streamvault.domain.model.Favorite
 import com.streamvault.domain.model.GuideSourcePolicy
 import com.streamvault.domain.model.Program
+import com.streamvault.domain.model.ProgramReminder
+import com.streamvault.domain.model.ProgramReminderDeliveryState
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.CombinedM3uRepository
@@ -106,6 +108,7 @@ data class EpgUiState(
     val guideWindowStart: Long = DEFAULT_NOW - EpgViewModel.LOOKBACK_MS,
     val guideWindowEnd: Long = DEFAULT_NOW + EpgViewModel.LOOKAHEAD_MS,
     val recordingMessage: String? = null,
+    val reminderMessage: String? = null,
     val pendingRecordingConflict: RecordingConflictInfo? = null,
     val hasMoreChannels: Boolean = false,
     val previewPlayerEngine: PlayerEngine? = null,
@@ -141,6 +144,17 @@ data class ProgramReminderUiState(
             this.channelId == channelId &&
             this.programTitle == programTitle &&
             this.programStartTime == programStartTime
+}
+
+internal fun programReminderDeliveryIssueMessage(reminders: List<ProgramReminder>): String? {
+    val issue = reminders.firstOrNull {
+        it.deliveryState == ProgramReminderDeliveryState.BLOCKED ||
+            it.deliveryState == ProgramReminderDeliveryState.FAILED
+    } ?: return null
+    val reason = issue.deliveryFailureReason
+        ?.takeIf { it.isNotBlank() }
+        ?: "The notification was not accepted."
+    return "Reminder for ${issue.programTitle} was not delivered: $reason"
 }
 
 enum class GuideChannelMode {
@@ -320,12 +334,26 @@ class EpgViewModel @Inject constructor(
         restoreGuidePreferences()
         observeGuideBase()
         observeGuidePresentation()
+        observeReminderDeliveryIssues()
         viewModelScope.launch {
             livePreviewHandoffManager.reverseSessionFlow.collect { session ->
                 if (session != null && session.source == PreviewHandoffSource.GUIDE) {
                     resumePreviewFromHandoff()
                 }
             }
+        }
+    }
+
+    private fun observeReminderDeliveryIssues() {
+        viewModelScope.launch {
+            programReminderManager.observeUpcomingReminders()
+                .map(::programReminderDeliveryIssueMessage)
+                .distinctUntilChanged()
+                .collectLatest { message ->
+                    if (message != null) {
+                        _uiState.update { it.copy(reminderMessage = message) }
+                    }
+                }
         }
     }
 
@@ -838,6 +866,16 @@ class EpgViewModel @Inject constructor(
         _uiState.update { it.copy(recordingMessage = null) }
     }
 
+    fun clearReminderMessage() {
+        _uiState.update { it.copy(reminderMessage = null) }
+    }
+
+    fun reconcileProgramReminders() {
+        viewModelScope.launch {
+            programReminderManager.restoreScheduledReminders()
+        }
+    }
+
     fun updateEpgOverrideSearch(query: String) {
         val channel = _overrideUiState.value.channel ?: return
         _overrideUiState.update {
@@ -1036,7 +1074,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private suspend fun observeSingleProviderGuide(provider: com.streamvault.domain.model.Provider) {
+    private suspend fun observeSingleProviderGuide(provider: com.streamvault.domain.model.LegacyProvider) {
         combine(
             channelRepository.getCategories(provider.id),
             getCustomCategories(provider.id, ContentType.LIVE),
@@ -1495,7 +1533,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private fun buildProviderSourceLabel(provider: com.streamvault.domain.model.Provider): String {
+    private fun buildProviderSourceLabel(provider: com.streamvault.domain.model.LegacyProvider): String {
         return when (provider.type) {
             com.streamvault.domain.model.ProviderType.XTREAM_CODES -> "Xtream Codes"
             com.streamvault.domain.model.ProviderType.M3U -> "M3U Playlist"
@@ -1504,7 +1542,7 @@ class EpgViewModel @Inject constructor(
         }
     }
 
-    private fun buildProviderArchiveSummary(provider: com.streamvault.domain.model.Provider): String {
+    private fun buildProviderArchiveSummary(provider: com.streamvault.domain.model.LegacyProvider): String {
         return when (provider.type) {
             com.streamvault.domain.model.ProviderType.XTREAM_CODES ->
                 "Xtream replay depends on archive-enabled channels and valid replay stream ids from the provider."
@@ -1767,7 +1805,7 @@ class EpgViewModel @Inject constructor(
     }
 
     private suspend fun fetchXtreamGuideFallback(
-        provider: com.streamvault.domain.model.Provider,
+        provider: com.streamvault.domain.model.LegacyProvider,
         providerId: Long,
         channels: List<Channel>,
         existingProgramsByChannel: Map<String, List<Program>>,

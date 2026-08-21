@@ -222,7 +222,11 @@ class Media3PlayerEngine @Inject constructor(
     private var currentBufferIsLive: Boolean? = null
     private var currentBufferPolicyLabel: String? = null
     private var currentBufferPolicy: PlaybackBufferPolicy? = null
-    private val promotedLiveHlsBufferReasonsByMediaId = mutableMapOf<String, String>()
+    private val promotedLiveHlsBufferReasonsByMediaId =
+        com.streamvault.domain.util.BoundedExpiringCache<String, String>(
+            maxEntries = 512,
+            ttlMillis = 24L * 60L * 60L * 1_000L
+        )
     private var audioCodecUnsupportedReported = false
     private var lastSupportErrorMessage: String? = null
     private val isLowMemoryPlaybackDevice: Boolean = run {
@@ -268,8 +272,11 @@ class Media3PlayerEngine @Inject constructor(
 
     private val _renderSurfaceType = MutableStateFlow(PlayerRenderSurfaceType.SURFACE_VIEW)
     override val renderSurfaceType: StateFlow<PlayerRenderSurfaceType> = _renderSurfaceType.asStateFlow()
+    private var lastPlaybackSupportSnapshotAtMs = 0L
 
     private val liveTimeshiftManager = DefaultLiveTimeshiftManager(context, okHttpClient)
+    private val timeshiftCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var timeshiftCleanupJob: Job? = null
     private val _timeshiftState = MutableStateFlow(LiveTimeshiftState())
     override val timeshiftState: StateFlow<LiveTimeshiftState> = _timeshiftState.asStateFlow()
 
@@ -381,7 +388,12 @@ class Media3PlayerEngine @Inject constructor(
                     audioVideoSyncSinkActive = audioVideoSyncSinkActive
                 )
                 if (shouldRefreshPlaybackSupportSnapshot()) {
-                    playbackSupportSnapshotStore.write(buildPlaybackSupportSnapshot())
+                    val now = System.currentTimeMillis()
+                    if (now - lastPlaybackSupportSnapshotAtMs >= 30_000L) {
+                        lastPlaybackSupportSnapshotAtMs = now
+                        val snapshot = buildPlaybackSupportSnapshot()
+                        playbackSupportSnapshotStore.write(snapshot)
+                    }
                 }
                 if (promoteLiveHlsBufferIfNeeded()) {
                     continue
@@ -639,6 +651,7 @@ class Media3PlayerEngine @Inject constructor(
         activeLiveTimeshiftStreamInfo = streamInfo
         activeLiveTimeshiftChannelKey = channelKey
         scope.launch {
+            timeshiftCleanupJob?.join()
             liveTimeshiftManager.startSession(streamInfo, channelKey, config)
             syncTimeshiftState()
         }
@@ -659,6 +672,7 @@ class Media3PlayerEngine @Inject constructor(
             exoPlayer?.clearMediaItems()
         }
         scope.launch {
+            timeshiftCleanupJob?.join()
             liveTimeshiftManager.stopSession()
             if (wasSnapshot && liveInfo != null) {
                 prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
@@ -847,6 +861,7 @@ class Media3PlayerEngine @Inject constructor(
     override fun release() {
         if (isDisposed) return
         isDisposed = true
+        liveTimeshiftManager.detachComponentCallbacks()
         resetEngineState(restartCollectors = false)
     }
 
@@ -904,13 +919,23 @@ class Media3PlayerEngine @Inject constructor(
         activeLiveTimeshiftChannelKey = null
         isPlayingTimeshiftSnapshot = false
         _timeshiftState.value = LiveTimeshiftState()
+        val previousTimeshiftCleanup = timeshiftCleanupJob
+        timeshiftCleanupJob = timeshiftCleanupScope.launch {
+            previousTimeshiftCleanup?.join()
+            liveTimeshiftManager.stopSession()
+        }
         scope.cancel()
         if (restartCollectors) {
             scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
             startEngineCollectors()
         }
-        // File cleanup runs outside the engine scope — orphans are also cleaned on next app start
-        CoroutineScope(Dispatchers.IO).launch { liveTimeshiftManager.stopSession() }
+        if (!restartCollectors) {
+            timeshiftCleanupScope.launch {
+                timeshiftCleanupJob?.join()
+                liveTimeshiftManager.close()
+                timeshiftCleanupScope.coroutineContext[Job]?.cancel()
+            }
+        }
     }
 
     private fun ensureNotDisposed(action: String): Boolean {
@@ -1030,7 +1055,7 @@ class Media3PlayerEngine @Inject constructor(
             bufferMode = requestedPlaybackBufferMode,
             streamInfo = streamInfo,
             observedVideoFormat = _videoFormat.value,
-            qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId[mediaId]
+            qualityReasonOverride = promotedLiveHlsBufferReasonsByMediaId.get(mediaId)
         )
         val needsRecreate = activeAudioDecoderMode != preferredAudioDecoderMode ||
             activeVideoDecoderMode != preferredVideoDecoderMode ||
@@ -1753,7 +1778,7 @@ class Media3PlayerEngine @Inject constructor(
             bufferMode = requestedPlaybackBufferMode,
             resolvedStreamType = currentResolvedStreamType,
             isLive = isCurrentStreamLive(),
-            mediaAlreadyPromoted = mediaId in promotedLiveHlsBufferReasonsByMediaId,
+            mediaAlreadyPromoted = promotedLiveHlsBufferReasonsByMediaId.get(mediaId) != null,
             currentPolicyLabel = currentBufferPolicyLabel,
             streamInfo = streamInfo,
             observedVideoFormat = observedFormat,
@@ -1761,7 +1786,7 @@ class Media3PlayerEngine @Inject constructor(
             lowMemoryDevice = isLowMemoryPlaybackDevice
         ) ?: return false
 
-        promotedLiveHlsBufferReasonsByMediaId[mediaId] = decision.qualityReason
+        promotedLiveHlsBufferReasonsByMediaId.put(mediaId, decision.qualityReason)
         val wasPlaying = exoPlayer?.playWhenReady ?: true
         Log.i(
             TAG,

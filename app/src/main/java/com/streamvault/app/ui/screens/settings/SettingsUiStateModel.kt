@@ -5,11 +5,15 @@ import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupPreview
+import com.streamvault.domain.manager.BackupProviderReference
+import com.streamvault.domain.manager.BackupRestoreJobStatus
 import com.streamvault.domain.manager.DriveAuthState
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.streamvault.domain.manager.DriveSignInRequest
 import com.streamvault.domain.manager.DriveSyncStatus
 import com.streamvault.domain.manager.ProviderCredentials
 import com.streamvault.domain.model.ActiveLiveSource
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
@@ -30,7 +34,7 @@ import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.PlayerSurfaceMode
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageState
 import com.streamvault.domain.model.RemoteShortcutPreferences
@@ -114,6 +118,10 @@ data class SettingsUiState(
     val backupPreview: BackupPreview? = null,
     val pendingBackupUri: String? = null,
     val backupImportPlan: BackupImportPlan = BackupImportPlan(),
+    val pendingRestoreJobId: String? = null,
+    val pendingRestoreProviders: List<BackupProviderReference> = emptyList(),
+    val selectedRestoreProviderIndices: Set<Int> = emptySet(),
+    val backupRestoreJobs: List<BackupRestoreJobStatus> = emptyList(),
     // --- Drive sync (M2) ---
     val driveAuthState: DriveAuthState = DriveAuthState.SignedOut,
     val driveSyncStatus: DriveSyncStatus = DriveSyncStatus(),
@@ -121,6 +129,10 @@ data class SettingsUiState(
     val driveLastPullAt: Long? = null,
     val drivePendingSignIn: DriveSignInRequest? = null,
     val driveIsBusy: Boolean = false,
+    /** Drive snapshots waiting for the user to choose one before preview/import. */
+    val driveBackupOptions: List<DriveBackupSnapshot> = emptyList(),
+    /** Drive snapshots shown in the explicit manage/delete screen. */
+    val driveBackupManagementOptions: List<DriveBackupSnapshot> = emptyList(),
     // M3 — credentials downloaded by pullBackup, waiting to be applied
     // to providers once the import confirm completes.
     val pendingDriveCredentials: List<ProviderCredentials>? = null,
@@ -146,6 +158,7 @@ data class SettingsUiState(
     val groupedChannelLabelMode: GroupedChannelLabelMode = GroupedChannelLabelMode.HYBRID,
     val liveVariantPreferenceMode: LiveVariantPreferenceMode = LiveVariantPreferenceMode.BALANCED,
     val vodViewMode: VodViewMode = VodViewMode.MODERN,
+    val vodCategoryLoadMode: VodCategoryLoadMode = VodCategoryLoadMode.PAGED,
     val vodInfiniteScroll: Boolean = true,
     val vodDuplicateHandlingMode: VodDuplicateHandlingMode = VodDuplicateHandlingMode.SHOW_ALL,
     val vodVariantPreferenceMode: VodVariantPreferenceMode = VodVariantPreferenceMode.BALANCED,

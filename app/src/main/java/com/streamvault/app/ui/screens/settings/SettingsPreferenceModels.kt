@@ -11,6 +11,7 @@ import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.AudioOutputPreference
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.model.ExternalPlaybackMode
 import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.DecoderMode
@@ -22,7 +23,7 @@ import com.streamvault.domain.model.VodDuplicateHandlingMode
 import com.streamvault.domain.model.VodHttpProtocolMode
 import com.streamvault.domain.model.VodVariantPreferenceMode
 import com.streamvault.domain.model.PlayerSurfaceMode
-import com.streamvault.domain.model.Provider
+import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.RemoteShortcutPreferences
 import com.streamvault.domain.model.TimeshiftBackendPreference
 
@@ -105,6 +106,7 @@ internal data class SettingsPreferenceSnapshot(
     val groupedChannelLabelMode: GroupedChannelLabelMode,
     val liveVariantPreferenceMode: LiveVariantPreferenceMode,
     val vodViewMode: VodViewMode,
+    val vodCategoryLoadMode: VodCategoryLoadMode,
     val vodInfiniteScroll: Boolean,
     val vodDuplicateHandlingMode: VodDuplicateHandlingMode,
     val vodVariantPreferenceMode: VodVariantPreferenceMode,

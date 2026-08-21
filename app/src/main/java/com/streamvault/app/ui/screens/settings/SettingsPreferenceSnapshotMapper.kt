@@ -70,6 +70,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         groupedChannelLabelMode = snapshot.groupedChannelLabelMode,
         liveVariantPreferenceMode = snapshot.liveVariantPreferenceMode,
         vodViewMode = snapshot.vodViewMode,
+        vodCategoryLoadMode = snapshot.vodCategoryLoadMode,
         vodInfiniteScroll = snapshot.vodInfiniteScroll,
         vodDuplicateHandlingMode = snapshot.vodDuplicateHandlingMode,
         vodVariantPreferenceMode = snapshot.vodVariantPreferenceMode,

@@ -18,6 +18,12 @@ dependencies {
     kover(project(":player"))
 }
 
+tasks.register<org.gradle.api.tasks.Exec>("verifyLintBaseline") {
+    group = "verification"
+    description = "Verifies that the committed lint baseline is present and non-empty."
+    commandLine("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools/verify-lint-baseline.ps1")
+}
+
 kover {
     currentProject {
         createVariant("ci") {}

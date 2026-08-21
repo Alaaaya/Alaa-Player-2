@@ -87,6 +87,13 @@ import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
 import com.streamvault.data.remote.stalker.StalkerRequestRule
+import com.streamvault.data.remote.stalker.StalkerCompatibilityRegistry
+import com.streamvault.domain.model.StalkerCatalogMode
+import com.streamvault.domain.model.StalkerCompatibilityProfileIds
+import com.streamvault.domain.model.StalkerProfileVerification
+import com.streamvault.domain.model.StalkerProtocolPreference
+import com.streamvault.domain.model.StalkerTransportChallengeReason
+import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
 import android.graphics.Bitmap
@@ -115,6 +122,96 @@ private data class StalkerRequestRuleUiState(
     val blockRequest: Boolean = false,
     val paramsText: String = ""
 )
+
+@Composable
+private fun StalkerCompatibilitySelector(
+    protocol: StalkerProtocolPreference,
+    profileId: String,
+    onProtocolSelected: (StalkerProtocolPreference) -> Unit,
+    onProfileSelected: (String) -> Unit
+) {
+    var showProtocols by rememberSaveable { mutableStateOf(false) }
+    var showProfiles by rememberSaveable { mutableStateOf(false) }
+    val selectedProfile = StalkerCompatibilityRegistry.find(profileId)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Compatibility", style = MaterialTheme.typography.titleSmall, color = OnBackground)
+        SmallActionButton(
+            text = "Protocol: ${protocol.name.replace('_', ' ')}",
+            onClick = { showProtocols = !showProtocols }
+        )
+        AnimatedVisibility(showProtocols) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                StalkerProtocolPreference.entries
+                    .filterNot { it == StalkerProtocolPreference.MINISTRA_API_V3 }
+                    .forEach { option ->
+                    SmallActionButton(
+                        text = if (option == protocol) "✓ ${option.name.replace('_', ' ')}" else option.name.replace('_', ' '),
+                        onClick = {
+                            onProtocolSelected(option)
+                            onProfileSelected(StalkerCompatibilityProfileIds.AUTO)
+                            showProtocols = false
+                        }
+                    )
+                }
+            }
+        }
+        SmallActionButton(
+            text = "Model: ${selectedProfile?.displayName ?: "Automatic"}",
+            onClick = { showProfiles = !showProfiles }
+        )
+        AnimatedVisibility(showProfiles) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SmallActionButton(
+                    text = if (profileId == StalkerCompatibilityProfileIds.AUTO) "✓ Automatic" else "Automatic",
+                    onClick = {
+                        onProfileSelected(StalkerCompatibilityProfileIds.AUTO)
+                        showProfiles = false
+                    }
+                )
+                val family = if (protocol == StalkerProtocolPreference.MINISTRA_API_V3) {
+                    com.streamvault.domain.model.StalkerProtocolFamily.MINISTRA_API_V3
+                } else {
+                    com.streamvault.domain.model.StalkerProtocolFamily.CLASSIC_MAG
+                }
+                StalkerCompatibilityRegistry.profiles
+                    .filter { it.protocolFamily == family }
+                    .groupBy { it.generation }
+                    .forEach { (generation, profiles) ->
+                        Text(generation, style = MaterialTheme.typography.labelMedium, color = OnBackground.copy(alpha = 0.72f))
+                        profiles.forEach { option ->
+                            val experimental = option.verification == StalkerProfileVerification.EXPERIMENTAL
+                            SmallActionButton(
+                                text = buildString {
+                                    if (option.id == profileId) append("✓ ")
+                                    append(option.displayName)
+                                    if (experimental) append(" — EXPERIMENTAL")
+                                },
+                                onClick = {
+                                    onProfileSelected(option.id)
+                                    showProfiles = false
+                                }
+                            )
+                        }
+                    }
+                if (family == com.streamvault.domain.model.StalkerProtocolFamily.CLASSIC_MAG) {
+                    Text(
+                        "Experimental profiles require captured/manual identity fields and are excluded from automatic discovery.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AccentAmber
+                    )
+                    SmallActionButton(
+                        text = if (profileId == StalkerCompatibilityProfileIds.CUSTOM) "✓ Custom profile" else "Custom profile",
+                        onClick = {
+                            onProfileSelected(StalkerCompatibilityProfileIds.CUSTOM)
+                            showProfiles = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
 
 private fun StalkerRequestRuleUiState.toRule(): StalkerRequestRule =
     StalkerRequestRule(
@@ -485,7 +582,8 @@ fun ProviderSetupScreen(
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson(), uiState.stalkerProtocolPreference, uiState.stalkerRequestedProfileId) },
+                        onRepairStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson(), uiState.stalkerProtocolPreference, uiState.stalkerRequestedProfileId, repairConnection = true) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onLoginJellyfin = { viewModel.loginJellyfin(serverUrl, username, password, name) },
                         quickConnectCode = uiState.jellyfinQuickConnectCode,
@@ -494,6 +592,9 @@ fun ProviderSetupScreen(
                         onStopPhonePairing = viewModel::stopPhonePairing,
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
+                        onSelectStalkerCatalogMode = viewModel::updateStalkerCatalogMode,
+                        onSelectStalkerProtocolPreference = viewModel::updateStalkerProtocolPreference,
+                        onSelectStalkerProfile = viewModel::updateStalkerRequestedProfile,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = viewModel::updateGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = viewModel::updateChannelLogoSourcePolicy,
@@ -546,7 +647,8 @@ fun ProviderSetupScreen(
                         fileImportError = fileImportError,
                         onFilePick = { filePickerLauncher.launch(arrayOf("*/*")) },
                         onLoginXtream = { viewModel.loginXtream(serverUrl, username, password, name, httpUserAgent, httpHeaders) },
-                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson()) },
+                        onLoginStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson(), uiState.stalkerProtocolPreference, uiState.stalkerRequestedProfileId) },
+                        onRepairStalker = { viewModel.loginStalker(serverUrl, stalkerMacAddress, stalkerAuthMode, username, password, name, "", httpHeaders, stalkerDeviceProfile, stalkerDeviceTimezone, stalkerDeviceLocale, stalkerSerialNumber, stalkerDeviceId, stalkerDeviceId2, stalkerSignature, buildStalkerAdvancedOptionsJson(), uiState.stalkerProtocolPreference, uiState.stalkerRequestedProfileId, repairConnection = true) },
                         onAddM3u = { viewModel.addM3u(m3uUrl, name, httpUserAgent, httpHeaders) },
                         onLoginJellyfin = { viewModel.loginJellyfin(serverUrl, username, password, name) },
                         quickConnectCode = uiState.jellyfinQuickConnectCode,
@@ -555,6 +657,9 @@ fun ProviderSetupScreen(
                         onStopPhonePairing = viewModel::stopPhonePairing,
                         onToggleM3uVodClassification = { viewModel.updateM3uVodClassificationEnabled(!uiState.m3uVodClassificationEnabled) },
                         onSelectEpgSyncMode = viewModel::updateEpgSyncMode,
+                        onSelectStalkerCatalogMode = viewModel::updateStalkerCatalogMode,
+                        onSelectStalkerProtocolPreference = viewModel::updateStalkerProtocolPreference,
+                        onSelectStalkerProfile = viewModel::updateStalkerRequestedProfile,
                         onSelectXtreamLiveSyncMode = viewModel::updateXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = viewModel::updateGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = viewModel::updateChannelLogoSourcePolicy,
@@ -581,7 +686,13 @@ fun ProviderSetupScreen(
             message = uiState.syncProgress!!,
             quickConnectCode = if (uiState.jellyfinQuickConnectCode.isNotBlank()) uiState.jellyfinQuickConnectCode else null,
             serverUrl = serverUrl,
-            onCancel = if (uiState.jellyfinQuickConnectCode.isNotBlank()) ({ viewModel.cancelJellyfinQuickConnect() }) else null
+            onCancel = when {
+                uiState.jellyfinQuickConnectCode.isNotBlank() ->
+                    ({ viewModel.cancelJellyfinQuickConnect() })
+                uiState.selectedTab == 1 && uiState.isLoading ->
+                    ({ viewModel.cancelStalkerSetup() })
+                else -> null
+            }
         )
     }
 
@@ -600,6 +711,74 @@ fun ProviderSetupScreen(
             onImportRecordingSchedulesChanged = { viewModel.setImportRecordingSchedules(it) },
             isImporting = uiState.isImportingBackup,
             onConfirm = { viewModel.confirmBackupImport() }
+        )
+    }
+
+    if (uiState.driveBackupOptions.isNotEmpty()) {
+        DriveBackupSnapshotChoiceDialog(
+            snapshots = uiState.driveBackupOptions,
+            onSelect = viewModel::selectDriveBackup,
+            onDismiss = viewModel::dismissDriveBackupOptions,
+        )
+    }
+
+uiState.stalkerTransportChallenge?.let { challenge ->
+        val (title, body) = when (challenge.reason) {
+            StalkerTransportChallengeReason.INVALID_TLS ->
+                stringResource(R.string.stalker_transport_invalid_tls_title) to
+                    stringResource(
+                        R.string.stalker_transport_invalid_tls_body,
+                        challenge.displayHost
+                    )
+            StalkerTransportChallengeReason.CLEARTEXT_HTTP ->
+                stringResource(R.string.stalker_transport_http_title) to
+                    stringResource(
+                        R.string.stalker_transport_http_body,
+                        challenge.displayHost
+                    )
+            StalkerTransportChallengeReason.ORIGIN_CHANGED ->
+                stringResource(R.string.stalker_transport_origin_changed_title) to
+                    stringResource(
+                        R.string.stalker_transport_origin_changed_body,
+                        challenge.displayHost
+                    )
+        }
+        PremiumDialog(
+            title = title,
+            subtitle = body,
+            onDismissRequest = viewModel::dismissStalkerTransportChallenge,
+            content = {},
+            footer = {
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.stalker_transport_go_back),
+                    onClick = viewModel::dismissStalkerTransportChallenge
+                )
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.stalker_transport_connect_anyway),
+                    onClick = viewModel::acceptStalkerTransportChallenge,
+                    emphasized = true
+                )
+            }
+        )
+    }
+
+    uiState.stalkerVerificationInconclusive?.let {
+        PremiumDialog(
+            title = stringResource(R.string.stalker_verification_inconclusive_title),
+            subtitle = stringResource(R.string.stalker_verification_inconclusive_body),
+            onDismissRequest = viewModel::dismissStalkerVerificationInconclusive,
+            content = {},
+            footer = {
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.stalker_transport_go_back),
+                    onClick = viewModel::dismissStalkerVerificationInconclusive
+                )
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.stalker_save_without_verification),
+                    onClick = viewModel::saveStalkerWithoutVerification,
+                    emphasized = true
+                )
+            }
         )
     }
 
@@ -688,30 +867,23 @@ fun ProviderSetupScreen(
         }
 
         if (uiState.pendingCombinedAttachProfileId != null) {
-            androidx.compose.material3.AlertDialog(
+            PremiumDialog(
+                title = "Add Playlist To Combined M3U?",
+                subtitle = "Add ${uiState.createdProviderName ?: "this playlist"} to " +
+                    "${uiState.pendingCombinedAttachProfileName ?: "the active combined source"} " +
+                    "and keep that combined source active for Live TV?",
                 onDismissRequest = onSkipCreatedProviderCombinedAttach,
-                title = { Text("Add Playlist To Combined M3U?") },
-                text = {
-                    Text(
-                        buildString {
-                            append("Add ")
-                            append(uiState.createdProviderName ?: "this playlist")
-                            append(" to ")
-                            append(uiState.pendingCombinedAttachProfileName ?: "the active combined source")
-                            append(" and keep that combined source active for Live TV?")
-                        },
-                        color = OnSurface
+                content = {},
+                footer = {
+                    PremiumDialogFooterButton(
+                        label = "Not Now",
+                        onClick = onSkipCreatedProviderCombinedAttach
                     )
-                },
-                confirmButton = {
-                    TextButton(onClick = onAttachCreatedProvider) {
-                        Text("Add To Combined", color = Primary)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onSkipCreatedProviderCombinedAttach) {
-                        Text("Not Now", color = OnSurface)
-                    }
+                    PremiumDialogFooterButton(
+                        label = "Add To Combined",
+                        onClick = onAttachCreatedProvider,
+                        emphasized = true
+                    )
                 }
             )
         }
@@ -891,6 +1063,7 @@ private fun ProviderFormContent(
     onFilePick: () -> Unit,
     onLoginXtream: () -> Unit,
     onLoginStalker: () -> Unit,
+    onRepairStalker: () -> Unit,
     onAddM3u: () -> Unit,
     onLoginJellyfin: () -> Unit,
     quickConnectCode: String,
@@ -899,6 +1072,9 @@ private fun ProviderFormContent(
     onStopPhonePairing: () -> Unit,
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
+    onSelectStalkerCatalogMode: (StalkerCatalogMode) -> Unit,
+    onSelectStalkerProtocolPreference: (StalkerProtocolPreference) -> Unit,
+    onSelectStalkerProfile: (String) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
     onSelectGuideSourcePolicy: (GuideSourcePolicy) -> Unit,
     onSelectChannelLogoSourcePolicy: (ChannelLogoSourcePolicy) -> Unit,
@@ -980,6 +1156,7 @@ private fun ProviderFormContent(
                         onHttpHeadersChange = onHttpHeadersChange,
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
+                        onSelectStalkerCatalogMode = onSelectStalkerCatalogMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
@@ -1062,6 +1239,12 @@ private fun ProviderFormContent(
                             imeAction = ImeAction.Next
                         )
                     )
+                    StalkerCompatibilitySelector(
+                        protocol = uiState.stalkerProtocolPreference,
+                        profileId = uiState.stalkerRequestedProfileId,
+                        onProtocolSelected = onSelectStalkerProtocolPreference,
+                        onProfileSelected = onSelectStalkerProfile
+                    )
                     AdvancedProviderOptionsSection(
                         sourceType = sourceType,
                         uiState = uiState,
@@ -1071,6 +1254,7 @@ private fun ProviderFormContent(
                         onHttpHeadersChange = onHttpHeadersChange,
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
+                        onSelectStalkerCatalogMode = onSelectStalkerCatalogMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
@@ -1126,6 +1310,13 @@ private fun ProviderFormContent(
                         isLoading = uiState.isLoading,
                         onClick = onLoginStalker
                     )
+                    if (uiState.isEditing) {
+                        SmallActionButton(
+                            text = androidx.compose.ui.res.stringResource(R.string.stalker_repair_connection),
+                            isLoading = uiState.isLoading,
+                            onClick = onRepairStalker
+                        )
+                    }
                 }
 
                 SourceType.M3U_URL -> {
@@ -1143,6 +1334,7 @@ private fun ProviderFormContent(
                         onHttpHeadersChange = onHttpHeadersChange,
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
+                        onSelectStalkerCatalogMode = onSelectStalkerCatalogMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
@@ -1200,6 +1392,7 @@ private fun ProviderFormContent(
                         onHttpHeadersChange = onHttpHeadersChange,
                         onToggleM3uVodClassification = onToggleM3uVodClassification,
                         onSelectEpgSyncMode = onSelectEpgSyncMode,
+                        onSelectStalkerCatalogMode = onSelectStalkerCatalogMode,
                         onSelectXtreamLiveSyncMode = onSelectXtreamLiveSyncMode,
                         onSelectGuideSourcePolicy = onSelectGuideSourcePolicy,
                         onSelectChannelLogoSourcePolicy = onSelectChannelLogoSourcePolicy,
@@ -1278,6 +1471,7 @@ private fun AdvancedProviderOptionsSection(
     onHttpHeadersChange: (String) -> Unit,
     onToggleM3uVodClassification: () -> Unit,
     onSelectEpgSyncMode: (ProviderEpgSyncMode) -> Unit,
+    onSelectStalkerCatalogMode: (StalkerCatalogMode) -> Unit,
     onSelectXtreamLiveSyncMode: (ProviderXtreamLiveSyncMode) -> Unit,
     onSelectGuideSourcePolicy: (GuideSourcePolicy) -> Unit,
     onSelectChannelLogoSourcePolicy: (ChannelLogoSourcePolicy) -> Unit,
@@ -1332,8 +1526,9 @@ private fun AdvancedProviderOptionsSection(
         SourceType.JELLYFIN -> ProviderEpgSyncMode.UPFRONT
     }
 
-    LaunchedEffect(uiState.isEditing, uiState.epgSyncMode, uiState.xtreamLiveSyncMode, uiState.guideSourcePolicy, uiState.channelLogoSourcePolicy, sourceType) {
+    LaunchedEffect(uiState.isEditing, uiState.epgSyncMode, uiState.stalkerCatalogMode, uiState.xtreamLiveSyncMode, uiState.guideSourcePolicy, uiState.channelLogoSourcePolicy, sourceType) {
         val hasNonDefaultSelection = ((sourceType == SourceType.XTREAM || sourceType == SourceType.STALKER) && uiState.epgSyncMode != defaultEpgSyncMode) ||
+            (sourceType == SourceType.STALKER && uiState.stalkerCatalogMode != StalkerCatalogMode.ON_DEMAND) ||
             (sourceType == SourceType.XTREAM && uiState.xtreamLiveSyncMode != ProviderXtreamLiveSyncMode.AUTO) ||
             (supportsGuideAndLogoPolicy(sourceType) && uiState.guideSourcePolicy != GuideSourcePolicy.AUTO) ||
             (supportsGuideAndLogoPolicy(sourceType) && uiState.channelLogoSourcePolicy != ChannelLogoSourcePolicy.SUPPLIER_PREFERRED) ||
@@ -1624,6 +1819,38 @@ private fun AdvancedProviderOptionsSection(
                 }
 
                 if (sourceType == SourceType.STALKER) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Surface, RoundedCornerShape(12.dp))
+                            .border(1.dp, SurfaceHighlight, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Movie and series catalog",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "This is separate from EPG loading. On demand makes the provider ready after categories load; background indexing downloads the complete catalog later.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceDim
+                        )
+                        PolicyOptionRow(
+                            title = "On demand (recommended)",
+                            description = "Load visible shelves and opened categories as needed. Existing cached items are kept.",
+                            selected = uiState.stalkerCatalogMode == StalkerCatalogMode.ON_DEMAND,
+                            onSelect = { onSelectStalkerCatalogMode(StalkerCatalogMode.ON_DEMAND) }
+                        )
+                        PolicyOptionRow(
+                            title = "Complete background index",
+                            description = "Make the provider ready first, then maintain a complete searchable catalog in the background.",
+                            selected = uiState.stalkerCatalogMode == StalkerCatalogMode.BACKGROUND_INDEX,
+                            onSelect = { onSelectStalkerCatalogMode(StalkerCatalogMode.BACKGROUND_INDEX) }
+                        )
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3100,6 +3327,61 @@ private fun ImportOptionsDialog(
             )
         }
     )
+}
+
+@Composable
+private fun DriveBackupSnapshotChoiceDialog(
+    snapshots: List<DriveBackupSnapshot>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    PremiumDialog(
+        title = stringResource(R.string.settings_drive_choose_backup_title),
+        subtitle = stringResource(R.string.settings_drive_choose_backup_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.52f,
+        heightFraction = 0.82f,
+        bodyHeightFraction = 0.64f,
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                snapshots.forEach { snapshot ->
+                    SmallActionButton(
+                        text = snapshot.fileName,
+                        isLoading = false,
+                        onClick = { onSelect(snapshot.id) },
+                    )
+                    Text(
+                        text = formatDriveSnapshotDetails(snapshot),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurface.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.settings_drive_cancel_backup_choice),
+                onClick = onDismiss,
+            )
+        },
+    )
+}
+
+private fun formatDriveSnapshotDetails(snapshot: DriveBackupSnapshot): String {
+    val date = snapshot.modifiedAtMs?.let {
+        java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.SHORT,
+            java.text.DateFormat.SHORT,
+        ).format(java.util.Date(it))
+    } ?: "Date unavailable"
+    val size = if (snapshot.sizeBytes > 0L) "${snapshot.sizeBytes / 1024L} KB" else "Size unavailable"
+    return "$date · $size"
 }
 
 @Composable

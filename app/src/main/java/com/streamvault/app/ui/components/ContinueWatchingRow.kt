@@ -108,7 +108,8 @@ private fun ContinueWatchingTile(
             Text(
                 text = when (history.contentType) {
                     ContentType.LIVE -> stringResource(R.string.card_live_badge)
-                    ContentType.MOVIE -> stringResource(R.string.nav_movies)
+                    ContentType.MOVIE,
+                    ContentType.VOD -> stringResource(R.string.nav_vod)
                     ContentType.SERIES, ContentType.SERIES_EPISODE -> stringResource(R.string.nav_series)
                 },
                 style = MaterialTheme.typography.titleLarge,

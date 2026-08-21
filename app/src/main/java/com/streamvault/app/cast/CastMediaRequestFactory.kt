@@ -47,6 +47,7 @@ class CastMediaRequestFactory @Inject constructor() {
                 rewriteRequiredReason = streamInfo.castRewriteRequiredReason(resolvedUrl),
                 headers = streamInfo.headers,
                 userAgent = streamInfo.userAgent,
+                playbackTransportPolicy = streamInfo.playbackTransportPolicy,
                 allowInvalidSsl = streamInfo.allowInvalidSsl,
                 proxyHost = streamInfo.proxyHost,
                 proxyPort = streamInfo.proxyPort
@@ -133,6 +134,9 @@ private fun StreamInfo.castRewriteRequiredReason(url: String): CastRewriteRequir
     }
     if (proxyHost.isNotBlank() || proxyPort != null) {
         return CastRewriteRequiredReason.PROXY
+    }
+    if (playbackTransportPolicy != null) {
+        return CastRewriteRequiredReason.SCOPED_TRANSPORT
     }
     if (allowInvalidSsl) {
         return CastRewriteRequiredReason.INVALID_SSL

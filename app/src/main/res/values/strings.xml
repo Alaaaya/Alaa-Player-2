@@ -164,6 +164,20 @@
     <string name="category_options_clear_recent">Clear All Recent</string>
     <string name="category_options_pin">Pin Category</string>
     <string name="category_options_unpin">Unpin Category</string>
+    <string name="m3u_organize_items">Organize M3U Items</string>
+    <string name="m3u_move_to_movies">Move to Movies</string>
+    <string name="m3u_move_to_series">Move to Series</string>
+    <string name="m3u_move_back_to_live">Move back to Live TV</string>
+    <string name="m3u_series_name">Series name</string>
+    <string name="m3u_episode_number">Episode number</string>
+    <string name="m3u_season_number">Season number</string>
+    <string name="m3u_classify">Classify</string>
+    <string name="m3u_classification_saved">M3U classification saved</string>
+    <string name="m3u_category_rule_subtitle">Choose a default for this M3U group. Individual channels can still be overridden.</string>
+    <string name="m3u_keep_live">Keep as Live TV</string>
+    <string name="m3u_series_review_title">Organize series in %1$s</string>
+    <string name="m3u_series_review_subtitle">Review the automatic suggestions or assign each entry to a series, season, and episode.</string>
+    <string name="m3u_episode_unresolved">Episode number unresolved — it will remain flagged for correction.</string>
     <string name="category_pinned">Pinned %1$s.</string>
     <string name="category_unpinned">Unpinned %1$s.</string>
 
@@ -340,7 +354,7 @@
     <string name="settings_provider_category_controls_subtitle">Lock, unlock, hide, and restore categories for the current playlist from one place.</string>
     <string name="settings_provider_category_controls_search">Search categories...</string>
     <string name="settings_m3u_vod_classification_title">M3U VOD Classification</string>
-    <string name="settings_m3u_vod_classification_summary">Uses the M3U URL and group-title rules to move matching entries into Movies. Refresh after changing this to rearrange the playlist.</string>
+    <string name="settings_m3u_vod_classification_summary">Uses decoded URL evidence first, then localized group and title hints. Live-stream URLs stay in Live TV. Refresh after changing this to reclassify the playlist.</string>
     <string name="settings_m3u_vod_classification_refresh">Refresh Classification</string>
     <string name="settings_categories_title">Category Preferences</string>
     <string name="settings_categories_subtitle">Hide provider categories and keep their sort order exactly how you want it.</string>
@@ -556,8 +570,11 @@
     <string name="settings_vod_view_mode_classic">Classic</string>
     <string name="settings_vod_view_mode_classic_desc">Category list on the left with a stacked poster grid on the right.</string>
     <string name="settings_vod_infinite_scroll">Infinite scroll</string>
-    <string name="settings_vod_infinite_scroll_on">Auto-load more category rows as you scroll near the end.</string>
-    <string name="settings_vod_infinite_scroll_off">Show a Load more button to fetch the next batch of category rows.</string>
+    <string name="settings_vod_infinite_scroll_on">Load the next page as you scroll near the end.</string>
+    <string name="settings_vod_infinite_scroll_off">Show a Load more button for the next page.</string>
+    <string name="settings_vod_complete_on_open">Load entire VOD category on open</string>
+    <string name="settings_vod_complete_on_open_on">Fetch every Stalker page before finishing the initial load.</string>
+    <string name="settings_vod_complete_on_open_off">Show the first Stalker page immediately, then load more as needed.</string>
     <string name="settings_vod_duplicate_handling_mode">VOD duplicate handling</string>
     <string name="settings_vod_duplicate_handling_mode_subtitle">Choose whether movie versions stay separate or appear as grouped title variants.</string>
     <string name="settings_vod_duplicate_handling_show_all">Show All Versions</string>
@@ -745,9 +762,19 @@
     <string name="settings_backup_share_failed">No app could receive the backup file.</string>
     <string name="settings_backup_choose_file_title">Choose a backup file</string>
     <string name="settings_backup_no_files_in_folder">No backup files (.json) found in that folder.</string>
+    <string name="settings_backup_no_local_files">No local StreamVault backups found. Export one first or open a backup file with StreamVault.</string>
     <string name="settings_backup_folder_picker_unavailable">No folder picker is available on this device.</string>
     <string name="settings_backup_folder_create_failed">Could not create the backup file in that folder.</string>
     <string name="settings_backup_folder_read_failed">Could not read that folder.</string>
+    <string name="settings_backup_picker_free_saved">Backup saved locally. On supported TVs it is in Downloads/StreamVault; open it with a file manager.</string>
+    <string name="settings_backup_picker_free_failed">Could not save the backup without a file picker.</string>
+    <string name="settings_manage_local_backups">Manage local backups</string>
+    <string name="settings_manage_local_backups_subtitle">Review and delete backups created by StreamVault.</string>
+    <string name="settings_backup_no_managed_files">No StreamVault-created local backups found.</string>
+    <string name="settings_backup_delete_title">Delete backup?</string>
+    <string name="settings_backup_delete_body">Delete “%1$s” permanently?</string>
+    <string name="settings_backup_deleted">Local backup deleted.</string>
+    <string name="settings_backup_delete_failed">Could not delete that backup file.</string>
     <string name="settings_crash_reports_title">Crash Reports</string>
     <string name="settings_crash_reports_subtitle">Fatal crashes are saved locally only when the app is already crashing. You can review or share the latest report.</string>
     <string name="settings_crash_report_latest">Latest crash</string>
@@ -767,6 +794,7 @@
     <string name="settings_restore_subtitle">Choose a backup file, or open a backup with StreamVault from a file manager.</string>
     <string name="settings_backup_preview_title">Review Backup Import</string>
     <string name="settings_backup_preview_subtitle">Backup version %1$d detected. Choose what to import before making changes.</string>
+    <string name="settings_backup_preview_scroll_hint">Use ↑/↓ on the remote to scroll</string>
     <string name="settings_backup_conflict_strategy">Conflict strategy</string>
     <string name="settings_backup_keep_existing">Keep Existing</string>
     <string name="settings_backup_replace_existing">Replace Existing</string>
@@ -801,6 +829,7 @@
     <string name="settings_retry_series">Retry Series</string>
     <string name="settings_status_active">Active</string>
     <string name="settings_status_partial">Partial</string>
+    <string name="settings_status_requires_attention">Requires attention</string>
     <string name="settings_status_error">Error</string>
     <string name="settings_status_expired">Expired</string>
     <string name="settings_status_disabled">Disabled</string>
@@ -988,6 +1017,11 @@
     <string name="search_no_provider_title">No active provider</string>
     <string name="search_no_provider_subtitle">Add or activate a provider before searching the library.</string>
     <string name="search_results_title">%1$d results</string>
+    <string name="search_catalog_downloaded_only">Downloaded items only. Build the complete search index to search the full portal catalog.</string>
+    <string name="search_catalog_indexing">The complete search index is being built. Results are still partial.</string>
+    <string name="search_catalog_truncated">The portal catalog was truncated. Results may be incomplete.</string>
+    <string name="search_catalog_complete">Complete catalog index</string>
+    <string name="search_build_complete_index">Build complete search index once</string>
     <string name="search_results_count">%1$s %2$d</string>
     <string name="search_live_tv">Live TV</string>
     <string name="search_all">All</string>
@@ -1064,7 +1098,7 @@
     <string name="setup_advanced_options_show">Show</string>
     <string name="setup_advanced_options_hide">Hide</string>
     <string name="setup_m3u_vod_classification_label">M3U VOD Classification</string>
-    <string name="setup_m3u_vod_classification_helper">M3U only. Use playlist URL and group-title heuristics to sort matching entries into Movies instead of Live TV.</string>
+    <string name="setup_m3u_vod_classification_helper">M3U only. Classify decoded movie URLs and localized group or title hints as Movies; recognized live-stream URLs remain in Live TV.</string>
     <string name="setup_xtream_live_sync_mode_label">Xtream Live Sync</string>
     <string name="setup_xtream_live_sync_mode_helper">Choose how Live TV channels are fetched. Auto protects weak devices and routine refreshes while keeping categories populated.</string>
     <string name="setup_xtream_live_sync_mode_auto_title">Auto</string>
@@ -1712,7 +1746,17 @@
     <string name="settings_drive_push">Send to Drive</string>
     <string name="settings_drive_push_subtitle">Upload the current configuration to your Drive backup.</string>
     <string name="settings_drive_pull">Restore from Drive</string>
-    <string name="settings_drive_pull_subtitle">Download the latest Drive backup and preview the import.</string>
+    <string name="settings_drive_pull_subtitle">Choose a Drive backup and preview the import.</string>
+    <string name="settings_drive_choose_backup_title">Choose a Drive backup</string>
+    <string name="settings_drive_choose_backup_subtitle">Select a saved snapshot to preview and restore.</string>
+    <string name="settings_drive_cancel_backup_choice">Cancel backup choice</string>
+    <string name="settings_drive_cancel_backup_choice_subtitle">Return to the Drive backup actions.</string>
+    <string name="settings_drive_unknown_backup_date">Date unavailable</string>
+    <string name="settings_drive_backup_size_unknown">Size unavailable</string>
+    <string name="settings_manage_drive_backups">Manage Drive backups</string>
+    <string name="settings_manage_drive_backups_subtitle">Review or delete saved Drive snapshots.</string>
+    <string name="settings_drive_manage_title">Saved Drive backups</string>
+    <string name="settings_drive_manage_subtitle">Delete only snapshots you no longer need.</string>
     <string name="settings_drive_last_push">Pushed: %1$s</string>
     <string name="settings_drive_last_pull">Pulled: %1$s</string>
     <string name="settings_drive_never_synced">Never synced yet</string>
@@ -1781,4 +1825,19 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="stalker_transport_invalid_tls_title" translatable="false">This provider\'s security certificate can\'t be verified</string>
+    <string name="stalker_transport_invalid_tls_body" translatable="false">The connection to %1$s may still be encrypted, but the app can\'t confirm it is really this provider. Someone on the network could read your login or stream details.</string>
+    <string name="stalker_transport_http_title" translatable="false">This provider uses an unencrypted connection</string>
+    <string name="stalker_transport_http_body" translatable="false">Your login and viewing requests to %1$s can be read or changed by someone on the network.</string>
+    <string name="stalker_transport_origin_changed_title" translatable="false">This provider wants to use a different address</string>
+    <string name="stalker_transport_origin_changed_body" translatable="false">The provider redirected the connection to %1$s. Continue only if you recognize this address.</string>
+    <string name="stalker_transport_go_back" translatable="false">Go back</string>
+    <string name="stalker_transport_connect_anyway" translatable="false">Connect anyway</string>
+    <string name="stalker_verification_inconclusive_title" translatable="false">Live TV could not be verified</string>
+    <string name="stalker_verification_inconclusive_body" translatable="false">The provider accepted your login, but the Live TV check did not finish. You can save it with verification pending; it will remain inactive until a sync confirms playable Live TV.</string>
+    <string name="stalker_save_without_verification" translatable="false">Save without verification</string>
+    <string name="stalker_repair_connection" translatable="false">Repair connection</string>
+    <string name="nav_vod">VOD</string>
+    <string name="vod_unavailable_title">VOD is unavailable</string>
+    <string name="vod_unavailable_subtitle">This provider exposes separate Movies and Series catalogs.</string>
 </resources>
