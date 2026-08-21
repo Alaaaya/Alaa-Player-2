@@ -14,6 +14,7 @@ import com.google.gson.stream.JsonWriter
 import com.google.gson.stream.MalformedJsonException
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
+import com.streamvault.data.local.dao.BackupRestoreLedgerDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelPreferenceDao
@@ -31,12 +32,15 @@ import com.streamvault.data.local.dao.ProviderEpgSourceDao
 import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
 import com.streamvault.data.local.dao.SeriesDao
+import com.streamvault.data.local.dao.SearchHistoryDao
 import com.streamvault.data.local.dao.VirtualGroupDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.ProviderAccountRuntimeEntity
 import com.streamvault.data.local.entity.ProviderConfigEntity
 import com.streamvault.data.local.entity.BackupRestoreCheckpointEntity
+import com.streamvault.data.local.entity.BackupRestoreItemEntity
+import com.streamvault.data.local.entity.BackupRestoreJobEntity
 import com.streamvault.data.local.entity.ChannelPreferenceEntity
 import com.streamvault.data.local.entity.ChannelEpgMappingEntity
 import com.streamvault.data.local.entity.ProviderEpgSourceEntity
@@ -84,6 +88,17 @@ import com.streamvault.domain.manager.CombinedM3uProfileMemberBackup
 import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableCategorySortReference
 import com.streamvault.domain.manager.PortableChannelReference
+import com.streamvault.domain.manager.PortableFavoriteBackup
+import com.streamvault.domain.manager.PortableCustomGroupBackup
+import com.streamvault.domain.manager.PortablePlaybackHistoryBackup
+import com.streamvault.domain.manager.PortableProtectedContentBackup
+import com.streamvault.domain.manager.PortableHiddenContentBackup
+import com.streamvault.domain.manager.PortableContentPreferenceBackup
+import com.streamvault.domain.manager.PortableContentReference
+import com.streamvault.domain.manager.PortableVariantChoiceBackup
+import com.streamvault.domain.manager.PortableManualEpgMappingV14Backup
+import com.streamvault.domain.manager.PortableMultiViewPresetV14Backup
+import com.streamvault.domain.manager.PortableSearchHistoryBackup
 import com.streamvault.domain.manager.PortableChannelPreferenceReference
 import com.streamvault.domain.manager.PortableEpgTimeShiftReference
 import com.streamvault.domain.manager.PortableProviderPreferencesBackup
@@ -159,6 +174,7 @@ class BackupManagerImpl @Inject constructor(
     private val providerSnapshotDao: ProviderSnapshotDao? = null,
     private val providerConfigurationCodec: ProviderConfigurationCodec? = null,
     private val backupRestoreCheckpointDao: BackupRestoreCheckpointDao? = null,
+    private val backupRestoreLedgerDao: BackupRestoreLedgerDao? = null,
     private val channelDao: ChannelDao,
     private val seriesDao: SeriesDao,
     private val categoryDao: CategoryDao? = null,
@@ -169,7 +185,9 @@ class BackupManagerImpl @Inject constructor(
     private val providerEpgSourceDao: ProviderEpgSourceDao? = null,
     private val channelEpgMappingDao: ChannelEpgMappingDao? = null,
     private val m3uClassificationDao: M3uClassificationDao? = null,
-    private val programReminderManager: ProgramReminderManager? = null
+    private val programReminderManager: ProgramReminderManager? = null,
+    private val searchHistoryDao: SearchHistoryDao? = null,
+    private val pendingBackupRestoreCoordinator: PendingBackupRestoreCoordinator? = null
 ) : BackupManager {
 
     override suspend fun exportConfig(uriString: String): com.streamvault.domain.model.Result<Unit> = withContext(Dispatchers.IO) {
@@ -380,7 +398,8 @@ class BackupManagerImpl @Inject constructor(
                                 provider = provider.toBackupProviderReference(),
                                 streamId = channel.streamId,
                                 name = channel.name,
-                                streamUrl = channel.streamUrl
+                                streamUrl = channel.streamUrl,
+                                remoteCategoryId = channel.categoryId
                             )
                         }
                     }
@@ -410,15 +429,17 @@ class BackupManagerImpl @Inject constructor(
             }
             val providerEpgAssignments = if (providerEpgSourceDao != null && epgSourceDao != null) {
                 providers.flatMap { provider ->
-                    providerEpgSourceDao.getForProviderSync(provider.id).mapNotNull { assignment ->
-                        epgSourceDao.getById(assignment.epgSourceId)?.let { source ->
-                            ProviderEpgAssignmentBackup(
-                                provider = provider.toBackupProviderReference(),
-                                sourceUrl = source.url,
-                                priority = assignment.priority,
-                                enabled = assignment.enabled
+                    providerEpgSourceDao.getForProviderSync(provider.id).map { assignment ->
+                        val source = epgSourceDao.getById(assignment.epgSourceId)
+                            ?: return@withContext Result.error(
+                                "Cannot export EPG Provider Assignments: '${provider.name}' references missing source ${assignment.epgSourceId}"
                             )
-                        }
+                        ProviderEpgAssignmentBackup(
+                            provider = provider.toBackupProviderReference(),
+                            sourceUrl = source.url,
+                            priority = assignment.priority,
+                            enabled = assignment.enabled
+                        )
                     }
                 }
             } else {
@@ -428,18 +449,27 @@ class BackupManagerImpl @Inject constructor(
                 providers.flatMap { provider ->
                     channelEpgMappingDao.getForProvider(provider.id)
                         .filter { it.isManualOverride }
-                        .mapNotNull { mapping ->
+                        .map { mapping ->
                             val channel = channelDao.getById(mapping.providerChannelId)
                                 ?.takeIf { it.providerId == provider.id }
-                                ?: return@mapNotNull null
+                                ?: return@withContext Result.error(
+                                    "Cannot export Manual EPG Mappings: channel row ${mapping.providerChannelId} is missing for '${provider.name}'"
+                                )
+                            val sourceUrl = mapping.epgSourceId?.let { sourceId ->
+                                epgSourceDao.getById(sourceId)?.url
+                                    ?: return@withContext Result.error(
+                                        "Cannot export Manual EPG Mappings: source $sourceId is missing for channel '${channel.name}'"
+                                    )
+                            }
                             ManualEpgMappingBackup(
                                 channel = PortableChannelReference(
                                     provider = provider.toBackupProviderReference(),
                                     streamId = channel.streamId,
                                     name = channel.name,
-                                    streamUrl = channel.streamUrl
+                                    streamUrl = channel.streamUrl,
+                                    remoteCategoryId = channel.categoryId
                                 ),
-                                sourceUrl = mapping.epgSourceId?.let { epgSourceDao.getById(it)?.url },
+                                sourceUrl = sourceUrl,
                                 xmltvChannelId = mapping.xmltvChannelId,
                                 sourceType = mapping.sourceType,
                                 matchType = mapping.matchType,
@@ -486,26 +516,36 @@ class BackupManagerImpl @Inject constructor(
             }
             val programReminders = programReminderManager?.observeUpcomingReminders()?.first()
                 ?.filter { it.programStartTime > System.currentTimeMillis() && !it.isDismissed }
-                ?.mapNotNull { reminder ->
-                    providersById[reminder.providerId]?.let { provider ->
-                        ProgramReminderBackup(
-                            provider = provider.toBackupProviderReference(),
-                            channelId = reminder.channelId,
-                            channelName = reminder.channelName,
-                            programTitle = reminder.programTitle,
-                            programStartTime = reminder.programStartTime,
-                            leadTimeMinutes = reminder.leadTimeMinutes
+                ?.map { reminder ->
+                    val provider = providersById[reminder.providerId]
+                        ?: return@withContext Result.error(
+                            "Cannot export Program Reminders: '${reminder.programTitle}' references missing provider ${reminder.providerId}"
                         )
-                    }
+                    ProgramReminderBackup(
+                        provider = provider.toBackupProviderReference(),
+                        channelId = reminder.channelId,
+                        channelName = reminder.channelName,
+                        programTitle = reminder.programTitle,
+                        programStartTime = reminder.programStartTime,
+                        leadTimeMinutes = reminder.leadTimeMinutes
+                    )
                 }
             val scheduledRecordings = recordingManager.observeRecordingItems().first()
                 .filter { it.status == RecordingStatus.SCHEDULED && it.scheduledEndMs > System.currentTimeMillis() }
                 .mapNotNull { item ->
-                    val provider = providersById[item.providerId] ?: return@mapNotNull null
-                    item.toScheduledRecordingBackup(
+                    val provider = providersById[item.providerId]
+                        ?: return@withContext Result.error(
+                            "Cannot export Recording Schedules: '${item.channelName}' references missing provider ${item.providerId}"
+                        )
+                    val legacy = item.toScheduledRecordingBackup(
                         provider = provider,
                         schedule = item.scheduleId?.let { scheduleId -> recordingScheduleDao.getById(scheduleId) }
                     )
+                    val channel = channelDao.getById(item.channelId)
+                        ?: return@withContext Result.error(
+                            "Cannot export Recording Schedules: channel '${item.channelName}' is not in the synced catalog"
+                        )
+                    legacy.copy(channel = channel.toPortableContentReference(provider.toBackupProviderReference()))
                 }
                 .normalizedRecurringBackups()
             val recordingStorage = recordingManager.observeStorageState().first().let { storage ->
@@ -528,15 +568,213 @@ class BackupManagerImpl @Inject constructor(
                 )
             }
 
+            val ungroupedFavorites = allFavorites.filter { it.groupId == null }
+            val portableFavorites = ungroupedFavorites.mapNotNull { favorite ->
+                favorite.toPortableContentReference(providersById, channelDao, movieDao, seriesDao)?.let { reference ->
+                    PortableFavoriteBackup(
+                        content = reference,
+                        position = favorite.position,
+                        addedAt = favorite.addedAt
+                    )
+                }
+            }
+            if (portableFavorites.size != ungroupedFavorites.size) {
+                return@withContext Result.error(
+                    "Cannot export Favorites: ${ungroupedFavorites.size - portableFavorites.size} item(s) lack portable catalog identity"
+                )
+            }
+            val portableCustomGroups = allGroups.map { group ->
+                val provider = providersById[group.providerId]
+                    ?: return@withContext Result.error("Cannot export custom group '${group.name}': provider is missing")
+                val members = allFavorites.filter { favorite -> favorite.groupId == group.id }
+                    .mapNotNull { favorite ->
+                        favorite.toPortableContentReference(providersById, channelDao, movieDao, seriesDao)?.let { reference ->
+                            PortableFavoriteBackup(reference, favorite.position, favorite.addedAt)
+                        }
+                    }
+                if (members.size != allFavorites.count { it.groupId == group.id }) {
+                    return@withContext Result.error(
+                        "Cannot export custom group '${group.name}': one or more members lack portable catalog identity"
+                    )
+                }
+                PortableCustomGroupBackup(
+                    provider = provider.toBackupProviderReference(),
+                    contentType = group.contentType,
+                    name = group.name,
+                    icon = group.iconEmoji,
+                    position = group.position,
+                    createdAt = group.createdAt,
+                    members = members
+                )
+            }
+            val portablePlaybackHistory = playbackHistory.mapNotNull { history ->
+                history.toPortableContentReference(providersById, channelDao, movieDao, seriesDao, episodeDao)?.let { reference ->
+                    PortablePlaybackHistoryBackup(
+                        content = reference,
+                        resumePositionMs = history.resumePositionMs,
+                        totalDurationMs = history.totalDurationMs,
+                        lastWatchedAt = history.lastWatchedAt,
+                        watchCount = history.watchCount,
+                        watchedStatus = history.watchedStatus.name,
+                        posterUrl = history.posterUrl,
+                        seasonNumber = history.seasonNumber,
+                        episodeNumber = history.episodeNumber
+                    )
+                }
+            }
+            if (portablePlaybackHistory.size != playbackHistory.size) {
+                return@withContext Result.error(
+                    "Cannot export Playback History: ${playbackHistory.size - portablePlaybackHistory.size} item(s) lack portable catalog identity"
+                )
+            }
+            val portableProtectedContent = providers.flatMap { provider ->
+                val reference = provider.toBackupProviderReference()
+                val providerSeries = seriesDao.getByProviderSync(provider.id)
+                val seriesByLocalId = providerSeries.associateBy { it.id }
+                val protectedEpisodes = episodeDao.getByProviderSync(provider.id).filter { it.isUserProtected }
+                val orphanedProtectedEpisode = protectedEpisodes.firstOrNull { it.seriesId !in seriesByLocalId }
+                if (orphanedProtectedEpisode != null) {
+                    return@withContext Result.error(
+                        "Cannot export Protected Content: episode '${orphanedProtectedEpisode.title}' has no parent series identity"
+                    )
+                }
+                buildList {
+                    channelDao.getByProviderSync(provider.id).filter { it.isUserProtected }.forEach { channel ->
+                        add(PortableProtectedContentBackup(channel.toPortableContentReference(reference)))
+                    }
+                    movieDao.getByProviderSync(provider.id).filter { it.isUserProtected }.forEach { movie ->
+                        add(PortableProtectedContentBackup(movie.toPortableContentReference(reference)))
+                    }
+                    providerSeries.filter { it.isUserProtected }.forEach { series ->
+                        add(PortableProtectedContentBackup(series.toPortableContentReference(reference)))
+                    }
+                    protectedEpisodes.forEach { episode ->
+                        add(
+                            PortableProtectedContentBackup(
+                                episode.toPortableContentReference(reference, checkNotNull(seriesByLocalId[episode.seriesId]))
+                            )
+                        )
+                    }
+                }
+            }
+            val portableHiddenContent = portableProviderPreferences.hiddenChannels.map { channel ->
+                PortableHiddenContentBackup(
+                    com.streamvault.domain.manager.PortableContentReference(
+                        provider = channel.provider,
+                        contentType = ContentType.LIVE,
+                        remoteContentId = channel.streamId.toString(),
+                        remoteCategoryId = channel.remoteCategoryId?.toString(),
+                        name = channel.name,
+                        urlFallback = channel.streamUrl
+                    )
+                )
+            }
+            val portableContentPreferences = portableProviderPreferences.channelPreferences.map { preference ->
+                PortableContentPreferenceBackup(
+                    content = com.streamvault.domain.manager.PortableContentReference(
+                        provider = preference.channel.provider,
+                        contentType = ContentType.LIVE,
+                        remoteContentId = preference.channel.streamId.toString(),
+                        remoteCategoryId = preference.channel.remoteCategoryId?.toString(),
+                        name = preference.channel.name,
+                        urlFallback = preference.channel.streamUrl
+                    ),
+                    aspectRatio = preference.aspectRatio,
+                    audioVideoOffsetMs = preference.audioVideoOffsetMs
+                )
+            }
+            val portableVariantChoices = buildList {
+                portableProviderPreferences.liveVariantSelections.forEach { choice ->
+                    choice.remoteItemId?.let { remoteId ->
+                        add(
+                            PortableVariantChoiceBackup(
+                                logicalGroupId = choice.logicalGroupId,
+                                selectedContent = com.streamvault.domain.manager.PortableContentReference(
+                                    provider = choice.provider,
+                                    contentType = ContentType.LIVE,
+                                    remoteContentId = remoteId,
+                                    remoteCategoryId = choice.remoteCategoryId?.toString()
+                                )
+                            )
+                        )
+                    }
+                }
+                portableProviderPreferences.vodVariantSelections.forEach { choice ->
+                    choice.remoteItemId?.let { remoteId ->
+                        add(
+                            PortableVariantChoiceBackup(
+                                logicalGroupId = choice.logicalGroupId,
+                                selectedContent = com.streamvault.domain.manager.PortableContentReference(
+                                    provider = choice.provider,
+                                    contentType = choice.contentType ?: ContentType.MOVIE,
+                                    remoteContentId = remoteId,
+                                    remoteCategoryId = choice.remoteCategoryId?.toString()
+                                )
+                            )
+                        )
+                    }
+                }
+            }
+            val portableManualEpgMappings = manualEpgMappings.orEmpty().map { mapping ->
+                PortableManualEpgMappingV14Backup(
+                    content = com.streamvault.domain.manager.PortableContentReference(
+                        provider = mapping.channel.provider,
+                        contentType = ContentType.LIVE,
+                        remoteContentId = mapping.channel.streamId.toString(),
+                        remoteCategoryId = mapping.channel.remoteCategoryId?.toString(),
+                        name = mapping.channel.name,
+                        urlFallback = mapping.channel.streamUrl
+                    ),
+                    sourceUrl = mapping.sourceUrl,
+                    xmltvChannelId = mapping.xmltvChannelId,
+                    sourceType = mapping.sourceType,
+                    matchType = mapping.matchType,
+                    confidence = mapping.confidence,
+                    source = mapping.source
+                )
+            }
+            val portableMultiViewPresetsV14 = portableMultiViewPresets.map { (name, channels) ->
+                PortableMultiViewPresetV14Backup(
+                    name = name,
+                    channels = channels.map { channel ->
+                        com.streamvault.domain.manager.PortableContentReference(
+                            provider = channel.provider,
+                            contentType = ContentType.LIVE,
+                            remoteContentId = channel.streamId.toString(),
+                            remoteCategoryId = channel.remoteCategoryId?.toString(),
+                            name = channel.name,
+                            urlFallback = channel.streamUrl
+                        )
+                    }
+                )
+            }
+            val portableSearchHistory = searchHistoryDao?.getAllSync()?.map { history ->
+                val providerReference = if (history.providerId == 0L) {
+                    null
+                } else {
+                    providersById[history.providerId]?.toBackupProviderReference()
+                        ?: return@withContext Result.error(
+                            "Cannot export Search History: '${history.query}' references missing provider ${history.providerId}"
+                        )
+                }
+                PortableSearchHistoryBackup(
+                    query = history.query,
+                    contentScope = history.contentScope,
+                    provider = providerReference,
+                    usedAt = history.usedAt,
+                    useCount = history.useCount
+                )
+            }
+
             val backupData = BackupData(
                 version = CURRENT_BACKUP_VERSION,
                 preferences = prefs,
                 providers = null,
                 providerSnapshots = providerSnapshots,
-                favorites = allFavorites,
-                virtualGroups = allGroups,
-                playbackHistory = playbackHistory,
-                multiViewPresets = multiViewPresets,
+                favorites = null,
+                virtualGroups = null,
+                playbackHistory = null,
+                multiViewPresets = null,
                 portableMultiViewPresets = portableMultiViewPresets,
                 protectedCategories = protectedCategories,
                 scheduledRecordings = scheduledRecordings,
@@ -545,12 +783,22 @@ class BackupManagerImpl @Inject constructor(
                 providerCredentials = providerCredentials.takeIf { it.isNotEmpty() },
                 epgSources = epgSourceDao?.getAllSync()?.map { it.toDomain() },
                 providerEpgAssignments = providerEpgAssignments,
-                manualEpgMappings = manualEpgMappings,
+                manualEpgMappings = null,
                 m3uClassificationOverrides = m3uClassificationOverrides,
                 m3uClassificationRules = m3uClassificationRules,
                 programReminders = programReminders,
                 combinedM3uProfiles = combinedM3uProfiles,
-                activeLiveSource = activeLiveSource
+                activeLiveSource = activeLiveSource,
+                portableFavorites = portableFavorites,
+                portableCustomGroups = portableCustomGroups,
+                portablePlaybackHistory = portablePlaybackHistory,
+                portableProtectedContent = portableProtectedContent,
+                portableSearchHistory = portableSearchHistory,
+                portableHiddenContent = portableHiddenContent,
+                portableContentPreferences = portableContentPreferences,
+                portableVariantChoices = portableVariantChoices,
+                portableManualEpgMappings = portableManualEpgMappings,
+                portableMultiViewPresetsV14 = portableMultiViewPresetsV14
             )
 
             // Compute checksum over the data without checksum field
@@ -810,7 +1058,24 @@ class BackupManagerImpl @Inject constructor(
                             restorePreferences(it, skipProviderScopedReferences = portablePreferences != null)
                         }
                         val preferenceUnresolved = portablePreferences?.let { portable ->
-                            restorePortableProviderPreferences(portable, storedProviders)
+                            restorePortableProviderPreferences(
+                                if (backupData.version >= 14 && (
+                                        backupData.portableHiddenContent != null ||
+                                            backupData.portableContentPreferences != null ||
+                                            backupData.portableVariantChoices != null
+                                        )) {
+                                    portable.copy(
+                                        hiddenChannels = emptyList(),
+                                        channelPreferences = emptyList(),
+                                        channelPreferencesSpecified = false,
+                                        liveVariantSelections = emptyList(),
+                                        liveVariantSelectionsSpecified = false,
+                                        vodVariantSelections = emptyList(),
+                                        vodVariantSelectionsSpecified = false
+                                    )
+                                } else portable,
+                                storedProviders
+                            )
                         }.orEmpty()
                         unresolvedReferences += preferenceUnresolved
                         val portableComplete = preferenceUnresolved.isEmpty()
@@ -852,7 +1117,11 @@ class BackupManagerImpl @Inject constructor(
                     else -> try {
                         checkpoint = checkpoint.ensurePreferenceSnapshot()
                         val portableUnresolved = portablePresets?.let {
-                            restorePortableMultiViewPresets(it, storedProviders)
+                            if (backupData.version >= 14 && backupData.portableMultiViewPresetsV14 != null) {
+                                emptyList()
+                            } else {
+                                restorePortableMultiViewPresets(it, storedProviders)
+                            }
                         }.orEmpty()
                         unresolvedReferences += portableUnresolved
                         if (portablePresets == null) {
@@ -884,7 +1153,11 @@ class BackupManagerImpl @Inject constructor(
                 }
             } else skippedSections += "Split Screen Presets"
 
-            val recordingScheduleImport = if (plan.importRecordingSchedules && !checkpoint.schedulesComplete) {
+            val recordingScheduleImport = if (
+                plan.importRecordingSchedules &&
+                !checkpoint.schedulesComplete &&
+                !(backupData.version >= 14 && backupData.scheduledRecordings.orEmpty().any { it.channel != null })
+            ) {
                 backupData.scheduledRecordings?.let { recordings ->
                     try {
                         importScheduledRecordingBackups(
@@ -942,9 +1215,38 @@ class BackupManagerImpl @Inject constructor(
                 }
             } ?: skippedSections.add("Recording Storage Settings")
 
-            val outcome = if (failedSections.isEmpty()) BackupRestoreOutcome.COMPLETE else BackupRestoreOutcome.PARTIAL
+            var queuedRestore = queuePortableRestoreItems(
+                backupData = backupData,
+                plan = plan,
+                restoreKey = restoreKey,
+                storedProviders = storedProviders
+            )
+            if (queuedRestore != null) {
+                pendingBackupRestoreCoordinator?.applyGlobal()
+                queuedRestore.affectedProviders.forEach { reference ->
+                    storedProviders.findUnambiguousPortableProvider(reference)?.id?.let { providerId ->
+                        pendingBackupRestoreCoordinator?.applyForProvider(providerId)
+                    }
+                }
+                backupRestoreLedgerDao?.getJob(queuedRestore.jobId)?.let { job ->
+                    queuedRestore = queuedRestore.copy(
+                        pendingCount = job.pendingCount + job.failedCount,
+                        unresolvedCount = job.unresolvedCount
+                    )
+                }
+            }
+            val outcome = when {
+                failedSections.isNotEmpty() -> BackupRestoreOutcome.PARTIAL
+                queuedRestore != null && queuedRestore.pendingCount + queuedRestore.unresolvedCount > 0 ->
+                    BackupRestoreOutcome.WAITING_FOR_SYNC
+                else -> BackupRestoreOutcome.COMPLETE
+            }
             checkpoint = checkpoint.copy(
-                state = if (outcome == BackupRestoreOutcome.COMPLETE) RESTORE_STATE_COMPLETE else RESTORE_STATE_PARTIAL,
+                state = when (outcome) {
+                    BackupRestoreOutcome.COMPLETE -> RESTORE_STATE_COMPLETE
+                    BackupRestoreOutcome.WAITING_FOR_SYNC -> RESTORE_STATE_WAITING_FOR_SYNC
+                    else -> RESTORE_STATE_PARTIAL
+                },
                 lastError = failedSections.joinToString().takeIf { it.isNotBlank() },
                 updatedAt = System.currentTimeMillis()
             ).persist()
@@ -955,12 +1257,17 @@ class BackupManagerImpl @Inject constructor(
                     skippedSections = skippedSections.distinct(),
                     failedSections = failedSections.distinct(),
                     unresolvedReferences = unresolvedReferences.distinct(),
-                    recordingScheduleImport = recordingScheduleImport
+                    recordingScheduleImport = recordingScheduleImport,
+                    restoreJobId = queuedRestore?.jobId,
+                    pendingCount = queuedRestore?.pendingCount ?: 0,
+                    unresolvedCount = queuedRestore?.unresolvedCount ?: 0,
+                    affectedProviders = queuedRestore?.affectedProviders.orEmpty()
                 )
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
+            android.util.Log.e("BackupManager", "Backup import failed", e)
             com.streamvault.domain.model.Result.error("Failed to import backup: ${e.message}", e)
         }
     }
@@ -1206,6 +1513,41 @@ class BackupManagerImpl @Inject constructor(
                 backupData.activeLiveSource,
                 ACTIVE_LIVE_SOURCE_BACKUP_TYPE
             )
+            writeNamedJsonField(jsonWriter, "portableFavorites", backupData.portableFavorites, PORTABLE_FAVORITE_LIST_TYPE)
+            writeNamedJsonField(
+                jsonWriter,
+                "portableCustomGroups",
+                backupData.portableCustomGroups,
+                PORTABLE_CUSTOM_GROUP_LIST_TYPE
+            )
+            writeNamedJsonField(
+                jsonWriter,
+                "portablePlaybackHistory",
+                backupData.portablePlaybackHistory,
+                PORTABLE_PLAYBACK_HISTORY_LIST_TYPE
+            )
+            writeNamedJsonField(
+                jsonWriter,
+                "portableProtectedContent",
+                backupData.portableProtectedContent,
+                PORTABLE_PROTECTED_CONTENT_LIST_TYPE
+            )
+            writeNamedJsonField(
+                jsonWriter,
+                "portableSearchHistory",
+                backupData.portableSearchHistory,
+                PORTABLE_SEARCH_HISTORY_LIST_TYPE
+            )
+            writeNamedJsonField(
+                jsonWriter,
+                "portableHiddenContent",
+                backupData.portableHiddenContent,
+                PORTABLE_HIDDEN_CONTENT_LIST_TYPE
+            )
+            writeNamedJsonField(jsonWriter, "portableContentPreferences", backupData.portableContentPreferences, PORTABLE_CONTENT_PREFERENCE_LIST_TYPE)
+            writeNamedJsonField(jsonWriter, "portableVariantChoices", backupData.portableVariantChoices, PORTABLE_VARIANT_CHOICE_LIST_TYPE)
+            writeNamedJsonField(jsonWriter, "portableManualEpgMappings", backupData.portableManualEpgMappings, PORTABLE_MANUAL_EPG_V14_LIST_TYPE)
+            writeNamedJsonField(jsonWriter, "portableMultiViewPresetsV14", backupData.portableMultiViewPresetsV14, PORTABLE_MULTIVIEW_V14_LIST_TYPE)
             jsonWriter.endObject()
         }
     }
@@ -1315,6 +1657,16 @@ class BackupManagerImpl @Inject constructor(
         var programReminders: List<ProgramReminderBackup>? = null
         var combinedM3uProfiles: List<CombinedM3uProfileBackup>? = null
         var activeLiveSource: ActiveLiveSourceBackup? = null
+        var portableFavorites: List<PortableFavoriteBackup>? = null
+        var portableCustomGroups: List<PortableCustomGroupBackup>? = null
+        var portablePlaybackHistory: List<PortablePlaybackHistoryBackup>? = null
+        var portableProtectedContent: List<PortableProtectedContentBackup>? = null
+        var portableSearchHistory: List<PortableSearchHistoryBackup>? = null
+        var portableHiddenContent: List<PortableHiddenContentBackup>? = null
+        var portableContentPreferences: List<PortableContentPreferenceBackup>? = null
+        var portableVariantChoices: List<PortableVariantChoiceBackup>? = null
+        var portableManualEpgMappings: List<PortableManualEpgMappingV14Backup>? = null
+        var portableMultiViewPresetsV14: List<PortableMultiViewPresetV14Backup>? = null
         val seenFields = hashSetOf<String>()
         var headerRead = false
 
@@ -1412,6 +1764,26 @@ class BackupManagerImpl @Inject constructor(
                     )
                 "activeLiveSource" -> activeLiveSource =
                     readLegacyAwareValue(reader, ACTIVE_LIVE_SOURCE_BACKUP_TYPE)
+                "portableFavorites" -> portableFavorites =
+                    readLimitedArray(reader, PORTABLE_FAVORITE_TYPE, MAX_SECTION_ITEMS, "portable favorites")
+                "portableCustomGroups" -> portableCustomGroups =
+                    readLimitedArray(reader, PORTABLE_CUSTOM_GROUP_TYPE, MAX_SECTION_ITEMS, "portable custom groups")
+                "portablePlaybackHistory" -> portablePlaybackHistory =
+                    readLimitedArray(reader, PORTABLE_PLAYBACK_HISTORY_TYPE, MAX_SECTION_ITEMS, "portable playback history")
+                "portableProtectedContent" -> portableProtectedContent =
+                    readLimitedArray(reader, PORTABLE_PROTECTED_CONTENT_TYPE, MAX_SECTION_ITEMS, "portable protected content")
+                "portableSearchHistory" -> portableSearchHistory =
+                    readLimitedArray(reader, PORTABLE_SEARCH_HISTORY_TYPE, MAX_SECTION_ITEMS, "portable search history")
+                "portableHiddenContent" -> portableHiddenContent =
+                    readLimitedArray(reader, PORTABLE_HIDDEN_CONTENT_TYPE, MAX_SECTION_ITEMS, "portable hidden content")
+                "portableContentPreferences" -> portableContentPreferences =
+                    readLimitedArray(reader, PORTABLE_CONTENT_PREFERENCE_TYPE, MAX_SECTION_ITEMS, "portable content preferences")
+                "portableVariantChoices" -> portableVariantChoices =
+                    readLimitedArray(reader, PORTABLE_VARIANT_CHOICE_TYPE, MAX_SECTION_ITEMS, "portable variant choices")
+                "portableManualEpgMappings" -> portableManualEpgMappings =
+                    readLimitedArray(reader, PORTABLE_MANUAL_EPG_V14_TYPE, MAX_SECTION_ITEMS, "portable manual EPG mappings")
+                "portableMultiViewPresetsV14" -> portableMultiViewPresetsV14 =
+                    readLimitedArray(reader, PORTABLE_MULTIVIEW_V14_TYPE, MAX_SECTION_ITEMS, "portable multiview presets")
                 else -> reader.skipValue()
             }
         }
@@ -1452,7 +1824,17 @@ class BackupManagerImpl @Inject constructor(
             m3uClassificationRules = m3uClassificationRules,
             programReminders = programReminders,
             combinedM3uProfiles = combinedM3uProfiles,
-            activeLiveSource = activeLiveSource
+            activeLiveSource = activeLiveSource,
+            portableFavorites = portableFavorites,
+            portableCustomGroups = portableCustomGroups,
+            portablePlaybackHistory = portablePlaybackHistory,
+            portableProtectedContent = portableProtectedContent,
+            portableSearchHistory = portableSearchHistory,
+            portableHiddenContent = portableHiddenContent,
+            portableContentPreferences = portableContentPreferences,
+            portableVariantChoices = portableVariantChoices,
+            portableManualEpgMappings = portableManualEpgMappings,
+            portableMultiViewPresetsV14 = portableMultiViewPresetsV14
         )
     }
 
@@ -1977,6 +2359,27 @@ class BackupManagerImpl @Inject constructor(
         require(data.programReminders.orEmpty().size <= MAX_SECTION_ITEMS) {
             "Backup has too many program reminders"
         }
+        require(data.portableFavorites.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many portable favorites" }
+        require(data.portableCustomGroups.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many portable custom groups" }
+        require(data.portableCustomGroups.orEmpty().sumOf { it.members.size } <= MAX_SECTION_ITEMS) {
+            "Backup has too many portable custom-group members"
+        }
+        require(data.portablePlaybackHistory.orEmpty().size <= MAX_SECTION_ITEMS) {
+            "Backup has too much portable playback history"
+        }
+        require(data.portableProtectedContent.orEmpty().size <= MAX_SECTION_ITEMS) {
+            "Backup has too much portable protected content"
+        }
+        require(data.portableSearchHistory.orEmpty().size <= MAX_SECTION_ITEMS) {
+            "Backup has too much portable search history"
+        }
+        require(data.portableHiddenContent.orEmpty().size <= MAX_SECTION_ITEMS) {
+            "Backup has too much portable hidden content"
+        }
+        require(data.portableContentPreferences.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many portable content preferences" }
+        require(data.portableVariantChoices.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many portable variant choices" }
+        require(data.portableManualEpgMappings.orEmpty().size <= MAX_SECTION_ITEMS) { "Backup has too many portable manual EPG mappings" }
+        require(data.portableMultiViewPresetsV14.orEmpty().sumOf { it.channels.size } <= MAX_SECTION_ITEMS) { "Backup has too many portable multiview entries" }
         require(data.multiViewPresets.orEmpty().values.sumOf { it.size } <= MAX_SECTION_ITEMS) { "Backup has too many preset entries" }
         require(data.portableMultiViewPresets.orEmpty().values.sumOf { it.size } <= MAX_SECTION_ITEMS) {
             "Backup has too many portable preset entries"
@@ -2036,14 +2439,14 @@ class BackupManagerImpl @Inject constructor(
             CombinedM3uProfileBackup(
                 name = profile.name,
                 enabled = profile.enabled,
-                members = memberDao.getForProfileSync(profile.id).mapNotNull { member ->
-                    referencesById[member.providerId]?.let { provider ->
-                        CombinedM3uProfileMemberBackup(
-                            provider = provider,
-                            priority = member.priority,
-                            enabled = member.enabled
-                        )
-                    }
+                members = memberDao.getForProfileSync(profile.id).map { member ->
+                    val provider = referencesById[member.providerId]
+                        ?: error("Cannot export Combined M3U profile '${profile.name}': provider ${member.providerId} is missing")
+                    CombinedM3uProfileMemberBackup(
+                        provider = provider,
+                        priority = member.priority,
+                        enabled = member.enabled
+                    )
                 },
                 createdAt = profile.createdAt,
                 updatedAt = profile.updatedAt
@@ -2057,23 +2460,26 @@ class BackupManagerImpl @Inject constructor(
         val source = (preferencesRepository.activeLiveSource ?: flowOf(null)).first() ?: return null
         val referencesById = providers.associate { it.id to it.toBackupProviderReference() }
         return when (source) {
-            is ActiveLiveSource.ProviderSource -> referencesById[source.providerId]?.let { provider ->
-                ActiveLiveSourceBackup(type = "provider", provider = provider)
-            }
+            is ActiveLiveSource.ProviderSource -> ActiveLiveSourceBackup(
+                type = "provider",
+                provider = referencesById[source.providerId]
+                    ?: error("Cannot export Active Live Source: provider ${source.providerId} is missing")
+            )
             is ActiveLiveSource.CombinedM3uSource -> {
                 val profile = combinedM3uProfileDao?.getById(source.profileId)
-                val memberProviders = profile?.let {
-                    combinedM3uProfileMemberDao?.getForProfileSync(it.id)
-                        ?.sortedWith(compareBy({ member -> member.priority }, { member -> member.id }))
-                        ?.mapNotNull { member -> referencesById[member.providerId] }
-                }.orEmpty()
-                profile?.let {
-                    ActiveLiveSourceBackup(
-                        type = "combined_m3u",
-                        combinedProfileName = it.name,
-                        combinedProfileProviders = memberProviders
-                    )
-                }
+                    ?: error("Cannot export Active Live Source: combined profile ${source.profileId} is missing")
+                val memberProviders = combinedM3uProfileMemberDao?.getForProfileSync(profile.id)
+                    ?.sortedWith(compareBy({ member -> member.priority }, { member -> member.id }))
+                    ?.map { member ->
+                        referencesById[member.providerId]
+                            ?: error("Cannot export Active Live Source: profile '${profile.name}' references missing provider ${member.providerId}")
+                    }
+                    ?: error("Cannot export Active Live Source: combined profile members are unavailable")
+                ActiveLiveSourceBackup(
+                    type = "combined_m3u",
+                    combinedProfileName = profile.name,
+                    combinedProfileProviders = memberProviders
+                )
             }
         }
     }
@@ -2099,24 +2505,18 @@ class BackupManagerImpl @Inject constructor(
         val resolvedVariant = when (contentType) {
             ContentType.LIVE -> channelDao.getById(rawItemId)
                 ?.takeIf { it.providerId == providerId }
-                ?.streamId
-                ?.takeIf { it > 0L }
-                ?.toString()
-                ?.let { it to ContentType.LIVE }
+                ?.takeIf { it.streamId > 0L }
+                ?.let { Triple(it.streamId.toString(), ContentType.LIVE, it.categoryId) }
             ContentType.MOVIE -> movieDao.getById(rawItemId)
                 ?.takeIf { it.providerId == providerId }
-                ?.streamId
-                ?.takeIf { it > 0L }
-                ?.toString()
-                ?.let { it to ContentType.MOVIE }
+                ?.takeIf { it.streamId > 0L }
+                ?.let { Triple(it.streamId.toString(), ContentType.MOVIE, it.categoryId) }
                 ?: seriesDao.getById(rawItemId)
                     ?.takeIf { it.providerId == providerId }
-                    ?.remoteKey()
-                    ?.let { it to ContentType.SERIES }
+                    ?.let { series -> series.remoteKey()?.let { Triple(it, ContentType.SERIES, series.categoryId) } }
             ContentType.SERIES -> seriesDao.getById(rawItemId)
                 ?.takeIf { it.providerId == providerId }
-                ?.remoteKey()
-                ?.let { it to ContentType.SERIES }
+                ?.let { series -> series.remoteKey()?.let { Triple(it, ContentType.SERIES, series.categoryId) } }
             ContentType.SERIES_EPISODE,
             ContentType.VOD -> null
         }
@@ -2129,7 +2529,301 @@ class BackupManagerImpl @Inject constructor(
             logicalGroupId = logicalGroupId,
             rawItemId = rawItemId,
             remoteItemId = resolvedVariant.first,
-            contentType = resolvedVariant.second
+            contentType = resolvedVariant.second,
+            remoteCategoryId = resolvedVariant.third
+        )
+    }
+
+    private data class QueuedPortableRestore(
+        val jobId: String,
+        val pendingCount: Int,
+        val unresolvedCount: Int,
+        val affectedProviders: List<BackupProviderReference>
+    )
+
+    private data class ReplaceScopePayload(
+        val provider: BackupProviderReference?,
+        val targetSection: String,
+        val contentType: ContentType? = null
+    )
+
+    private suspend fun queuePortableRestoreItems(
+        backupData: BackupData,
+        plan: BackupImportPlan,
+        restoreKey: String,
+        storedProviders: List<Provider>
+    ): QueuedPortableRestore? {
+        val legacyProviders = backupData.providers.orEmpty().associate { provider ->
+            provider.id to provider.toBackupProviderReference()
+        }
+        val legacyGroupsById = backupData.virtualGroups.orEmpty().associateBy { it.id }
+        val allLegacyFavoritePayloads = mutableListOf<Triple<Long?, PortableFavoriteBackup, Boolean>>()
+        if (backupData.version < 14 && plan.importSavedLibrary) {
+            backupData.favorites.orEmpty().forEach { favorite ->
+                val provider = legacyProviders[favorite.providerId] ?: return@forEach
+                val reference = PortableContentReference(
+                    provider = provider,
+                    contentType = favorite.contentType,
+                    remoteContentId = favorite.remoteContentId
+                        ?: "$LEGACY_LOCAL_ID_PREFIX${favorite.contentId}"
+                )
+                val localProviderId = storedProviders.findUnambiguousPortableProvider(provider)?.id
+                val resolved = localProviderId != null && resolvePortableContentId(
+                    localProviderId,
+                    favorite.contentType,
+                    favorite.remoteContentId,
+                    favorite.contentId
+                ) != null
+                allLegacyFavoritePayloads += Triple(
+                    favorite.groupId,
+                    PortableFavoriteBackup(reference, favorite.position, favorite.addedAt),
+                    resolved
+                )
+            }
+        }
+        val unresolvedFavoriteScopes = allLegacyFavoritePayloads.filterNot { it.third }
+            .map { (_, backup) -> backup.content.provider.stableIdentityKey() to backup.content.contentType }
+            .toSet()
+        val legacyFavoritePayloads = allLegacyFavoritePayloads.filter { (_, backup, resolved) ->
+            !resolved || (
+                plan.conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING &&
+                    backup.content.provider.stableIdentityKey() to backup.content.contentType in unresolvedFavoriteScopes
+                )
+        }.map { (groupId, backup) -> groupId to backup }
+        val legacyCustomGroupPayloads = if (backupData.version < 14 && plan.importSavedLibrary) {
+            legacyGroupsById.values.mapNotNull { group ->
+                val provider = legacyProviders[group.providerId] ?: return@mapNotNull null
+                val members = legacyFavoritePayloads.filter { (groupId) -> groupId == group.id }
+                    .map { (_, favorite) -> favorite }
+                if (members.isEmpty()) return@mapNotNull null
+                PortableCustomGroupBackup(
+                    provider = provider,
+                    contentType = group.contentType,
+                    name = group.name,
+                    icon = group.iconEmoji,
+                    position = group.position,
+                    createdAt = group.createdAt,
+                    members = members
+                )
+            }
+        } else emptyList()
+        val allLegacyHistoryPayloads = mutableListOf<Pair<PortablePlaybackHistoryBackup, Boolean>>()
+        if (backupData.version < 14 && plan.importPlaybackHistory) {
+            backupData.playbackHistory.orEmpty().forEach { history ->
+                val provider = legacyProviders[history.providerId] ?: return@forEach
+                val payload = PortablePlaybackHistoryBackup(
+                    content = PortableContentReference(
+                        provider = provider,
+                        contentType = history.contentType,
+                        remoteContentId = history.remoteContentId
+                            ?: "$LEGACY_LOCAL_ID_PREFIX${history.contentId}",
+                        parentRemoteContentId = history.remoteSeriesId,
+                        name = history.title,
+                        urlFallback = history.streamUrl
+                    ),
+                    resumePositionMs = history.resumePositionMs,
+                    totalDurationMs = history.totalDurationMs,
+                    lastWatchedAt = history.lastWatchedAt,
+                    watchCount = history.watchCount,
+                    watchedStatus = history.watchedStatus.name,
+                    posterUrl = history.posterUrl,
+                    seasonNumber = history.seasonNumber,
+                    episodeNumber = history.episodeNumber
+                )
+                val localProviderId = storedProviders.findUnambiguousPortableProvider(provider)?.id
+                val resolved = localProviderId != null && resolvePortableHistoryIdentity(
+                    localProviderId,
+                    history
+                ) != null
+                allLegacyHistoryPayloads += payload to resolved
+            }
+        }
+        val unresolvedHistoryProviders = allLegacyHistoryPayloads.filterNot { it.second }
+            .map { it.first.content.provider.stableIdentityKey() }
+            .toSet()
+        val legacyHistoryPayloads = allLegacyHistoryPayloads.filter { (backup, resolved) ->
+            !resolved || (
+                plan.conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING &&
+                    backup.content.provider.stableIdentityKey() in unresolvedHistoryProviders
+                )
+        }.map { it.first }
+        val contentPayloads = buildList<Pair<String, Any>> {
+            if (plan.importSavedLibrary) {
+                backupData.portableFavorites.orEmpty().forEach { add(RESTORE_SECTION_FAVORITES to it) }
+                backupData.portableCustomGroups.orEmpty().forEach { add(RESTORE_SECTION_CUSTOM_GROUPS to it) }
+                backupData.portableProtectedContent.orEmpty().forEach { add(RESTORE_SECTION_PROTECTED_CONTENT to it) }
+                backupData.portableHiddenContent.orEmpty().forEach { add(RESTORE_SECTION_HIDDEN_CONTENT to it) }
+                backupData.portableManualEpgMappings.orEmpty().forEach { add(RESTORE_SECTION_MANUAL_EPG to it) }
+                legacyFavoritePayloads.filter { (groupId) -> groupId == null }
+                    .forEach { (_, favorite) -> add(RESTORE_SECTION_FAVORITES to favorite) }
+                legacyCustomGroupPayloads.forEach { add(RESTORE_SECTION_CUSTOM_GROUPS to it) }
+            }
+            if (plan.importPlaybackHistory) {
+                backupData.portablePlaybackHistory.orEmpty().forEach { add(RESTORE_SECTION_PLAYBACK_HISTORY to it) }
+                legacyHistoryPayloads.forEach { add(RESTORE_SECTION_PLAYBACK_HISTORY to it) }
+            }
+            if (plan.importPreferences) {
+                backupData.portableSearchHistory.orEmpty().forEach { add(RESTORE_SECTION_SEARCH_HISTORY to it) }
+                backupData.portableContentPreferences.orEmpty().forEach { add(RESTORE_SECTION_CONTENT_PREFERENCES to it) }
+                backupData.portableVariantChoices.orEmpty().forEach { add(RESTORE_SECTION_VARIANT_CHOICES to it) }
+            }
+            if (plan.importMultiViewPresets) {
+                backupData.portableMultiViewPresetsV14.orEmpty().forEach { add(RESTORE_SECTION_MULTIVIEW to it) }
+            }
+            if (plan.importRecordingSchedules) {
+                backupData.scheduledRecordings.orEmpty().filter { it.channel != null }
+                    .forEach { add(RESTORE_SECTION_RECORDING_SCHEDULES to it) }
+            }
+        }
+        val backupProviderReferences = buildSet {
+            addAll(backupData.portableProviderPreferences?.providers.orEmpty())
+            contentPayloads.forEach { (_, payload) ->
+                when (payload) {
+                    is PortableCustomGroupBackup -> add(payload.provider)
+                    is PortableSearchHistoryBackup -> payload.provider?.let(::add)
+                    is PortableFavoriteBackup -> add(payload.content.provider)
+                    is PortablePlaybackHistoryBackup -> add(payload.content.provider)
+                    is PortableProtectedContentBackup -> add(payload.content.provider)
+                    is PortableHiddenContentBackup -> add(payload.content.provider)
+                    is PortableContentPreferenceBackup -> add(payload.content.provider)
+                    is PortableVariantChoiceBackup -> add(payload.selectedContent.provider)
+                    is PortableManualEpgMappingV14Backup -> add(payload.content.provider)
+                    is PortableMultiViewPresetV14Backup -> addAll(payload.channels.map { it.provider })
+                    is ScheduledRecordingBackup -> payload.channel?.provider?.let(::add)
+                }
+            }
+        }
+        val replacementMarkers = if (plan.conflictStrategy == BackupConflictStrategy.REPLACE_EXISTING) {
+            buildList<Pair<String, Any>> {
+                val persistedContentTypes = listOf(
+                    ContentType.LIVE,
+                    ContentType.MOVIE,
+                    ContentType.SERIES,
+                    ContentType.SERIES_EPISODE
+                )
+                backupProviderReferences.forEach { provider ->
+                    if (plan.importSavedLibrary) {
+                        persistedContentTypes.forEach { type ->
+                            add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_FAVORITES, type))
+                            add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_CUSTOM_GROUPS, type))
+                            add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_PROTECTED_CONTENT, type))
+                        }
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_HIDDEN_CONTENT, ContentType.LIVE))
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_MANUAL_EPG, ContentType.LIVE))
+                    }
+                    if (plan.importPlaybackHistory) persistedContentTypes.forEach { type ->
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_PLAYBACK_HISTORY, type))
+                    }
+                    if (plan.importPreferences) {
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_SEARCH_HISTORY))
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_CONTENT_PREFERENCES, ContentType.LIVE))
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_VARIANT_CHOICES))
+                    }
+                    if (plan.importRecordingSchedules) {
+                        add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(provider, RESTORE_SECTION_RECORDING_SCHEDULES, ContentType.LIVE))
+                    }
+                }
+                if (plan.importMultiViewPresets) {
+                    add(RESTORE_SECTION_REPLACE_SCOPE to ReplaceScopePayload(null, RESTORE_SECTION_MULTIVIEW))
+                }
+            }
+        } else emptyList()
+        val pendingPayloads = replacementMarkers + contentPayloads
+        if (pendingPayloads.isEmpty()) return null
+        val ledgerDao = backupRestoreLedgerDao ?: if (backupData.version < 14) {
+            // Compatibility for callers built against the pre-ledger constructor. Production
+            // schema 77 always supplies the DAO; unresolved legacy references remain reported.
+            return null
+        } else {
+            error("Durable backup restore storage is unavailable")
+        }
+        val now = System.currentTimeMillis()
+        val items = pendingPayloads.map { (section, payload) ->
+            val reference = when (payload) {
+                is PortableFavoriteBackup -> payload.content
+                is PortableCustomGroupBackup -> null
+                is PortablePlaybackHistoryBackup -> payload.content
+                is PortableProtectedContentBackup -> payload.content
+                is PortableHiddenContentBackup -> payload.content
+                is PortableContentPreferenceBackup -> payload.content
+                is PortableVariantChoiceBackup -> payload.selectedContent
+                is PortableManualEpgMappingV14Backup -> payload.content
+                is PortableMultiViewPresetV14Backup -> null
+                is ScheduledRecordingBackup -> payload.channel
+                is PortableSearchHistoryBackup -> null
+                is ReplaceScopePayload -> null
+                else -> error("Unsupported portable restore payload ${payload::class.java.simpleName}")
+            }
+            val providerReference = when (payload) {
+                is PortableCustomGroupBackup -> payload.provider
+                is PortableSearchHistoryBackup -> payload.provider
+                is PortableMultiViewPresetV14Backup -> null
+                is ScheduledRecordingBackup -> payload.channel?.provider
+                is ReplaceScopePayload -> payload.provider
+                else -> checkNotNull(reference).provider
+            }
+            val providerKey = providerReference?.stableIdentityKey() ?: GLOBAL_RESTORE_PROVIDER_KEY
+            val stableKey = when (payload) {
+                is PortableCustomGroupBackup ->
+                    "$providerKey|${payload.contentType.name}:group:${payload.name.trim().lowercase(Locale.ROOT)}"
+                is PortableSearchHistoryBackup ->
+                    "$providerKey|search:${payload.contentScope}:${payload.query.trim().lowercase(Locale.ROOT)}"
+                is PortableMultiViewPresetV14Backup -> "$providerKey|multiview:${payload.name}"
+                is ScheduledRecordingBackup -> "$providerKey|recording:${payload.recurringRuleId ?: "${payload.scheduledStartMs}:${payload.channel?.remoteContentId}"}"
+                is ReplaceScopePayload -> "$providerKey|scope:${payload.targetSection}:${payload.contentType?.name.orEmpty()}"
+                else -> "$providerKey|${reference!!.contentType.name}:${reference.remoteContentId}"
+            }
+            BackupRestoreItemEntity(
+                jobId = restoreKey,
+                providerIdentityKey = providerKey,
+                localProviderId = providerReference?.let { portable ->
+                    storedProviders.findUnambiguousPortableProvider(portable)?.id
+                },
+                section = section,
+                contentType = reference?.contentType?.name
+                    ?: (payload as? PortableCustomGroupBackup)?.contentType?.name
+                    ?: (payload as? ReplaceScopePayload)?.contentType?.name,
+                stableReferenceKey = stableKey,
+                referenceJson = gson.toJson(reference ?: providerReference),
+                payloadJson = gson.toJson(payload),
+                createdAt = now,
+                updatedAt = now
+            )
+        }
+        ledgerDao.insertLedger(
+            BackupRestoreJobEntity(
+                id = restoreKey,
+                restoreKey = restoreKey,
+                backupVersion = backupData.version,
+                conflictStrategy = plan.conflictStrategy.name,
+                status = RESTORE_STATE_WAITING_FOR_SYNC,
+                createdAt = now,
+                updatedAt = now
+            ),
+            items
+        )
+        return QueuedPortableRestore(
+            jobId = restoreKey,
+            pendingCount = items.size,
+            unresolvedCount = 0,
+            affectedProviders = buildList {
+                pendingPayloads.forEach { (_, payload) ->
+                when (payload) {
+                    is PortableCustomGroupBackup -> add(payload.provider)
+                    is PortableSearchHistoryBackup -> payload.provider?.let(::add)
+                    is PortableFavoriteBackup -> add(payload.content.provider)
+                    is PortablePlaybackHistoryBackup -> add(payload.content.provider)
+                    is PortableProtectedContentBackup -> add(payload.content.provider)
+                    is PortableHiddenContentBackup -> add(payload.content.provider)
+                    is PortableContentPreferenceBackup -> add(payload.content.provider)
+                    is PortableVariantChoiceBackup -> add(payload.selectedContent.provider)
+                    is PortableManualEpgMappingV14Backup -> add(payload.content.provider)
+                    is PortableMultiViewPresetV14Backup -> addAll(payload.channels.map { it.provider })
+                    is ScheduledRecordingBackup -> payload.channel?.provider?.let(::add)
+                    is ReplaceScopePayload -> payload.provider?.let(::add)
+                }
+                }
+            }.distinct()
         )
     }
 
@@ -2227,7 +2921,13 @@ class BackupManagerImpl @Inject constructor(
             preferencesRepository.getHiddenChannelIds(provider.id).first().mapNotNull { channelId ->
                 channels.getById(channelId)?.takeIf { it.providerId == provider.id }?.let { channel ->
                     referencesById[provider.id]?.let { reference ->
-                        PortableChannelReference(reference, channel.streamId, channel.name, channel.streamUrl)
+                        PortableChannelReference(
+                            reference,
+                            channel.streamId,
+                            channel.name,
+                            channel.streamUrl,
+                            channel.categoryId
+                        )
                     }
                 } ?: run {
                     unresolved += "Hidden channel id $channelId for provider ${provider.name} was not found during export"
@@ -2308,7 +3008,8 @@ class BackupManagerImpl @Inject constructor(
                         provider = provider,
                         streamId = channel.streamId,
                         name = channel.name,
-                        streamUrl = channel.streamUrl
+                        streamUrl = channel.streamUrl,
+                        remoteCategoryId = channel.categoryId
                     ),
                     aspectRatio = aspectRatio,
                     audioVideoOffsetMs = audioVideoOffsetMs
@@ -2406,7 +3107,17 @@ class BackupManagerImpl @Inject constructor(
             m3uClassificationRules.isNullOrEmpty() &&
             programReminders.isNullOrEmpty() &&
             combinedM3uProfiles.isNullOrEmpty() &&
-            activeLiveSource == null
+            activeLiveSource == null &&
+            portableFavorites.isNullOrEmpty() &&
+            portableCustomGroups.isNullOrEmpty() &&
+            portablePlaybackHistory.isNullOrEmpty() &&
+            portableProtectedContent.isNullOrEmpty() &&
+            portableSearchHistory.isNullOrEmpty() &&
+            portableHiddenContent.isNullOrEmpty()
+            && portableContentPreferences.isNullOrEmpty()
+            && portableVariantChoices.isNullOrEmpty()
+            && portableManualEpgMappings.isNullOrEmpty()
+            && portableMultiViewPresetsV14.isNullOrEmpty()
 
     private suspend fun capturePreferenceSnapshot(providerEntities: List<ProviderEntity>): Map<String, String> {
         val parentalPinBackup = preferencesRepository.exportParentalPinBackup()
@@ -2541,6 +3252,8 @@ class BackupManagerImpl @Inject constructor(
                         .joinToString("\n") { (key, rawItemId) -> "${key.substringAfter('|')}=$rawItemId" }
                 )
             }
+        }.also { snapshot ->
+            PreferenceBackupRegistry.requirePortableCodecs(snapshot.keys)
         }
     }
 
@@ -3204,7 +3917,9 @@ class BackupManagerImpl @Inject constructor(
         plan: BackupImportPlan,
         initialStoredProviders: List<Provider>
     ): RoomRestoreResult {
-        if (!plan.importProviders && !plan.importSavedLibrary && !plan.importPlaybackHistory) {
+        val importProviders = plan.importProviders ||
+            (backupData.version >= 14 && backupData.providerSnapshots != null)
+        if (!importProviders && !plan.importSavedLibrary && !plan.importPlaybackHistory) {
             return RoomRestoreResult(
                 storedProviders = initialStoredProviders,
                 importedSections = emptyList(),
@@ -3224,7 +3939,7 @@ class BackupManagerImpl @Inject constructor(
         val unresolvedReferences = mutableListOf<String>()
 
         transactionRunner.inTransaction {
-            if (plan.importProviders) {
+            if (importProviders) {
                 backupData.providers?.let { providers ->
                     providers.forEach { provider ->
                         val existing = storedProviders
@@ -3956,7 +4671,18 @@ class BackupManagerImpl @Inject constructor(
         remoteContentId: String?,
         legacyContentId: Long
     ): Long? {
-        if (remoteContentId == null) return legacyContentId
+        if (remoteContentId == null) {
+            return when (contentType) {
+                ContentType.LIVE -> channelDao.getById(legacyContentId)
+                    ?.takeIf { it.providerId == providerId }?.id
+                ContentType.MOVIE, ContentType.VOD -> movieDao.getById(legacyContentId)
+                    ?.takeIf { it.providerId == providerId }?.id
+                ContentType.SERIES -> seriesDao.getById(legacyContentId)
+                    ?.takeIf { it.providerId == providerId }?.id
+                ContentType.SERIES_EPISODE -> episodeDao.getById(legacyContentId)
+                    ?.takeIf { it.providerId == providerId }?.id
+            }
+        }
         return when (contentType) {
             ContentType.LIVE -> remoteContentId.toLongOrNull()?.let { channelDao.getByStreamId(providerId, it)?.id }
             ContentType.MOVIE -> remoteContentId.toLongOrNull()?.let { movieDao.getByStreamId(providerId, it)?.id }
@@ -4079,7 +4805,25 @@ class BackupManagerImpl @Inject constructor(
         item: com.streamvault.domain.model.PlaybackHistory
     ): ResolvedContentIdentity? {
         if (item.remoteContentId == null && item.remoteSeriesId == null) {
-            return ResolvedContentIdentity(contentId = item.contentId, seriesId = item.seriesId)
+            return when (item.contentType) {
+                ContentType.LIVE -> channelDao.getById(item.contentId)
+                    ?.takeIf { it.providerId == providerId }
+                    ?.let { ResolvedContentIdentity(it.id) }
+                ContentType.MOVIE, ContentType.VOD -> movieDao.getById(item.contentId)
+                    ?.takeIf { it.providerId == providerId }
+                    ?.let { ResolvedContentIdentity(it.id) }
+                ContentType.SERIES -> seriesDao.getById(item.contentId)
+                    ?.takeIf { it.providerId == providerId }
+                    ?.let { ResolvedContentIdentity(it.id) }
+                ContentType.SERIES_EPISODE -> episodeDao.getById(item.contentId)
+                    ?.takeIf { it.providerId == providerId }
+                    ?.let { episode ->
+                        val parentId = item.seriesId?.takeIf { seriesId ->
+                            seriesDao.getById(seriesId)?.providerId == providerId
+                        }
+                        ResolvedContentIdentity(episode.id, parentId)
+                    }
+            }
         }
 
         return when (item.contentType) {
@@ -4350,10 +5094,128 @@ private fun Provider.backupIdentity(): Triple<String, String, String> =
 
 private fun Provider.toBackupProviderReference() = BackupProviderReference(
     serverUrl = normalizeProviderServerUrl(serverUrl),
-    username = username.trim(),
+    username = username.trim().takeUnless { type == ProviderType.M3U }.orEmpty(),
     stalkerMacAddress = stalkerMacAddress.takeIf { it.isNotBlank() },
     providerType = type
 )
+
+private suspend fun com.streamvault.domain.model.Favorite.toPortableContentReference(
+    providersById: Map<Long, Provider>,
+    channelDao: ChannelDao,
+    movieDao: MovieDao,
+    seriesDao: SeriesDao
+): com.streamvault.domain.manager.PortableContentReference? {
+    val remoteId = remoteContentId?.takeIf { it.isNotBlank() } ?: return null
+    val provider = providersById[providerId] ?: return null
+    val providerReference = provider.toBackupProviderReference()
+    when (contentType) {
+        ContentType.LIVE -> channelDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.MOVIE, ContentType.VOD -> movieDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.SERIES -> seriesDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.SERIES_EPISODE -> Unit
+    }
+    return com.streamvault.domain.manager.PortableContentReference(
+        provider = providerReference,
+        contentType = contentType,
+        remoteContentId = remoteId
+    )
+}
+
+private suspend fun com.streamvault.domain.model.PlaybackHistory.toPortableContentReference(
+    providersById: Map<Long, Provider>,
+    channelDao: ChannelDao,
+    movieDao: MovieDao,
+    seriesDao: SeriesDao,
+    episodeDao: EpisodeDao
+): com.streamvault.domain.manager.PortableContentReference? {
+    val remoteId = remoteContentId?.takeIf { it.isNotBlank() } ?: return null
+    val provider = providersById[providerId] ?: return null
+    val providerReference = provider.toBackupProviderReference()
+    when (contentType) {
+        ContentType.LIVE -> channelDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.MOVIE, ContentType.VOD -> movieDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.SERIES -> seriesDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { return it.toPortableContentReference(providerReference) }
+        ContentType.SERIES_EPISODE -> episodeDao.getById(contentId)
+            ?.takeIf { it.providerId == providerId }
+            ?.let { episode ->
+                seriesDao.getById(episode.seriesId)
+                    ?.takeIf { it.providerId == providerId }
+                    ?.let { series -> return episode.toPortableContentReference(providerReference, series) }
+            }
+    }
+    return com.streamvault.domain.manager.PortableContentReference(
+        provider = providerReference,
+        contentType = contentType,
+        remoteContentId = remoteId,
+        parentRemoteContentId = remoteSeriesId,
+        name = title,
+        urlFallback = streamUrl.takeIf { it.isNotBlank() }
+    )
+}
+
+private fun com.streamvault.data.local.entity.ChannelEntity.toPortableContentReference(
+    provider: BackupProviderReference
+) = com.streamvault.domain.manager.PortableContentReference(
+    provider = provider,
+    contentType = ContentType.LIVE,
+    remoteContentId = streamId.toString(),
+    remoteCategoryId = categoryId?.toString(),
+    name = name,
+    urlFallback = streamUrl.takeIf { it.isNotBlank() }
+)
+
+private fun com.streamvault.data.local.entity.MovieEntity.toPortableContentReference(
+    provider: BackupProviderReference
+) = com.streamvault.domain.manager.PortableContentReference(
+    provider = provider,
+    contentType = ContentType.MOVIE,
+    remoteContentId = streamId.toString(),
+    remoteCategoryId = categoryId?.toString(),
+    name = name,
+    urlFallback = streamUrl.takeIf { it.isNotBlank() }
+)
+
+private fun com.streamvault.data.local.entity.SeriesEntity.toPortableContentReference(
+    provider: BackupProviderReference
+) = com.streamvault.domain.manager.PortableContentReference(
+    provider = provider,
+    contentType = ContentType.SERIES,
+    remoteContentId = providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesId.toString(),
+    remoteCategoryId = categoryId?.toString(),
+    name = name
+)
+
+private fun com.streamvault.data.local.entity.EpisodeEntity.toPortableContentReference(
+    provider: BackupProviderReference,
+    series: com.streamvault.data.local.entity.SeriesEntity
+) = com.streamvault.domain.manager.PortableContentReference(
+    provider = provider,
+    contentType = ContentType.SERIES_EPISODE,
+    remoteContentId = episodeId.toString(),
+    parentRemoteContentId = series.providerSeriesId?.takeIf { it.isNotBlank() } ?: series.seriesId.toString(),
+    remoteCategoryId = series.categoryId?.toString(),
+    name = title,
+    urlFallback = streamUrl.takeIf { it.isNotBlank() }
+)
+
+private fun BackupProviderReference.stableIdentityKey(): String = listOf(
+    normalizeProviderServerUrl(serverUrl),
+    username.trim(),
+    providerType?.name.orEmpty(),
+    stalkerMacAddress.normalizedIdentity()
+).joinToString("|")
 
 private fun Iterable<Provider>.findUnambiguousPortableProvider(
     reference: BackupProviderReference
@@ -4362,7 +5224,7 @@ private fun Iterable<Provider>.findUnambiguousPortableProvider(
     return filter { provider ->
         normalizeProviderServerUrl(provider.serverUrl) == normalizeProviderServerUrl(reference.serverUrl) &&
             (reference.providerType == null || provider.type == reference.providerType) &&
-            (provider.type == ProviderType.M3U || provider.username.trim() == reference.username.trim()) &&
+            provider.username.trim() == reference.username.trim() &&
             provider.stalkerMacAddress.normalizedIdentity() == normalizedMac
     }.singleOrNull()
 }
@@ -4797,12 +5659,27 @@ private val RAW_CHECKSUM_FIELD_PATTERN = Regex("\\\"checksum\\\"\\s*:\\s*\\\"[^\
 private const val RESTORE_STATE_RUNNING = "RUNNING"
 private const val RESTORE_STATE_COMPLETE = "COMPLETE"
 private const val RESTORE_STATE_PARTIAL = "PARTIAL"
+private const val RESTORE_STATE_WAITING_FOR_SYNC = "WAITING_FOR_SYNC"
 private const val RESTORE_STATE_FAILED_BEFORE_COMMIT = "FAILED_BEFORE_COMMIT"
 private const val RESTORE_SNAPSHOT_PRESET_1 = "__restore_snapshot_preset_1"
 private const val RESTORE_SNAPSHOT_PRESET_2 = "__restore_snapshot_preset_2"
 private const val RESTORE_SNAPSHOT_PRESET_3 = "__restore_snapshot_preset_3"
 private const val RESTORE_SNAPSHOT_CHANNEL_PREFERENCES = "__restore_snapshot_channel_preferences"
-private const val CURRENT_BACKUP_VERSION = 13
+private const val CURRENT_BACKUP_VERSION = 14
+private const val RESTORE_SECTION_FAVORITES = "FAVORITES"
+private const val RESTORE_SECTION_CUSTOM_GROUPS = "CUSTOM_GROUPS"
+private const val RESTORE_SECTION_PLAYBACK_HISTORY = "PLAYBACK_HISTORY"
+private const val RESTORE_SECTION_PROTECTED_CONTENT = "PROTECTED_CONTENT"
+private const val RESTORE_SECTION_HIDDEN_CONTENT = "HIDDEN_CONTENT"
+private const val RESTORE_SECTION_CONTENT_PREFERENCES = "CONTENT_PREFERENCES"
+private const val RESTORE_SECTION_VARIANT_CHOICES = "VARIANT_CHOICES"
+private const val RESTORE_SECTION_MANUAL_EPG = "MANUAL_EPG"
+private const val RESTORE_SECTION_MULTIVIEW = "MULTIVIEW"
+private const val RESTORE_SECTION_RECORDING_SCHEDULES = "RECORDING_SCHEDULES"
+private const val RESTORE_SECTION_SEARCH_HISTORY = "SEARCH_HISTORY"
+private const val RESTORE_SECTION_REPLACE_SCOPE = "REPLACE_SCOPE"
+private const val LEGACY_LOCAL_ID_PREFIX = "legacy-local-id:"
+private const val GLOBAL_RESTORE_PROVIDER_KEY = "__GLOBAL__"
 private const val LEGACY_NO_ACTIVE_PROVIDER_WARNING =
     "Active provider id -1 was not found during export"
 private const val FILE_URI_SCHEME = "file"
@@ -4849,8 +5726,32 @@ private val M3U_CLASSIFICATION_RULE_TYPE: Type = M3uClassificationRuleBackup::cl
 private val M3U_CLASSIFICATION_RULE_LIST_TYPE: Type =
     object : TypeToken<List<M3uClassificationRuleBackup>>() {}.type
 private val PROGRAM_REMINDER_TYPE: Type = ProgramReminderBackup::class.java
+private val PORTABLE_FAVORITE_TYPE: Type = PortableFavoriteBackup::class.java
+private val PORTABLE_CUSTOM_GROUP_TYPE: Type = PortableCustomGroupBackup::class.java
+private val PORTABLE_PLAYBACK_HISTORY_TYPE: Type = PortablePlaybackHistoryBackup::class.java
+private val PORTABLE_PROTECTED_CONTENT_TYPE: Type = PortableProtectedContentBackup::class.java
+private val PORTABLE_SEARCH_HISTORY_TYPE: Type = PortableSearchHistoryBackup::class.java
+private val PORTABLE_HIDDEN_CONTENT_TYPE: Type = PortableHiddenContentBackup::class.java
+private val PORTABLE_CONTENT_PREFERENCE_TYPE: Type = PortableContentPreferenceBackup::class.java
+private val PORTABLE_VARIANT_CHOICE_TYPE: Type = PortableVariantChoiceBackup::class.java
+private val PORTABLE_MANUAL_EPG_V14_TYPE: Type = PortableManualEpgMappingV14Backup::class.java
+private val PORTABLE_MULTIVIEW_V14_TYPE: Type = PortableMultiViewPresetV14Backup::class.java
 private val PROGRAM_REMINDER_LIST_TYPE: Type =
     object : TypeToken<List<ProgramReminderBackup>>() {}.type
+private val PORTABLE_FAVORITE_LIST_TYPE: Type = object : TypeToken<List<PortableFavoriteBackup>>() {}.type
+private val PORTABLE_CUSTOM_GROUP_LIST_TYPE: Type = object : TypeToken<List<PortableCustomGroupBackup>>() {}.type
+private val PORTABLE_PLAYBACK_HISTORY_LIST_TYPE: Type =
+    object : TypeToken<List<PortablePlaybackHistoryBackup>>() {}.type
+private val PORTABLE_PROTECTED_CONTENT_LIST_TYPE: Type =
+    object : TypeToken<List<PortableProtectedContentBackup>>() {}.type
+private val PORTABLE_SEARCH_HISTORY_LIST_TYPE: Type =
+    object : TypeToken<List<PortableSearchHistoryBackup>>() {}.type
+private val PORTABLE_HIDDEN_CONTENT_LIST_TYPE: Type =
+    object : TypeToken<List<PortableHiddenContentBackup>>() {}.type
+private val PORTABLE_CONTENT_PREFERENCE_LIST_TYPE: Type = object : TypeToken<List<PortableContentPreferenceBackup>>() {}.type
+private val PORTABLE_VARIANT_CHOICE_LIST_TYPE: Type = object : TypeToken<List<PortableVariantChoiceBackup>>() {}.type
+private val PORTABLE_MANUAL_EPG_V14_LIST_TYPE: Type = object : TypeToken<List<PortableManualEpgMappingV14Backup>>() {}.type
+private val PORTABLE_MULTIVIEW_V14_LIST_TYPE: Type = object : TypeToken<List<PortableMultiViewPresetV14Backup>>() {}.type
 private val FAVORITE_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.Favorite>>() {}.type
 private val VIRTUAL_GROUP_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.VirtualGroup>>() {}.type
 private val PLAYBACK_HISTORY_LIST_TYPE: Type = object : TypeToken<List<com.streamvault.domain.model.PlaybackHistory>>() {}.type

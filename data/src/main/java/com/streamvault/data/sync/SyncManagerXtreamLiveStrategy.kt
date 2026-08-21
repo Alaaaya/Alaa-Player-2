@@ -53,7 +53,8 @@ internal class SyncManagerXtreamLiveStrategy(
         onProgress: ((String) -> Unit)?,
         runtimeProfile: CatalogSyncRuntimeProfile,
         trackInitialLiveOnboarding: Boolean,
-        effectiveLiveSyncMethod: EffectiveXtreamLiveSyncMethod = EffectiveXtreamLiveSyncMethod.STREAM_ALL
+        effectiveLiveSyncMethod: EffectiveXtreamLiveSyncMethod = EffectiveXtreamLiveSyncMethod.STREAM_ALL,
+        requiredHiddenLiveCategoryIds: Set<Long> = emptySet()
     ): CatalogSyncPayload<Channel> {
         Log.i(XTREAM_LIVE_STRATEGY_TAG, "Xtream live strategy start for provider ${provider.id}.")
         val rawLiveCategories = when (val attempt = xtreamSupport.attemptNonCancellation {
@@ -84,7 +85,8 @@ internal class SyncManagerXtreamLiveStrategy(
             ?.map { category -> category.toEntity(provider.id) }
             ?.takeIf { it.isNotEmpty() }
         val filteredRawLiveCategories = rawLiveCategories.orEmpty().filterNot { category ->
-            category.categoryId.toLongOrNull() in hiddenLiveCategoryIds
+            val id = category.categoryId.toLongOrNull()
+            id in hiddenLiveCategoryIds && id !in requiredHiddenLiveCategoryIds
         }
         // Hidden categories still need a catalog shell after a provider is restored. The
         // channel fetch intentionally skips them, but filtering them out of the category

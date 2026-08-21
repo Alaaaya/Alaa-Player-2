@@ -14,6 +14,7 @@ import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.ProviderSnapshotDao
 import com.streamvault.data.local.dao.BackupRestoreCheckpointDao
+import com.streamvault.data.local.dao.BackupRestoreLedgerDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.RecordingScheduleDao
@@ -44,6 +45,12 @@ import com.streamvault.domain.manager.BackupProviderReference
 import com.streamvault.domain.manager.PortableCategoryReference
 import com.streamvault.domain.manager.PortableCategorySortReference
 import com.streamvault.domain.manager.PortableChannelReference
+import com.streamvault.domain.manager.PortableContentReference
+import com.streamvault.domain.manager.PortableFavoriteBackup
+import com.streamvault.domain.manager.PortableCustomGroupBackup
+import com.streamvault.domain.manager.PortablePlaybackHistoryBackup
+import com.streamvault.domain.manager.PortableProtectedContentBackup
+import com.streamvault.domain.manager.PortableSearchHistoryBackup
 import com.streamvault.domain.manager.PortableEpgTimeShiftReference
 import com.streamvault.domain.manager.PortableProviderPreferencesBackup
 import com.streamvault.domain.manager.PortableVariantSelectionReference
@@ -105,6 +112,146 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class BackupManagerImplTest {
+
+    @Test
+    fun `v14 import durably queues catalog state that is unavailable before sync`() = runBlocking {
+        val context: Context = mock()
+        val resolver: ContentResolver = mock()
+        val ledgerDao: BackupRestoreLedgerDao = mock()
+        val providerDao: ProviderDao = mock()
+        val provider = BackupProviderReference(
+            serverUrl = "https://example.com/",
+            username = "user",
+            providerType = ProviderType.XTREAM_CODES
+        )
+        val content = PortableContentReference(
+            provider = provider,
+            contentType = ContentType.LIVE,
+            remoteContentId = "42",
+            name = "News"
+        )
+        val backup = BackupData(
+            version = 14,
+            portableFavorites = listOf(PortableFavoriteBackup(content, position = 3))
+        )
+        whenever(context.contentResolver).thenReturn(resolver)
+        whenever(resolver.openInputStream(anyOrNull())).thenReturn(
+            ByteArrayInputStream(Gson().toJson(backup).toByteArray())
+        )
+        whenever(providerDao.getAllSync()).thenReturn(emptyList())
+
+        val result = backupManagerForValidation(
+            context = context,
+            providerDao = providerDao,
+            restoreLedgerDao = ledgerDao
+        ).importConfig(
+            "content://v14-pending",
+            BackupImportPlan(
+                importPreferences = false,
+                importProviders = false,
+                importSavedLibrary = true,
+                importPlaybackHistory = false,
+                importMultiViewPresets = false,
+                importRecordingSchedules = false
+            )
+        )
+
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        assertThat(result).isInstanceOf(Result.Success::class.java)
+        val imported = (result as Result.Success).data
+        assertThat(imported.outcome).isEqualTo(BackupRestoreOutcome.WAITING_FOR_SYNC)
+        assertThat(imported.restoreJobId).isNotEmpty()
+        assertThat(imported.pendingCount).isEqualTo(1)
+        assertThat(imported.affectedProviders).containsExactly(provider)
+        verify(ledgerDao).insertLedger(
+            argThat { backupVersion == 14 && id == imported.restoreJobId },
+            argThat { items ->
+                items.single().section == "FAVORITES" &&
+                    items.single().stableReferenceKey.contains("LIVE:42") &&
+                    items.single().payloadJson.contains("\"position\":3")
+            }
+        )
+    }
+
+    @Test
+    fun `v14 parser preserves portable content state without local database ids`() = runBlocking {
+        val context: Context = mock()
+        val contentResolver: ContentResolver = mock()
+        val provider = BackupProviderReference(
+            serverUrl = "https://example.com/",
+            username = "user",
+            providerType = ProviderType.XTREAM_CODES
+        )
+        val channel = PortableContentReference(
+            provider = provider,
+            contentType = ContentType.LIVE,
+            remoteContentId = "42",
+            remoteCategoryId = "7",
+            name = "News",
+            urlFallback = "https://example.com/live/user/pass/42.ts"
+        )
+        val episode = PortableContentReference(
+            provider = provider,
+            contentType = ContentType.SERIES_EPISODE,
+            remoteContentId = "episode-9",
+            parentRemoteContentId = "series-3",
+            name = "Pilot"
+        )
+        val backup = BackupData(
+            version = 14,
+            portableFavorites = listOf(PortableFavoriteBackup(channel, position = 2)),
+            portableCustomGroups = listOf(
+                PortableCustomGroupBackup(
+                    provider = provider,
+                    contentType = ContentType.LIVE,
+                    name = "Family",
+                    icon = "★",
+                    position = 1,
+                    members = listOf(PortableFavoriteBackup(channel, position = 0))
+                )
+            ),
+            portablePlaybackHistory = listOf(
+                PortablePlaybackHistoryBackup(
+                    content = episode,
+                    resumePositionMs = 12_000,
+                    totalDurationMs = 60_000,
+                    lastWatchedAt = 1234,
+                    watchCount = 2,
+                    watchedStatus = "IN_PROGRESS"
+                )
+            ),
+            portableProtectedContent = listOf(PortableProtectedContentBackup(channel)),
+            portableSearchHistory = listOf(
+                PortableSearchHistoryBackup(
+                    query = "news",
+                    contentScope = "LIVE",
+                    provider = provider,
+                    usedAt = 5678,
+                    useCount = 3
+                )
+            )
+        )
+        whenever(context.contentResolver).thenReturn(contentResolver)
+        whenever(contentResolver.openInputStream(anyOrNull())).thenReturn(
+            ByteArrayInputStream(Gson().toJson(backup).toByteArray())
+        )
+
+        val manager = backupManagerForValidation(context)
+        val readMethod = BackupManagerImpl::class.java
+            .getDeclaredMethod("readBackupData", String::class.java)
+            .apply { isAccessible = true }
+        val parsed = readMethod.invoke(manager, "content://v14-portable-state")
+        val dataField = parsed!!::class.java.getDeclaredField("data").apply { isAccessible = true }
+        val parsedData = dataField.get(parsed) as BackupData
+
+        assertThat(parsedData.version).isEqualTo(14)
+        assertThat(parsedData.portableFavorites?.single()?.content).isEqualTo(channel)
+        assertThat(parsedData.portableCustomGroups?.single()?.members?.single()?.position).isEqualTo(0)
+        assertThat(parsedData.portablePlaybackHistory?.single()?.content?.parentRemoteContentId)
+            .isEqualTo("series-3")
+        assertThat(parsedData.portableProtectedContent?.single()?.content?.remoteContentId).isEqualTo("42")
+        assertThat(parsedData.portableSearchHistory?.single()?.useCount).isEqualTo(3)
+    }
 
     @Test
     fun `import creates protected category placeholder when provider catalog was deleted`() = runBlocking {
@@ -464,7 +611,7 @@ class BackupManagerImplTest {
     fun `inspectBackup rejects unsupported version before reading sections`() = runBlocking {
         val error = inspectAdmissionFailure(
             "unsupported-version",
-            """{"version":14,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
+            """{"version":15,"preferences":{"value":"${"x".repeat(8_193)}"}}"""
         )
 
         assertThat(error.reason).isEqualTo(BackupAdmissionReason.UNSUPPORTED_VERSION)
@@ -736,6 +883,9 @@ class BackupManagerImplTest {
                 )
             )
         )
+        whenever(movieDao.getById(55L)).thenReturn(
+            MovieEntity(id = 55L, streamId = 5500L, name = "Movie", providerId = 7L)
+        )
 
         val manager = BackupManagerImpl(
             context = context,
@@ -841,6 +991,12 @@ class BackupManagerImplTest {
                     username = "user"
                 )
             )
+        )
+        whenever(movieDao.getById(88L)).thenReturn(
+            MovieEntity(id = 88L, streamId = 8800L, name = "Favorite", providerId = 7L)
+        )
+        whenever(movieDao.getById(55L)).thenReturn(
+            MovieEntity(id = 55L, streamId = 5500L, name = "Movie", providerId = 7L)
         )
         whenever(favoriteDao.get(any(), any(), any(), any())).thenReturn(null)
         doAnswer {
@@ -1363,6 +1519,7 @@ class BackupManagerImplTest {
 
         val providerDao: ProviderDao = mock()
         val favoriteDao: FavoriteDao = mock()
+        val movieDao: MovieDao = mock()
         val preferencesRepository: PreferencesRepository = mock()
         val gson = Gson()
         val backupProvider = Provider(
@@ -1400,6 +1557,9 @@ class BackupManagerImplTest {
                 )
             )
         )
+        whenever(movieDao.getById(88L)).thenReturn(
+            MovieEntity(id = 88L, streamId = 8800L, name = "Favorite", providerId = 7L)
+        )
         whenever(favoriteDao.get(any(), any(), any(), any())).thenReturn(null)
         whenever(favoriteDao.insert(any())).thenThrow(IllegalStateException("favorite insert failed"))
 
@@ -1411,7 +1571,7 @@ class BackupManagerImplTest {
             favoriteDao = favoriteDao,
             virtualGroupDao = mock<VirtualGroupDao>(),
             playbackHistoryDao = mock<PlaybackHistoryDao>(),
-            movieDao = mock<MovieDao>(),
+            movieDao = movieDao,
             episodeDao = mock<EpisodeDao>(),
             categoryRepository = mock<CategoryRepository>(),
             recordingScheduleDao = mock<RecordingScheduleDao>(),
@@ -2296,6 +2456,7 @@ class BackupManagerImplTest {
             )
         )
 
+        assertThat(result).isInstanceOf(Result.Success::class.java)
         val imported = (result as Result.Success).data
         assertThat(imported.outcome).isEqualTo(BackupRestoreOutcome.COMPLETE)
         assertThat(imported.unresolvedReferences).isEmpty()
@@ -2684,6 +2845,7 @@ class BackupManagerImplTest {
                 )
             )
 
+            assertThat(result).isInstanceOf(Result.Success::class.java)
             assertThat((result as Result.Success).data.outcome)
                 .isEqualTo(BackupRestoreOutcome.COMPLETE)
             verify(preferencesRepository).setHiddenChannelIds(targetProvider.id, emptySet())
@@ -3496,6 +3658,7 @@ class BackupManagerImplTest {
         providerDao: ProviderDao = mock(),
         favoriteDao: FavoriteDao = mock(),
         checkpointDao: BackupRestoreCheckpointDao? = null,
+        restoreLedgerDao: BackupRestoreLedgerDao? = null,
         channelDao: ChannelDao = mock(),
         movieDao: MovieDao = mock(),
         categoryRepository: CategoryRepository = mock(),
@@ -3543,6 +3706,7 @@ class BackupManagerImplTest {
             providerSnapshotDao = acceptingSnapshotDao(),
             providerConfigurationCodec = ProviderConfigurationCodec(Gson(), credentialCrypto),
             backupRestoreCheckpointDao = checkpointDao,
+            backupRestoreLedgerDao = restoreLedgerDao,
             channelDao = channelDao,
             seriesDao = mock(),
             epgSourceDao = epgSourceDao
