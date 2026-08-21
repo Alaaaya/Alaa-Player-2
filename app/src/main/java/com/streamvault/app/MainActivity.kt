@@ -277,6 +277,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterPlayerPictureInPictureModeIfEligible(requirePlaying: Boolean = true): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         if (!supportsPictureInPicture() || isInPictureInPictureMode) {
             return false
         }
@@ -290,6 +291,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun applyPlayerPictureInPictureParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!supportsPictureInPicture()) return
         runCatching {
             PictureInPictureCompat.apply(this, playerPictureInPictureState)
@@ -419,10 +421,15 @@ class MainActivity : ComponentActivity() {
     private fun Intent.isBackupJsonCandidate(uri: Uri): Boolean {
         val normalizedPath = uri.toString().substringBefore('?').lowercase(Locale.ROOT)
         val mimeType = type?.lowercase(Locale.ROOT).orEmpty()
-        val isJsonMime = mimeType in setOf("application/json", "text/json", "application/x-json")
+        val isJsonMime = mimeType in setOf(
+            "application/json",
+            "text/json",
+            "application/x-json",
+            "application/octet-stream",
+            "text/plain",
+        )
         val isJsonPath = normalizedPath.endsWith(".json")
-        val isGenericJsonFile = mimeType == "application/octet-stream" && isJsonPath
-        if (!isJsonMime && !isJsonPath && !isGenericJsonFile) return false
+        if (!isJsonMime && !isJsonPath) return false
         return uri.scheme?.lowercase(Locale.ROOT) in setOf("content", "file")
     }
 

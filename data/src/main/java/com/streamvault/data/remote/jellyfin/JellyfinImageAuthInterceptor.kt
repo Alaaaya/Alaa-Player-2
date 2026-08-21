@@ -1,8 +1,9 @@
 package com.streamvault.data.remote.jellyfin
 
 import com.streamvault.data.local.dao.ProviderDao
-import com.streamvault.data.local.entity.ProviderEntity
-import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.data.local.dao.ProviderSnapshotDao
+import com.streamvault.data.provider.ProviderConfigurationCodec
+import com.streamvault.domain.model.JellyfinConfig
 import com.streamvault.domain.model.ProviderType
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,54 +14,50 @@ import okhttp3.Interceptor
 @Singleton
 class JellyfinImageAuthInterceptor @Inject constructor(
     private val providerDao: ProviderDao,
-    private val credentialCrypto: CredentialCrypto
+    private val providerSnapshotDao: ProviderSnapshotDao,
+    private val providerConfigurationCodec: ProviderConfigurationCodec
 ) : Interceptor {
-    private companion object {
-        private const val CACHE_TTL_MILLIS = 30_000L
-    }
-
-    @Volatile
-    private var cachedProviders: List<ProviderEntity> = emptyList()
-
-    @Volatile
-    private var cacheExpiresAtMillis: Long = 0L
-
     override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
         val request = chain.request()
+        // Image credentials are account-scoped.  A URL without this marker is
+        // deliberately not guessed from its host: two accounts may share it.
+        val marker = request.url.queryParameter("streamvault_provider_id")
+            ?: return chain.proceed(request)
+        // The marker is app-internal routing metadata and must never reach Jellyfin or any
+        // mismatched host, even when it is malformed or the caller supplied its own auth.
+        val sanitizedRequest = request.newBuilder()
+            .url(request.url.newBuilder().removeAllQueryParameters("streamvault_provider_id").build())
+            .build()
         if (!request.header("Authorization").isNullOrBlank()) {
-            return chain.proceed(request)
+            return chain.proceed(sanitizedRequest)
         }
 
-        val provider = jellyfinProviders().firstOrNull { candidate -> candidate.matches(request.url) }
-            ?: return chain.proceed(request)
-        val accessToken = runCatching { credentialCrypto.decryptIfNeeded(provider.password) }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: return chain.proceed(request)
+        val providerId = marker.toLongOrNull() ?: return chain.proceed(sanitizedRequest)
+        // Query the exact account on every request. Provider edits and deletes must take effect
+        // immediately; a short-lived list cache can otherwise attach a revoked account token.
+        val identity = runCatching { providerDao.getByIdSync(providerId) }
+            .getOrNull()?.takeIf { it.type == ProviderType.JELLYFIN }
+            ?: return chain.proceed(sanitizedRequest)
+        val stored = providerSnapshotDao.getConfigSync(identity.id)
+            ?: return chain.proceed(sanitizedRequest)
+        val provider = runCatching {
+            providerConfigurationCodec.decode(stored.type, stored.encryptedConfigJson) as? JellyfinConfig
+        }.getOrNull() ?: return chain.proceed(sanitizedRequest)
+        if (!provider.matches(request.url)) return chain.proceed(sanitizedRequest)
+        val accessToken = provider.credential.takeIf { it.isNotBlank() }
+            ?: return chain.proceed(sanitizedRequest)
 
         return chain.proceed(
-            request.newBuilder()
+            sanitizedRequest.newBuilder()
                 .header(
                     "Authorization",
                     buildJellyfinAuthorizationHeader(provider.serverUrl, provider.username, accessToken)
                 )
-                .build()
+            .build()
         )
     }
 
-    private fun jellyfinProviders(): List<ProviderEntity> {
-        val now = System.currentTimeMillis()
-        if (now < cacheExpiresAtMillis) {
-            return cachedProviders
-        }
-        val refreshed = runCatching { providerDao.getByTypeSync(ProviderType.JELLYFIN) }
-            .getOrDefault(emptyList())
-        cachedProviders = refreshed
-        cacheExpiresAtMillis = now + CACHE_TTL_MILLIS
-        return refreshed
-    }
-
-    private fun ProviderEntity.matches(url: HttpUrl): Boolean {
+    private fun JellyfinConfig.matches(url: HttpUrl): Boolean {
         val baseUrl = serverUrl.toHttpUrlOrNull() ?: return false
         if (url.scheme != baseUrl.scheme || url.host != baseUrl.host || url.port != baseUrl.port) {
             return false

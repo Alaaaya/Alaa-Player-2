@@ -8,6 +8,7 @@ import com.streamvault.data.remote.stalker.StalkerUrlFactory
 import com.streamvault.data.remote.xtream.XtreamStreamKind
 import com.streamvault.data.remote.xtream.XtreamUrlFactory
 import com.streamvault.domain.model.*
+import com.streamvault.domain.model.LegacyProvider as Provider
 
 private val qualityOptionsGson = Gson()
 private val channelQualityOptionsType = object : TypeToken<List<ChannelQualityOption>>() {}.type
@@ -19,49 +20,8 @@ fun ProviderEntity.toDomain() = Provider(
     id = id,
     name = name,
     type = type,
-    serverUrl = serverUrl,
-    username = username,
-    password = password,
-    m3uUrl = m3uUrl,
-    epgUrl = epgUrl,
-    httpUserAgent = httpUserAgent,
-    httpHeaders = httpHeaders,
-    stalkerMacAddress = stalkerMacAddress,
-    stalkerDeviceProfile = stalkerDeviceProfile,
-    stalkerDeviceTimezone = stalkerDeviceTimezone,
-    stalkerDeviceLocale = stalkerDeviceLocale,
-    stalkerSerialNumber = stalkerSerialNumber,
-    stalkerDeviceId = stalkerDeviceId,
-    stalkerDeviceId2 = stalkerDeviceId2,
-    stalkerSignature = stalkerSignature,
-    stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
-    stalkerAuthMode = stalkerAuthMode,
-    stalkerPortalProfile = stalkerPortalProfile,
-    stalkerPortalFingerprint = stalkerPortalFingerprint,
-    stalkerMagPreset = stalkerMagPreset,
-    stalkerLastBootstrapRecipe = stalkerLastBootstrapRecipe,
-    stalkerEndpointPreference = stalkerEndpointPreference,
-    stalkerCookieMode = stalkerCookieMode,
-    stalkerPlaybackBackendHint = stalkerPlaybackBackendHint,
-    stalkerLastPlaybackMode = stalkerLastPlaybackMode,
-    stalkerCredentialsRequired = stalkerCredentialsRequired,
-    stalkerMacRequired = stalkerMacRequired,
-    stalkerUsesTemporaryLinks = stalkerUsesTemporaryLinks,
-    stalkerModuleRestricted = stalkerModuleRestricted,
-    stalkerStrictFingerprintRequired = stalkerStrictFingerprintRequired,
-    stalkerRecipeFallbackUsed = stalkerRecipeFallbackUsed,
-    stalkerRecipeRediscoveryAttempts = stalkerRecipeRediscoveryAttempts,
+    serverUrl = "",
     isActive = isActive,
-    maxConnections = maxConnections,
-    expirationDate = expirationDate,
-    apiVersion = apiVersion,
-    allowedOutputFormats = decodeAllowedOutputFormats(allowedOutputFormatsJson),
-    epgSyncMode = epgSyncMode,
-    guideSourcePolicy = guideSourcePolicy,
-    channelLogoSourcePolicy = channelLogoSourcePolicy,
-    xtreamFastSyncEnabled = xtreamFastSyncEnabled,
-    xtreamLiveSyncMode = xtreamLiveSyncMode,
-    m3uVodClassificationEnabled = m3uVodClassificationEnabled,
     status = status,
     lastSyncedAt = lastSyncedAt,
     createdAt = createdAt
@@ -71,49 +31,7 @@ fun Provider.toEntity() = ProviderEntity(
     id = id,
     name = name,
     type = type,
-    serverUrl = serverUrl,
-    username = username,
-    password = password,
-    m3uUrl = m3uUrl,
-    epgUrl = epgUrl,
-    httpUserAgent = httpUserAgent,
-    httpHeaders = httpHeaders,
-    stalkerMacAddress = stalkerMacAddress,
-    stalkerDeviceProfile = stalkerDeviceProfile,
-    stalkerDeviceTimezone = stalkerDeviceTimezone,
-    stalkerDeviceLocale = stalkerDeviceLocale,
-    stalkerSerialNumber = stalkerSerialNumber,
-    stalkerDeviceId = stalkerDeviceId,
-    stalkerDeviceId2 = stalkerDeviceId2,
-    stalkerSignature = stalkerSignature,
-    stalkerAdvancedOptionsJson = stalkerAdvancedOptionsJson,
-    stalkerAuthMode = stalkerAuthMode,
-    stalkerPortalProfile = stalkerPortalProfile,
-    stalkerPortalFingerprint = stalkerPortalFingerprint,
-    stalkerMagPreset = stalkerMagPreset,
-    stalkerLastBootstrapRecipe = stalkerLastBootstrapRecipe,
-    stalkerEndpointPreference = stalkerEndpointPreference,
-    stalkerCookieMode = stalkerCookieMode,
-    stalkerPlaybackBackendHint = stalkerPlaybackBackendHint,
-    stalkerLastPlaybackMode = stalkerLastPlaybackMode,
-    stalkerCredentialsRequired = stalkerCredentialsRequired,
-    stalkerMacRequired = stalkerMacRequired,
-    stalkerUsesTemporaryLinks = stalkerUsesTemporaryLinks,
-    stalkerModuleRestricted = stalkerModuleRestricted,
-    stalkerStrictFingerprintRequired = stalkerStrictFingerprintRequired,
-    stalkerRecipeFallbackUsed = stalkerRecipeFallbackUsed,
-    stalkerRecipeRediscoveryAttempts = stalkerRecipeRediscoveryAttempts,
     isActive = isActive,
-    maxConnections = maxConnections,
-    expirationDate = expirationDate,
-    apiVersion = apiVersion,
-    allowedOutputFormatsJson = encodeAllowedOutputFormats(allowedOutputFormats),
-    epgSyncMode = epgSyncMode,
-    guideSourcePolicy = guideSourcePolicy,
-    channelLogoSourcePolicy = channelLogoSourcePolicy,
-    xtreamFastSyncEnabled = xtreamFastSyncEnabled,
-    xtreamLiveSyncMode = xtreamLiveSyncMode,
-    m3uVodClassificationEnabled = m3uVodClassificationEnabled,
     status = status,
     lastSyncedAt = lastSyncedAt,
     createdAt = createdAt
@@ -338,7 +256,9 @@ fun SeriesEntity.toDomain() = Series(
     isAdult = isAdult,
     isUserProtected = isUserProtected,
     seriesId = seriesId,
-    providerSeriesId = providerSeriesId
+    providerSeriesId = providerSeriesId,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 fun SeriesBrowseEntity.toDomain() = Series(
@@ -362,7 +282,9 @@ fun SeriesBrowseEntity.toDomain() = Series(
     isAdult = isAdult,
     isUserProtected = isUserProtected,
     seriesId = seriesId,
-    providerSeriesId = providerSeriesId
+    providerSeriesId = providerSeriesId,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 fun Series.toEntity() = SeriesEntity(
@@ -388,7 +310,9 @@ fun Series.toEntity() = SeriesEntity(
     lastModified = lastModified,
     providerId = providerId,
     isAdult = isAdult,
-    isUserProtected = isUserProtected
+    isUserProtected = isUserProtected,
+    catalogOrigin = catalogOrigin,
+    episodePlaybackTemplateUrl = episodePlaybackTemplateUrl
 )
 
 // ── Episode ────────────────────────────────────────────────────────
@@ -467,6 +391,7 @@ fun CategoryEntity.toDomain() = com.streamvault.domain.model.Category(
     name = name,
     parentId = parentId,
     type = type,
+    providerOrder = providerOrder,
     isAdult = isAdult,
     isUserProtected = isUserProtected
 )
@@ -477,6 +402,7 @@ fun com.streamvault.domain.model.Category.toEntity(providerId: Long) = CategoryE
     parentId = parentId,
     type = type,
     providerId = providerId,
+    providerOrder = providerOrder,
     isAdult = isAdult,
     isUserProtected = isUserProtected
 )
@@ -750,7 +676,9 @@ fun EpgSourceEntity.toDomain() = com.streamvault.domain.model.EpgSource(
     createdAt = createdAt,
     updatedAt = updatedAt,
     etag = etag,
-    lastModifiedHeader = lastModifiedHeader
+    lastModifiedHeader = lastModifiedHeader,
+    timezonePolicy = timezonePolicy,
+    timezoneId = timezoneId
 )
 
 fun com.streamvault.domain.model.EpgSource.toEntity() = EpgSourceEntity(
@@ -765,7 +693,9 @@ fun com.streamvault.domain.model.EpgSource.toEntity() = EpgSourceEntity(
     createdAt = createdAt,
     updatedAt = updatedAt,
     etag = etag,
-    lastModifiedHeader = lastModifiedHeader
+    lastModifiedHeader = lastModifiedHeader,
+    timezonePolicy = timezonePolicy,
+    timezoneId = timezoneId
 )
 
 // ── Provider EPG Source Assignment ─────────────────────────────────

@@ -22,12 +22,14 @@ import com.streamvault.data.local.dao.XtreamIndexJobDao
 import com.streamvault.data.local.dao.XtreamLiveOnboardingDao
 import com.streamvault.data.local.entity.XtreamIndexJobEntity
 import com.streamvault.data.preferences.PreferencesRepository
-import com.streamvault.data.sync.SyncManager
+import com.streamvault.data.sync.ProviderSyncCommands
 import com.streamvault.data.sync.SyncRepairSection
+import com.streamvault.domain.model.VodCategoryLoadMode
 import com.streamvault.domain.manager.BackupConflictStrategy
 import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupManager
 import com.streamvault.domain.manager.BackupPreview
+import com.streamvault.domain.manager.BackupRestoreStatusStore
 import com.streamvault.domain.manager.DriveBackupSyncManager
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.manager.RecordingManager
@@ -108,10 +110,11 @@ class SettingsViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val internetSpeedTestRunner: InternetSpeedTestRunner,
     private val backupManager: BackupManager,
+    private val backupRestoreStatusStore: BackupRestoreStatusStore,
     private val driveBackupSyncManager: DriveBackupSyncManager,
     private val recordingManager: RecordingManager,
     private val parentalControlManager: ParentalControlManager,
-    private val syncManager: SyncManager,
+    private val syncManager: ProviderSyncCommands,
     private val xtreamIndexJobDao: XtreamIndexJobDao,
     private val xtreamLiveOnboardingDao: XtreamLiveOnboardingDao,
     private val syncMetadataRepository: SyncMetadataRepository,
@@ -242,6 +245,11 @@ class SettingsViewModel @Inject constructor(
             uiState = _uiState
         )
         driveBackupActions.observeAuthState(viewModelScope)
+        viewModelScope.launch {
+            backupRestoreStatusStore.observeRestoreJobs().collect { jobs ->
+                _uiState.update { it.copy(backupRestoreJobs = jobs) }
+            }
+        }
     }
 
     fun refreshCrashReport() {
@@ -623,6 +631,14 @@ class SettingsViewModel @Inject constructor(
     fun setVodInfiniteScroll(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setVodInfiniteScroll(enabled)
+        }
+    }
+
+    fun setVodCompleteOnOpen(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setVodCategoryLoadMode(
+                if (enabled) VodCategoryLoadMode.COMPLETE_ON_OPEN else VodCategoryLoadMode.PAGED
+            )
         }
     }
 
@@ -1126,8 +1142,19 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(userMessage = null) }
     }
 
-    fun exportConfig(uriString: String, onSuccess: (() -> Unit)? = null) {
-        backupActions.exportConfig(viewModelScope, uriString, onSuccess)
+    fun exportConfig(
+        uriString: String,
+        onSuccess: (() -> Unit)? = null,
+        successMessage: String? = null,
+        onFinished: ((Boolean) -> Unit)? = null,
+    ) {
+        backupActions.exportConfig(
+            scope = viewModelScope,
+            uriString = uriString,
+            onSuccess = onSuccess,
+            successMessage = successMessage,
+            onFinished = onFinished,
+        )
     }
 
     fun inspectBackup(uriString: String) {
@@ -1172,6 +1199,63 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun toggleRestoreSyncProvider(index: Int) = backupActions.toggleRestoreProvider(index)
+
+    fun selectAllRestoreSyncProviders() = backupActions.selectAllRestoreProviders()
+
+    fun restoreSyncLater() = backupActions.dismissRestoreSyncChooser()
+
+    fun retryRestoreProvider(providerId: Long) {
+        viewModelScope.launch { backupRestoreStatusStore.retryProviders(setOf(providerId)) }
+    }
+
+    fun dismissRestoreItem(itemId: Long) {
+        viewModelScope.launch { backupRestoreStatusStore.dismissItem(itemId) }
+    }
+
+    fun dismissRestoreProvider(jobId: String, providerIdentityKey: String) {
+        viewModelScope.launch { backupRestoreStatusStore.dismissProvider(jobId, providerIdentityKey) }
+    }
+
+    fun dismissRestoreJob(jobId: String) {
+        viewModelScope.launch { backupRestoreStatusStore.dismissRestore(jobId) }
+    }
+
+    fun syncSelectedRestoreProviders() {
+        val state = _uiState.value
+        val references = state.selectedRestoreProviderIndices.mapNotNull(state.pendingRestoreProviders::getOrNull)
+        if (references.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncing = true, syncProgress = "Syncing restored providers…", syncCanCancel = false) }
+            val failures = mutableListOf<String>()
+            references.forEach { reference ->
+                val provider = _uiState.value.providers.singleOrNull { candidate ->
+                    candidate.serverUrl.trim().trimEnd('/').equals(reference.serverUrl.trim().trimEnd('/'), true) &&
+                        candidate.username.trim() == reference.username.trim() &&
+                        (reference.providerType == null || candidate.type == reference.providerType) &&
+                        candidate.stalkerMacAddress.trim().equals(reference.stalkerMacAddress.orEmpty().trim(), true)
+                }
+                if (provider == null) {
+                    failures += reference.serverUrl
+                } else if (syncManager.sync(provider.id, force = true) is Result.Error) {
+                    failures += provider.name
+                }
+            }
+            backupActions.dismissRestoreSyncChooser()
+            _uiState.update {
+                it.copy(
+                    isSyncing = false,
+                    syncProgress = null,
+                    userMessage = if (failures.isEmpty()) {
+                        "Selected restored providers synced successfully"
+                    } else {
+                        "Some restored providers could not sync: ${failures.joinToString()}"
+                    }
+                )
+            }
+        }
+    }
+
     fun beginDriveSignIn(launcher: ActivityResultLauncher<Intent>) {
         driveBackupActions.beginSignIn(viewModelScope, launcher)
     }
@@ -1190,6 +1274,26 @@ class SettingsViewModel @Inject constructor(
 
     fun pullFromDrive() {
         driveBackupActions.pullBackup(viewModelScope)
+    }
+
+    fun selectDriveBackup(snapshotId: String) {
+        driveBackupActions.selectBackup(viewModelScope, snapshotId)
+    }
+
+    fun dismissDriveBackupOptions() {
+        driveBackupActions.dismissBackupOptions()
+    }
+
+    fun manageDriveBackups() {
+        driveBackupActions.manageBackups(viewModelScope)
+    }
+
+    fun dismissDriveBackupManagement() {
+        driveBackupActions.dismissBackupManagement()
+    }
+
+    fun deleteDriveBackup(snapshotId: String) {
+        driveBackupActions.deleteBackup(viewModelScope, snapshotId)
     }
 
     fun stopRecording(recordingId: String) {
@@ -1246,8 +1350,29 @@ class SettingsViewModel @Inject constructor(
         epgActions.loadEpgAssignments(viewModelScope, providerId)
     }
 
-    fun addEpgSource(name: String, url: String, onSuccess: () -> Unit = {}, onError: () -> Unit = {}) {
-        epgActions.addEpgSource(viewModelScope, name, url, onSuccess, onError)
+    fun addEpgSource(
+        name: String,
+        url: String,
+        timezoneId: String? = null,
+        onSuccess: () -> Unit = {},
+        onError: () -> Unit = {}
+    ) {
+        epgActions.addEpgSource(viewModelScope, name, url, timezoneId, onSuccess, onError)
+    }
+
+    fun updateEpgSourceTimezone(
+        source: com.streamvault.domain.model.EpgSource,
+        timezoneId: String?,
+        onSuccess: () -> Unit = {},
+        onError: () -> Unit = {}
+    ) {
+        epgActions.updateEpgSourceTimezone(
+            viewModelScope,
+            source,
+            timezoneId,
+            onSuccess,
+            onError
+        )
     }
 
     fun setPendingDeleteEpgSource(id: Long?) {

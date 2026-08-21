@@ -287,6 +287,14 @@ class ProviderQrPairingManager @Inject constructor(
                 ProviderPairingSubmitResult.Success(result.provider.name)
             is ValidateAndAddProviderResult.ValidationError ->
                 ProviderPairingSubmitResult.Error(result.message)
+            is ValidateAndAddProviderResult.TransportConsentRequired ->
+                ProviderPairingSubmitResult.Error(
+                    "Open StreamVault on the TV to review this provider's connection warning."
+                )
+            is ValidateAndAddProviderResult.VerificationInconclusive ->
+                ProviderPairingSubmitResult.Error(
+                    "Open StreamVault on the TV to decide whether to save this provider with verification pending."
+                )
             is ValidateAndAddProviderResult.Error ->
                 ProviderPairingSubmitResult.Error(result.message)
         }

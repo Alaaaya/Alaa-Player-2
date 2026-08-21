@@ -350,6 +350,7 @@ fun MovieCard(
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     isLocked: Boolean = false,
+    showTypeBadge: Boolean = false,
     watchProgress: Float = 0f,
     isReorderMode: Boolean = false,
     isDragging: Boolean = false,
@@ -413,6 +414,19 @@ fun MovieCard(
         }
 
         if (!isLocked) {
+            if (showTypeBadge) {
+                StatusPill(
+                    label = stringResource(R.string.badge_movie),
+                    containerColor = Color.Black.copy(alpha = 0.72f),
+                    cornerRadius = 4.dp,
+                    horizontalPadding = 6.dp,
+                    verticalPadding = 2.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 8.dp, bottom = 8.dp)
+                )
+            }
+
             if (movie.rating > 0f) {
                 Box(
                     modifier = Modifier
@@ -456,6 +470,7 @@ fun SeriesCard(
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     isLocked: Boolean = false,
+    showTypeBadge: Boolean = false,
     watchProgress: Float = 0f,
     subtitle: String? = null,
     isReorderMode: Boolean = false,
@@ -523,6 +538,19 @@ fun SeriesCard(
         }
 
         if (!isLocked) {
+            if (showTypeBadge) {
+                StatusPill(
+                    label = stringResource(R.string.badge_series),
+                    containerColor = Color.Black.copy(alpha = 0.72f),
+                    cornerRadius = 4.dp,
+                    horizontalPadding = 6.dp,
+                    verticalPadding = 2.dp,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 8.dp, bottom = 8.dp)
+                )
+            }
+
             if (series.rating > 0f) {
                 Box(
                     modifier = Modifier

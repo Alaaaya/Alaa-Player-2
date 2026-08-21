@@ -56,6 +56,17 @@ class PlayerContentResolutionSupportTest {
     }
 
     @Test
+    fun `playback stream resolution keeps its failure message with the result`() {
+        val resolution = PlayerPlaybackStreamResolution(
+            streamInfo = null,
+            resolutionFailureMessage = "The provider returned no playable stream."
+        )
+
+        assertThat(resolution.failureMessage)
+            .isEqualTo("The provider returned no playable stream.")
+    }
+
+    @Test
     fun `resolvePlayerPlaybackStreamInfo uses current episode playback identity`() = runBlocking {
         val episode = episode(id = 21L, stableEpisodeId = 321L)
         val expected = StreamInfo(
