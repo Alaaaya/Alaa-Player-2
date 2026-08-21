@@ -150,6 +150,9 @@ android {
     lint {
         baseline = file("lint-baseline.xml")
         warningsAsErrors = true
+        // Dependency freshness is tracked separately from the release gate. These checks are
+        // time-sensitive and would otherwise fail whenever Google publishes a newer version.
+        disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
     }
 }
 
