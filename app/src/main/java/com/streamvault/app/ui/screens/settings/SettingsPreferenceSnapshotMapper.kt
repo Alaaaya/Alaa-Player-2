@@ -11,6 +11,7 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         appLandingDestination = snapshot.appLandingDestination,
         appTopLevelDestinations = snapshot.appTopLevelDestinations,
         appHomeDashboardShelves = snapshot.appHomeDashboardShelves,
+        appHomeTheme = snapshot.appHomeTheme,
         appTimeFormat = snapshot.appTimeFormat,
         preferredAudioLanguage = snapshot.preferredAudioLanguage,
         playerMediaSessionEnabled = snapshot.playerMediaSessionEnabled,

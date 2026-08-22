@@ -76,6 +76,7 @@ import com.streamvault.app.ui.design.AppColors.TextPrimary as TextPrimary
 import com.streamvault.app.ui.design.AppColors.TextTertiary as OnSurfaceDim
 import com.streamvault.app.ui.design.AppColors.TextTertiary as TextTertiary
 import com.streamvault.domain.model.AppHomeDashboardShelf
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackHistory
@@ -132,6 +133,40 @@ fun DashboardScreen(
                 )
                 return@AppScreenScaffold
             }
+            if (uiState.homeTheme == AppHomeTheme.ALAA) {
+                val onAlaaContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else {
+                        null
+                    }
+                    if (presentedSeries != null) {
+                        onSeriesClick(presentedSeries)
+                    } else {
+                        onPlaybackHistoryClick(history)
+                    }
+                }
+                AlaaDashboard(
+                    uiState = uiState,
+                    recordingChannelIds = recordingChannelIds,
+                    scheduledChannelIds = scheduledChannelIds,
+                    onNavigate = onNavigate,
+                    onRecentChannelClick = onRecentChannelClick,
+                    onFavoriteChannelClick = onFavoriteChannelClick,
+                    onMovieClick = onMovieClick,
+                    onSeriesClick = onSeriesClick,
+                    onPlaybackHistoryClick = onPlaybackHistoryClick,
+                    onContinueWatchingItemClick = onAlaaContinueWatchingItemClick
+                )
+                return@AppScreenScaffold
+            }
+
             val orderedSections = rememberDashboardSections(uiState)
             val onContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
                 val rawSeriesId = history.seriesId ?: history.contentId

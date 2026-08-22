@@ -27,6 +27,7 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppHomeDashboardShelf
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.LiveChannelGroupingMode
@@ -188,6 +189,7 @@ class PreferencesRepository @Inject constructor(
         val APP_LANDING_DESTINATION = stringPreferencesKey("app_landing_destination")
         val APP_TOP_LEVEL_DESTINATIONS = stringPreferencesKey("app_top_level_destinations")
         val APP_HOME_DASHBOARD_SHELVES = stringPreferencesKey("app_home_dashboard_shelves")
+        val APP_HOME_THEME = stringPreferencesKey("app_home_theme")
         val APP_TIME_FORMAT = stringPreferencesKey("app_time_format")
         val LIVE_TV_CHANNEL_MODE = stringPreferencesKey("live_tv_channel_mode")
         val SHOW_LIVE_SOURCE_SWITCHER = booleanPreferencesKey("show_live_source_switcher")
@@ -1497,6 +1499,10 @@ class PreferencesRepository @Inject constructor(
         decodeAppHomeDashboardShelves(preferences[PreferencesKeys.APP_HOME_DASHBOARD_SHELVES])
     }
 
+    val appHomeTheme: Flow<AppHomeTheme> = context.dataStore.data.map { preferences ->
+        AppHomeTheme.fromStorage(preferences[PreferencesKeys.APP_HOME_THEME])
+    }
+
     suspend fun setAppLandingDestination(destination: AppLandingDestination) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.APP_LANDING_DESTINATION] = destination.storageValue
@@ -1514,6 +1520,12 @@ class PreferencesRepository @Inject constructor(
         val normalized = AppHomeDashboardShelf.normalizeForStorage(shelves)
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.APP_HOME_DASHBOARD_SHELVES] = encodeAppHomeDashboardShelves(normalized)
+        }
+    }
+
+    suspend fun setAppHomeTheme(theme: AppHomeTheme) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.APP_HOME_THEME] = theme.storageValue
         }
     }
 

@@ -1840,4 +1840,12 @@
     <string name="nav_vod">VOD</string>
     <string name="vod_unavailable_title">VOD is unavailable</string>
     <string name="vod_unavailable_subtitle">This provider exposes separate Movies and Series catalogs.</string>
+    <string name="settings_themes">Themes</string>
+    <string name="settings_themes_title">Home themes</string>
+    <string name="settings_themes_subtitle">Choose the visual style of the home dashboard.</string>
+    <string name="settings_theme_classic">Classic</string>
+    <string name="settings_theme_classic_subtitle">Current dashboard layout</string>
+    <string name="settings_theme_alaa">Alaa</string>
+    <string name="settings_theme_alaa_subtitle">Bold hero layout with red focus accents</string>
+    <string name="settings_theme_selected">Selected</string>
 </resources>
