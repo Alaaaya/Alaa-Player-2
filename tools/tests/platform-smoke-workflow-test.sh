@@ -10,6 +10,8 @@ release_workflow="$repo_root/.github/workflows/release.yml"
 [ -f "$smoke_workflow" ]
 grep -F 'workflow_call:' "$smoke_workflow" >/dev/null
 grep -F 'workflow_dispatch:' "$smoke_workflow" >/dev/null
+grep -F 'push:' "$smoke_workflow" >/dev/null
+grep -F -- '- develop' "$smoke_workflow" >/dev/null
 grep -F 'uses: ./.github/workflows/platform-smoke.yml' "$release_workflow" >/dev/null
 grep -F 'for test_script in tools/tests/*-test.sh' "$release_workflow" >/dev/null
 

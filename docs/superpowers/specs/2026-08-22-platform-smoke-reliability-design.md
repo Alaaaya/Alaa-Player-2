@@ -6,7 +6,7 @@ The release workflow is currently the only practical place to exercise the full 
 
 ## Design
 
-Move the platform matrix into a reusable workflow that supports both `workflow_call` and manual execution on any branch. The release workflow will call it after the host build; maintainers can run the exact same gate against `develop` before merging.
+Move the platform matrix into a reusable workflow that runs on pushes to `develop` and supports both `workflow_call` and manual execution. The release workflow will call it after the host build, so the same gate is exercised before merging and during release.
 
 Each matrix entry will build, install, and execute from the emulator runner's script, matching the last known-good API 25–35 execution path. API 36 remains an explicitly isolated Android TV x86 configuration. There will be no separate precompile invocation.
 
