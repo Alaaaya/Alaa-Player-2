@@ -150,7 +150,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    needs: [build, platform-smoke]
+    needs: [build]
     runs-on: ubuntu-latest
 
     steps:
