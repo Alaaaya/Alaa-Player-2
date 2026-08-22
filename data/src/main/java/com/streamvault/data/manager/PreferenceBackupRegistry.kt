@@ -13,7 +13,7 @@ internal object PreferenceBackupRegistry {
         "last_active_provider_id", "active_live_source_type", "active_live_source_id",
         "default_view_mode", "parental_control_level", "parental_pin_hash", "parental_pin_salt",
         "default_category_id", "app_language", "app_landing_destination", "app_top_level_destinations",
-        "app_home_dashboard_shelves", "app_time_format", "live_tv_channel_mode",
+        "app_home_dashboard_shelves", "app_home_theme", "app_time_format", "live_tv_channel_mode",
         "show_live_source_switcher", "show_favorites_category", "show_all_channels_category",
         "show_recent_channels_category", "live_tv_category_filters", "live_tv_quick_filter_visibility",
         "hide_decorative_live_rows", "live_channel_numbering_mode", "live_channel_grouping_mode",
@@ -87,7 +87,7 @@ internal object PreferenceBackupRegistry {
     )
     private val globalKeys = setOf(
         "parentalControlLevel", "parentalPinHash", "parentalPinSalt", "appLanguage", "appTimeFormat",
-        "defaultViewMode", "appLandingDestination", "appTopLevelDestinations", "appHomeDashboardShelves",
+        "defaultViewMode", "appLandingDestination", "appTopLevelDestinations", "appHomeDashboardShelves", "appHomeTheme",
         "remoteShortcutPreferences", "liveTvCategoryFilters", "liveTvQuickFilterVisibility", "liveTvChannelMode",
         "showLiveSourceSwitcher", "showFavoritesCategory", "showAllChannelsCategory", "showRecentChannelsCategory",
         "hideDecorativeLiveRows", "liveChannelNumberingMode", "liveChannelGroupingMode", "groupedChannelLabelMode",
