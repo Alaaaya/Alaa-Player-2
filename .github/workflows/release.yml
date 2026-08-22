@@ -71,7 +71,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Test CI helper scripts
-        run: bash tools/tests/wait-for-emulator-test.sh
+        shell: bash
+        run: |
+          for test_script in tools/tests/*-test.sh; do
+            bash "$test_script"
+          done
 
       - name: Run unit tests, lint, and coverage
         run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline koverXmlReportCi koverHtmlReportCi
@@ -191,77 +195,6 @@ jobs:
 
   platform-smoke:
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - api-level: 25
-            runner: ubuntu-latest
-            arch: x86_64
-            target: default
-            gpu: swiftshader_indirect
-          - api-level: 26
-            runner: ubuntu-latest
-            arch: x86_64
-            target: default
-            gpu: swiftshader_indirect
-          - api-level: 28
-            runner: ubuntu-latest
-            arch: x86_64
-            target: default
-            gpu: swiftshader_indirect
-          - api-level: 32
-            runner: ubuntu-latest
-            arch: x86_64
-            target: default
-            gpu: swiftshader_indirect
-          - api-level: 33
-            runner: ubuntu-latest
-            arch: x86_64
-            target: default
-            gpu: swiftshader_indirect
-          - api-level: 35
-            runner: macos-15-intel
-            arch: x86_64
-            target: default
-            gpu: software
-          - api-level: 36
-            runner: macos-15-intel
-            arch: x86
-            target: android-tv
-            gpu: software
-
-    runs-on: ${{ matrix.runner }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-
-      - name: Precompile platform smoke APKs
-        run: |
-          chmod +x gradlew
-          ./gradlew --console=plain \
-            :app:assembleDebug \
-            :app:assembleDebugAndroidTest \
-            :data:assembleDebugAndroidTest \
-            "-PcompatApi=${{ matrix.api-level }}" \
-            "-PcompatAbi=${{ matrix.arch }}" \
-            --no-daemon
-
-      - name: Run compatibility instrumentation suite
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          arch: ${{ matrix.arch }}
-          target: ${{ matrix.target }}
-          emulator-options: -no-window -gpu ${{ matrix.gpu }} -no-snapshot -noaudio -no-boot-anim
-          profile: tv_1080p
-          script: |
-            chmod +x gradlew tools/run-platform-smoke.sh tools/wait-for-emulator.sh
-            ./tools/run-platform-smoke.sh "${{ matrix.api-level }}" "${{ matrix.arch }}"
+    permissions:
+      contents: read
+    uses: ./.github/workflows/platform-smoke.yml
