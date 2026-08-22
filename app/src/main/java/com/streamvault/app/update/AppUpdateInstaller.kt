@@ -182,8 +182,8 @@ class AppUpdateInstaller @Inject constructor(
             }
 
             val request = DownloadManager.Request(Uri.parse(downloadUrl))
-                .setTitle("StreamVault ${releaseInfo.versionName}")
-                .setDescription("Downloading the latest StreamVault update")
+                .setTitle("Alaa Player 2 ${releaseInfo.versionName}")
+                .setDescription("Downloading the latest Alaa Player 2 update")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setMimeType("application/vnd.android.package-archive")
                 .setAllowedOverMetered(true)
@@ -312,7 +312,7 @@ class AppUpdateInstaller @Inject constructor(
         val sanitizedVersion = versionName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: File(context.cacheDir, "downloads")
-        return File(downloadsDir, "StreamVault-$sanitizedVersion.apk")
+        return File(downloadsDir, "Alaa Player 2-$sanitizedVersion.apk")
     }
 
     private fun downloadedState(versionName: String): AppUpdateDownloadState {

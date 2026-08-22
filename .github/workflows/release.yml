@@ -1,13 +1,21 @@
-name: Android CI and Release
+name: Build and publish Alaa Player 2
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: alaa-player-2-release-master
+  cancel-in-progress: false
+
 jobs:
   build:
+    name: Verify and build signed APK
     runs-on: ubuntu-latest
     outputs:
       version_name: ${{ steps.app_version.outputs.version_name }}
@@ -17,35 +25,33 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Read app version
+      - name: Determine automatic release version
         id: app_version
         shell: bash
         run: |
-          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)
-
-          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
-            echo "Failed to read app version from app/build.gradle.kts"
-            exit 1
-          fi
-
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "release_tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "apk_name=StreamVault-$VERSION_NAME.apk" >> "$GITHUB_OUTPUT"
+          COMMIT_COUNT="$(git rev-list --count HEAD)"
+          VERSION_CODE="$((1000 + COMMIT_COUNT))"
+          VERSION_NAME="1.0.${COMMIT_COUNT}"
+          RELEASE_TAG="v${VERSION_NAME}+${VERSION_CODE}"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=Alaa-Player-2.apk" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
           cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Prepare optional signing files
+      - name: Prepare required signing files
         shell: bash
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -53,19 +59,21 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ] && [ -n "$RELEASE_STORE_PASSWORD" ] && [ -n "$RELEASE_KEY_ALIAS" ] && [ -n "$RELEASE_KEY_PASSWORD" ]; then
-            mkdir -p keystore
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > keystore/release.jks
-            printf '%s\n' \
-              'storeFile=keystore/release.jks' \
-              "storePassword=$RELEASE_STORE_PASSWORD" \
-              "keyAlias=$RELEASE_KEY_ALIAS" \
-              "keyPassword=$RELEASE_KEY_PASSWORD" \
-              > keystore.properties
-            echo "Release signing files prepared."
-          else
-            echo "No signing secrets configured. Building unsigned release APK."
-          fi
+          set -euo pipefail
+          for required in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [ -z "${!required}" ]; then
+              echo "Missing required signing secret: ${required}"
+              exit 1
+            fi
+          done
+          mkdir -p keystore
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > keystore/release.jks
+          printf '%s\n' \
+            'storeFile=keystore/release.jks' \
+            "storePassword=$RELEASE_STORE_PASSWORD" \
+            "keyAlias=$RELEASE_KEY_ALIAS" \
+            "keyPassword=$RELEASE_KEY_PASSWORD" \
+            > keystore.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -83,30 +91,37 @@ jobs:
       - name: Compile instrumentation release gates
         run: ./gradlew --console=plain :app:assembleDebugAndroidTest :data:assembleDebugAndroidTest
 
-      - name: Build release APK
-        run: ./gradlew --console=plain :app:assembleRelease
+      - name: Build signed release APK
+        run: |
+          ./gradlew --console=plain :app:assembleRelease \
+            -PappVersionCode=${{ steps.app_version.outputs.version_code }} \
+            -PappVersionName=${{ steps.app_version.outputs.version_name }}
 
-      - name: Prepare release artifact
-        if: github.event_name == 'workflow_dispatch'
+      - name: Verify and prepare release artifact
+        id: apk
         shell: bash
         run: |
-          mkdir -p dist
-          APK_PATH=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
+          set -euo pipefail
+          APK_PATH="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)"
           if [ -z "$APK_PATH" ]; then
             echo "No release APK produced."
             exit 1
           fi
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs "$APK_PATH"
+          mkdir -p dist
           cp "$APK_PATH" "dist/${{ steps.app_version.outputs.apk_name }}"
-          cp "$APK_PATH" dist/StreamVault.apk
+          SHA256="$(sha256sum "dist/${{ steps.app_version.outputs.apk_name }}" | awk '{print $1}')"
+          printf '%s  %s\n' "$SHA256" "${{ steps.app_version.outputs.apk_name }}" > "dist/${{ steps.app_version.outputs.apk_name }}.sha256"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload release APK artifact
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload signed APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-apk
+          name: signed-release-apk
           path: |
             dist/${{ steps.app_version.outputs.apk_name }}
-            dist/StreamVault.apk
+            dist/${{ steps.app_version.outputs.apk_name }}.sha256
 
       - name: Upload test reports
         if: always()
@@ -127,74 +142,46 @@ jobs:
           path: |
             build/reports/kover/
 
-  publish-release:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [build, platform-smoke]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download release APK artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: release-apk
-          path: dist
-
-      - name: Read app version
-        id: app_version
-        shell: bash
-        run: |
-          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)
-          VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)
-
-          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
-            echo "Failed to read app version from app/build.gradle.kts"
-            exit 1
-          fi
-
-          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "release_tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "apk_name=StreamVault-$VERSION_NAME.apk" >> "$GITHUB_OUTPUT"
-
-      - name: Extract changelog entry
-        id: changelog
-        shell: bash
-        run: |
-          VERSION="${{ steps.app_version.outputs.version_name }}"
-          echo "Extracting notes for version $VERSION"
-          
-          # Extract lines between the header and the next header (or EOF)
-          # Supports both "## [1.0.5] - date" and legacy "## 1.0.5 date" styles.
-          {
-            echo "notes<<EOF"
-            awk -v ver="$VERSION" '
-              $0 ~ ("^## \\[" ver "\\]") || $0 ~ ("^## " ver " ") { p=1; next }
-              $0 ~ "^## " && p { p=0 }
-              p { print }
-            ' docs/CHANGELOG.md
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.app_version.outputs.release_tag }}
-          name: StreamVault ${{ steps.app_version.outputs.version_name }}
-          body: |
-            ${{ steps.changelog.outputs.notes }}
-            
-            ---
-            Built from `${{ github.sha }}`.
-          files: |
-            dist/${{ steps.app_version.outputs.apk_name }}
-            dist/StreamVault.apk
-          make_latest: true
-          generate_release_notes: false
-
   platform-smoke:
     needs: build
     permissions:
       contents: read
     uses: ./.github/workflows/platform-smoke.yml
+
+  publish-release:
+    name: Publish GitHub release
+    needs: [build, platform-smoke]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download signed APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release-apk
+          path: dist
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Alaa Player 2 ${{ needs.build.outputs.version_name }}
+          body: |
+            ## Alaa Player 2 ${{ needs.build.outputs.version_name }}
+
+            إصدار رسمي تم بناؤه تلقائيًا من فرع `master`.
+
+            | البند | القيمة |
+            | --- | --- |
+            | رمز الإصدار | `${{ needs.build.outputs.version_code }}` |
+            | الالتزام | `${{ github.sha }}` |
+            | اسم الحزمة | `com.alaaaya.alaaplayer2` |
+
+            نزّل ملف `Alaa-Player-2.apk` من داخل التطبيق وثبّته من شاشة Android. تُثبَّت النسخة الجديدة فوق النسخة الرسمية السابقة وتحافظ على بيانات التطبيق ما دام معرّف الحزمة ومفتاح التوقيع ثابتين.
+
+            Alaa Player 2 مشتق من [StreamVault](https://github.com/Davidona/StreamVault-IPTV) للمطور David Nashash (Davidona)، ويخضع لترخيص StreamVault Source-Available License (Non-Commercial). استخدم فقط المصادر التي تملك حق الوصول إليها.
+          files: |
+            dist/${{ needs.build.outputs.apk_name }}
+            dist/${{ needs.build.outputs.apk_name }}.sha256
+          make_latest: true
+          generate_release_notes: false
