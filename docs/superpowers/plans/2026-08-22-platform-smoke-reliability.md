@@ -4,7 +4,7 @@
 
 **Goal:** Make platform-smoke failures diagnosable and validate the exact release matrix on `develop` before merging to `master`.
 
-**Architecture:** Extract the matrix into a reusable/manual GitHub Actions workflow and make release delegate to it. Run Gradle only while the emulator is active, and capture Android failure evidence from an exit trap before the emulator is destroyed.
+**Architecture:** Extract the matrix into a develop-push/reusable/manual GitHub Actions workflow and make release delegate to it. Run Gradle only while the emulator is active, and capture Android failure evidence from an exit trap before the emulator is destroyed.
 
 **Tech Stack:** GitHub Actions YAML, POSIX shell, Gradle Android instrumentation, adb
 
@@ -44,7 +44,7 @@
 - Create: `tools/tests/platform-smoke-workflow-test.sh`
 
 **Interfaces:**
-- Produces: reusable `platform-smoke.yml` callable by release and manually on develop
+- Produces: reusable `platform-smoke.yml` run on develop pushes, callable by release, and manually dispatchable after it exists on the default branch
 - Produces: artifacts named `platform-smoke-api-<api>-diagnostics`
 
 - [x] Write static assertions for workflow-call/manual triggers, release delegation, no precompile stage, and connected-test artifact paths.
