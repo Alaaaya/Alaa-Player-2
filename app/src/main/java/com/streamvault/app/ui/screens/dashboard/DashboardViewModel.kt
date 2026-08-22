@@ -11,6 +11,7 @@ import com.streamvault.app.update.isRemoteVersionNewer
 import com.streamvault.app.update.latestAppUpdateAction
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppHomeDashboardShelf
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
@@ -258,6 +259,7 @@ class DashboardViewModel @Inject constructor(
                 movieCount = movieCount,
                 seriesCount = seriesCount,
                 homeDashboardShelves = AppHomeDashboardShelf.defaultOrder,
+                homeTheme = AppHomeTheme.CLASSIC,
                 updateNotice = null
             )
         }
@@ -266,12 +268,15 @@ class DashboardViewModel @Inject constructor(
             preferencesRepository.appHomeDashboardShelves.onStart { emit(AppHomeDashboardShelf.defaultOrder) }
         ) { snapshot, homeDashboardShelves ->
             snapshot.copy(homeDashboardShelves = homeDashboardShelves)
+        }.combine(preferencesRepository.appHomeTheme.onStart { emit(AppHomeTheme.CLASSIC) }) { snapshot, homeTheme ->
+            snapshot.copy(homeTheme = homeTheme)
         }.combine(observeUpdateNotice().onStart { emit(null) }) { snapshot, updateNotice ->
             snapshot.copy(updateNotice = updateNotice)
         }.combine(syncManager.syncStateForProvider(provider.id).onStart { emit(SyncState.Idle) }) { snapshot, syncState ->
             DashboardUiState(
                 provider = provider,
                 homeDashboardShelves = snapshot.homeDashboardShelves,
+                homeTheme = snapshot.homeTheme,
                 favoriteChannels = snapshot.shelves.favoriteChannels,
                 recentChannels = snapshot.shelves.recentChannels,
                 continueWatching = snapshot.shelves.continueWatching,
@@ -829,6 +834,7 @@ private data class DashboardSnapshot(
     val movieCount: Int,
     val seriesCount: Int,
     val homeDashboardShelves: List<AppHomeDashboardShelf>,
+    val homeTheme: AppHomeTheme,
     val updateNotice: DashboardUpdateNotice?
 )
 
@@ -843,6 +849,7 @@ private data class DashboardCachedUpdateRelease(
 data class DashboardUiState(
     val provider: Provider? = null,
     val homeDashboardShelves: List<AppHomeDashboardShelf> = AppHomeDashboardShelf.defaultOrder,
+    val homeTheme: AppHomeTheme = AppHomeTheme.CLASSIC,
     val favoriteChannels: List<Channel> = emptyList(),
     val recentChannels: List<Channel> = emptyList(),
     val continueWatching: List<PlaybackHistory> = emptyList(),

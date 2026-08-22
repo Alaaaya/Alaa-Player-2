@@ -35,6 +35,7 @@ import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.manager.RecordingManager
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.AppHomeDashboardShelf
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTimeFormat
 import com.streamvault.domain.model.AppTopLevelDestination
@@ -508,6 +509,12 @@ class SettingsViewModel @Inject constructor(
     fun resetAppHomeDashboardShelves() {
         viewModelScope.launch {
             preferencesRepository.setAppHomeDashboardShelves(AppHomeDashboardShelf.defaultOrder)
+        }
+    }
+
+    fun setAppHomeTheme(theme: AppHomeTheme) {
+        viewModelScope.launch {
+            preferencesRepository.setAppHomeTheme(theme)
         }
     }
 

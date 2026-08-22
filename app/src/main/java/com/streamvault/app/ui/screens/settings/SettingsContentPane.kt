@@ -207,6 +207,11 @@ internal fun SettingsContentPane(
                 onShareCrashReport = onShareCrashReport,
                 onDeleteCrashReport = onDeleteCrashReport
             )
+        } else if (dialogState.selectedCategory == 8) {
+            settingsThemesSection(
+                uiState = uiState,
+                viewModel = viewModel
+            )
         }
     }
 }
