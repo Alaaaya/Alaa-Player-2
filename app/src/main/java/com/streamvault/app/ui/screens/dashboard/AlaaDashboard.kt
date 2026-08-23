@@ -1,19 +1,37 @@
 package com.streamvault.app.ui.screens.dashboard
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,35 +45,41 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.streamvault.app.R
 import com.streamvault.app.navigation.Routes
+import com.streamvault.app.ui.components.CategoryRow
+import com.streamvault.app.ui.components.ChannelCard
+import com.streamvault.app.ui.components.ContinueWatchingRow
+import com.streamvault.app.ui.components.MovieCard
+import com.streamvault.app.ui.components.SeriesCard
 import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.interaction.TvButton
+import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.Series
-import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.VirtualCategoryIds
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
-// بيانات مؤقتة لتمثيل الفئات الملونة بالصورة (استبدلها ببيانات من ViewModel إذا توفرت)
-private data class LiveCategoryModel(
-    val id: Long,
-    val name: String,
-    val count: Int,
-    val icon: ImageVector,
-    val color: Color
-)
-
-private val liveCategories = listOf(
-    LiveCategoryModel(1, "All Channels", 1250, Icons.Default.Tv, Color(0xFFE91E63)), // أحمر
-    LiveCategoryModel(2, "Sports", 238, Icons.Default.SportsSoccer, Color(0xFF1E88E5)), // أزرق
-    LiveCategoryModel(3, "News", 184, Icons.Default.Newspaper, Color(0xFF00ACC1)), // سماوي
-    LiveCategoryModel(4, "Movies", 356, Icons.Default.Movie, Color(0xFFAB47BC)), // بنفسجي
-    LiveCategoryModel(5, "Kids", 95, Icons.Default.Face, Color(0xFFFF7043)), // برتقالي
-    LiveCategoryModel(6, "Documentary", 132, Icons.Default.Public, Color(0xFF26A69A)) // أخضر مائل للأزرق
+private val AlaaAccent = Color(0xFFFF304A)
+private val AlaaSidebarBg = Color(0xFF0A0B10)
+private val AlaaCategoryPalette = listOf(
+    Color(0xFFE91E63),
+    Color(0xFF1E88E5),
+    Color(0xFF00ACC1),
+    Color(0xFFAB47BC),
+    Color(0xFFFF7043),
+    Color(0xFF26A69A),
+    Color(0xFF5C6BC0),
+    Color(0xFF8D6E63)
 )
 
 @Composable
@@ -71,139 +95,306 @@ internal fun AlaaDashboard(
     onPlaybackHistoryClick: (PlaybackHistory) -> Unit,
     onContinueWatchingItemClick: (PlaybackHistory) -> Unit
 ) {
-    val isSelectedRoute = remember { mutableStateOf("Live TV") } // هنا تحدد الصفحة النشطة بناءً على الـ Navigation
+    val providerName = uiState.provider?.name.orEmpty()
+    val heroTitle = uiState.feature.title.ifBlank { stringResource(R.string.dashboard_title) }
+    val heroSummary = uiState.feature.summary.ifBlank {
+        stringResource(R.string.dashboard_subtitle, providerName)
+    }
+    val currentProfileId = uiState.currentCombinedProfileId
+    val liveCategories = remember(uiState.liveCategories) {
+        uiState.liveCategories
+            .filter { !it.isVirtual && it.name.isNotBlank() }
+            .take(12)
+    }
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // 1. الشريط الجانبي (Sidebar)
-        AlaaSidebar(
-            currentRoute = isSelectedRoute.value,
-            onRouteClick = { route -> 
-                isSelectedRoute.value = route 
-                onNavigate(route) 
-            }
-        )
+        AlaaSidebar(onNavigate = onNavigate)
 
-        // 2. المحتوى الرئيسي
         LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Hero Section (مطابق للصورة)
-            item(key = "hero") {
+            item(key = "alaa_hero") {
                 AlaaHero(
-                    title = "Live TV",
-                    summary = "Watch 1000+ Live Channels",
+                    title = heroTitle,
+                    summary = heroSummary,
                     artworkUrl = uiState.feature.artworkUrl,
                     onWatchNow = { onNavigate(Routes.LIVE_TV) }
                 )
             }
-
-            // Live Categories Section (الصف الملون)
-            item(key = "categories") {
-                AlaaLiveCategories(
-                    title = "Live Categories",
-                    categories = liveCategories, // هنا تمرر القائمة من الـ ViewModel
-                    onCategoryClick = { onNavigate(Routes.LIVE_TV) }
-                )
+            if (liveCategories.isNotEmpty()) {
+                item(key = "alaa_live_categories") {
+                    AlaaLiveCategories(
+                        title = stringResource(R.string.dashboard_live_shortcuts),
+                        categories = liveCategories,
+                        onCategoryClick = { category -> onNavigate(Routes.liveTv(category.id)) },
+                        onSeeAll = { onNavigate(Routes.LIVE_TV) }
+                    )
+                }
             }
-
-            // Continue Watching Section
+            if (uiState.isLoading &&
+                uiState.favoriteChannels.isEmpty() &&
+                uiState.recentChannels.isEmpty() &&
+                liveCategories.isEmpty()
+            ) {
+                item(key = "alaa_loading") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = AlaaAccent)
+                    }
+                }
+            }
+            if (uiState.favoriteChannels.isNotEmpty()) {
+                item(key = "alaa_favorite_channels") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_favorite_channels),
+                        items = uiState.favoriteChannels,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.liveTv(VirtualCategoryIds.FAVORITES)) }
+                    ) { channel ->
+                        ChannelCard(
+                            channel = channel,
+                            isRecording = channel.id in recordingChannelIds,
+                            isScheduledRecording = channel.id in scheduledChannelIds,
+                            onClick = { onFavoriteChannelClick(channel, currentProfileId) }
+                        )
+                    }
+                }
+            }
+            if (uiState.recentChannels.isNotEmpty()) {
+                item(key = "alaa_recent_channels") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_recent_channels),
+                        items = uiState.recentChannels,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.liveTv(VirtualCategoryIds.RECENT)) }
+                    ) { channel ->
+                        ChannelCard(
+                            channel = channel,
+                            isRecording = channel.id in recordingChannelIds,
+                            isScheduledRecording = channel.id in scheduledChannelIds,
+                            onClick = { onRecentChannelClick(channel, currentProfileId) }
+                        )
+                    }
+                }
+            }
             if (uiState.continueWatching.isNotEmpty()) {
-                item(key = "continue_watching") {
-                    ContinueWatchingSection(
+                item(key = "alaa_continue_watching") {
+                    ContinueWatchingRow(
                         items = uiState.continueWatching,
                         onItemClick = onContinueWatchingItemClick
                     )
                 }
             }
-
-            // باقي الأقسام (الموجودة في الكود السابق مثل Recent Movies, Top Rated...)
             if (uiState.recentMovies.isNotEmpty()) {
-                item(key = "recent_movies") {
-                    // ... استخدم المكونات القديمة هنا مع تعديل الطابع البصري
-                    Text(text = stringResource(R.string.dashboard_recent_movies), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    // MovieCard(...)
+                item(key = "alaa_recent_movies") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_recent_movies),
+                        items = uiState.recentMovies,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.MOVIES) }
+                    ) { movie ->
+                        MovieCard(movie = movie, onClick = { onMovieClick(movie) })
+                    }
                 }
             }
-            // ...
+            if (uiState.recentSeries.isNotEmpty()) {
+                item(key = "alaa_recent_series") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_recent_series),
+                        items = uiState.recentSeries,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.SERIES) }
+                    ) { series ->
+                        SeriesCard(
+                            series = series,
+                            subtitle = series.releaseDate
+                                ?: stringResource(R.string.dashboard_updated_series_badge),
+                            onClick = { onSeriesClick(series) }
+                        )
+                    }
+                }
+            }
+            if (uiState.topRatedMovies.isNotEmpty()) {
+                item(key = "alaa_top_rated_movies") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_top_rated_movies),
+                        items = uiState.topRatedMovies,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.MOVIES) }
+                    ) { movie ->
+                        MovieCard(movie = movie, onClick = { onMovieClick(movie) })
+                    }
+                }
+            }
+            if (uiState.recommendedMovies.isNotEmpty()) {
+                item(key = "alaa_recommended_movies") {
+                    CategoryRow(
+                        title = stringResource(R.string.dashboard_recommended_movies),
+                        items = uiState.recommendedMovies,
+                        keySelector = { it.id },
+                        onSeeAll = { onNavigate(Routes.MOVIES) }
+                    ) { movie ->
+                        MovieCard(movie = movie, onClick = { onMovieClick(movie) })
+                    }
+                }
+            }
         }
     }
 }
 
-// ------------------ مكونات التصميم الجديد ------------------
-
 @Composable
-private fun AlaaSidebar(currentRoute: String, onRouteClick: (String) -> Unit) {
+private fun AlaaSidebar(onNavigate: (String) -> Unit) {
+    val currentTime = remember {
+        LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+    }
+    val currentDate = remember {
+        LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, dd MMMM yyyy"))
+    }
+
     Column(
         modifier = Modifier
-            .width(260.dp)
+            .width(248.dp)
             .fillMaxHeight()
-            .background(Color(0xFF0A0B10))
+            .background(AlaaSidebarBg)
             .padding(vertical = 24.dp, horizontal = 16.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
-            // اللوجو
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "ibo", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                Text(text = " TV", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFFFF304A))
+                Text(
+                    text = "Alaa",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Text(
+                    text = " Player",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = AlaaAccent
+                )
             }
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // عناصر القائمة
-            SidebarItem(icon = Icons.Default.Tv, label = "Live TV", isSelected = currentRoute == "Live TV") { onRouteClick(Routes.LIVE_TV) }
-            SidebarItem(icon = Icons.Default.Movie, label = "Movies", isSelected = currentRoute == "Movies") { onRouteClick(Routes.MOVIES) }
-            SidebarItem(icon = Icons.Default.List, label = "Series", isSelected = currentRoute == "Series") { onRouteClick(Routes.SERIES) }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            SidebarItem(icon = Icons.Default.Favorite, label = "Favorites", isSelected = false) { onRouteClick(Routes.FAVORITES) }
-            SidebarItem(icon = Icons.Default.History, label = "Recently Watched", isSelected = false) { onRouteClick(Routes.RECENT) }
-            SidebarItem(icon = Icons.Default.Category, label = "Categories", isSelected = false) { onRouteClick(Routes.CATEGORIES) }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-
-            SidebarItem(icon = Icons.Default.Settings, label = "Settings", isSelected = false) { onRouteClick(Routes.SETTINGS) }
-            SidebarItem(icon = Icons.Default.SwapHoriz, label = "Change Server", isSelected = false) { onRouteClick(Routes.SERVER) }
+            Spacer(modifier = Modifier.height(28.dp))
+            SidebarItem(
+                icon = Icons.Default.Home,
+                label = stringResource(R.string.nav_home),
+                isSelected = true,
+                onClick = { onNavigate(Routes.HOME) }
+            )
+            SidebarItem(
+                icon = Icons.Default.Tv,
+                label = stringResource(R.string.nav_live_tv),
+                onClick = { onNavigate(Routes.LIVE_TV) }
+            )
+            SidebarItem(
+                icon = Icons.Default.Movie,
+                label = stringResource(R.string.nav_movies),
+                onClick = { onNavigate(Routes.MOVIES) }
+            )
+            SidebarItem(
+                icon = Icons.Default.VideoLibrary,
+                label = stringResource(R.string.nav_series),
+                onClick = { onNavigate(Routes.SERIES) }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            SidebarItem(
+                icon = Icons.Default.Favorite,
+                label = stringResource(R.string.dashboard_favorite_channels),
+                onClick = { onNavigate(Routes.liveTv(VirtualCategoryIds.FAVORITES)) }
+            )
+            SidebarItem(
+                icon = Icons.Default.History,
+                label = stringResource(R.string.dashboard_recent_channels),
+                onClick = { onNavigate(Routes.liveTv(VirtualCategoryIds.RECENT)) }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            SidebarItem(
+                icon = Icons.Default.Settings,
+                label = stringResource(R.string.nav_settings),
+                onClick = { onNavigate(Routes.SETTINGS) }
+            )
+            SidebarItem(
+                icon = Icons.Default.SwapHoriz,
+                label = stringResource(R.string.settings_providers),
+                onClick = { onNavigate(Routes.providerSetup()) }
+            )
         }
-
-        // الوقت والتاريخ في الأسفل
-        val currentTime = remember { mutableStateOf(java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))) }
-        val currentDate = remember { mutableStateOf(java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("EEEE, dd MMMM yyyy"))) }
-        
         Column {
-            Text(text = currentTime.value, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(text = currentDate.value, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = currentTime,
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = currentDate,
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
 
 @Composable
-private fun SidebarItem(icon: ImageVector, label: String, isSelected: Boolean, onClick: () -> Unit) {
-    val background = if (isSelected) Color(0xFFFF304A).copy(alpha = 0.2f) else Color.Transparent
-    val border = if (isSelected) Color(0xFFFF304A) else Color.Transparent
-
-    Row(
+private fun SidebarItem(
+    icon: ImageVector,
+    label: String,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
+) {
+    val background = if (isSelected) AlaaAccent.copy(alpha = 0.2f) else Color.Transparent
+    TvClickableSurface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(background)
-            .then(if (isSelected) Modifier.border(1.dp, border, RoundedCornerShape(8.dp)) else Modifier)
-            .focusable()
-            .clickable { onClick() }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 4.dp),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = AlaaAccent.copy(alpha = 0.35f),
+            pressedContainerColor = AlaaAccent.copy(alpha = 0.45f),
+            contentColor = if (isSelected) Color.White else Color.Gray,
+            focusedContentColor = Color.White
+        )
     ) {
-        Icon(icon, contentDescription = null, tint = if (isSelected) Color(0xFFFF304A) else Color.Gray)
-        Spacer(modifier = Modifier.width(16.dp))
-        Text(text = label, color = if (isSelected) Color.White else Color.Gray, style = MaterialTheme.typography.titleMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) AlaaAccent else Color.Gray,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                text = label,
+                color = if (isSelected) Color.White else Color.Gray,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
 @Composable
-private fun AlaaHero(title: String, summary: String, artworkUrl: String?, onWatchNow: () -> Unit) {
+private fun AlaaHero(
+    title: String,
+    summary: String,
+    artworkUrl: String?,
+    onWatchNow: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -219,29 +410,67 @@ private fun AlaaHero(title: String, summary: String, artworkUrl: String?, onWatc
                 modifier = Modifier.matchParentSize()
             )
         }
-        // Overlay
-        Box(Modifier.matchParentSize().background(Brush.horizontalGradient(listOf(Color(0xFF06080F).copy(alpha = 0.95f), Color.Transparent)))) 
-        
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFF06080F).copy(alpha = 0.95f), Color.Transparent)
+                    )
+                )
+        )
         Column(
-            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 40.dp)
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(horizontal = 36.dp)
+                .fillMaxWidth(0.7f)
         ) {
-            Text(text = title, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text(text = summary, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 8.dp))
-            
+            Text(
+                text = stringResource(R.string.app_name).uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = AlaaAccent
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.8f),
+                modifier = Modifier.padding(top = 8.dp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(24.dp))
-            
             TvButton(
                 onClick = onWatchNow,
                 colors = ButtonDefaults.colors(
-                    containerColor = Color(0xFFFF304A),
+                    containerColor = AlaaAccent,
                     contentColor = Color.White,
-                    focusedContainerColor = Color(0xFFFF5267)
+                    focusedContainerColor = Color(0xFFFF5267),
+                    focusedContentColor = Color.White
                 ),
-                shape = RoundedCornerShape(50)
+                shape = ButtonDefaults.shape(shape = RoundedCornerShape(50))
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Text(text = "Watch Now", fontWeight = FontWeight.Bold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White
+                    )
+                    Text(
+                        text = stringResource(R.string.nav_live_tv),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -249,86 +478,90 @@ private fun AlaaHero(title: String, summary: String, artworkUrl: String?, onWatc
 }
 
 @Composable
-private fun AlaaLiveCategories(title: String, categories: List<LiveCategoryModel>, onCategoryClick: (LiveCategoryModel) -> Unit) {
+private fun AlaaLiveCategories(
+    title: String,
+    categories: List<Category>,
+    onCategoryClick: (Category) -> Unit,
+    onSeeAll: () -> Unit
+) {
     Column {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-            Text(text = "View All", color = Color(0xFFFF304A), modifier = Modifier.focusable().clickable { })
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            TvClickableSurface(
+                onClick = onSeeAll,
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor = AlaaAccent.copy(alpha = 0.2f),
+                    contentColor = AlaaAccent,
+                    focusedContentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = stringResource(R.string.action_see_all),
+                    color = AlaaAccent,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        
         LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(categories) { category ->
-                Box(
+            items(categories, key = { it.id }) { category ->
+                val color = AlaaCategoryPalette[
+                    (kotlin.math.abs(category.id % AlaaCategoryPalette.size.toLong())).toInt()
+                ]
+                TvClickableSurface(
+                    onClick = { onCategoryClick(category) },
                     modifier = Modifier
-                        .width(160.dp)
-                        .height(100.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(category.color.copy(alpha = 0.2f))
-                        .focusable()
-                        .clickable { onCategoryClick(category) }
-                        .padding(16.dp)
+                        .width(168.dp)
+                        .height(104.dp),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = color.copy(alpha = 0.22f),
+                        focusedContainerColor = color.copy(alpha = 0.45f),
+                        pressedContainerColor = color.copy(alpha = 0.55f),
+                        contentColor = Color.White,
+                        focusedContentColor = Color.White
+                    )
                 ) {
-                    Column(verticalArrangement = Arrangement.SpaceBetween) {
-                        Icon(category.icon, contentDescription = null, tint = category.color)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Category,
+                            contentDescription = null,
+                            tint = color,
+                            modifier = Modifier.size(22.dp)
+                        )
                         Column {
-                            Text(text = category.name, color = Color.White, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(text = category.count.toString(), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                text = category.name,
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (category.count > 0) {
+                                Text(
+                                    text = category.count.toString(),
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ContinueWatchingSection(items: List<PlaybackHistory>, onItemClick: (PlaybackHistory) -> Unit) {
-    Column {
-        Text(text = "Continue Watching", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            items(items) { item ->
-                Box(
-                    modifier = Modifier
-                        .width(220.dp)
-                        .height(150.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .focusable()
-                        .clickable { onItemClick(item) }
-                ) {
-                    AsyncImage(
-                        model = rememberCrossfadeImageModel(item.posterUrl),
-                        contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize()
-                    )
-                    // Gradient overlay
-                    Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))))
-                    
-                    // زر التشغيل
-                    Box(
-                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp).size(36.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White)
-                    }
-
-                    // النص
-                    Column(Modifier.align(Alignment.BottomStart).padding(start = 56.dp, bottom = 14.dp)) {
-                        Text(text = item.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val subtitle = if (item.seasonNumber != null) "S${item.seasonNumber} - Episode ${item.episodeNumber}" else (item.year ?: "Movie")
-                        Text(text = subtitle, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
-                    }
-
-                    // شريط التقدم أسفل البطاقة
-                    LinearProgressIndicator(
-                        progress = { 0.5f }, // هنا توضع نسبة التقدم من الـ PlaybackHistory
-                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
-                        color = Color(0xFFFF304A),
-                        trackColor = Color.White.copy(alpha = 0.3f)
-                    )
                 }
             }
         }

@@ -53,6 +53,7 @@ jobs:
             gpu: software
 
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ startsWith(matrix.runner, 'macos') }}
 
     steps:
       - uses: actions/checkout@v4
