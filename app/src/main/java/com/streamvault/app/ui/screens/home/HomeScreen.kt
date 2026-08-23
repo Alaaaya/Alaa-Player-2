@@ -1197,6 +1197,14 @@ fun HomeScreen(
                                 }
                             }
 
+                            LaunchedEffect(uiState.pendingReorderChannelId, isReorderMode, uiState.filteredChannels) {
+                                if (!isReorderMode) return@LaunchedEffect
+                                val pendingId = uiState.pendingReorderChannelId ?: return@LaunchedEffect
+                                val channel = uiState.filteredChannels.firstOrNull { it.id == pendingId } ?: return@LaunchedEffect
+                                draggingChannel = channel
+                                viewModel.clearPendingReorderChannel()
+                            }
+
                             LaunchedEffect(isReorderMode, draggingChannel?.id, uiState.filteredChannels) {
                                 if (!isReorderMode) return@LaunchedEffect
                                 val draggingChannelId = draggingChannel?.id ?: return@LaunchedEffect
