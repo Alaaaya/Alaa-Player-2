@@ -1894,6 +1894,22 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun enterChannelReorderModeForChannel(channel: Channel) {
+        val category = _uiState.value.selectedCategory ?: return
+        if (!category.isVirtual || category.id == VirtualCategoryIds.RECENT) return
+        onDismissDialog()
+        dismissCategoryOptions()
+        viewModelScope.launch {
+            val reorderChannels = loadReorderChannels(category)
+            if (reorderChannels.none { it.id == channel.id }) return@launch
+            _uiState.update { it.copy(isChannelReorderMode = true, reorderCategory = category, filteredChannels = reorderChannels, pendingReorderChannelId = channel.id) }
+        }
+    }
+
+    fun clearPendingReorderChannel() {
+        _uiState.update { it.copy(pendingReorderChannelId = null) }
+    }
+
     fun enterChannelReorderMode(category: Category) {
         dismissCategoryOptions()
         viewModelScope.launch {
@@ -1913,6 +1929,7 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(
             isChannelReorderMode = false, 
             reorderCategory = null,
+            pendingReorderChannelId = null,
             filteredChannels = _localChannels.value
         ) }
     }
@@ -2116,6 +2133,7 @@ data class HomeUiState(
     val selectedCategoryForOptions: Category? = null,
     val isChannelReorderMode: Boolean = false,
     val reorderCategory: Category? = null,
+    val pendingReorderChannelId: Long? = null,
     val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.PRO,
     val previewChannelId: Long? = null,
     val previewPlayerEngine: PlayerEngine? = null,
