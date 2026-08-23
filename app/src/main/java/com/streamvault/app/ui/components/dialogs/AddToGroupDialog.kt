@@ -52,7 +52,8 @@ fun AddToGroupDialog(
     onHideChannel: (() -> Unit)? = null,
     onMoveToMovies: (() -> Unit)? = null,
     onMoveToSeries: (() -> Unit)? = null,
-    onMoveBackToLive: (() -> Unit)? = null
+    onMoveBackToLive: (() -> Unit)? = null,
+    onMoveToReorder: (() -> Unit)? = null
 ) {
     var showCreateGroup by remember { mutableStateOf(false) }
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -86,6 +87,7 @@ fun AddToGroupDialog(
     val safeMoveToMovies = { if (canInteract) onMoveToMovies?.invoke() }
     val safeMoveToSeries = { if (canInteract) onMoveToSeries?.invoke() }
     val safeMoveBackToLive = { if (canInteract) onMoveBackToLive?.invoke() }
+    val safeMoveToReorder = { if (canInteract) onMoveToReorder?.invoke() }
     val safeCreateGroup = { if (canInteract && onCreateGroup != null) showCreateGroup = true }
     val safeAddToGroup: (Category) -> Unit = { group -> if (canInteract) onAddToGroup(group) }
     val safeRemoveFromGroup: (Category) -> Unit = { group -> if (canInteract) onRemoveFromGroup(group) }
@@ -184,6 +186,16 @@ fun AddToGroupDialog(
                                     else stringResource(R.string.add_group_add_favorites),
                                     color = Color.Black
                                 )
+                            }
+                        }
+
+                        if (onMoveToReorder != null) {
+                            item {
+                                Button(
+                                    onClick = safeMoveToReorder,
+                                    modifier = Modifier.fillMaxWidth().mouseClickable(onClick = safeMoveToReorder),
+                                    colors = ButtonDefaults.colors(containerColor = AppColors.Brand, contentColor = Color.Black)
+                                ) { Text(stringResource(R.string.home_move_channel_to_reorder)) }
                             }
                         }
 
