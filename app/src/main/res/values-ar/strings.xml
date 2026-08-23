@@ -1167,6 +1167,7 @@
     <string name="settings_history_cleared">تم مسح سجل المشاهدة والعناصر الأخيرة</string>
     <string name="settings_pin_changed">تم حفظ رمز PIN بنجاح</string>
     <string name="home_reorder_channels">إعادة ترتيب القنوات</string>
+    <string name="home_move_channel_to_reorder">نقل هالقناة</string>
     <string name="tv_input_setup_scanning_title">جارٍ فحص قنوات StreamVault</string>
     <string name="tv_input_setup_success_title">البث التلفزيوني المباشر جاهز</string>
     <string name="tv_input_setup_no_provider_title">لم يتم إعداد أي مزود IPTV</string>
