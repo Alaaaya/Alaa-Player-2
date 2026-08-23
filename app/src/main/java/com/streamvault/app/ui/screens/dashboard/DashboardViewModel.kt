@@ -12,7 +12,7 @@ import com.streamvault.app.update.latestAppUpdateAction
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.AppHomeDashboardShelf
 import com.streamvault.domain.model.AppHomeTheme
-import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.Category // استيراد الفئة
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Favorite
@@ -262,6 +262,11 @@ class DashboardViewModel @Inject constructor(
                 homeTheme = AppHomeTheme.CLASSIC,
                 updateNotice = null
             )
+        }.combine(
+            // ⭐️ إضافة جلب الفئات الكاملة هنا
+            observeAllLiveCategories(liveProviderIds).onStart { emit(emptyList()) }
+        ) { snapshot, liveCategories ->
+            snapshot.copy(liveCategories = liveCategories)
         }
 
         return baseSnapshot.combine(
@@ -292,6 +297,8 @@ class DashboardViewModel @Inject constructor(
                 recommendedMovies = snapshot.shelves.recommendedMovies,
                 lastLiveCategory = snapshot.liveContext.lastVisitedCategory,
                 liveShortcuts = snapshot.liveContext.shortcuts,
+                // ⭐️ إضافة الفئات إلى الحالة النهائية
+                liveCategories = snapshot.liveCategories,
                 currentCombinedProfileId = combinedProfileId,
                 stats = DashboardStats(
                     liveChannelCount = snapshot.liveChannelCount,
@@ -325,6 +332,12 @@ class DashboardViewModel @Inject constructor(
                 isLoading = false
             )
         }
+    }
+
+    // ⭐️ دالة جديدة لجلب جميع الفئات مع العدد
+    private fun observeAllLiveCategories(providerIds: List<Long>): Flow<List<Category>> {
+        if (providerIds.isEmpty()) return flowOf(emptyList())
+        return getCustomCategories(providerIds, ContentType.LIVE)
     }
 
     private fun observeFavoriteChannels(providerIds: List<Long>): Flow<List<Channel>> =
@@ -648,8 +661,6 @@ class DashboardViewModel @Inject constructor(
         recentMovies: List<Movie>,
         recentSeries: List<Series>
     ): DashboardFeature {
-        // When continue-watching is empty due to a transient IO failure, do not silently
-        // fall through to an unrelated hero — surface an explicit degraded state instead.
         if (continueWatching.isEmpty() && continueWatchingDegraded) {
             return DashboardFeature(
                 title = appContext.getString(R.string.dashboard_resume_unavailable),
@@ -833,6 +844,8 @@ private data class DashboardSnapshot(
     val liveChannelCount: Int,
     val movieCount: Int,
     val seriesCount: Int,
+    // ⭐️ تمت إضافة هذه الخاصية
+    val liveCategories: List<Category> = emptyList(),
     val homeDashboardShelves: List<AppHomeDashboardShelf>,
     val homeTheme: AppHomeTheme,
     val updateNotice: DashboardUpdateNotice?
@@ -865,6 +878,8 @@ data class DashboardUiState(
     val recommendedMovies: List<Movie> = emptyList(),
     val lastLiveCategory: Category? = null,
     val liveShortcuts: List<DashboardLiveShortcut> = emptyList(),
+    // ⭐️ تمت إضافة هذه الخاصية
+    val liveCategories: List<Category> = emptyList(),
     val feature: DashboardFeature = DashboardFeature(),
     val providerHealth: DashboardProviderHealth = DashboardProviderHealth(),
     val providerWarnings: List<String> = emptyList(),
