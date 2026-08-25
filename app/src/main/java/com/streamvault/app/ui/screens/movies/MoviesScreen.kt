@@ -86,6 +86,7 @@ import com.streamvault.app.ui.components.shell.VodSectionHeader
 import com.streamvault.app.ui.design.FocusRestoreHost
 import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.model.VodViewMode
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
@@ -469,7 +470,8 @@ private fun MoviesVodContent(
         )
     }
 
-    if (uiState.vodViewMode == VodViewMode.CLASSIC) {
+    val useAlaaCategoryRail = LocalIsAlaaTheme.current
+    if (useAlaaCategoryRail || uiState.vodViewMode == VodViewMode.CLASSIC) {
         MoviesVodClassicContent(
             uiState = uiState,
             selectedFilterType = selectedFilterType,
@@ -939,6 +941,7 @@ private fun MoviesVodClassicContent(
     onDismissReorder: () -> Unit,
     initialFocusRequester: FocusRequester
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
     val allLabel = stringResource(R.string.vod_classic_all)
     val continueLabel = stringResource(R.string.vod_classic_continue_watching)
     val recentLabel = stringResource(R.string.vod_classic_recently_added)
@@ -1006,8 +1009,8 @@ private fun MoviesVodClassicContent(
     var draggingMovie by remember { mutableStateOf<Movie?>(null) }
     val initialGridMovieId = filteredGridMovies.firstOrNull()?.id
 
-    LaunchedEffect(uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
-        if (uiState.vodViewMode == VodViewMode.CLASSIC && uiState.selectedCategory == null && !uiState.isReorderMode) {
+    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
+        if ((isAlaaTheme || uiState.vodViewMode == VodViewMode.CLASSIC) && uiState.selectedCategory == null && !uiState.isReorderMode) {
             onSelectCategory(uiState.favoriteCategoryName)
         }
     }

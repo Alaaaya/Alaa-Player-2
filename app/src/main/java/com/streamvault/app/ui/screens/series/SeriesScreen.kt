@@ -468,7 +468,8 @@ private fun SeriesVodContent(
         )
     }
 
-    if (uiState.vodViewMode == VodViewMode.CLASSIC) {
+    val useAlaaCategoryRail = LocalIsAlaaTheme.current
+    if (useAlaaCategoryRail || uiState.vodViewMode == VodViewMode.CLASSIC) {
         SeriesVodClassicContent(
             uiState = uiState,
             selectedFilterType = selectedFilterType,
@@ -947,6 +948,7 @@ private fun SeriesVodClassicContent(
     onDismissReorder: () -> Unit,
     initialFocusRequester: FocusRequester
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
     val allLabel = stringResource(R.string.vod_classic_all)
     val continueLabel = stringResource(R.string.vod_classic_continue_watching)
     val recentLabel = stringResource(R.string.vod_classic_recently_added)
@@ -1014,8 +1016,8 @@ private fun SeriesVodClassicContent(
     var draggingSeries by remember { mutableStateOf<Series?>(null) }
     val initialGridSeriesId = filteredGridSeries.firstOrNull()?.id
 
-    LaunchedEffect(uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
-        if (uiState.vodViewMode == VodViewMode.CLASSIC && uiState.selectedCategory == null && !uiState.isReorderMode) {
+    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
+        if ((isAlaaTheme || uiState.vodViewMode == VodViewMode.CLASSIC) && uiState.selectedCategory == null && !uiState.isReorderMode) {
             onSelectCategory(uiState.favoriteCategoryName)
         }
     }
