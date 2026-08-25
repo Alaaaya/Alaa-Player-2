@@ -25,6 +25,7 @@ class PreferenceBackupRegistryTest {
             "hidden_channels_42",
             "pinned_categories_42_LIVE",
             "category_sort_42_LIVE",
+            "channel_order_42_category_99",
             "aspect_ratio_123"
         )
         val allKeys = literalKeys + dynamicSamples
@@ -34,7 +35,8 @@ class PreferenceBackupRegistryTest {
             "hiddenCategoriesKey(providerId, type",
             "hiddenChannelsKey(providerId",
             "pinnedCategoriesKey(providerId, type",
-            "categorySortModeKey(providerId, type"
+            "categorySortModeKey(providerId, type",
+            "channelOrderKey(scope"
         )
         val unknownDynamicFactories = Regex("(?:boolean|int|long|float|double|string)PreferencesKey\\(([^)\\r\\n]+)")
             .findAll(source)
