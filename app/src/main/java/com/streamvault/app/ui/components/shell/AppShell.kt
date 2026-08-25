@@ -35,6 +35,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +69,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -87,9 +94,11 @@ import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.app.ui.theme.AlaaThemeColors
 import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.AlaaThemeFocus
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
+import com.streamvault.domain.model.VirtualCategoryIds
 
 enum class AppNavigationChrome {
     Rail,
@@ -147,13 +156,28 @@ fun AppScreenScaffold(
                             bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.safeBottom
                         )
                 ) {
-                    if (topBarActions != null) {
+                    if (isAlaaTheme || topBarActions != null) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically,
-                            content = topBarActions
-                        )
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isAlaaTheme) {
+                                AlaaTopAction(
+                                    icon = Icons.Default.Search,
+                                    contentDescription = stringResource(R.string.search_title),
+                                    onClick = { onNavigate(Routes.SEARCH) }
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                AlaaTopAction(
+                                    icon = Icons.Default.AccountCircle,
+                                    contentDescription = stringResource(R.string.nav_settings),
+                                    onClick = { onNavigate(Routes.SETTINGS) }
+                                )
+                                if (topBarActions != null) Spacer(modifier = Modifier.width(10.dp))
+                            }
+                            if (topBarActions != null) topBarActions()
+                        }
                         Spacer(modifier = Modifier.height(if (isAlaaTheme) 16.dp else spacing.md))
                     }
                     if (showScreenHeader) {
@@ -332,6 +356,35 @@ private fun TopNavigationBar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AlaaTopAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    TvIconButton(
+        onClick = onClick,
+        colors = androidx.tv.material3.IconButtonDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = AlaaThemeColors.SurfaceFocused,
+            contentColor = AlaaThemeColors.TextSecondary,
+            focusedContentColor = AlaaThemeColors.TextPrimary
+        ),
+        border = androidx.tv.material3.IconButtonDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent),
+                shape = RoundedCornerShape(999.dp)
+            )
+        )
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
 
@@ -719,6 +772,11 @@ private fun DestinationRail(
     val spacing = LocalAppSpacing.current
     val items = rememberDestinationItems()
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val favoritesFocusRequester = remember { FocusRequester() }
+    val recentFocusRequester = remember { FocusRequester() }
+    val providerFocusRequester = remember { FocusRequester() }
+    val currentTime = remember { LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a")) }
+    val currentDate = remember { LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, dd MMM yyyy")) }
 
     Box(
         modifier = modifier
@@ -737,8 +795,15 @@ private fun DestinationRail(
             )
             .focusProperties {
                 onEnter = {
-                    val activeItem = findActiveDestinationItem(items, currentRoute)
-                    focusRequesters[activeItem?.route] ?: FocusRequester.Default
+                    when {
+                        isAlaaTheme && currentRoute == Routes.liveTv(VirtualCategoryIds.FAVORITES) -> favoritesFocusRequester
+                        isAlaaTheme && currentRoute == Routes.liveTv(VirtualCategoryIds.RECENT) -> recentFocusRequester
+                        isAlaaTheme && currentRoute.startsWith(Routes.providerSetup()) -> providerFocusRequester
+                        else -> {
+                            val activeItem = findActiveDestinationItem(items, currentRoute)
+                            focusRequesters[activeItem?.route] ?: FocusRequester.Default
+                        }
+                    }
                 }
             }
     ) {
@@ -778,6 +843,48 @@ private fun DestinationRail(
                     }
                 )
             }
+            if (isAlaaTheme) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val favoritesRoute = Routes.liveTv(VirtualCategoryIds.FAVORITES)
+                val recentRoute = Routes.liveTv(VirtualCategoryIds.RECENT)
+                RailButton(
+                    label = stringResource(R.string.dashboard_favorite_channels),
+                    icon = Icons.Default.Favorite,
+                    selected = currentRoute == favoritesRoute,
+                    isAlaaTheme = true,
+                    modifier = Modifier.focusRequester(favoritesFocusRequester),
+                    onClick = { onNavigate(favoritesRoute) }
+                )
+                RailButton(
+                    label = stringResource(R.string.dashboard_recent_channels),
+                    icon = Icons.Default.History,
+                    selected = currentRoute == recentRoute,
+                    isAlaaTheme = true,
+                    modifier = Modifier.focusRequester(recentFocusRequester),
+                    onClick = { onNavigate(recentRoute) }
+                )
+                RailButton(
+                    label = stringResource(R.string.settings_providers),
+                    icon = Icons.Default.SwapHoriz,
+                    selected = currentRoute.startsWith(Routes.providerSetup()),
+                    isAlaaTheme = true,
+                    modifier = Modifier.focusRequester(providerFocusRequester),
+                    onClick = { onNavigate(Routes.providerSetup()) }
+                )
+            }
+            if (isAlaaTheme) {
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = currentTime,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = AlaaThemeColors.TextPrimary
+                )
+                Text(
+                    text = currentDate,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AlaaThemeColors.TextTertiary
+                )
+            }
         }
     }
 }
@@ -794,7 +901,11 @@ private fun RailButton(
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) FocusSpec.FocusedScale else 1f,
+        targetValue = if (isFocused) {
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+        } else {
+            1f
+        },
         animationSpec = AppMotion.FocusSpec,
         label = "railButtonScale"
     )

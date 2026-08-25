@@ -78,6 +78,7 @@ import com.streamvault.app.ui.theme.TextSecondary
 import com.streamvault.app.ui.theme.TextTertiary
 import com.streamvault.app.ui.theme.AlaaThemeColors
 import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.AlaaThemeFocus
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
@@ -124,11 +125,15 @@ fun FocusableCard(
 
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
-            if (isReorderMode && !isDragging) 1f else FocusSpec.FocusedScale
+            if (isReorderMode && !isDragging) 1f else if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
         } else {
-            if (isDragging) FocusSpec.FocusedScale else 1f
+            if (isDragging) {
+                if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+            } else {
+                1f
+            }
         },
-        animationSpec = tween(durationMillis = 160),
+        animationSpec = tween(durationMillis = if (isAlaaTheme) AlaaThemeFocus.AnimationDurationMs else 160),
         label = "cardScale"
     )
 
