@@ -40,7 +40,8 @@ import com.streamvault.app.ui.screens.settings.SettingsScreen
 import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.ui.screens.downloads.DownloadsScreen
 import com.streamvault.app.ui.screens.devicecontrol.DeviceLinkScreen
-import com.streamvault.app.ui.theme.LocalIsAlaaTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
+import com.streamvault.app.ui.theme.ThemePresentation
 import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
@@ -79,12 +80,12 @@ internal fun resolveCatalogRoute(
     else -> requestedRoute
 }
 
-internal fun shouldReplaceAlaaHomeStack(
-    isAlaaTheme: Boolean,
+internal fun shouldReplaceHomeStack(
+    presentation: ThemePresentation,
     currentRoute: String?,
     destinationRoute: String
 ): Boolean {
-    if (!isAlaaTheme || currentRoute != Routes.HOME) return false
+    if (!presentation.replacesHomeWhenOpeningSections || currentRoute != Routes.HOME) return false
     return destinationRoute == Routes.LIVE_TV ||
         destinationRoute.startsWith("${Routes.LIVE_TV}?") ||
         destinationRoute in setOf(Routes.MOVIES, Routes.SERIES, Routes.VOD)
@@ -372,7 +373,7 @@ internal fun AppTopLevelDestination.toAppRoute(): String = when (this) {
 @Composable
 fun AppNavigation(mainActivity: MainActivity) {
     val navController = rememberNavController()
-    val isAlaaTheme = LocalIsAlaaTheme.current
+    val themePresentation = LocalThemePresentation.current
     val currentBackStackEntry = navController.currentBackStackEntryAsState().value
     val activeProvider = mainActivity.providerRepository.getActiveProvider()
         .collectAsStateWithLifecycle(initialValue = null)
@@ -510,12 +511,12 @@ fun AppNavigation(mainActivity: MainActivity) {
         if (currentRoute == resolvedRoute || currentRoute?.startsWith("$resolvedRoute?") == true) return
 
         navController.navigate(resolvedRoute) {
-            val replaceAlaaHome = shouldReplaceAlaaHomeStack(
-                isAlaaTheme = isAlaaTheme,
+            val replaceHome = shouldReplaceHomeStack(
+                presentation = themePresentation,
                 currentRoute = currentRoute,
                 destinationRoute = resolvedRoute
             )
-            if (replaceAlaaHome) {
+            if (replaceHome) {
                 popUpTo(Routes.HOME) { inclusive = true }
             } else {
                 popUpTo(navController.graph.startDestinationId) {
@@ -523,7 +524,7 @@ fun AppNavigation(mainActivity: MainActivity) {
                 }
             }
             launchSingleTop = true
-            restoreState = !replaceAlaaHome
+            restoreState = !replaceHome
         }
     }
 
