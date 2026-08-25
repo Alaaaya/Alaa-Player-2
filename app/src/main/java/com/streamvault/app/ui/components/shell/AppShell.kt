@@ -123,7 +123,9 @@ fun AppScreenScaffold(
 ) {
     val spacing = LocalAppSpacing.current
     val isAlaaTheme = LocalIsAlaaTheme.current
-    val resolvedNavigationChrome = if (isAlaaTheme) AppNavigationChrome.Rail else navigationChrome
+    // لا يفرض الثيم موضع التنقّل: Live TV يطلب شريطاً علوياً مرجعياً،
+    // بينما تبقى الشاشات التي تطلب Rail على العمود الجانبي.
+    val resolvedNavigationChrome = navigationChrome
     val canvasBrush = if (isAlaaTheme) {
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
     } else {
@@ -298,6 +300,7 @@ private fun TopNavigationBar(
 ) {
     val items = rememberDestinationItems()
     val scrollState = rememberScrollState()
+    val isAlaaTheme = LocalIsAlaaTheme.current
 
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     
@@ -308,8 +311,10 @@ private fun TopNavigationBar(
                 focusRequesters[activeItem?.route] ?: FocusRequester.Default
             }
         },
-        shape = RoundedCornerShape(18.dp),
-        colors = SurfaceDefaults.colors(containerColor = AppColors.Surface.copy(alpha = 0.9f))
+        shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp),
+        colors = SurfaceDefaults.colors(
+            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface.copy(alpha = 0.96f) else AppColors.Surface.copy(alpha = 0.9f)
+        )
     ) {
         Row(
             modifier = Modifier
@@ -322,7 +327,7 @@ private fun TopNavigationBar(
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.titleSmall,
-                color = AppColors.TextPrimary,
+                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary,
                 modifier = Modifier.wrapContentWidth(Alignment.Start)
             )
             Spacer(modifier = Modifier.width(32.dp)) // Increased spacing to prevent overlap
@@ -429,9 +434,17 @@ private fun TopNavigationButton(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val navigationShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 14.dp)
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) FocusSpec.FocusedScale else 1f,
-        animationSpec = AppMotion.FocusSpec,
+        targetValue = if (isFocused) {
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+        } else 1f,
+        animationSpec = if (isAlaaTheme) {
+            androidx.compose.animation.core.tween(durationMillis = AlaaThemeFocus.AnimationDurationMs)
+        } else {
+            AppMotion.FocusSpec
+        },
         label = "topNavScale"
     )
 
@@ -460,15 +473,20 @@ private fun TopNavigationButton(
                 }
                 isFocused = it.isFocused
             },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        shape = ClickableSurfaceDefaults.shape(navigationShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) AppColors.BrandMuted else Color.Transparent,
-            focusedContainerColor = AppColors.SurfaceEmphasis
+            containerColor = if (selected) {
+                if (isAlaaTheme) AlaaThemeColors.AccentMuted else AppColors.BrandMuted
+            } else Color.Transparent,
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(FocusSpec.BorderWidth, AppColors.Focus),
-                shape = RoundedCornerShape(14.dp)
+                border = BorderStroke(
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else FocusSpec.BorderWidth,
+                    if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Focus
+                ),
+                shape = navigationShape
             )
         )
     ) {
@@ -480,13 +498,17 @@ private fun TopNavigationButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (selected) AppColors.Brand else AppColors.TextSecondary,
+                tint = if (selected) {
+                    if (isAlaaTheme) AlaaThemeColors.AccentStrong else AppColors.Brand
+                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
                 modifier = Modifier.size(14.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (selected) AppColors.TextPrimary else AppColors.TextSecondary
+                color = if (selected || isFocused) {
+                    if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
+                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary
             )
         }
     }

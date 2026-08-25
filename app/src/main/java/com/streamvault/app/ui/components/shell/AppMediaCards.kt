@@ -68,6 +68,10 @@ import com.streamvault.app.ui.design.FocusSpec
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 import com.streamvault.app.ui.model.archivePlaybackCapability
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.AlaaThemeFocus
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Movie
@@ -95,6 +99,7 @@ fun LiveChannelRowCard(
     modifier: Modifier = Modifier,
     rowHeight: Dp = 68.dp
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
     val isUltraCompact = rowHeight <= 60.dp
     val isDense = rowHeight <= 56.dp
     val contentPadding = if (isUltraCompact) 5.dp else 6.dp
@@ -108,8 +113,8 @@ fun LiveChannelRowCard(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(AppColors.SurfaceElevated)
+            .clip(RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp))
+            .background(if (isAlaaTheme) AlaaThemeColors.Surface else AppColors.SurfaceElevated)
             .fillMaxWidth()
             .height(rowHeight)
     ) {
@@ -129,10 +134,10 @@ fun LiveChannelRowCard(
                 ChannelLogoBadge(
                     channelName = channel.name,
                     logoUrl = channel.logoUrl,
-                    backgroundColor = AppColors.SurfaceEmphasis,
+                    backgroundColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else AppColors.SurfaceEmphasis,
                     contentPadding = PaddingValues(logoPadding),
                     textStyle = MaterialTheme.typography.titleLarge,
-                    textColor = AppColors.TextSecondary,
+                    textColor = if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -145,12 +150,15 @@ fun LiveChannelRowCard(
                         horizontalArrangement = Arrangement.spacedBy(badgeSpacing),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        StatusPill(label = stringResource(R.string.card_live_badge), containerColor = AppColors.Live)
+                        StatusPill(
+                            label = stringResource(R.string.card_live_badge),
+                            containerColor = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Live
+                        )
                         sourceBadgeLabel?.takeIf { it.isNotBlank() }?.let { label ->
                             StatusPill(
                                 label = label,
-                                containerColor = AppColors.SurfaceEmphasis,
-                                contentColor = AppColors.TextPrimary
+                                containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else AppColors.SurfaceEmphasis,
+                                contentColor = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
                             )
                         }
                         if (channel.isFavorite) {
@@ -173,7 +181,7 @@ fun LiveChannelRowCard(
                         append(channel.name)
                     },
                     style = if (isDense) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleSmall,
-                    color = AppColors.TextPrimary,
+                    color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -182,7 +190,7 @@ fun LiveChannelRowCard(
                     Text(
                         text = program.title,
                         style = if (isDense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
-                        color = AppColors.TextSecondary,
+                        color = if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -195,15 +203,15 @@ fun LiveChannelRowCard(
                                 .fillMaxWidth()
                                 .height(2.dp)
                                 .clip(RoundedCornerShape(999.dp)),
-                            color = AppColors.Info,
-                            trackColor = AppColors.SurfaceEmphasis
+                            color = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Info,
+                            trackColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
                         )
                     }
                 } else {
                     Text(
                         text = stringResource(R.string.label_no_schedule),
                         style = if (isDense) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
-                        color = AppColors.TextTertiary
+                        color = if (isAlaaTheme) AlaaThemeColors.TextTertiary else AppColors.TextTertiary
                     )
                 }
             }
@@ -226,6 +234,8 @@ fun LiveChannelRowSurface(
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
     val focusRequester = remember { FocusRequester() }
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val rowShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 16.dp)
     val favoriteLabel = stringResource(R.string.a11y_favorite)
     val catchUpLabel = stringResource(R.string.a11y_catch_up_available)
     val lockedLabel = stringResource(R.string.a11y_locked)
@@ -250,8 +260,14 @@ fun LiveChannelRowSurface(
         }
     }
     val scale by animateFloatAsState(
-        targetValue = if (isDragging) FocusSpec.FocusedScale else 1f,
-        animationSpec = AppMotion.FocusSpec,
+        targetValue = if (isDragging || isFocused) {
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+        } else 1f,
+        animationSpec = if (isAlaaTheme) {
+            androidx.compose.animation.core.tween(durationMillis = AlaaThemeFocus.AnimationDurationMs)
+        } else {
+            AppMotion.FocusSpec
+        },
         label = "liveRowScale"
     )
 
@@ -289,18 +305,26 @@ fun LiveChannelRowSurface(
                 isFocused = it.isFocused
             },
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        shape = ClickableSurfaceDefaults.shape(rowShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = AppColors.SurfaceElevated,
-            focusedContainerColor = AppColors.SurfaceEmphasis
+            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface else AppColors.SurfaceElevated,
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(
-                    width = if (isDragging) 4.dp else FocusSpec.BorderWidth,
-                    color = if (isDragging) AppColors.Warning else AppColors.Focus
+                    width = when {
+                        isDragging -> 4.dp
+                        isAlaaTheme -> AlaaThemeDimensions.FocusBorder
+                        else -> FocusSpec.BorderWidth
+                    },
+                    color = when {
+                        isDragging -> AppColors.Warning
+                        isAlaaTheme -> AlaaThemeColors.Accent
+                        else -> AppColors.Focus
+                    }
                 ),
-                shape = RoundedCornerShape(16.dp)
+                shape = rowShape
             )
         )
     ) {
@@ -315,13 +339,15 @@ fun LiveChannelRowSurface(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AppColors.HeroBottom.copy(alpha = 0.82f)),
+                        .background(
+                            if (isAlaaTheme) AlaaThemeColors.Canvas.copy(alpha = 0.9f) else AppColors.HeroBottom.copy(alpha = 0.82f)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     StatusPill(
                         label = stringResource(R.string.home_locked_short),
-                        containerColor = AppColors.SurfaceEmphasis,
-                        contentColor = AppColors.TextPrimary
+                        containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else AppColors.SurfaceEmphasis,
+                        contentColor = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
                     )
                 }
             }
@@ -349,7 +375,7 @@ fun LiveChannelRowSurface(
                     Icon(
                         imageVector = Icons.Filled.Star,
                         contentDescription = null,
-                        tint = AppColors.Warning,
+                        tint = if (isAlaaTheme) AlaaThemeColors.AccentStrong else AppColors.Warning,
                         modifier = Modifier.size(11.dp)
                     )
                 }

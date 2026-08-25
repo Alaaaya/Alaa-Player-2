@@ -8,11 +8,14 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.test.assertAgainstGolden
 import com.streamvault.app.ui.theme.StreamVaultTheme
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.Channel
 import org.junit.Rule
 import org.junit.Test
@@ -75,6 +78,28 @@ class ShellGoldenTest {
         }
 
         composeRule.onNodeWithTag("golden").assertAgainstGolden("live_channel_row_surface")
+    }
+
+    @Test
+    fun liveChannelRowSurface_alaa_retainsAccessibleChannelRow() {
+        composeRule.setContent {
+            StreamVaultTheme(appHomeTheme = AppHomeTheme.ALAA) {
+                LiveChannelRowSurface(
+                    channel = Channel(
+                        id = 8L,
+                        number = 24,
+                        name = "Alaa Live",
+                        streamUrl = "https://example.com/live"
+                    ),
+                    onClick = {},
+                    onLongClick = {}
+                )
+            }
+        }
+
+        composeRule
+            .onNodeWithContentDescription("24 Alaa Live")
+            .assertIsDisplayed()
     }
 
     @Test

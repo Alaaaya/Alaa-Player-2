@@ -160,6 +160,9 @@ fun HomeScreen(
     val shouldShowLiveSourceSwitcher = uiState.showLiveSourceSwitcher && uiState.liveSourceOptions.isNotEmpty()
     val isReorderMode = uiState.isChannelReorderMode
     val isProMode = uiState.liveTvChannelMode == LiveTvChannelMode.PRO
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
+    val shouldShowPreviewPane = isAlaaTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -174,7 +177,7 @@ fun HomeScreen(
         (screenWidth * 0.34f).coerceIn(170.dp, 220.dp)
     } else if (!isTelevisionDevice && screenWidth < 1280.dp) {
         (screenWidth * 0.28f).coerceIn(220.dp, 280.dp)
-    } else if (isProMode) {
+    } else if (shouldShowPreviewPane) {
         320.dp
     } else if (isDenseMode) {
         300.dp
@@ -370,12 +373,15 @@ fun HomeScreen(
                     )
                 }
             } else if (uiState.isCategoriesLoading && uiState.categories.isEmpty()) {
-                Row(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(if (shouldShowPreviewPane) 16.dp else 0.dp)
+                ) {
                     Box(
                         modifier = Modifier
                             .width(sidebarWidth)
                             .fillMaxHeight()
-                            .background(SurfaceElevated)
+                            .background(if (isAlaaTheme) AlaaThemeColors.Sidebar else SurfaceElevated, RoundedCornerShape(20.dp))
                             .padding(horizontal = 16.dp, vertical = 24.dp)
                     ) {
                         HomeLoadingPane(
@@ -393,9 +399,21 @@ fun HomeScreen(
                             message = stringResource(R.string.home_loading_channels)
                         )
                     }
+                    if (shouldShowPreviewPane) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1.08f)
+                                .fillMaxHeight()
+                                .background(if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else SurfaceElevated, RoundedCornerShape(20.dp))
+                                .padding(24.dp)
+                        ) {
+                            HomeLoadingPane(message = stringResource(R.string.live_preview_title))
+                        }
+                    }
                 }
             } else {
                 val channelSearchFocusRequester = remember { FocusRequester() }
+                val previewFocusRequester = remember { FocusRequester() }
                 val categoryFocusRequesters = remember { mutableMapOf<Long, FocusRequester>() }
                 val channelFocusRequesters = remember { mutableMapOf<Long, FocusRequester>() }
                 val visibleCategories = remember(uiState.categories, uiState.categorySearchQuery) {
@@ -491,6 +509,11 @@ fun HomeScreen(
                         }
                     }
                     return focusedImmediately
+                }
+
+                fun requestPreviewFocusFromChannel(): Boolean {
+                    if (!shouldShowPreviewPane) return false
+                    return runCatching { previewFocusRequester.requestFocus() }.isSuccess
                 }
 
                 val displayedCategory = uiState.selectedCategory?.takeIf { !isCategoryLocked(it) }
@@ -720,7 +743,10 @@ fun HomeScreen(
                         modifier = Modifier
                             .width(sidebarWidth)
                             .fillMaxHeight()
-                            .background(SurfaceElevated.copy(alpha = 0.88f), RoundedCornerShape(20.dp))
+                            .background(
+                                if (isAlaaTheme) AlaaThemeColors.Sidebar else SurfaceElevated.copy(alpha = 0.88f),
+                                RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerLarge else 20.dp)
+                            )
                             .padding(top = 10.dp)
                             .focusGroup()
                     ) {
@@ -739,7 +765,7 @@ fun HomeScreen(
                                 Text(
                                     text = stringResource(R.string.home_categories_title),
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = OnSurface,
+                                    color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnSurface,
                                     maxLines = 1,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -999,17 +1025,22 @@ fun HomeScreen(
                     }
                 }
 
-                // Content - Channel Grid / Pro Preview
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    horizontalArrangement = Arrangement.spacedBy(if (isProMode) 12.dp else 0.dp)
+                    // الأعمدة المرجعية: Categories يساراً، قائمة Channels في الوسط، وChannel Preview يميناً.
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    horizontalArrangement = Arrangement.spacedBy(if (shouldShowPreviewPane) 16.dp else 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
-                            .weight(if (isProMode) 1.08f else 1f)
+                            .weight(if (shouldShowPreviewPane) 0.98f else 1f)
                             .fillMaxHeight()
+                            .then(
+                                if (isAlaaTheme) {
+                                    Modifier.background(AlaaThemeColors.Surface.copy(alpha = 0.92f), RoundedCornerShape(AlaaThemeDimensions.CornerLarge))
+                                } else Modifier
+                            )
                     ) {
                         Column(
                             modifier = Modifier
@@ -1029,7 +1060,7 @@ fun HomeScreen(
                                         stringResource(R.string.home_all_channels)
                                     },
                                     style = if (isDenseMode) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                                    color = OnBackground,
+                                    color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground,
                                     maxLines = 1,
                                     overflow = TextOverflow.Clip,
                                     modifier = Modifier
@@ -1059,7 +1090,7 @@ fun HomeScreen(
                                     Text(
                                         text = stringResource(R.string.live_channel_results, uiState.filteredChannels.size),
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = OnSurfaceDim,
+                                        color = if (isAlaaTheme) AlaaThemeColors.TextSecondary else OnSurfaceDim,
                                         maxLines = 1
                                     )
                                 }
@@ -1373,6 +1404,13 @@ fun HomeScreen(
                                                         }
                                                         else -> false
                                                     }
+                                                } else if (
+                                                    isAlaaTheme &&
+                                                    !uiState.isChannelReorderMode &&
+                                                    event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                                                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                                                ) {
+                                                    requestPreviewFocusFromChannel()
                                                 } else false
                                             }
                                     )
@@ -1382,14 +1420,16 @@ fun HomeScreen(
                         } // Crossfade
                     }
 
-                    if (isProMode) {
+                    if (shouldShowPreviewPane) {
                         LivePreviewPane(
                             channel = previewChannel,
                             playerEngine = uiState.previewPlayerEngine,
                             isLoading = uiState.isPreviewLoading,
                             errorMessage = uiState.previewErrorMessage,
+                            focusRequester = if (isAlaaTheme) previewFocusRequester else null,
+                            onJumpToChannels = { requestChannelFocus(lastFocusedChannelId) },
                             modifier = Modifier
-                                .weight(0.92f)
+                                .weight(1.08f)
                                 .fillMaxHeight()
                         )
                     }
