@@ -1,9 +1,9 @@
 name: Android Platform Smoke
 
 on:
-  push:
-    branches:
-      - develop
+  schedule:
+    # Full compatibility matrix: 02:15 UTC every day.
+    - cron: '15 2 * * *'
   workflow_call:
   workflow_dispatch:
 
