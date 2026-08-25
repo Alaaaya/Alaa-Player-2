@@ -766,8 +766,8 @@ fun ContentMetadataStrip(
 private fun DestinationRail(
     currentRoute: String,
     onNavigate: (String) -> Unit,
-    isAlaaTheme: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isAlaaTheme: Boolean = false
 ) {
     val spacing = LocalAppSpacing.current
     val items = rememberDestinationItems()
@@ -894,9 +894,9 @@ private fun RailButton(
     label: String,
     icon: ImageVector,
     selected: Boolean,
-    isAlaaTheme: Boolean = false,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isAlaaTheme: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
