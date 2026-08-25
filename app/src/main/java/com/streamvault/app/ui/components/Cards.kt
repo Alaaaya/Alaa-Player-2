@@ -76,6 +76,9 @@ import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.theme.TextPrimary
 import com.streamvault.app.ui.theme.TextSecondary
 import com.streamvault.app.ui.theme.TextTertiary
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Series
@@ -114,6 +117,10 @@ fun FocusableCard(
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val cardShape = RoundedCornerShape(
+        if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 12.dp
+    )
 
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
@@ -157,26 +164,34 @@ fun FocusableCard(
                 }
                 isFocused = it.isFocused
             },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(cardShape),
         scale = ClickableSurfaceDefaults.scale(
             focusedScale = 1f,
             pressedScale = FocusSpec.PressedScale
         ),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Surface,
-            focusedContainerColor = SurfaceHighlight
+            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface else Surface,
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(
                 border = BorderStroke(0.dp, Color.Transparent),
-                shape = RoundedCornerShape(12.dp)
+                shape = cardShape
             ),
             focusedBorder = Border(
                 border = BorderStroke(
-                    width = if (isDragging) 4.dp else FocusSpec.CardBorderWidth,
-                    color = if (isDragging) AccentAmber else FocusBorder
+                    width = when {
+                        isDragging -> 4.dp
+                        isAlaaTheme -> AlaaThemeDimensions.FocusBorder
+                        else -> FocusSpec.CardBorderWidth
+                    },
+                    color = when {
+                        isDragging -> AccentAmber
+                        isAlaaTheme -> AlaaThemeColors.Accent
+                        else -> FocusBorder
+                    }
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = cardShape
             )
         )
     ) {

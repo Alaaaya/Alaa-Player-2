@@ -45,6 +45,9 @@ import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 
 @Composable
 fun LibraryBrowseScaffold(
@@ -123,20 +126,27 @@ fun CategoryRailPanel(
     content: LazyListScope.() -> Unit
 ) {
     val spacing = LocalAppSpacing.current
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val panelShape = RoundedCornerShape(
+        if (isAlaaTheme) AlaaThemeDimensions.CornerLarge else 28.dp
+    )
     Surface(
         modifier = modifier.fillMaxSize(),
-        shape = RoundedCornerShape(28.dp),
-        colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = AppColors.SurfaceElevated)
+        shape = panelShape,
+        colors = androidx.tv.material3.SurfaceDefaults.colors(
+            containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else AppColors.SurfaceElevated
+        )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            AppColors.SurfaceElevated,
-                            AppColors.Surface
-                        )
+                        colors = if (isAlaaTheme) {
+                            listOf(AlaaThemeColors.SurfaceElevated, AlaaThemeColors.Surface)
+                        } else {
+                            listOf(AppColors.SurfaceElevated, AppColors.Surface)
+                        }
                     )
                 )
                 .padding(horizontal = spacing.md, vertical = spacing.md)
@@ -144,7 +154,7 @@ fun CategoryRailPanel(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
-                color = AppColors.TextPrimary
+                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
             )
             Spacer(modifier = Modifier.height(spacing.sm))
             SearchInput(
