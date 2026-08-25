@@ -134,7 +134,7 @@ fun CategoryRailPanel(
         modifier = modifier.fillMaxSize(),
         shape = panelShape,
         colors = androidx.tv.material3.SurfaceDefaults.colors(
-            containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else AppColors.SurfaceElevated
+            containerColor = if (isAlaaTheme) AlaaThemeColors.BrowseRail else AppColors.SurfaceElevated
         )
     ) {
         Column(
@@ -143,7 +143,7 @@ fun CategoryRailPanel(
                 .background(
                     Brush.verticalGradient(
                         colors = if (isAlaaTheme) {
-                            listOf(AlaaThemeColors.SurfaceElevated, AlaaThemeColors.Surface)
+                            listOf(AlaaThemeColors.BrowseRail, AlaaThemeColors.BrowseContent)
                         } else {
                             listOf(AppColors.SurfaceElevated, AppColors.Surface)
                         }

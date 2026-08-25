@@ -18,6 +18,9 @@ object AlaaThemeColors {
     val Surface = Color(0xFF0D1020)
     val SurfaceElevated = Color(0xFF151A2D)
     val SurfaceFocused = Color(0xFF261327)
+    val BrowseRail = Sidebar
+    val BrowseContent = Surface
+    val BrowseContentFocused = SurfaceFocused
     val Accent = Color(0xFFFF3150)
     val AccentStrong = Color(0xFFFF5270)
     val AccentMuted = Color(0x33FF3150)

@@ -114,7 +114,7 @@ fun LiveChannelRowCard(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp))
-            .background(if (isAlaaTheme) AlaaThemeColors.Surface else AppColors.SurfaceElevated)
+            .background(if (isAlaaTheme) AlaaThemeColors.BrowseContent else AppColors.SurfaceElevated)
             .fillMaxWidth()
             .height(rowHeight)
     ) {
@@ -307,8 +307,8 @@ fun LiveChannelRowSurface(
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(rowShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface else AppColors.SurfaceElevated,
-            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
+            containerColor = if (isAlaaTheme) AlaaThemeColors.BrowseContent else AppColors.SurfaceElevated,
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.BrowseContentFocused else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(

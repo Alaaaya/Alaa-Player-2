@@ -744,7 +744,7 @@ fun HomeScreen(
                             .width(sidebarWidth)
                             .fillMaxHeight()
                             .background(
-                                if (isAlaaTheme) AlaaThemeColors.Sidebar else SurfaceElevated.copy(alpha = 0.88f),
+                                if (isAlaaTheme) AlaaThemeColors.BrowseRail else SurfaceElevated.copy(alpha = 0.88f),
                                 RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerLarge else 20.dp)
                             )
                             .padding(top = 10.dp)
@@ -1038,7 +1038,7 @@ fun HomeScreen(
                             .fillMaxHeight()
                             .then(
                                 if (isAlaaTheme) {
-                                    Modifier.background(AlaaThemeColors.Surface.copy(alpha = 0.92f), RoundedCornerShape(AlaaThemeDimensions.CornerLarge))
+                                    Modifier.background(AlaaThemeColors.BrowseContent.copy(alpha = 0.92f), RoundedCornerShape(AlaaThemeDimensions.CornerLarge))
                                 } else Modifier
                             )
                     ) {
