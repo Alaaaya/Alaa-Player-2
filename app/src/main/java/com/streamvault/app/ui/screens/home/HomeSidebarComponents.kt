@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.home
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,6 +64,9 @@ import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.PrimaryLight
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.time.LocalAppTimeFormat
 import com.streamvault.app.ui.time.createTimeFormat
 import com.streamvault.domain.model.Category
@@ -125,16 +129,44 @@ internal fun LivePreviewPane(
     playerEngine: PlayerEngine?,
     isLoading: Boolean,
     errorMessage: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    onJumpToChannels: () -> Boolean = { false }
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val paneShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerLarge else 18.dp)
+    var isFocused by remember { mutableStateOf(false) }
     val renderSurfaceType by (playerEngine?.renderSurfaceType)?.collectAsStateWithLifecycle(
         initialValue = PlayerRenderSurfaceType.SURFACE_VIEW
     ) ?: remember { mutableStateOf(PlayerRenderSurfaceType.SURFACE_VIEW) }
+    val previewFocusModifier = if (focusRequester != null) {
+        Modifier
+            .focusRequester(focusRequester)
+            .focusable()
+            .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
+                    onJumpToChannels()
+            }
+    } else {
+        Modifier
+    }
 
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = SurfaceDefaults.colors(containerColor = SurfaceElevated.copy(alpha = 0.72f))
+        modifier = modifier.then(previewFocusModifier),
+        shape = paneShape,
+        colors = SurfaceDefaults.colors(
+            containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else SurfaceElevated.copy(alpha = 0.72f)
+        ),
+        border = Border(
+            border = if (isAlaaTheme && isFocused) {
+                BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent)
+            } else {
+                BorderStroke(0.dp, Color.Transparent)
+            },
+            shape = paneShape
+        )
     ) {
         Column(
             modifier = Modifier
@@ -145,7 +177,7 @@ internal fun LivePreviewPane(
             Text(
                 text = stringResource(R.string.live_preview_title),
                 style = MaterialTheme.typography.titleSmall,
-                color = Primary
+                color = if (isAlaaTheme) AlaaThemeColors.Accent else Primary
             )
 
             Box(
@@ -209,14 +241,14 @@ internal fun LivePreviewPane(
                 Text(
                     text = channel.name,
                     style = MaterialTheme.typography.titleMedium,
-                    color = OnBackground
+                    color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground
                 )
                 channel.currentProgram?.let { program ->
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             text = program.title,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = OnBackground
+                            color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground
                         )
                         val appTimeFormat = LocalAppTimeFormat.current
                         val timeFormat = remember(appTimeFormat) { appTimeFormat.createTimeFormat() }
@@ -234,8 +266,8 @@ internal fun LivePreviewPane(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),
-                            color = Primary,
-                            trackColor = SurfaceHighlight
+                            color = if (isAlaaTheme) AlaaThemeColors.Accent else Primary,
+                            trackColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else SurfaceHighlight
                         )
                         if (program.description.isNotBlank()) {
                             Text(
@@ -256,7 +288,7 @@ internal fun LivePreviewPane(
                 Text(
                     text = stringResource(R.string.live_preview_open_hint),
                     style = MaterialTheme.typography.labelMedium,
-                    color = Primary
+                    color = if (isAlaaTheme) AlaaThemeColors.Accent else Primary
                 )
             }
         }
@@ -278,6 +310,8 @@ internal fun CategoryItem(
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val categoryShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 10.dp)
 
     TvClickableSurface(
         onClick = onClick,
@@ -301,16 +335,23 @@ internal fun CategoryItem(
                 } else false
             },
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(categoryShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isSelected) Primary.copy(alpha = 0.15f) else Color.Transparent,
-            focusedContainerColor = SurfaceHighlight.copy(alpha = 0.82f),
-            contentColor = if (isSelected) Primary else OnSurface
+            containerColor = if (isSelected) {
+                if (isAlaaTheme) AlaaThemeColors.AccentMuted else Primary.copy(alpha = 0.15f)
+            } else Color.Transparent,
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else SurfaceHighlight.copy(alpha = 0.82f),
+            contentColor = if (isSelected) {
+                if (isAlaaTheme) AlaaThemeColors.AccentStrong else Primary
+            } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else OnSurface
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, Primary.copy(alpha = 0.85f)),
-                shape = RoundedCornerShape(10.dp)
+                border = BorderStroke(
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else 2.dp,
+                    if (isAlaaTheme) AlaaThemeColors.Accent else Primary.copy(alpha = 0.85f)
+                ),
+                shape = categoryShape
             )
         )
     ) {
@@ -330,14 +371,20 @@ internal fun CategoryItem(
                 isFocused = isFocused,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
-                color = if (isFocused) OnBackground else if (isSelected) Primary else OnSurface,
+                color = if (isFocused) {
+                    if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground
+                } else if (isSelected) {
+                    if (isAlaaTheme) AlaaThemeColors.AccentStrong else Primary
+                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else OnSurface,
                 modifier = Modifier.weight(1f)
             )
 
             Text(
                 text = category.count.toString(),
                 style = MaterialTheme.typography.labelMedium,
-                color = if (isFocused) OnBackground else OnSurfaceDim,
+                color = if (isFocused) {
+                    if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground
+                } else if (isAlaaTheme) AlaaThemeColors.TextTertiary else OnSurfaceDim,
                 modifier = Modifier.padding(start = 10.dp)
             )
 
@@ -345,7 +392,9 @@ internal fun CategoryItem(
                 Text(
                     text = stringResource(R.string.home_locked_short),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isFocused) OnBackground else OnSurfaceDim,
+                    color = if (isFocused) {
+                        if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnBackground
+                    } else if (isAlaaTheme) AlaaThemeColors.TextTertiary else OnSurfaceDim,
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
