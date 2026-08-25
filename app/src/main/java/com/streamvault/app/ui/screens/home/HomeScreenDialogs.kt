@@ -283,7 +283,7 @@ internal fun HomeDialogsHost(
             onMoveToMovies = if (!uiState.isCombinedLiveSource && uiState.provider?.type == ProviderType.M3U) {
                 { viewModel.moveM3uChannelToMovies(channel) }
             } else null,
-            onMoveToReorder = if (uiState.selectedCategory?.isVirtual == true && uiState.selectedCategory?.id != VirtualCategoryIds.RECENT) {
+            onMoveToReorder = if (uiState.selectedCategory != null) {
                 { viewModel.enterChannelReorderModeForChannel(channel) }
             } else null,
             onMoveToSeries = if (!uiState.isCombinedLiveSource && uiState.provider?.type == ProviderType.M3U) {

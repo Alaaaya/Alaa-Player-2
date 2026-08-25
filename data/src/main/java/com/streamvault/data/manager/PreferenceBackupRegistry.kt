@@ -63,7 +63,7 @@ internal object PreferenceBackupRegistry {
         "last_maintenance_playback_history_rows", "last_maintenance_favorite_rows"
     )
     private val providerStoragePrefixes = setOf(
-        "hidden_channels_", "hidden_categories_", "pinned_categories_", "category_sort_"
+        "hidden_channels_", "hidden_categories_", "pinned_categories_", "category_sort_", "channel_order_"
     )
     private val globalStoragePrefixes = setOf("remote_shortcut_")
     private val runtimeStoragePrefixes = setOf(

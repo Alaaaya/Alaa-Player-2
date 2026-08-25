@@ -1721,7 +1721,7 @@
     <string name="settings_history_cleared">Watch history and recents cleared</string>
     <string name="settings_pin_changed">PIN saved successfully</string>
     <string name="home_reorder_channels">Reorder Channels</string>
-    <string name="home_move_channel_to_reorder" tools:ignore="MissingTranslation">Move this channel</string>
+    <string name="home_move_channel_to_reorder" tools:ignore="MissingTranslation">Move &amp; reorder this channel</string>
     <string name="tv_input_setup_scanning_title">Scanning StreamVault channels</string>
     <string name="tv_input_setup_success_title">Live TV is ready</string>
     <string name="tv_input_setup_no_provider_title">No IPTV provider configured</string>

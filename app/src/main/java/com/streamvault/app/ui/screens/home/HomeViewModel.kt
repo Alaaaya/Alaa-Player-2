@@ -827,8 +827,16 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
+                val channelOrderFlow = _uiState
+                    .map { state -> channelOrderScope(state, category) }
+                    .distinctUntilChanged()
+                    .flatMapLatest(preferencesRepository::getChannelOrder)
+                val orderedChannelsFlow = combine(channelsFlow, channelOrderFlow) { channels, orderedIds ->
+                    channels.withStoredChannelOrder(orderedIds)
+                }
+
                 combine(
-                    channelsFlow,
+                    orderedChannelsFlow,
                     preferencesRepository.liveChannelNumberingMode,
                     _uiState.map { it.selectedCombinedSourceProviderId }.distinctUntilChanged(),
                     _uiState.map { it.parentalControlLevel }.distinctUntilChanged()
@@ -1896,7 +1904,6 @@ class HomeViewModel @Inject constructor(
 
     fun enterChannelReorderModeForChannel(channel: Channel) {
         val category = _uiState.value.selectedCategory ?: return
-        if (!category.isVirtual || category.id == VirtualCategoryIds.RECENT) return
         onDismissDialog()
         dismissCategoryOptions()
         viewModelScope.launch {
@@ -1959,37 +1966,35 @@ class HomeViewModel @Inject constructor(
     fun saveChannelReorder() {
         val state = _uiState.value
         val category = state.reorderCategory ?: return
-        if (category.id == VirtualCategoryIds.RECENT) return
         val currentList = state.filteredChannels
+        val orderScope = channelOrderScope(category)
 
-        // Exit reorder mode immediately for responsive UI
+        // Exit reorder mode immediately for responsive UI.
         _uiState.update { it.copy(isChannelReorderMode = false, reorderCategory = null) }
-        
-        // Optimistically update local channels to match the new order before DB flow catches up
         _localChannels.value = currentList
 
         viewModelScope.launch {
             try {
-                // Map the virtual category ID back to the Favorite Group ID
-                val groupId = if (category.id == VirtualCategoryIds.FAVORITES) null else -category.id
+                // Every section keeps an independent explicit order. New channels remain visible
+                // after the saved channels, in the provider's native order.
+                preferencesRepository.setChannelOrder(orderScope, currentList.map(Channel::id))
 
-                val favoritesFlow = if (groupId == null) {
-                    observeLiveFavorites(currentLiveProviderIds())
-                } else {
-                    favoriteRepository.getFavoritesByGroup(groupId)
+                // Preserve the existing favorite/group positions as well, so legacy consumers of
+                // those collections keep the same order.
+                if (category.isVirtual && category.id != VirtualCategoryIds.RECENT) {
+                    val groupId = if (category.id == VirtualCategoryIds.FAVORITES) null else -category.id
+                    val favoritesFlow = if (groupId == null) {
+                        observeLiveFavorites(currentLiveProviderIds())
+                    } else {
+                        favoriteRepository.getFavoritesByGroup(groupId)
+                    }
+                    val favoriteMap = favoritesFlow.first().associateBy { it.contentId }
+                    currentList
+                        .mapNotNull { favoriteMap[it.id] }
+                        .groupBy { favorite -> favorite.providerId to favorite.groupId }
+                        .values
+                        .forEach { favorites -> favoriteRepository.reorderFavorites(favorites) }
                 }
-
-                // Get current favorites
-                val favorites = favoritesFlow.first()
-                val favoriteMap = favorites.associateBy { it.contentId }
-
-                // Map the sorted Channel list back to Favorite entities with new positions
-                val reorderedFavorites = currentList.mapNotNull { ch ->
-                    favoriteMap[ch.id]
-                }
-
-                // Persist the new order in DB
-                favoriteRepository.reorderFavorites(reorderedFavorites)
 
                 _uiState.update { it.copy(userMessage = "Channel order saved") }
             } catch (e: Exception) {
@@ -2007,20 +2012,83 @@ class HomeViewModel @Inject constructor(
     }
 
     private suspend fun loadReorderChannels(category: Category): List<Channel> {
-        if (!category.isVirtual || category.id == VirtualCategoryIds.RECENT) return emptyList()
-
-        val groupId = if (category.id == VirtualCategoryIds.FAVORITES) null else -category.id
-        val favorites = if (groupId == null) {
-            observeLiveFavorites(currentLiveProviderIds()).first()
+        val channels = if (_uiState.value.isCombinedLiveSource) {
+            loadCombinedReorderChannels(category)
+        } else if (category.isVirtual) {
+            loadVirtualReorderChannels(category)
         } else {
-            favoriteRepository.getFavoritesByGroup(groupId).first()
+            val providerId = _uiState.value.provider?.id ?: return emptyList()
+            if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
+                channelRepository.getChannels(providerId).first()
+            } else {
+                channelRepository.getChannelsByCategory(providerId, category.id).first()
+            }
         }
+        return channels.withStoredChannelOrder(
+            preferencesRepository.getChannelOrder(channelOrderScope(category)).first()
+        )
+    }
 
-        val orderedIds = favorites
-            .sortedBy { it.position }
-            .map { it.contentId }
-
+    private suspend fun loadVirtualReorderChannels(category: Category): List<Channel> {
+        val orderedIds = when (category.id) {
+            VirtualCategoryIds.RECENT -> observeRecentLiveIds(currentLiveProviderIds(), limit = Int.MAX_VALUE).first()
+            VirtualCategoryIds.FAVORITES -> observeLiveFavorites(currentLiveProviderIds())
+                .first()
+                .sortedBy { it.position }
+                .map { it.contentId }
+            else -> favoriteRepository.getFavoritesByGroup(-category.id)
+                .first()
+                .sortedBy { it.position }
+                .map { it.contentId }
+        }
         return loadChannelsByOrderedIds(orderedIds).first()
+    }
+
+    private suspend fun loadCombinedReorderChannels(category: Category): List<Channel> {
+        val profileId = (_uiState.value.activeLiveSource as? ActiveLiveSource.CombinedM3uSource)
+            ?.profileId ?: return emptyList()
+        val channels = when {
+            category.isVirtual -> loadVirtualReorderChannels(category)
+            category.id == ChannelRepository.ALL_CHANNELS_ID -> {
+                val categoryFlows = combinedCategoriesById.values.map { combinedCategory ->
+                    combinedM3uRepository.getCombinedChannels(profileId, combinedCategory)
+                }
+                if (categoryFlows.isEmpty()) emptyList()
+                else combine(categoryFlows) { lists -> lists.toList().flatten() }.first()
+            }
+            else -> combinedCategoriesById[category.id]
+                ?.let { combinedM3uRepository.getCombinedChannels(profileId, it).first() }
+                .orEmpty()
+        }
+        return _uiState.value.selectedCombinedSourceProviderId
+            ?.let { providerId -> channels.filter { it.providerId == providerId } }
+            ?: channels
+    }
+
+    private fun channelOrderScope(category: Category): String =
+        channelOrderScope(_uiState.value, category)
+
+    private fun channelOrderScope(state: HomeUiState, category: Category): String {
+        val sourceScope = when (val source = state.activeLiveSource) {
+            is ActiveLiveSource.ProviderSource -> "provider_${source.providerId}"
+            is ActiveLiveSource.CombinedM3uSource -> {
+                "combined_${source.profileId}_${state.selectedCombinedSourceProviderId ?: "all"}"
+            }
+            null -> "provider_${state.provider?.id ?: 0L}"
+        }
+        return "${sourceScope}_category_${category.id}"
+    }
+
+    private fun List<Channel>.withStoredChannelOrder(orderedIds: List<Long>): List<Channel> {
+        if (orderedIds.isEmpty() || isEmpty()) return this
+        val savedPositions = orderedIds.withIndex().associate { (index, channelId) -> channelId to index }
+        return withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<Channel>> { indexed ->
+                    savedPositions[indexed.value.id] ?: Int.MAX_VALUE
+                }.thenBy { indexed -> indexed.index }
+            )
+            .map { indexed -> indexed.value }
     }
 
     private fun List<PlaybackHistory>.toRecentLiveContentIds(): List<Long> =
