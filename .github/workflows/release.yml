@@ -1,10 +1,12 @@
 name: Build and publish Alaa Player 2
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'الإصدار الظاهر للمستخدم، مثل 1.1 أو 1.2 أو 2.4'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -28,14 +30,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine automatic release version
+      - name: Determine semantic release version
         id: app_version
         shell: bash
         run: |
-          COMMIT_COUNT="$(git rev-list --count HEAD)"
-          VERSION_CODE="$((1000 + COMMIT_COUNT))"
-          VERSION_NAME="1.0.${COMMIT_COUNT}"
+          set -euo pipefail
+          VERSION_NAME="${{ inputs.version_name }}"
+          if ! [[ "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "version_name must use a simple semantic format such as 1.1, 1.2, or 2.4.1."
+            exit 1
+          fi
+
+          git fetch --tags --force
+          LATEST_VERSION_CODE="$(git tag -l 'v*+*' | sed -nE 's/^v[0-9]+(\.[0-9]+){1,2}\+([0-9]+)$/\2/p' | sort -n | tail -1)"
+          VERSION_CODE="$(( ${LATEST_VERSION_CODE:-1000} + 1 ))"
           RELEASE_TAG="v${VERSION_NAME}+${VERSION_CODE}"
+          if git rev-parse -q --verify "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "Release tag ${RELEASE_TAG} already exists. Choose a new version_name."
+            exit 1
+          fi
+
           echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
