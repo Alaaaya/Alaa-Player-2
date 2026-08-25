@@ -39,6 +39,7 @@ import com.streamvault.app.ui.screens.vod.VodScreen
 import com.streamvault.app.ui.screens.settings.SettingsScreen
 import com.streamvault.app.ui.screens.welcome.WelcomeScreen
 import com.streamvault.app.ui.screens.downloads.DownloadsScreen
+import com.streamvault.app.ui.screens.devicecontrol.DeviceLinkScreen
 import com.streamvault.app.MainActivity
 import com.streamvault.domain.model.AppLandingDestination
 import com.streamvault.domain.model.AppTopLevelDestination
@@ -121,6 +122,7 @@ object Routes {
     const val WELCOME = "welcome"
     const val PARENTAL_CONTROL_GROUPS = "parental_control_groups/{providerId}"
     const val MULTI_VIEW = "multi_view"
+    const val DEVICE_LINK = "device_link"
 
 
     fun providerSetup(providerId: Long? = null, importUri: String? = null): String {
@@ -531,7 +533,19 @@ fun AppNavigation(mainActivity: MainActivity) {
                     navController.navigate(Routes.providerSetup()) {
                         popUpTo(Routes.WELCOME) { inclusive = true }
                     }
-                }
+                },
+                onNavigateToDeviceLink = dropUnlessResumed {
+                    navController.navigate(Routes.DEVICE_LINK)
+                },
+            )
+        }
+
+        composable(Routes.DEVICE_LINK) {
+            DeviceLinkScreen(
+                onBack = { navController.popBackStack() },
+                onLinked = dropUnlessResumed {
+                    navigateToStartupTarget(Routes.DEVICE_LINK)
+                },
             )
         }
 

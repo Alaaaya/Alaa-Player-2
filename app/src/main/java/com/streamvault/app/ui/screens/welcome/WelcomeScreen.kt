@@ -127,6 +127,7 @@ fun WelcomeScreen(
     onNavigateToHome: () -> Unit,
     startupReady: Boolean = true,
     onNavigateToSetup: () -> Unit,
+    onNavigateToDeviceLink: () -> Unit,
     viewModel: WelcomeViewModel = hiltViewModel()
 ) {
     val hasProviders by viewModel.hasProviders.collectAsStateWithLifecycle()
@@ -159,6 +160,7 @@ fun WelcomeScreen(
             false -> WelcomeStartCard(
                 onNavigateToHome = onNavigateToHome,
                 onNavigateToSetup = onNavigateToSetup,
+                onNavigateToDeviceLink = onNavigateToDeviceLink,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(32.dp)
@@ -258,6 +260,7 @@ private fun WelcomeLoadingCard(
 private fun WelcomeStartCard(
     onNavigateToHome: () -> Unit,
     onNavigateToSetup: () -> Unit,
+    onNavigateToDeviceLink: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -310,6 +313,17 @@ private fun WelcomeStartCard(
                 ) {
                     Text(text = stringResource(R.string.welcome_setup_later))
                 }
+            }
+            TvButton(
+                onClick = onNavigateToDeviceLink,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = AppColors.Brand,
+                    focusedContainerColor = Color.White,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text("Link this TV to Alaa Control Center")
             }
         }
     }
