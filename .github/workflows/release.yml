@@ -7,6 +7,11 @@ on:
         description: 'الإصدار الظاهر للمستخدم، مثل 1.1 أو 1.2 أو 2.4'
         required: true
         type: string
+      device_control_api_base_url:
+        description: 'عنوان لوحة تحكم Alaa المنشورة، مثل https://control.example.com (اختياري)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -102,7 +107,8 @@ jobs:
           chmod +x gradlew
           ./gradlew --console=plain :app:assembleRelease \
             -PappVersionCode=${{ needs.metadata.outputs.version_code }} \
-            -PappVersionName=${{ needs.metadata.outputs.version_name }}
+            -PappVersionName=${{ needs.metadata.outputs.version_name }} \
+            -PdeviceControlApiBaseUrl='${{ inputs.device_control_api_base_url }}'
 
       - name: Verify and prepare release artifact
         shell: bash

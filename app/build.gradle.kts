@@ -50,6 +50,7 @@ fun computeOfficialSigningCertSha256(): String {
 val officialSigningCertSha256 = computeOfficialSigningCertSha256()
 val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1000
 val appVersionName = providers.gradleProperty("appVersionName").orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
+val deviceControlApiBaseUrl = providers.gradleProperty("deviceControlApiBaseUrl").orNull.orEmpty()
 
 android {
     namespace = "com.streamvault.app"
@@ -69,6 +70,7 @@ android {
         buildConfigField("String", "OFFICIAL_SIGNING_CERT_SHA256", "\"$officialSigningCertSha256\"")
         buildConfigField("String", "APP_UPDATE_CHANNEL", "\"stable\"")
         buildConfigField("long", "BUILD_TIMESTAMP_UTC", "0L")
+        buildConfigField("String", "DEVICE_CONTROL_API_BASE_URL", "\"$deviceControlApiBaseUrl\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             providers.gradleProperty("compatAbi").orNull
@@ -108,6 +110,7 @@ android {
             buildConfigField("String", "XTREAM_DEV_NAME", "\"${localProp("xtream.dev.name")}\"")
             buildConfigField("String", "M3U_DEV_URL", "\"${localProp("m3u.dev.url")}\"")
             buildConfigField("String", "M3U_DEV_NAME", "\"${localProp("m3u.dev.name")}\"")
+            buildConfigField("String", "DEVICE_CONTROL_API_BASE_URL", "\"${localProp("device.control.url")}\"")
         }
         create("beta") {
             initWith(getByName("release"))
@@ -243,6 +246,7 @@ dependencies {
 
     // Core
     implementation(libs.core.ktx)
+    implementation(libs.security.crypto)
     implementation(libs.documentfile)
     implementation(libs.coroutines.android)
     implementation(libs.appcompat)
