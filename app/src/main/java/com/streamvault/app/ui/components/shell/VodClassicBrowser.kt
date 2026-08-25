@@ -37,6 +37,10 @@ import com.streamvault.app.R
 import com.streamvault.app.ui.components.FocusedMarqueeText
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.FocusSpec
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.AlaaThemeFocus
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
@@ -61,9 +65,10 @@ fun VodClassicSplitLayout(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
     Row(
         modifier = modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(20.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (isAlaaTheme) 24.dp else 20.dp)
     ) {
         CategoryRailPanel(
             title = railTitle,
@@ -71,7 +76,7 @@ fun VodClassicSplitLayout(
             onSearchValueChange = onRailSearchValueChange,
             searchPlaceholder = railSearchPlaceholder,
             modifier = Modifier
-                .width(320.dp)
+                .width(if (isAlaaTheme) 292.dp else 320.dp)
                 .fillMaxHeight(),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
@@ -83,20 +88,37 @@ fun VodClassicSplitLayout(
                     modifier = Modifier
                         .fillMaxWidth()
                         .onFocusChanged { isFocused = it.isFocused },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                    shape = ClickableSurfaceDefaults.shape(
+                        RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 14.dp)
+                    ),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (category.isSelected) AppColors.Brand.copy(alpha = 0.22f) else AppColors.SurfaceElevated,
-                        focusedContainerColor = AppColors.SurfaceEmphasis,
-                        contentColor = if (category.isSelected) AppColors.BrandStrong else AppColors.TextPrimary,
-                        focusedContentColor = AppColors.TextPrimary
+                        containerColor = when {
+                            isAlaaTheme && category.isSelected -> AlaaThemeColors.AccentMuted
+                            isAlaaTheme -> AlaaThemeColors.SurfaceElevated
+                            category.isSelected -> AppColors.Brand.copy(alpha = 0.22f)
+                            else -> AppColors.SurfaceElevated
+                        },
+                        focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis,
+                        contentColor = when {
+                            isAlaaTheme && category.isSelected -> AlaaThemeColors.Accent
+                            isAlaaTheme -> AlaaThemeColors.TextPrimary
+                            category.isSelected -> AppColors.BrandStrong
+                            else -> AppColors.TextPrimary
+                        },
+                        focusedContentColor = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
                     ),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = Border(
-                            border = BorderStroke(FocusSpec.BorderWidth, AppColors.Focus),
-                            shape = RoundedCornerShape(14.dp)
+                            border = BorderStroke(
+                                if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else FocusSpec.BorderWidth,
+                                if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Focus
+                            ),
+                            shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 14.dp)
                         )
                     ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = FocusSpec.FocusedScale)
+                    scale = ClickableSurfaceDefaults.scale(
+                        focusedScale = if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+                    )
                 ) {
                     Row(
                         modifier = Modifier
@@ -109,7 +131,12 @@ fun VodClassicSplitLayout(
                             text = category.label,
                             isFocused = isFocused,
                             style = MaterialTheme.typography.titleSmall,
-                            color = if (category.isSelected) AppColors.BrandStrong else AppColors.TextPrimary,
+                            color = when {
+                                isAlaaTheme && category.isSelected -> AlaaThemeColors.Accent
+                                isAlaaTheme -> AlaaThemeColors.TextPrimary
+                                category.isSelected -> AppColors.BrandStrong
+                                else -> AppColors.TextPrimary
+                            },
                             maxLines = 1,
                             modifier = Modifier.weight(1f)
                         )
@@ -118,7 +145,7 @@ fun VodClassicSplitLayout(
                             Text(
                                 text = stringResource(R.string.home_locked_short),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = AppColors.BrandStrong
+                                color = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.BrandStrong
                             )
                         }
                         if (category.count > 0) {
@@ -126,7 +153,7 @@ fun VodClassicSplitLayout(
                             Text(
                                 text = category.count.toString(),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = AppColors.TextSecondary
+                                color = if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary
                             )
                         }
                     }
@@ -138,7 +165,10 @@ fun VodClassicSplitLayout(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .background(AppColors.Canvas, RoundedCornerShape(28.dp))
+                .background(
+                    if (isAlaaTheme) AlaaThemeColors.Canvas else AppColors.Canvas,
+                    RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerLarge else 28.dp)
+                )
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
             content()
