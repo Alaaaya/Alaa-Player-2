@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Verify and build signed APK
+  metadata:
+    name: Determine release version
     runs-on: ubuntu-latest
     outputs:
       version_name: ${{ steps.app_version.outputs.version_name }}
@@ -55,6 +55,14 @@ jobs:
           echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           echo "apk_name=Alaa-Player-2.apk" >> "$GITHUB_OUTPUT"
 
+  build:
+    name: Build signed APK
+    needs: metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -89,30 +97,14 @@ jobs:
             "keyPassword=$RELEASE_KEY_PASSWORD" \
             > keystore.properties
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Test CI helper scripts
-        shell: bash
-        run: |
-          for test_script in tools/tests/*-test.sh; do
-            bash "$test_script"
-          done
-
-      - name: Run unit tests, lint, and coverage
-        run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline koverXmlReportCi koverHtmlReportCi
-
-      - name: Compile instrumentation release gates
-        run: ./gradlew --console=plain :app:assembleDebugAndroidTest :data:assembleDebugAndroidTest
-
       - name: Build signed release APK
         run: |
+          chmod +x gradlew
           ./gradlew --console=plain :app:assembleRelease \
-            -PappVersionCode=${{ steps.app_version.outputs.version_code }} \
-            -PappVersionName=${{ steps.app_version.outputs.version_name }}
+            -PappVersionCode=${{ needs.metadata.outputs.version_code }} \
+            -PappVersionName=${{ needs.metadata.outputs.version_name }}
 
       - name: Verify and prepare release artifact
-        id: apk
         shell: bash
         run: |
           set -euo pipefail
@@ -124,18 +116,45 @@ jobs:
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
           "$APKSIGNER" verify --verbose --print-certs "$APK_PATH"
           mkdir -p dist
-          cp "$APK_PATH" "dist/${{ steps.app_version.outputs.apk_name }}"
-          SHA256="$(sha256sum "dist/${{ steps.app_version.outputs.apk_name }}" | awk '{print $1}')"
-          printf '%s  %s\n' "$SHA256" "${{ steps.app_version.outputs.apk_name }}" > "dist/${{ steps.app_version.outputs.apk_name }}.sha256"
-          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          cp "$APK_PATH" "dist/${{ needs.metadata.outputs.apk_name }}"
+          SHA256="$(sha256sum "dist/${{ needs.metadata.outputs.apk_name }}" | awk '{print $1}')"
+          printf '%s  %s\n' "$SHA256" "${{ needs.metadata.outputs.apk_name }}" > "dist/${{ needs.metadata.outputs.apk_name }}.sha256"
 
       - name: Upload signed APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: signed-release-apk
           path: |
-            dist/${{ steps.app_version.outputs.apk_name }}
-            dist/${{ steps.app_version.outputs.apk_name }}.sha256
+            dist/${{ needs.metadata.outputs.apk_name }}
+            dist/${{ needs.metadata.outputs.apk_name }}.sha256
+
+  quality:
+    name: Run quality gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test CI helper scripts
+        shell: bash
+        run: |
+          chmod +x gradlew
+          for test_script in tools/tests/*-test.sh; do
+            bash "$test_script"
+          done
+
+      - name: Run unit tests, lint, and coverage
+        run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline koverXmlReportCi koverHtmlReportCi
 
       - name: Upload test reports
         if: always()
@@ -156,6 +175,28 @@ jobs:
           path: |
             build/reports/kover/
 
+  instrumentation:
+    name: Compile instrumentation release gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile instrumentation release gates
+        run: |
+          chmod +x gradlew
+          ./gradlew --console=plain :app:assembleDebugAndroidTest :data:assembleDebugAndroidTest
+
   platform-smoke:
     needs: build
     permissions:
@@ -164,7 +205,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    needs: [build]
+    needs: [metadata, build, quality, instrumentation]
     runs-on: ubuntu-latest
 
     steps:
@@ -177,17 +218,17 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.build.outputs.release_tag }}
+          tag_name: ${{ needs.metadata.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: Alaa Player 2 ${{ needs.build.outputs.version_name }}
+          name: Alaa Player 2 ${{ needs.metadata.outputs.version_name }}
           body: |
-            ## Alaa Player 2 ${{ needs.build.outputs.version_name }}
+            ## Alaa Player 2 ${{ needs.metadata.outputs.version_name }}
 
             إصدار رسمي تم بناؤه تلقائيًا من فرع `master`.
 
             | البند | القيمة |
             | --- | --- |
-            | رمز الإصدار | `${{ needs.build.outputs.version_code }}` |
+            | رمز الإصدار | `${{ needs.metadata.outputs.version_code }}` |
             | الالتزام | `${{ github.sha }}` |
             | اسم الحزمة | `com.alaaaya.alaaplayer2` |
 
@@ -195,7 +236,7 @@ jobs:
 
             Alaa Player 2 مشتق من [StreamVault](https://github.com/Davidona/StreamVault-IPTV) للمطور David Nashash (Davidona)، ويخضع لترخيص StreamVault Source-Available License (Non-Commercial). استخدم فقط المصادر التي تملك حق الوصول إليها.
           files: |
-            dist/${{ needs.build.outputs.apk_name }}
-            dist/${{ needs.build.outputs.apk_name }}.sha256
+            dist/${{ needs.metadata.outputs.apk_name }}
+            dist/${{ needs.metadata.outputs.apk_name }}.sha256
           make_latest: true
           generate_release_notes: false
