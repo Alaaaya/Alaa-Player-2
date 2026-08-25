@@ -2070,6 +2070,29 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
+    /**
+     * ترتيب يدوي للقنوات في قسم ومصدر بث محددين. القنوات الجديدة التي لا توجد في
+     * القائمة المحفوظة تبقى ظاهرة بعد القنوات المرتبة وفق ترتيب المزود الافتراضي.
+     */
+    fun getChannelOrder(scope: String): Flow<List<Long>> {
+        val key = stringPreferencesKey(channelOrderKey(scope))
+        return context.dataStore.data.map { preferences ->
+            decodeChannelOrder(preferences[key])
+        }
+    }
+
+    suspend fun setChannelOrder(scope: String, channelIds: List<Long>) {
+        val key = stringPreferencesKey(channelOrderKey(scope))
+        val normalizedIds = channelIds.filter { it > 0L }.distinct()
+        context.dataStore.edit { preferences ->
+            if (normalizedIds.isEmpty()) {
+                preferences.remove(key)
+            } else {
+                preferences[key] = normalizedIds.joinToString(",")
+            }
+        }
+    }
+
     fun getPinnedCategoryIds(providerId: Long, type: ContentType): Flow<Set<Long>> {
         val key = stringPreferencesKey(pinnedCategoriesKey(providerId, type))
         return context.dataStore.data.map { preferences ->
@@ -2307,6 +2330,16 @@ class PreferencesRepository @Inject constructor(
 
     private fun hiddenChannelsKey(providerId: Long): String =
         "hidden_channels_${providerId}"
+
+    private fun channelOrderKey(scope: String): String =
+        "channel_order_${scope.trim()}"
+
+    private fun decodeChannelOrder(encoded: String?): List<Long> =
+        encoded
+            .orEmpty()
+            .split(',')
+            .mapNotNull { token -> token.trim().toLongOrNull()?.takeIf { it > 0L } }
+            .distinct()
 
     private fun pinnedCategoriesKey(providerId: Long, type: ContentType): String =
         "pinned_categories_${providerId}_${type.name}"
