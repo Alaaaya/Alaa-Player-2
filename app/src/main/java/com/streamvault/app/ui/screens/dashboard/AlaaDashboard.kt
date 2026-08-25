@@ -59,6 +59,9 @@ import com.streamvault.app.ui.components.SeriesCard
 import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.AlaaThemeTypography
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
@@ -69,18 +72,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-private val AlaaAccent = Color(0xFFFF304A)
-private val AlaaSidebarBg = Color(0xFF0A0B10)
-private val AlaaCategoryPalette = listOf(
-    Color(0xFFE91E63),
-    Color(0xFF1E88E5),
-    Color(0xFF00ACC1),
-    Color(0xFFAB47BC),
-    Color(0xFFFF7043),
-    Color(0xFF26A69A),
-    Color(0xFF5C6BC0),
-    Color(0xFF8D6E63)
-)
+private val AlaaAccent = AlaaThemeColors.Accent
+private val AlaaSidebarBg = AlaaThemeColors.Sidebar
 
 @Composable
 internal fun AlaaDashboard(
@@ -393,8 +386,8 @@ private fun AlaaHero(
         modifier = Modifier
             .fillMaxWidth()
             .height(300.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF080B14), Color(0xFF151B2D))))
+            .clip(RoundedCornerShape(AlaaThemeDimensions.CornerLarge))
+            .background(Brush.linearGradient(listOf(AlaaThemeColors.CanvasRaised, AlaaThemeColors.SurfaceElevated)))
     ) {
         if (!artworkUrl.isNullOrBlank()) {
             AsyncImage(
@@ -427,8 +420,8 @@ private fun AlaaHero(
             )
             Text(
                 text = title,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.ExtraBold,
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = AlaaThemeTypography.HeroTitleSize),
+                fontWeight = AlaaThemeTypography.HeroTitleWeight,
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -510,8 +503,8 @@ private fun AlaaLiveCategories(
         Spacer(modifier = Modifier.height(16.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             items(categories, key = { it.id }) { category ->
-                val color = AlaaCategoryPalette[
-                    (kotlin.math.abs(category.id % AlaaCategoryPalette.size.toLong())).toInt()
+                val color = AlaaThemeColors.CategoryPalette[
+                    (kotlin.math.abs(category.id % AlaaThemeColors.CategoryPalette.size.toLong())).toInt()
                 ]
                 TvClickableSurface(
                     onClick = { onCategoryClick(category) },
