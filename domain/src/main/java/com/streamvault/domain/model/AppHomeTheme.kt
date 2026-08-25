@@ -1,8 +1,8 @@
 package com.streamvault.domain.model
 
 /**
- * Controls the visual composition of the live-TV home screen without changing providers,
- * categories, channel ordering, or playback behavior.
+ * Controls the application-wide presentation layer without changing providers, categories,
+ * channel ordering, playback behavior, persistence, or other IPTV business logic.
  */
 enum class AppHomeTheme(
     val storageValue: String

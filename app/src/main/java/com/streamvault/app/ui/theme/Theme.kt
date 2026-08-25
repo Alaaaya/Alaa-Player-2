@@ -9,6 +9,7 @@ import com.streamvault.app.ui.design.AppShapes
 import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.app.ui.design.rememberAppTypography
+import com.streamvault.domain.model.AppHomeTheme
 
 private val DarkColorScheme = darkColorScheme(
     primary = AppColors.Brand,
@@ -23,15 +24,34 @@ private val DarkColorScheme = darkColorScheme(
     onError = OnPrimary
 )
 
+private val AlaaColorScheme = darkColorScheme(
+    primary = AlaaThemeColors.Accent,
+    onPrimary = AlaaThemeColors.TextPrimary,
+    surface = AlaaThemeColors.Surface,
+    onSurface = AlaaThemeColors.TextPrimary,
+    surfaceVariant = AlaaThemeColors.SurfaceElevated,
+    onSurfaceVariant = AlaaThemeColors.TextSecondary,
+    background = AlaaThemeColors.Canvas,
+    onBackground = AlaaThemeColors.TextPrimary,
+    error = AlaaThemeColors.AccentStrong,
+    onError = AlaaThemeColors.TextPrimary
+)
+
 @Composable
-fun StreamVaultTheme(content: @Composable () -> Unit) {
+fun StreamVaultTheme(
+    appHomeTheme: AppHomeTheme = AppHomeTheme.CLASSIC,
+    content: @Composable () -> Unit
+) {
     val typography = rememberAppTypography()
+    val isAlaa = appHomeTheme == AppHomeTheme.ALAA
     CompositionLocalProvider(
         LocalAppSpacing provides com.streamvault.app.ui.design.AppSpacing(),
-        LocalAppShapes provides AppShapes()
+        LocalAppShapes provides AppShapes(),
+        LocalAppHomeTheme provides appHomeTheme,
+        LocalIsAlaaTheme provides isAlaa
     ) {
         MaterialTheme(
-            colorScheme = DarkColorScheme,
+            colorScheme = if (isAlaa) AlaaColorScheme else DarkColorScheme,
             typography = typography,
             content = content
         )

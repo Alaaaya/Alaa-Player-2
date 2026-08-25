@@ -29,6 +29,7 @@ import com.streamvault.domain.repository.CombinedM3uRepository
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.model.AppHomeTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 import javax.inject.Inject
@@ -141,6 +142,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appLanguage by preferencesRepository.appLanguage.collectAsState(initial = "system")
             val appTimeFormat by preferencesRepository.appTimeFormat.collectAsState(initial = com.streamvault.domain.model.AppTimeFormat.SYSTEM)
+            val appHomeTheme by preferencesRepository.appHomeTheme.collectAsState(initial = AppHomeTheme.CLASSIC)
             val currentContext = LocalContext.current
             
             val configuration = remember(appLanguage) {
@@ -182,7 +184,7 @@ class MainActivity : ComponentActivity() {
                 LocalLayoutDirection provides layoutDirection,
                 LocalAppTimeFormat provides appTimeFormat
             ) {
-                StreamVaultTheme {
+                StreamVaultTheme(appHomeTheme = appHomeTheme) {
                     AppNavigation(mainActivity = this@MainActivity)
                 }
             }

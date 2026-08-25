@@ -27,6 +27,9 @@ import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.interaction.mouseClickable
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 
 // ── Netflix-style horizontal category row ─────────────────────────
 
@@ -42,6 +45,9 @@ fun <T : Any> CategoryRow(
     itemContent: @Composable (T) -> Unit
 ) {
     val resolvedContentTypeSelector: (T) -> Any? = contentTypeSelector ?: { null }
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val horizontalPadding = if (isAlaaTheme) 0.dp else 20.dp
+    val rowGap = if (isAlaaTheme) 16.dp else 8.dp
 
     Column(
         modifier = modifier
@@ -53,7 +59,7 @@ fun <T : Any> CategoryRow(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp),
+                    .padding(start = horizontalPadding, end = horizontalPadding, top = 14.dp, bottom = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AppSectionHeader(title = title)
@@ -66,15 +72,18 @@ fun <T : Any> CategoryRow(
                             onClick = onSeeAll
                         ),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = SurfaceElevated,
-                        focusedContainerColor = SurfaceHighlight,
-                        contentColor = Primary,
-                        focusedContentColor = OnSurface
+                        containerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else SurfaceElevated,
+                        focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else SurfaceHighlight,
+                        contentColor = if (isAlaaTheme) AlaaThemeColors.Accent else Primary,
+                        focusedContentColor = if (isAlaaTheme) AlaaThemeColors.TextPrimary else OnSurface
                     ),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = Border(
-                            border = BorderStroke(2.dp, FocusBorder),
+                            border = BorderStroke(
+                                if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else 2.dp,
+                                if (isAlaaTheme) AlaaThemeColors.Accent else FocusBorder
+                            ),
                             shape = RoundedCornerShape(999.dp)
                         )
                     )
@@ -91,14 +100,14 @@ fun <T : Any> CategoryRow(
                 title = title,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)
+                    .padding(start = horizontalPadding, end = horizontalPadding, top = 14.dp, bottom = 6.dp)
             )
         }
 
         LazyRow(
             modifier = Modifier.focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(rowGap)
         ) {
             items(
                 items = items,

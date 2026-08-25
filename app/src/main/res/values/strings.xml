@@ -1842,11 +1842,11 @@
     <string name="vod_unavailable_title">VOD is unavailable</string>
     <string name="vod_unavailable_subtitle">This provider exposes separate Movies and Series catalogs.</string>
     <string name="settings_themes" tools:ignore="MissingTranslation">Themes</string>
-    <string name="settings_themes_title" tools:ignore="MissingTranslation">Home themes</string>
-    <string name="settings_themes_subtitle" tools:ignore="MissingTranslation">Choose the visual style of the home dashboard.</string>
+    <string name="settings_themes_title" tools:ignore="MissingTranslation">Application themes</string>
+    <string name="settings_themes_subtitle" tools:ignore="MissingTranslation">Choose the visual presentation for the entire application.</string>
     <string name="settings_theme_classic" tools:ignore="MissingTranslation">Classic</string>
-    <string name="settings_theme_classic_subtitle" tools:ignore="MissingTranslation">Current dashboard layout</string>
+    <string name="settings_theme_classic_subtitle" tools:ignore="MissingTranslation">Restore the standard application presentation</string>
     <string name="settings_theme_alaa" tools:ignore="MissingTranslation">Alaa</string>
-    <string name="settings_theme_alaa_subtitle" tools:ignore="MissingTranslation">Bold hero layout with red focus accents</string>
+    <string name="settings_theme_alaa_subtitle" tools:ignore="MissingTranslation">Full Alaa presentation with vertical navigation and red focus accents</string>
     <string name="settings_theme_selected" tools:ignore="MissingTranslation">Selected</string>
 </resources>

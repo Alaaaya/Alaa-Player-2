@@ -107,14 +107,9 @@ internal fun AlaaDashboard(
             .take(12)
     }
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        AlaaSidebar(onNavigate = onNavigate)
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 32.dp),
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item(key = "alaa_hero") {
@@ -246,7 +241,6 @@ internal fun AlaaDashboard(
                     }
                 }
             }
-        }
     }
 }
 

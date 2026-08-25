@@ -1483,12 +1483,12 @@
     <string name="settings_remote_dialog_title">إجراء %1$s</string>
     <string name="settings_remote_dialog_subtitle">اختر الإجراء الذي يقوم به هذا الزر الملوّن في %1$s.</string>
     <string name="settings_themes">الثيمات</string>
-    <string name="settings_themes_title">ثيمات الرئيسية</string>
-    <string name="settings_themes_subtitle">اختر التصميم المرئي للواجهة الرئيسية.</string>
+    <string name="settings_themes_title">ثيمات التطبيق</string>
+    <string name="settings_themes_subtitle">اختر المظهر المرئي للتطبيق بالكامل.</string>
     <string name="settings_theme_classic">الكلاسيكي</string>
-    <string name="settings_theme_classic_subtitle">تصميم الواجهة الرئيسية الحالي</string>
+    <string name="settings_theme_classic_subtitle">استعادة مظهر التطبيق القياسي</string>
     <string name="settings_theme_alaa">Alaa</string>
-    <string name="settings_theme_alaa_subtitle">واجهة بانر جريئة مع تركيز باللون الأحمر</string>
+    <string name="settings_theme_alaa_subtitle">واجهة Alaa كاملة مع تنقل عمودي وتركيز قرمزي</string>
     <string name="settings_theme_selected">مُختار</string>
 </resources>
 

@@ -85,6 +85,9 @@ import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
+import com.streamvault.app.ui.theme.AlaaThemeColors
+import com.streamvault.app.ui.theme.AlaaThemeDimensions
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
 
@@ -110,40 +113,49 @@ fun AppScreenScaffold(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val spacing = LocalAppSpacing.current
+    val isAlaaTheme = LocalIsAlaaTheme.current
+    val resolvedNavigationChrome = if (isAlaaTheme) AppNavigationChrome.Rail else navigationChrome
+    val canvasBrush = if (isAlaaTheme) {
+        Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
+    } else {
+        Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        AppColors.Canvas,
-                        AppColors.CanvasElevated,
-                        AppColors.Surface
-                    )
-                )
-            )
+            .background(canvasBrush)
     ) {
-        if (navigationChrome == AppNavigationChrome.Rail) {
+        if (resolvedNavigationChrome == AppNavigationChrome.Rail) {
             Row(modifier = Modifier.fillMaxSize()) {
                 DestinationRail(
                     currentRoute = currentRoute,
                     onNavigate = onNavigate,
+                    isAlaaTheme = isAlaaTheme,
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(spacing.railWidth)
+                        .width(if (isAlaaTheme) AlaaThemeDimensions.RailWidth else spacing.railWidth)
                 )
 
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = spacing.lg,
-                            end = spacing.screenGutter,
-                            top = spacing.safeTop,
-                            bottom = spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.safeBottom
                         )
                 ) {
+                    if (topBarActions != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = topBarActions
+                        )
+                        Spacer(modifier = Modifier.height(if (isAlaaTheme) 16.dp else spacing.md))
+                    }
                     if (showScreenHeader) {
                         AppScreenHeader(
                             title = title,
@@ -221,6 +233,7 @@ fun AppScreenHeader(
     eyebrow: String? = null,
     compact: Boolean = false
 ) {
+    val isAlaaTheme = LocalIsAlaaTheme.current
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -229,13 +242,13 @@ fun AppScreenHeader(
             Text(
                 text = eyebrow,
                 style = MaterialTheme.typography.labelMedium,
-                color = AppColors.Brand
+                color = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Brand
             )
         }
         Text(
             text = title,
             style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.displaySmall,
-            color = AppColors.TextPrimary,
+            color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
@@ -243,7 +256,7 @@ fun AppScreenHeader(
             Text(
                 text = subtitle,
                 style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyLarge,
-                color = AppColors.TextSecondary,
+                color = if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -700,6 +713,7 @@ fun ContentMetadataStrip(
 private fun DestinationRail(
     currentRoute: String,
     onNavigate: (String) -> Unit,
+    isAlaaTheme: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val spacing = LocalAppSpacing.current
@@ -708,15 +722,18 @@ private fun DestinationRail(
 
     Box(
         modifier = modifier
-            .padding(start = spacing.lg, top = spacing.safeTop, bottom = spacing.safeBottom)
-            .clip(RoundedCornerShape(28.dp))
+            .padding(
+                start = if (isAlaaTheme) 0.dp else spacing.lg,
+                top = if (isAlaaTheme) 0.dp else spacing.safeTop,
+                bottom = if (isAlaaTheme) 0.dp else spacing.safeBottom
+            )
+            .clip(if (isAlaaTheme) RoundedCornerShape(0.dp) else RoundedCornerShape(28.dp))
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        AppColors.SurfaceElevated,
-                        AppColors.Surface
-                    )
-                )
+                if (isAlaaTheme) {
+                    Brush.verticalGradient(listOf(AlaaThemeColors.Sidebar, AlaaThemeColors.Sidebar))
+                } else {
+                    Brush.verticalGradient(listOf(AppColors.SurfaceElevated, AppColors.Surface))
+                }
             )
             .focusProperties {
                 onEnter = {
@@ -728,18 +745,22 @@ private fun DestinationRail(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(
+                    horizontal = if (isAlaaTheme) AlaaThemeDimensions.RailPadding else 12.dp,
+                    vertical = if (isAlaaTheme) 28.dp else 20.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(if (isAlaaTheme) 12.dp else 10.dp)
+
         ) {
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleMedium,
-                color = AppColors.TextPrimary
+                style = if (isAlaaTheme) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
             )
             Text(
                 text = stringResource(R.string.label_tv),
                 style = MaterialTheme.typography.labelSmall,
-                color = AppColors.TextTertiary
+                color = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.TextTertiary
             )
             Spacer(modifier = Modifier.height(10.dp))
             items.forEach { item ->
@@ -748,6 +769,7 @@ private fun DestinationRail(
                     label = stringResource(item.labelRes),
                     icon = item.icon,
                     selected = currentRoute.startsWith(item.route),
+                    isAlaaTheme = isAlaaTheme,
                     modifier = Modifier.focusRequester(requester),
                     onClick = {
                         if (!currentRoute.startsWith(item.route)) {
@@ -765,6 +787,7 @@ private fun RailButton(
     label: String,
     icon: ImageVector,
     selected: Boolean,
+    isAlaaTheme: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -790,15 +813,24 @@ private fun RailButton(
                 scaleY = scale
             }
             .onFocusChanged { isFocused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+        shape = ClickableSurfaceDefaults.shape(
+            RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp)
+        ),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) AppColors.BrandMuted else Color.Transparent,
-            focusedContainerColor = AppColors.SurfaceEmphasis
+            containerColor = when {
+                isAlaaTheme && selected -> AlaaThemeColors.AccentMuted
+                selected -> AppColors.BrandMuted
+                else -> Color.Transparent
+            },
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(FocusSpec.BorderWidth, AppColors.Focus),
-                shape = RoundedCornerShape(18.dp)
+                border = BorderStroke(
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else FocusSpec.BorderWidth,
+                    if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Focus
+                ),
+                shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp)
             )
         )
     ) {
@@ -812,13 +844,23 @@ private fun RailButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (selected) AppColors.Brand else AppColors.TextSecondary,
+                tint = when {
+                    isAlaaTheme && selected -> AlaaThemeColors.Accent
+                    isAlaaTheme -> AlaaThemeColors.TextSecondary
+                    selected -> AppColors.Brand
+                    else -> AppColors.TextSecondary
+                },
                 modifier = Modifier.size(20.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleSmall,
-                color = if (selected) AppColors.TextPrimary else AppColors.TextSecondary,
+                color = when {
+                    isAlaaTheme && selected -> AlaaThemeColors.TextPrimary
+                    isAlaaTheme -> AlaaThemeColors.TextSecondary
+                    selected -> AppColors.TextPrimary
+                    else -> AppColors.TextSecondary
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
