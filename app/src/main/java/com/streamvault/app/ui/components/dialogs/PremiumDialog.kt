@@ -50,6 +50,7 @@ import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.FocusSpec
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
 import com.streamvault.app.ui.themes.cinematic.CinematicMuted
 import com.streamvault.app.ui.themes.cinematic.CinematicPanel
@@ -115,6 +116,7 @@ fun PremiumDialog(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val dialogSurface = if (isGlassTheme) GlassPane else if (isStreamingPlatformTheme) StreamingPanel else if (isPremiumBlackTheme) PremiumPanel else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
     val dialogBackground = if (isGlassTheme) {
         Brush.verticalGradient(colors = listOf(GlassCanvas.copy(alpha = 0.9f), GlassPane, GlassCanvas))
@@ -169,6 +171,26 @@ fun PremiumDialog(
     if (isGlassTheme) {
         LaunchedEffect(Unit) { delay(180); canInteract = true }
         GlassmorphismPremiumDialog(
+            title = title,
+            subtitle = subtitle,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            widthFraction = widthFraction,
+            heightFraction = heightFraction,
+            bodyHeightFraction = bodyHeightFraction,
+            bodyScrollHint = bodyScrollHint,
+            initialBodyFocusRequester = initialBodyFocusRequester,
+            canInteract = canInteract,
+            isTelevisionDevice = isTelevisionDevice,
+            blockOpenGesture = blockOpenGesture,
+            content = content,
+            footer = footer
+        )
+        return
+    }
+    if (isBlueOceanTheme) {
+        LaunchedEffect(Unit) { delay(160); canInteract = true }
+        BlueOceanPremiumDialog(
             title = title,
             subtitle = subtitle,
             onDismissRequest = onDismissRequest,
@@ -322,6 +344,87 @@ fun PremiumDialog(
                                 content = footer
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Blue Ocean dialogs use a harbour notice panel with a signal strip instead of a generic elevated card. */
+@Composable
+private fun BlueOceanPremiumDialog(
+    title: String,
+    subtitle: String?,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    widthFraction: Float,
+    heightFraction: Float?,
+    bodyHeightFraction: Float,
+    bodyScrollHint: String?,
+    initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+    canInteract: Boolean,
+    isTelevisionDevice: Boolean,
+    blockOpenGesture: (KeyEvent) -> Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit
+) {
+    val surfaces = LocalThemePresentation.current.surfaces
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = canInteract,
+            dismissOnClickOutside = canInteract,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogCanInteract provides canInteract) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val resolvedWidthFraction = when {
+                    isTelevisionDevice -> widthFraction
+                    maxWidth < 700.dp -> 0.9f
+                    maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
+                    else -> widthFraction
+                }
+                val maxDialogBodyHeight = maxHeight * bodyHeightFraction
+                val dialogModifier = modifier
+                    .fillMaxWidth(resolvedWidthFraction)
+                    .then(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier)
+                    .onPreviewKeyEvent(blockOpenGesture)
+                val shape = RoundedCornerShape(topStart = 34.dp, bottomEnd = 34.dp, topEnd = 10.dp, bottomStart = 10.dp)
+                Surface(
+                    modifier = dialogModifier,
+                    shape = shape,
+                    colors = SurfaceDefaults.colors(containerColor = surfaces.browseContent),
+                    border = androidx.tv.material3.Border(
+                        border = BorderStroke(2.dp, surfaces.accent),
+                        shape = shape
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .background(Brush.verticalGradient(listOf(surfaces.focusedSurface, surfaces.browseContent, surfaces.canvas)))
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("HARBOUR NOTICE", style = MaterialTheme.typography.labelSmall, color = surfaces.accent)
+                            Text(title, style = MaterialTheme.typography.headlineMedium, color = surfaces.textPrimary)
+                            if (!subtitle.isNullOrBlank()) {
+                                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = surfaces.textSecondary)
+                            }
+                        }
+                        PremiumDialogScrollableBody(
+                            maxHeight = maxDialogBodyHeight,
+                            scrollHint = bodyScrollHint,
+                            initialFocusRequester = initialBodyFocusRequester,
+                            content = content
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                            content = footer
+                        )
                     }
                 }
             }
