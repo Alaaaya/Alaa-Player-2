@@ -104,6 +104,8 @@ import com.streamvault.app.ui.themes.cinematic.CinematicPanel
 import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
@@ -133,6 +135,7 @@ fun AppScreenScaffold(
     val spacing = LocalAppSpacing.current
     val isAlaaTheme = LocalIsAlaaTheme.current
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     // لا يفرض الثيم موضع التنقّل: Live TV يطلب شريطاً علوياً مرجعياً،
     // بينما تبقى الشاشات التي تطلب Rail على العمود الجانبي.
     val resolvedNavigationChrome = navigationChrome
@@ -140,6 +143,8 @@ fun AppScreenScaffold(
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
     } else if (isCinematicTheme) {
         Brush.verticalGradient(listOf(CinematicCanvas, CinematicPanel, CinematicCanvas))
+    } else if (isNeonFutureTheme) {
+        Brush.verticalGradient(listOf(NeonCanvas, NeonPanel, NeonCanvas))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
