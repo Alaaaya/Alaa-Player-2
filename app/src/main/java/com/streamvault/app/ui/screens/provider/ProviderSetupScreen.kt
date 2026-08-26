@@ -83,6 +83,13 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.screens.settings.BackupImportPreviewDialog
 import com.streamvault.app.ui.theme.*
+import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
+import com.streamvault.app.ui.themes.cinematic.CinematicGold
+import com.streamvault.app.ui.themes.cinematic.CinematicMuted
+import com.streamvault.app.ui.themes.cinematic.CinematicPanel
+import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
+import com.streamvault.app.ui.themes.cinematic.CinematicText
+import com.streamvault.app.ui.themes.cinematic.CinematicWine
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -93,6 +100,7 @@ import com.streamvault.domain.model.StalkerCompatibilityProfileIds
 import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportChallengeReason
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
@@ -252,6 +260,7 @@ fun ProviderSetupScreen(
     val pairingState by viewModel.pairingState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -522,7 +531,13 @@ fun ProviderSetupScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface)))
+            .background(
+                if (isCinematicTheme) {
+                    Brush.verticalGradient(colors = listOf(CinematicCanvas, CinematicPanel, CinematicCanvas))
+                } else {
+                    Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
+                }
+            )
     ) {
         val isWide = maxWidth >= 700.dp
         val hPad = if (isWide) 24.dp else 16.dp
@@ -2551,10 +2566,15 @@ private fun SourceTypeSelectorPanel(
     onImportClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(20.dp),
-        colors = SurfaceDefaults.colors(containerColor = Surface.copy(alpha = 0.92f))
+        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else Surface.copy(alpha = 0.92f)),
+        border = Border(
+            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else BorderStroke(0.dp, Color.Transparent),
+            shape = RoundedCornerShape(20.dp)
+        )
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(14.dp),
@@ -2563,17 +2583,17 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = isEditLabel,
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary
+                color = if (isCinematic) CinematicText else TextPrimary
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_shell_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceDim
+                color = if (isCinematic) CinematicMuted else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_source_type_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = TextTertiary
+                color = if (isCinematic) CinematicGold else TextTertiary
             )
             if (!isEditing || sourceType == SourceType.XTREAM) {
                 SourceTypeCard(
@@ -2633,12 +2653,12 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_title),
                 style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceDim
+                color = if (isCinematic) CinematicGold else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_body),
                 style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceDim.copy(alpha = 0.55f)
+                color = if (isCinematic) CinematicMuted.copy(alpha = 0.7f) else OnSurfaceDim.copy(alpha = 0.55f)
             )
         }
     }
@@ -2653,17 +2673,27 @@ private fun SourceTypeCard(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
+    val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val shape = RoundedCornerShape(12.dp)
     Surface(
         onClick = { if (enabled) onClick() },
         modifier = Modifier.fillMaxWidth().mouseClickable(enabled = enabled, onClick = onClick),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor  = if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
-            focusedContainerColor = if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
+            containerColor  = if (isCinematic) {
+                if (selected) CinematicWine.copy(alpha = 0.48f) else CinematicCanvas
+            } else if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight)),
-            focusedBorder = Border(BorderStroke(2.dp, FocusBorder))
+            border = Border(
+                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
+                shape = shape
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, if (isCinematic) CinematicGold else FocusBorder),
+                shape = shape
+            )
         )
     ) {
         Column(
@@ -2677,7 +2707,7 @@ private fun SourceTypeCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (selected) Primary else TextPrimary
+                    color = if (isCinematic && selected) CinematicGold else if (selected) Primary else if (isCinematic) CinematicText else TextPrimary
                 )
                 badge?.let {
                     StatusPill(
@@ -2690,7 +2720,7 @@ private fun SourceTypeCard(
                     )
                 }
             }
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim, maxLines = 2)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else OnSurfaceDim, maxLines = 2)
         }
     }
 }
