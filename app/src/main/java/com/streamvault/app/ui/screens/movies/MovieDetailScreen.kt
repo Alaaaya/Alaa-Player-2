@@ -82,6 +82,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalMovieDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureMovieDetail
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformMovieDetail
 import com.streamvault.app.ui.themes.premium.PremiumBlackMovieDetail
+import com.streamvault.app.ui.themes.blueocean.BlueOceanMovieDetail
 import com.streamvault.app.ui.themes.premium.PremiumCanvas
 import com.streamvault.app.ui.themes.premium.PremiumGold
 import com.streamvault.app.ui.themes.premium.PremiumMuted
@@ -107,6 +108,7 @@ fun MovieDetailScreen(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -156,7 +158,17 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            if (isPremiumBlackTheme) {
+            if (isBlueOceanTheme) {
+                BlueOceanMovieDetail(
+                    movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay, onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                )
+            } else if (isPremiumBlackTheme) {
                 PremiumBlackMovieDetail(
                     movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
                     isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },

@@ -94,6 +94,7 @@ import com.streamvault.app.ui.themes.neon.NeonFutureMoviesLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismMoviesLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformMoviesLayout
 import com.streamvault.app.ui.themes.premium.PremiumBlackMoviesLayout
+import com.streamvault.app.ui.themes.blueocean.BlueOceanMoviesLayout
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
@@ -119,6 +120,7 @@ fun MoviesScreen(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -172,7 +174,7 @@ fun MoviesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_movies),
             subtitle = null,
-            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme || isBlueOceanTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -226,7 +228,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -255,7 +257,17 @@ fun MoviesScreen(
                     showPinDialog = true
                 } else onMovieClick(movie)
             }
-            if (isPremiumBlackTheme) {
+            if (isBlueOceanTheme) {
+                BlueOceanMoviesLayout(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick, onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isPremiumBlackTheme) {
                 PremiumBlackMoviesLayout(
                     uiState = uiState, initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,

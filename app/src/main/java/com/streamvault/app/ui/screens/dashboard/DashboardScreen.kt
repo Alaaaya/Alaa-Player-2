@@ -95,6 +95,7 @@ import com.streamvault.app.ui.themes.neon.NeonFutureDashboard
 import com.streamvault.app.ui.themes.glass.GlassmorphismDashboard
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformDashboard
 import com.streamvault.app.ui.themes.premium.PremiumBlackDashboard
+import com.streamvault.app.ui.themes.blueocean.BlueOceanDashboard
 
 @Composable
 fun DashboardScreen(
@@ -173,6 +174,33 @@ fun DashboardScreen(
                     onSeriesClick = onSeriesClick,
                     onPlaybackHistoryClick = onPlaybackHistoryClick,
                     onContinueWatchingItemClick = onAlaaContinueWatchingItemClick
+                )
+                return@AppScreenScaffold
+            }
+
+            if (uiState.homeTheme == AppHomeTheme.BLUE_OCEAN) {
+                val onBlueOceanContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else null
+                    if (presentedSeries != null) onSeriesClick(presentedSeries) else onPlaybackHistoryClick(history)
+                }
+                BlueOceanDashboard(
+                    uiState = uiState,
+                    recordingChannelIds = recordingChannelIds,
+                    scheduledChannelIds = scheduledChannelIds,
+                    onNavigate = onNavigate,
+                    onRecentChannelClick = onRecentChannelClick,
+                    onFavoriteChannelClick = onFavoriteChannelClick,
+                    onMovieClick = onMovieClick,
+                    onSeriesClick = onSeriesClick,
+                    onContinueWatchingItemClick = onBlueOceanContinueWatchingItemClick
                 )
                 return@AppScreenScaffold
             }

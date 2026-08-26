@@ -135,6 +135,7 @@ import com.streamvault.domain.model.StalkerProfileVerification
 import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportChallengeReason
 import com.streamvault.domain.model.AppHomeTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
@@ -2747,7 +2748,9 @@ private fun SourceTypeCard(
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
-    val shape = RoundedCornerShape(if (isGlass) 18.dp else if (isNeon) 7.dp else if (isPremiumBlack) 4.dp else 0.dp)
+    val isBlueOcean = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val blueOceanSurfaces = LocalThemePresentation.current.surfaces
+    val shape = RoundedCornerShape(if (isBlueOcean) 22.dp else if (isGlass) 18.dp else if (isNeon) 7.dp else if (isPremiumBlack) 4.dp else 0.dp)
     Surface(
         onClick = { if (enabled) onClick() },
         modifier = Modifier.fillMaxWidth().mouseClickable(enabled = enabled, onClick = onClick),
@@ -2763,16 +2766,18 @@ private fun SourceTypeCard(
                 if (selected) GlassPaneFocused else GlassPane
             } else if (isPremiumBlack) {
                 if (selected) PremiumPanelFocused else PremiumPanel
+            } else if (isBlueOcean) {
+                if (selected) blueOceanSurfaces.selectedAccent.copy(alpha = 0.34f) else blueOceanSurfaces.browseContent
             } else if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else if (isPremiumBlack) PremiumPanelFocused else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else if (isPremiumBlack) PremiumPanelFocused else if (isBlueOcean) blueOceanSurfaces.focusedSurface else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(
-                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (isMinimal) MinimalRule else if (isGlass) if (selected) GlassAccent else GlassRule else if (isPremiumBlack) if (selected) PremiumGold else PremiumMetal else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
+                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (isMinimal) MinimalRule else if (isGlass) if (selected) GlassAccent else GlassRule else if (isPremiumBlack) if (selected) PremiumGold else PremiumMetal else if (isBlueOcean) if (selected) blueOceanSurfaces.accent else blueOceanSurfaces.textSecondary.copy(alpha = .35f) else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
                 shape = shape
             ),
             focusedBorder = Border(
-                border = BorderStroke(if (isMinimal || isPremiumBlack) 1.dp else 2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalFocus else if (isGlass) GlassFocus else if (isPremiumBlack) PremiumFocus else FocusBorder),
+                border = BorderStroke(if (isMinimal || isPremiumBlack || isBlueOcean) 1.dp else 2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalFocus else if (isGlass) GlassFocus else if (isPremiumBlack) PremiumFocus else if (isBlueOcean) blueOceanSurfaces.accent else FocusBorder),
                 shape = shape
             )
         )
@@ -2788,7 +2793,7 @@ private fun SourceTypeCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (isMinimal && selected) MinimalText else if (isGlass && selected) GlassFocus else if (isPremiumBlack && selected) PremiumGold else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else if (isPremiumBlack) PremiumText else TextPrimary
+                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (isMinimal && selected) MinimalText else if (isGlass && selected) GlassFocus else if (isPremiumBlack && selected) PremiumGold else if (isBlueOcean) if (selected) blueOceanSurfaces.accent else blueOceanSurfaces.textPrimary else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else if (isPremiumBlack) PremiumText else TextPrimary
                 )
                 badge?.let {
                     StatusPill(
@@ -2801,7 +2806,7 @@ private fun SourceTypeCard(
                     )
                 }
             }
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isPremiumBlack) PremiumMuted else OnSurfaceDim, maxLines = 2)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isPremiumBlack) PremiumMuted else if (isBlueOcean) blueOceanSurfaces.textSecondary else OnSurfaceDim, maxLines = 2)
         }
     }
 }

@@ -44,6 +44,7 @@ import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
@@ -112,6 +113,10 @@ private fun isPremiumBlackSettingsPresentation(): Boolean =
     LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
 
 @Composable
+private fun isBlueOceanSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+
+@Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
@@ -122,6 +127,8 @@ internal fun SettingsSectionHeader(
     val isGlass = isGlassSettingsPresentation()
     val isStreaming = isStreamingSettingsPresentation()
     val isPremiumBlack = isPremiumBlackSettingsPresentation()
+    val isBlueOcean = isBlueOceanSettingsPresentation()
+    val blueOceanSurfaces = LocalThemePresentation.current.surfaces
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -129,13 +136,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; isPremiumBlack -> PremiumGold; else -> Primary },
+            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; isPremiumBlack -> PremiumGold; isBlueOcean -> blueOceanSurfaces.accent; else -> Primary },
             fontWeight = if (isCinematic || isNeon) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; isPremiumBlack -> PremiumMuted; else -> OnSurfaceDim }
+            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; isPremiumBlack -> PremiumMuted; isBlueOcean -> blueOceanSurfaces.textSecondary; else -> OnSurfaceDim }
         )
     }
 }
