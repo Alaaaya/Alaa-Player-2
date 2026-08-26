@@ -105,6 +105,7 @@ import com.streamvault.app.ui.screens.player.overlay.NextEpisodeCountdownOverlay
 import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
 import com.streamvault.app.ui.screens.multiview.MultiViewPlannerDialog
 import com.streamvault.app.ui.themes.cinematic.CinematicPlayerOverlay
+import com.streamvault.app.ui.themes.minimal.MinimalPlayerOverlay
 import com.streamvault.app.ui.themes.neon.NeonFuturePlayerOverlay
 import com.streamvault.app.navigation.Routes
 
@@ -1494,6 +1495,7 @@ private fun PlayerControlsOverlayHost(
     val duration by playerEngine.duration.collectAsStateWithLifecycle()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
 
     if (isCinematicTheme) {
         CinematicPlayerOverlay(
@@ -1617,6 +1619,30 @@ private fun PlayerControlsOverlayHost(
             onSetScrubbingMode = onSetScrubbingMode,
             seekPreview = seekPreview,
             onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isMinimalTheme) {
+        MinimalPlayerOverlay(
+            visible = visible,
+            title = title,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            currentChannel = currentChannel,
+            displayChannelNumber = displayChannelNumber,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onOpenArchive = onOpenArchive,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onToggleMute = onToggleMute,
+            onSeekToLiveEdge = onSeekToLiveEdge,
             onUserInteraction = onUserInteraction
         )
     } else {
