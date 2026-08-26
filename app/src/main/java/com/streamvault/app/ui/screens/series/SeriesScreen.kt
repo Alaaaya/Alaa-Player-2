@@ -90,6 +90,8 @@ import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
+import com.streamvault.app.ui.themes.cinematic.CinematicSeriesLayout
+import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -105,6 +107,7 @@ fun SeriesScreen(
         viewModel.resetPreviewRowsForScreenEntry()
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -158,7 +161,7 @@ fun SeriesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_series),
             subtitle = null,
-            navigationChrome = AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -212,6 +215,48 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
+        } else if (isCinematicTheme && !uiState.isReorderMode) {
+            val isCategoryLocked: (Category) -> Boolean = { category ->
+                (category.isAdult || category.isUserProtected) &&
+                    uiState.parentalControlLevel in 1..2 &&
+                    kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
+            }
+            val isSeriesLocked: (Series) -> Boolean = { series ->
+                val seriesCategoryId = series.categoryId
+                val seriesCategoryLocked = seriesCategoryId?.let { categoryId ->
+                    uiState.categories.firstOrNull { it.id == categoryId }?.let(isCategoryLocked) == true
+                } == true
+                (series.isAdult || series.isUserProtected || seriesCategoryLocked) &&
+                    uiState.parentalControlLevel in 1..2 &&
+                    (seriesCategoryId == null || kotlin.math.abs(seriesCategoryId) !in uiState.unlockedCategoryIds)
+            }
+            CinematicSeriesLayout(
+                categories = uiState.categories,
+                selectedCategory = uiState.selectedCategory,
+                series = uiState.filteredSeries,
+                isCategoryLocked = isCategoryLocked,
+                isSeriesLocked = isSeriesLocked,
+                onCategoryClick = { category ->
+                    if (isCategoryLocked(category)) {
+                        pendingSeries = null
+                        pendingCategory = category
+                        showPinDialog = true
+                    } else {
+                        viewModel.selectCategory(category.name)
+                    }
+                },
+                onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                onSeriesClick = { series ->
+                    if (isSeriesLocked(series)) {
+                        pendingCategory = null
+                        pendingSeries = series
+                        showPinDialog = true
+                    } else {
+                        onSeriesClick(series)
+                    }
+                },
+                onSeriesLongClick = viewModel::onShowDialog
+            )
         } else {
             SeriesVodContent(
                 uiState = uiState,
@@ -1314,4 +1359,3 @@ private fun seriesSortChips(): List<SelectionChip> {
 
 private fun Series.rawSeriesIdsForNavigation(): List<Long> =
     variants.map { it.rawSeriesId }.ifEmpty { listOf(selectedVariantId ?: id) }
-
