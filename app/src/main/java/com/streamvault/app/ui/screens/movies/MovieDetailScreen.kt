@@ -81,6 +81,12 @@ import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalMovieDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureMovieDetail
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformMovieDetail
+import com.streamvault.app.ui.themes.premium.PremiumBlackMovieDetail
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
@@ -100,6 +106,7 @@ fun MovieDetailScreen(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -116,10 +123,21 @@ fun MovieDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(AppColors.Canvas),
+                    .background(if (isPremiumBlackTheme) PremiumCanvas else AppColors.Canvas),
                 contentAlignment = Alignment.Center
             ) {
-                Text(stringResource(R.string.movie_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
+                if (isPremiumBlackTheme) {
+                    androidx.tv.material3.Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                        colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = PremiumPanel)
+                    ) {
+                        Text(
+                            stringResource(R.string.movie_loading_details),
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            color = PremiumMuted
+                        )
+                    }
+                } else Text(stringResource(R.string.movie_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
             }
         }
 
@@ -127,18 +145,28 @@ fun MovieDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(AppColors.Canvas),
+                    .background(if (isPremiumBlackTheme) PremiumCanvas else AppColors.Canvas),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = uiState.error ?: stringResource(R.string.movie_not_found),
-                    color = if (isGlassTheme) GlassText else AppColors.Live
+                    color = if (isPremiumBlackTheme) PremiumGold else if (isGlassTheme) GlassText else AppColors.Live
                 )
             }
         }
 
         else -> {
-            if (isStreamingPlatformTheme) {
+            if (isPremiumBlackTheme) {
+                PremiumBlackMovieDetail(
+                    movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay, onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                )
+            } else if (isStreamingPlatformTheme) {
                 StreamingPlatformMovieDetail(
                     movie = movie,
                     hasResume = uiState.hasResume,

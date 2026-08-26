@@ -95,6 +95,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalSeriesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismSeriesLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformSeriesLayout
+import com.streamvault.app.ui.themes.premium.PremiumBlackSeriesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
@@ -116,6 +117,7 @@ fun SeriesScreen(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -223,7 +225,7 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -252,7 +254,17 @@ fun SeriesScreen(
                     showPinDialog = true
                 } else onSeriesClick(series)
             }
-            if (isStreamingPlatformTheme) {
+            if (isPremiumBlackTheme) {
+                PremiumBlackSeriesLayout(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isSeriesLocked = isSeriesLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onSeriesClick = onThemedSeriesClick, onSeriesLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isStreamingPlatformTheme) {
                 StreamingPlatformSeriesLayout(
                     uiState = uiState,
                     initialFocusRequester = initialContentFocusRequester,

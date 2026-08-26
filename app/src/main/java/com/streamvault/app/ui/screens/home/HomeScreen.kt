@@ -104,6 +104,11 @@ import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalStatePanel
 import com.streamvault.app.ui.themes.glass.GlassmorphismLiveTvLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformLiveTvLayout
+import com.streamvault.app.ui.themes.premium.PremiumBlackLiveTvLayout
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
@@ -126,12 +131,25 @@ private fun HomeLoadingPane(
 ) {
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         if (isMinimalTheme) {
             MinimalStatePanel(title = "LOADING", subtitle = message)
+        } else if (isPremiumBlackTheme) {
+            Column(
+                modifier = Modifier
+                    .background(PremiumPanel, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 22.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(color = PremiumGold)
+                Text("LOADING", color = PremiumText, style = MaterialTheme.typography.labelMedium)
+                Text(message, color = PremiumMuted, style = MaterialTheme.typography.bodySmall)
+            }
         } else Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -180,8 +198,9 @@ fun HomeScreen(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -755,7 +774,25 @@ fun HomeScreen(
                         focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.ChannelTarget(channel)
                         if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
                     }
-                    if (isStreamingPlatformTheme) {
+                    if (isPremiumBlackTheme) {
+                        PremiumBlackLiveTvLayout(
+                            sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                            categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
+                            categorySearchQuery = uiState.categorySearchQuery, channelSearchQuery = uiState.channelSearchQuery,
+                            channels = uiState.filteredChannels, previewChannel = previewChannel,
+                            previewPlayerEngine = uiState.previewPlayerEngine, isPreviewLoading = uiState.isPreviewLoading,
+                            previewErrorMessage = uiState.previewErrorMessage, isCategoryLocked = isCategoryLocked,
+                            isChannelLocked = isChannelLocked, categoryFocusRequesters = categoryFocusRequesters,
+                            channelFocusRequesters = channelFocusRequesters, previewFocusRequester = previewFocusRequester,
+                            onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                            onChannelSearchChange = viewModel::updateChannelSearchQuery, onCategoryClick = onThemedCategoryClick,
+                            onCategoryLongClick = onThemedCategoryLongClick, onChannelClick = onThemedChannelClick,
+                            onChannelLongClick = onThemedChannelLongClick, onCategoryFocused = onThemedCategoryFocused,
+                            onChannelFocused = onThemedChannelFocused, onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                            onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                        )
+                    } else if (isStreamingPlatformTheme) {
                         StreamingPlatformLiveTvLayout(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
                             categories = visibleCategories,

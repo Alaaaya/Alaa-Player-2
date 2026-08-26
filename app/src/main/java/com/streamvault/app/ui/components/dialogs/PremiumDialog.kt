@@ -73,6 +73,8 @@ import com.streamvault.app.ui.themes.streaming.StreamingCanvas
 import com.streamvault.app.ui.themes.streaming.StreamingMuted
 import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.app.ui.themes.streaming.StreamingText
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
@@ -112,13 +114,16 @@ fun PremiumDialog(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
-    val dialogSurface = if (isGlassTheme) GlassPane else if (isStreamingPlatformTheme) StreamingPanel else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val dialogSurface = if (isGlassTheme) GlassPane else if (isStreamingPlatformTheme) StreamingPanel else if (isPremiumBlackTheme) PremiumPanel else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
     val dialogBackground = if (isGlassTheme) {
         Brush.verticalGradient(colors = listOf(GlassCanvas.copy(alpha = 0.9f), GlassPane, GlassCanvas))
     } else if (isNeonFutureTheme) {
         Brush.verticalGradient(colors = listOf(NeonCanvas.copy(alpha = 0.84f), NeonPanel, NeonCanvas))
     } else if (isStreamingPlatformTheme) {
         Brush.verticalGradient(colors = listOf(StreamingCanvas, StreamingPanel, StreamingCanvas))
+    } else if (isPremiumBlackTheme) {
+        Brush.verticalGradient(colors = listOf(PremiumCanvas, PremiumPanel, PremiumCanvas))
     } else {
         Brush.verticalGradient(colors = listOf(AppColors.BrandMuted.copy(alpha = 0.18f), AppColors.SurfaceElevated, AppColors.Surface))
     }
@@ -181,7 +186,7 @@ fun PremiumDialog(
         )
         return
     }
-    LaunchedEffect(Unit) { delay(500); canInteract = true }
+    LaunchedEffect(Unit) { delay(if (isPremiumBlackTheme) 220 else 500); canInteract = true }
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(

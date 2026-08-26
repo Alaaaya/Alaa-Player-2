@@ -86,6 +86,11 @@ import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalSeriesDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformSeriesDetail
+import com.streamvault.app.ui.themes.premium.PremiumBlackSeriesDetail
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
@@ -108,6 +113,7 @@ fun SeriesDetailScreen(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -123,10 +129,21 @@ fun SeriesDetailScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppColors.Canvas),
+                .background(if (isPremiumBlackTheme) PremiumCanvas else AppColors.Canvas),
             contentAlignment = Alignment.Center
         ) {
-            Text(stringResource(R.string.series_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
+            if (isPremiumBlackTheme) {
+                androidx.tv.material3.Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                    colors = androidx.tv.material3.SurfaceDefaults.colors(containerColor = PremiumPanel)
+                ) {
+                    Text(
+                        stringResource(R.string.series_loading_details),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                        color = PremiumMuted
+                    )
+                }
+            } else Text(stringResource(R.string.series_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
         }
         return
     }
@@ -135,18 +152,30 @@ fun SeriesDetailScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppColors.Canvas),
+                .background(if (isPremiumBlackTheme) PremiumCanvas else AppColors.Canvas),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = uiState.error ?: stringResource(R.string.series_not_found),
-                color = if (isGlassTheme) GlassText else AppColors.Live
+                color = if (isPremiumBlackTheme) PremiumGold else if (isGlassTheme) GlassText else AppColors.Live
             )
         }
         return
     }
 
-    if (isStreamingPlatformTheme) {
+    if (isPremiumBlackTheme) {
+        PremiumBlackSeriesDetail(
+            series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings, isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason, onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode -> coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl(episode)) { is Result.Success -> result.data; else -> null }) } },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode, onCastEpisode = viewModel::castEpisode, onBack = onBack
+        )
+    } else if (isStreamingPlatformTheme) {
         StreamingPlatformSeriesDetail(
             series = series,
             selectedSeason = uiState.selectedSeason,
