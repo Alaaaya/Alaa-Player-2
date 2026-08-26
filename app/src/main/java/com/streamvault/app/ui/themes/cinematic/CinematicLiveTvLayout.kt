@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -60,37 +61,11 @@ internal fun CinematicLiveTvLayout(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxSize().background(CinematicCanvas),
+        modifier = modifier.fillMaxSize().background(CinematicCanvas).padding(24.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Column(
-            modifier = Modifier.weight(1.52f).fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                text = sourceTitle.uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = CinematicGold,
-                letterSpacing = 1.6.sp,
-                modifier = Modifier.padding(start = 6.dp)
-            )
-            CinematicPreviewPanel(
-                channel = previewChannel,
-                playerEngine = previewPlayerEngine,
-                isLoading = isPreviewLoading,
-                errorMessage = previewErrorMessage,
-                focusRequester = previewFocusRequester,
-                onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .weight(0.92f)
-                .fillMaxHeight()
-                .background(CinematicPanel, RoundedCornerShape(24.dp))
-                .padding(14.dp),
+            modifier = Modifier.width(272.dp).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
@@ -101,7 +76,7 @@ internal fun CinematicLiveTvLayout(
             )
             CinematicSearchField(categorySearchQuery, "Filter collections", onCategorySearchChange)
             LazyColumn(
-                modifier = Modifier.weight(0.34f),
+                modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(categories, key = { it.id }) { category ->
@@ -123,6 +98,11 @@ internal fun CinematicLiveTvLayout(
                     )
                 }
             }
+        }
+        Column(
+            modifier = Modifier.width(320.dp).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -153,12 +133,33 @@ internal fun CinematicLiveTvLayout(
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent { event ->
                                 event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
+                                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
                                     onRequestPreviewFromChannel()
                             }
                     )
                 }
             }
+        }
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = sourceTitle.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = CinematicGold,
+                letterSpacing = 1.6.sp,
+                modifier = Modifier.padding(start = 6.dp)
+            )
+            CinematicPreviewPanel(
+                channel = previewChannel,
+                playerEngine = previewPlayerEngine,
+                isLoading = isPreviewLoading,
+                errorMessage = previewErrorMessage,
+                focusRequester = previewFocusRequester,
+                onJumpToChannels = onRequestChannelsFromPreview,
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            )
         }
     }
 }

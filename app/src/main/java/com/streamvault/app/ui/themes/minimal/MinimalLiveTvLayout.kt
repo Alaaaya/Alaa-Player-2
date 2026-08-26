@@ -86,15 +86,30 @@ internal fun MinimalLiveTvLayout(
             MinimalTextQuery(value = categorySearchQuery, placeholder = "filter categories", onValueChange = onCategorySearchChange, modifier = Modifier.width(230.dp))
         }
         Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            MinimalPreviewPane(
-                channel = previewChannel,
-                playerEngine = previewPlayerEngine,
-                isLoading = isPreviewLoading,
-                errorMessage = previewErrorMessage,
-                onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(.82f).fillMaxHeight()
-            )
-            Column(modifier = Modifier.weight(1.25f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.width(272.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = MinimalText, fontWeight = FontWeight.Bold)
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    items(categories, key = { it.id }) { category ->
+                        val requester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
+                        MinimalCategoryLine(
+                            category = category,
+                            selected = category.id == selectedCategoryId,
+                            locked = isCategoryLocked(category),
+                            onClick = { onCategoryClick(category) },
+                            onLongClick = { onCategoryLongClick(category) },
+                            modifier = Modifier
+                                .focusRequester(requester)
+                                .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
+                                .onPreviewKeyEvent { event ->
+                                    event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
+                                        onRequestChannelsFromCategory()
+                                }
+                        )
+                    }
+                }
+            }
+            Column(modifier = Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("CHANNEL LIST", style = MaterialTheme.typography.labelLarge, color = MinimalText, fontWeight = FontWeight.Bold)
                     Text("${channels.size} ITEMS", style = MaterialTheme.typography.labelSmall, color = MinimalMuted)
@@ -113,36 +128,21 @@ internal fun MinimalLiveTvLayout(
                                 .onFocusChanged { if (it.isFocused) onChannelFocused(channel) }
                                 .onPreviewKeyEvent { event ->
                                     event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
+                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
                                         onRequestPreviewFromChannel()
                                 }
                         )
                     }
                 }
             }
-            Column(modifier = Modifier.width(196.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = MinimalText, fontWeight = FontWeight.Bold)
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    items(categories, key = { it.id }) { category ->
-                        val requester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
-                        MinimalCategoryLine(
-                            category = category,
-                            selected = category.id == selectedCategoryId,
-                            locked = isCategoryLocked(category),
-                            onClick = { onCategoryClick(category) },
-                            onLongClick = { onCategoryLongClick(category) },
-                            modifier = Modifier
-                                .focusRequester(requester)
-                                .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
-                                .onPreviewKeyEvent { event ->
-                                    event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT &&
-                                        onRequestChannelsFromCategory()
-                                }
-                        )
-                    }
-                }
-            }
+            MinimalPreviewPane(
+                channel = previewChannel,
+                playerEngine = previewPlayerEngine,
+                isLoading = isPreviewLoading,
+                errorMessage = previewErrorMessage,
+                onJumpToChannels = onRequestChannelsFromPreview,
+                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
+            )
         }
     }
 }

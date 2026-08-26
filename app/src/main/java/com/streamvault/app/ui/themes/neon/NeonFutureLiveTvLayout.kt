@@ -90,32 +90,36 @@ internal fun NeonFutureLiveTvLayout(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         NeonFutureHudHeader(sourceTitle = sourceTitle, categoryQuery = categorySearchQuery, onCategoryQueryChange = onCategorySearchChange)
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(categories, key = { it.id }) { category ->
-                val focusRequester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
-                NeonFutureCategoryChip(
-                    category = category,
-                    selected = category.id == selectedCategoryId,
-                    locked = isCategoryLocked(category),
-                    onClick = { onCategoryClick(category) },
-                    onLongClick = { onCategoryLongClick(category) },
-                    modifier = Modifier
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
-                        .onPreviewKeyEvent { event ->
-                            event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN &&
-                                onRequestChannelsFromCategory()
-                        }
-                )
-            }
-        }
         Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(
-                modifier = Modifier.weight(1.18f).fillMaxHeight(),
+                modifier = Modifier.width(272.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("CATEGORY BANDS", style = MaterialTheme.typography.labelLarge, color = NeonPink, fontWeight = FontWeight.Black)
+                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories, key = { it.id }) { category ->
+                        val focusRequester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
+                        NeonFutureCategoryChip(
+                            category = category,
+                            selected = category.id == selectedCategoryId,
+                            locked = isCategoryLocked(category),
+                            onClick = { onCategoryClick(category) },
+                            onLongClick = { onCategoryLongClick(category) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
+                                .onPreviewKeyEvent { event ->
+                                    event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
+                                        onRequestChannelsFromCategory()
+                                }
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.width(320.dp).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -150,7 +154,7 @@ internal fun NeonFutureLiveTvLayout(
                 errorMessage = previewErrorMessage,
                 focusRequester = previewFocusRequester,
                 onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(.82f).fillMaxHeight()
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
     }
