@@ -51,6 +51,45 @@ data class ThemePresentation(
     val replacesHomeWhenOpeningSections: Boolean
 )
 
+data class ThemeCatalogEntry(
+    val theme: AppHomeTheme,
+    val title: String,
+    val description: String
+)
+
+object ThemeCatalog {
+    private val entries = listOf(
+        ThemeCatalogEntry(AppHomeTheme.CLASSIC, "Classic", "واجهة Alaa Player الافتراضية الحالية."),
+        ThemeCatalogEntry(AppHomeTheme.ALAA, "Signature Alaa", "هوية Alaa الخاصة الثابتة."),
+        ThemeCatalogEntry(AppHomeTheme.CINEMATIC, "Cinematic", "تجربة سينمائية بلوحات عرض كبيرة."),
+        ThemeCatalogEntry(AppHomeTheme.NEON_FUTURE, "Neon Future", "تجربة نيون مستقبلية بلوحات HUD."),
+        ThemeCatalogEntry(AppHomeTheme.MINIMAL, "Minimal", "تجربة بسيطة بطباعة قوية ومساحات هادئة."),
+        ThemeCatalogEntry(AppHomeTheme.GLASSMORPHISM, "Glassmorphism", "تجربة زجاجية بطبقات شفافة."),
+        ThemeCatalogEntry(AppHomeTheme.STREAMING_PLATFORM, "Streaming Platform", "تجربة صفوف محتوى وHero واسع."),
+        ThemeCatalogEntry(AppHomeTheme.PREMIUM_BLACK, "Premium Black", "تجربة سوداء فاخرة بمؤشرات معدنية."),
+        ThemeCatalogEntry(AppHomeTheme.BLUE_OCEAN, "Blue Ocean", "تجربة محيطية حديثة."),
+        ThemeCatalogEntry(AppHomeTheme.RED_CINEMA, "Red Cinema", "تجربة سينمائية درامية."),
+        ThemeCatalogEntry(AppHomeTheme.PURPLE_GALAXY, "Purple Galaxy", "تجربة فضائية بنفسجية."),
+        ThemeCatalogEntry(AppHomeTheme.TECH_DASHBOARD, "Tech Dashboard", "تجربة معلومات وEPG كثيفة."),
+        ThemeCatalogEntry(AppHomeTheme.MODERN_TV, "Modern TV", "تجربة تلفاز حديثة عالية الوضوح."),
+        ThemeCatalogEntry(AppHomeTheme.CARD_STACK, "Card Stack", "تجربة بطاقات طبقية."),
+        ThemeCatalogEntry(AppHomeTheme.MEDIA_CENTER, "Media Center", "تجربة مركز وسائط منظمة."),
+        ThemeCatalogEntry(AppHomeTheme.FUTURISTIC_HUD, "Futuristic HUD", "تجربة HUD تقنية."),
+        ThemeCatalogEntry(AppHomeTheme.SOFT_MODERN, "Soft Modern", "تجربة هادئة وتدرجات مريحة."),
+        ThemeCatalogEntry(AppHomeTheme.SPORTS_TV, "Sports TV", "تجربة متابعة رياضية مباشرة."),
+        ThemeCatalogEntry(AppHomeTheme.DARK_GLASS, "Dark Glass", "تجربة زجاج داكن مضيئة."),
+        ThemeCatalogEntry(AppHomeTheme.MAGAZINE_MEDIA, "Magazine Media", "تجربة تحريرية غنية بالصور."),
+        ThemeCatalogEntry(AppHomeTheme.NEXT_GEN_TV, "Next Gen TV", "تجربة تلفاز مكانية متقدمة."),
+        ThemeCatalogEntry(AppHomeTheme.AURORA_LOUNGE, "Aurora Lounge", "تجربة صالة ليلية دافئة.")
+    )
+
+    fun entry(theme: AppHomeTheme): ThemeCatalogEntry =
+        entries.first { it.theme == theme }
+
+    fun selectableEntries(): List<ThemeCatalogEntry> =
+        ThemePresentationRegistry.selectableThemes().map(::entry)
+}
+
 private val classicPresentation = ThemePresentation(
     id = AppHomeTheme.CLASSIC,
     navigationLayout = ThemeNavigationLayout.ADAPTIVE,
@@ -115,6 +154,15 @@ object ThemePresentationRegistry {
     fun resolve(theme: AppHomeTheme): ThemePresentation =
         fixedPresentations[theme] ?: additionalPresentations[theme]
             ?: error("No complete presentation is registered for ${theme.storageValue}")
+
+    fun resolveOrClassic(theme: AppHomeTheme): ThemePresentation =
+        fixedPresentations[theme] ?: additionalPresentations[theme] ?: classicPresentation
+
+    fun selectableThemes(): List<AppHomeTheme> =
+        (fixedPresentations.keys + additionalPresentations.keys)
+            .sortedBy(AppHomeTheme::ordinal)
+
+    fun isSelectable(theme: AppHomeTheme): Boolean = theme in fixedPresentations || theme in additionalPresentations
 
     /**
      * نقطة التسجيل الوحيدة للثيمات الإضافية المكتملة. يمنع الحارس استبدال الثيمين

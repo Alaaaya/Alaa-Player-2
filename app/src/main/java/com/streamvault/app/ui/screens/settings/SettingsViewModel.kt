@@ -14,6 +14,7 @@ import com.streamvault.app.tvinput.TvInputChannelSyncManager
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.model.LiveTvQuickFilterVisibilityMode
 import com.streamvault.app.ui.model.VodViewMode
+import com.streamvault.app.ui.theme.ThemePresentationRegistry
 import com.streamvault.app.update.AppUpdateInstaller
 import com.streamvault.app.update.GitHubReleaseChecker
 import com.streamvault.app.update.isRemoteVersionNewer
@@ -513,6 +514,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setAppHomeTheme(theme: AppHomeTheme) {
+        if (!ThemePresentationRegistry.isSelectable(theme)) return
         viewModelScope.launch {
             preferencesRepository.setAppHomeTheme(theme)
         }

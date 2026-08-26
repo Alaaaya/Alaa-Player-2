@@ -12,7 +12,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import com.streamvault.app.R
 import com.streamvault.app.ui.theme.OnBackground
-import com.streamvault.domain.model.AppHomeTheme
+import com.streamvault.app.ui.theme.ThemeCatalog
+import com.streamvault.app.ui.theme.ThemeCatalogEntry
+import com.streamvault.app.ui.theme.ThemePresentationRegistry
 
 internal fun LazyListScope.settingsThemesSection(
     uiState: SettingsUiState,
@@ -34,32 +36,28 @@ internal fun LazyListScope.settingsThemesSection(
                 style = MaterialTheme.typography.bodyMedium,
                 color = OnBackground.copy(alpha = 0.72f)
             )
-            ThemeChoiceRow(
-                title = stringResource(R.string.settings_theme_classic),
-                description = stringResource(R.string.settings_theme_classic_subtitle),
-                selected = uiState.appHomeTheme == AppHomeTheme.CLASSIC,
-                onClick = { viewModel.setAppHomeTheme(AppHomeTheme.CLASSIC) }
-            )
-            ThemeChoiceRow(
-                title = stringResource(R.string.settings_theme_alaa),
-                description = stringResource(R.string.settings_theme_alaa_subtitle),
-                selected = uiState.appHomeTheme == AppHomeTheme.ALAA,
-                onClick = { viewModel.setAppHomeTheme(AppHomeTheme.ALAA) }
-            )
+            val selectedTheme = uiState.appHomeTheme.takeIf(ThemePresentationRegistry::isSelectable)
+                ?: ThemePresentationRegistry.selectableThemes().first()
+            ThemeCatalog.selectableEntries().forEach { entry ->
+                ThemeChoiceRow(
+                    entry = entry,
+                    selected = selectedTheme == entry.theme,
+                    onClick = { viewModel.setAppHomeTheme(entry.theme) }
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun ThemeChoiceRow(
-    title: String,
-    description: String,
+    entry: ThemeCatalogEntry,
     selected: Boolean,
     onClick: () -> Unit
 ) {
     ClickableSettingsRow(
-        label = title,
-        value = if (selected) stringResource(R.string.settings_theme_selected) else description,
+        label = entry.title,
+        value = if (selected) stringResource(R.string.settings_theme_selected) else entry.description,
         onClick = onClick
     )
 }
