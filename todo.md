@@ -16,6 +16,7 @@
 - [ ] بناء Live TV وDashboard وMovies وSeries وSearch وFavorites وDetails لـGlassmorphism بطبقات عرض مستقلة مع القنوات العمودية والمعاينة.
 - [x] بناء Live TV لـGlassmorphism: معاينة علوية، قائمة قنوات زجاجية عمودية وسطية، وفئات ضمن bottom sheet أفقي مع callbacks وتركيز مشتركين.
 - [x] بناء Dashboard لـGlassmorphism: موزاييك زجاجي عائم يربط البث والمكتبات والمفضلة والبحث والإعدادات دون رفوف الثيمات السابقة.
+- [x] بناء مكتبة الأفلام لـGlassmorphism: أعمدة شفافة للفئات والعناوين مع بحث وفلاتر وترتيب وحالات loading/error/empty وإجراءات الضغط المطوّل.
 - [ ] بناء Settings وProvider وحوارات وحالات التحميل والخطأ لـGlassmorphism دون تعديل منطق IPTV.
 - [ ] بناء مشغل Glassmorphism بrail إجراءات زجاجي عمودي وBottom Action Bar مختلفين عن جميع الثيمات السابقة.
 - [ ] تنفيذ بقية الثيمات بالترتيب مع مشغل ملء شاشة وBottom Action Bar مختلفين جذرياً لكل ثيم.
