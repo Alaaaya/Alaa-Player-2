@@ -90,6 +90,7 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.app.ui.themes.cinematic.CinematicDashboard
+import com.streamvault.app.ui.themes.minimal.MinimalDashboard
 import com.streamvault.app.ui.themes.neon.NeonFutureDashboard
 
 @Composable
@@ -229,6 +230,33 @@ fun DashboardScreen(
                     onMovieClick = onMovieClick,
                     onSeriesClick = onSeriesClick,
                     onContinueWatchingItemClick = onNeonContinueWatchingItemClick
+                )
+                return@AppScreenScaffold
+            }
+
+            if (uiState.homeTheme == AppHomeTheme.MINIMAL) {
+                val onMinimalContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else null
+                    if (presentedSeries != null) onSeriesClick(presentedSeries) else onPlaybackHistoryClick(history)
+                }
+                MinimalDashboard(
+                    uiState = uiState,
+                    recordingChannelIds = recordingChannelIds,
+                    scheduledChannelIds = scheduledChannelIds,
+                    onNavigate = onNavigate,
+                    onRecentChannelClick = onRecentChannelClick,
+                    onFavoriteChannelClick = onFavoriteChannelClick,
+                    onMovieClick = onMovieClick,
+                    onSeriesClick = onSeriesClick,
+                    onContinueWatchingItemClick = onMinimalContinueWatchingItemClick
                 )
                 return@AppScreenScaffold
             }
