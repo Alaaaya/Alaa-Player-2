@@ -90,6 +90,7 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.app.ui.themes.cinematic.CinematicDashboard
+import com.streamvault.app.ui.themes.neon.NeonFutureDashboard
 
 @Composable
 fun DashboardScreen(
@@ -123,7 +124,7 @@ fun DashboardScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_home),
             subtitle = provider?.name,
-            navigationChrome = if (uiState.homeTheme == AppHomeTheme.CINEMATIC) {
+            navigationChrome = if (uiState.homeTheme == AppHomeTheme.CINEMATIC || uiState.homeTheme == AppHomeTheme.NEON_FUTURE) {
                 AppNavigationChrome.Rail
             } else {
                 AppNavigationChrome.TopBar
@@ -201,6 +202,33 @@ fun DashboardScreen(
                     onMovieClick = onMovieClick,
                     onSeriesClick = onSeriesClick,
                     onContinueWatchingItemClick = onCinematicContinueWatchingItemClick
+                )
+                return@AppScreenScaffold
+            }
+
+            if (uiState.homeTheme == AppHomeTheme.NEON_FUTURE) {
+                val onNeonContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else null
+                    if (presentedSeries != null) onSeriesClick(presentedSeries) else onPlaybackHistoryClick(history)
+                }
+                NeonFutureDashboard(
+                    uiState = uiState,
+                    recordingChannelIds = recordingChannelIds,
+                    scheduledChannelIds = scheduledChannelIds,
+                    onNavigate = onNavigate,
+                    onRecentChannelClick = onRecentChannelClick,
+                    onFavoriteChannelClick = onFavoriteChannelClick,
+                    onMovieClick = onMovieClick,
+                    onSeriesClick = onSeriesClick,
+                    onContinueWatchingItemClick = onNeonContinueWatchingItemClick
                 )
                 return@AppScreenScaffold
             }
