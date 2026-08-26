@@ -32,6 +32,8 @@ import com.streamvault.app.ui.components.shell.AppTopBarCloseAction
 import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.*
+import com.streamvault.app.ui.themes.blueocean.BlueOceanSettingsSurface
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 import androidx.compose.ui.res.stringResource
 import com.streamvault.app.R
@@ -63,6 +65,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val settingsNavFocusRequester = remember { FocusRequester() }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -351,6 +354,104 @@ fun SettingsScreen(
         settingsNavFocusRequester.requestFocusSafely(tag = "SettingsScreen", target = "Selected settings section")
     }
 
+    @Composable
+    fun SettingsContent(modifier: Modifier) {
+        SettingsContentPane(
+            uiState = uiState,
+            viewModel = viewModel,
+            context = context,
+            screenLabels = screenLabels,
+            dialogState = dialogState,
+            providerState = providerState,
+            onAddProvider = onAddProvider,
+            onEditProvider = onEditProvider,
+            onNavigateToParentalControl = onNavigateToParentalControl,
+            onChooseRecordingFolder = {
+                try {
+                    recordingFolderLauncher.launch(null)
+                } catch (e: ActivityNotFoundException) {
+                    viewModel.showUserMessage(context.getString(R.string.settings_backup_folder_picker_unavailable))
+                }
+            },
+            onUseUsbRecordingStorage = usbStorageDir?.let { dir ->
+                { viewModel.useUsbRecordingStorage(File(dir, "recordings").absolutePath) }
+            },
+            onCreateBackupUsb = usbStorageDir?.let { { createBackupToUsb() } },
+            onRestoreBackupUsb = usbStorageDir?.let { { restoreBackupFromUsb() } },
+            onCreateBackup = {
+                if (context.isTelevisionDevice()) {
+                    exportBackupWithoutPicker()
+                } else {
+                    val onFireTv = context.isFireTv()
+                    val primary: () -> Unit = if (onFireTv) {
+                        { exportTreeLauncher.launch(null) }
+                    } else {
+                        { createDocumentLauncher.launch("streamvault_backup.json") }
+                    }
+                    val fallback: () -> Unit = if (onFireTv) {
+                        { createDocumentLauncher.launch("streamvault_backup.json") }
+                    } else {
+                        { exportTreeLauncher.launch(null) }
+                    }
+                    try {
+                        primary()
+                    } catch (e: ActivityNotFoundException) {
+                        try {
+                            fallback()
+                        } catch (e2: ActivityNotFoundException) {
+                            exportBackupWithoutPicker()
+                        }
+                    }
+                }
+            },
+            onManageLocalBackups = ::manageLocalBackups,
+            onShareBackup = ::shareBackup,
+            onViewCrashReport = viewModel::viewCrashReport,
+            onShareCrashReport = ::shareCrashReport,
+            onDeleteCrashReport = viewModel::deleteCrashReport,
+            onRestoreBackup = {
+                if (context.isTelevisionDevice()) {
+                    restoreBackupFromLocalStorage()
+                } else {
+                    val onFireTv = context.isFireTv()
+                    val primary: () -> Unit = if (onFireTv) {
+                        { importTreeLauncher.launch(null) }
+                    } else {
+                        {
+                            openDocumentLauncher.launch(
+                                arrayOf("application/json", "text/json", "application/x-json", "application/octet-stream", "*/*")
+                            )
+                        }
+                    }
+                    val fallback: () -> Unit = if (onFireTv) {
+                        {
+                            openDocumentLauncher.launch(
+                                arrayOf("application/json", "text/json", "application/x-json", "application/octet-stream", "*/*")
+                            )
+                        }
+                    } else {
+                        { importTreeLauncher.launch(null) }
+                    }
+                    try {
+                        primary()
+                    } catch (e: ActivityNotFoundException) {
+                        try {
+                            fallback()
+                        } catch (e2: ActivityNotFoundException) {
+                            restoreBackupFromLocalStorage()
+                        }
+                    }
+                }
+            },
+            onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
+            onDriveSignOut = viewModel::signOutDrive,
+            onDrivePush = viewModel::pushToDrive,
+            onDrivePull = viewModel::pullFromDrive,
+            onOpenUri = uriHandler::openUri,
+            modifier = modifier
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AppScreenScaffold(
             currentRoute = currentRoute,
@@ -366,7 +467,19 @@ fun SettingsScreen(
                 )
             }
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
+            if (isBlueOceanTheme) {
+                BlueOceanSettingsSurface(
+                    navigation = {
+                        SettingsNavigationRail(
+                            selectedCategory = dialogState.selectedCategory,
+                            focusRequester = settingsNavFocusRequester,
+                            onCategorySelected = { dialogState.selectedCategory = it }
+                        )
+                    },
+                    content = { SettingsContent(Modifier.fillMaxSize()) }
+                )
+            } else {
+                Row(modifier = Modifier.fillMaxSize()) {
                 SettingsNavigationRail(
                     selectedCategory = dialogState.selectedCategory,
                     focusRequester = settingsNavFocusRequester,
@@ -381,102 +494,8 @@ fun SettingsScreen(
                         .background(Color.White.copy(alpha = 0.07f))
                 )
 
-                SettingsContentPane(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    context = context,
-                    screenLabels = screenLabels,
-                    dialogState = dialogState,
-                    providerState = providerState,
-                    onAddProvider = onAddProvider,
-                    onEditProvider = onEditProvider,
-                    onNavigateToParentalControl = onNavigateToParentalControl,
-                    onChooseRecordingFolder = {
-                        try {
-                            recordingFolderLauncher.launch(null)
-                        } catch (e: ActivityNotFoundException) {
-                            viewModel.showUserMessage(
-                                context.getString(R.string.settings_backup_folder_picker_unavailable)
-                            )
-                        }
-                    },
-                    onUseUsbRecordingStorage = usbStorageDir?.let { dir ->
-                        { viewModel.useUsbRecordingStorage(File(dir, "recordings").absolutePath) }
-                    },
-                    onCreateBackupUsb = usbStorageDir?.let { { createBackupToUsb() } },
-                    onRestoreBackupUsb = usbStorageDir?.let { { restoreBackupFromUsb() } },
-                    onCreateBackup = {
-                        if (context.isTelevisionDevice()) {
-                            exportBackupWithoutPicker()
-                        } else {
-                            val onFireTv = context.isFireTv()
-                            val primary: () -> Unit = if (onFireTv) {
-                                { exportTreeLauncher.launch(null) }
-                            } else {
-                                { createDocumentLauncher.launch("streamvault_backup.json") }
-                            }
-                            val fallback: () -> Unit = if (onFireTv) {
-                                { createDocumentLauncher.launch("streamvault_backup.json") }
-                            } else {
-                                { exportTreeLauncher.launch(null) }
-                            }
-                            try {
-                                primary()
-                            } catch (e: ActivityNotFoundException) {
-                                try {
-                                    fallback()
-                                } catch (e2: ActivityNotFoundException) {
-                                    exportBackupWithoutPicker()
-                                }
-                            }
-                        }
-                    },
-                    onManageLocalBackups = ::manageLocalBackups,
-                    onShareBackup = ::shareBackup,
-                    onViewCrashReport = viewModel::viewCrashReport,
-                    onShareCrashReport = ::shareCrashReport,
-                    onDeleteCrashReport = viewModel::deleteCrashReport,
-                    onRestoreBackup = {
-                        if (context.isTelevisionDevice()) {
-                            restoreBackupFromLocalStorage()
-                        } else {
-                            val onFireTv = context.isFireTv()
-                            val primary: () -> Unit = if (onFireTv) {
-                                { importTreeLauncher.launch(null) }
-                            } else {
-                                {
-                                    openDocumentLauncher.launch(
-                                        arrayOf("application/json", "text/json", "application/x-json", "application/octet-stream", "*/*")
-                                    )
-                                }
-                            }
-                            val fallback: () -> Unit = if (onFireTv) {
-                                {
-                                    openDocumentLauncher.launch(
-                                        arrayOf("application/json", "text/json", "application/x-json", "application/octet-stream", "*/*")
-                                    )
-                                }
-                            } else {
-                                { importTreeLauncher.launch(null) }
-                            }
-                            try {
-                                primary()
-                            } catch (e: ActivityNotFoundException) {
-                                try {
-                                    fallback()
-                                } catch (e2: ActivityNotFoundException) {
-                                    restoreBackupFromLocalStorage()
-                                }
-                            }
-                        }
-                    },
-                    onDriveSignIn = { viewModel.beginDriveSignIn(driveSignInLauncher) },
-                    onDriveSignOut = viewModel::signOutDrive,
-                    onDrivePush = viewModel::pushToDrive,
-                    onDrivePull = viewModel::pullFromDrive,
-                    onOpenUri = uriHandler::openUri,
-                    modifier = Modifier.weight(1f)
-                )
+                SettingsContent(Modifier.weight(1f))
+                }
             }
         }
 
@@ -584,4 +603,3 @@ internal fun formatBackupTimestamp(lastModifiedMs: Long, unknownDate: String): S
     }
     return date
 }
-

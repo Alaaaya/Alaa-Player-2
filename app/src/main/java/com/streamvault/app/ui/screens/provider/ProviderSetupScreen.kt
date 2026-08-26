@@ -136,6 +136,7 @@ import com.streamvault.domain.model.StalkerProtocolPreference
 import com.streamvault.domain.model.StalkerTransportChallengeReason
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.app.ui.theme.LocalThemePresentation
+import com.streamvault.app.ui.themes.blueocean.BlueOceanProviderBeacon
 import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
@@ -300,6 +301,8 @@ fun ProviderSetupScreen(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val blueOceanSurfaces = LocalThemePresentation.current.surfaces
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -581,6 +584,8 @@ fun ProviderSetupScreen(
                     Brush.verticalGradient(colors = listOf(StreamingCanvas, StreamingPanel, StreamingCanvasRaised, StreamingCanvas))
                 } else if (isPremiumBlackTheme) {
                     Brush.verticalGradient(colors = listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
+                } else if (isBlueOceanTheme) {
+                    Brush.verticalGradient(colors = listOf(blueOceanSurfaces.canvas, blueOceanSurfaces.browseContent, blueOceanSurfaces.canvas))
                 } else {
                     Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
                 }
@@ -592,8 +597,16 @@ fun ProviderSetupScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = hPad, vertical = 16.dp)
+                .padding(horizontal = hPad, vertical = if (isBlueOceanTheme) 72.dp else 16.dp)
         ) {
+            if (isBlueOceanTheme) {
+                BlueOceanProviderBeacon(
+                    isEditing = uiState.isEditing,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 12.dp)
+                )
+            }
             if (isWide) {
                 Row(
                     modifier = Modifier.fillMaxSize(),
