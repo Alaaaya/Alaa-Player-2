@@ -40,16 +40,28 @@ import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.mouseClickable
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
+import com.streamvault.app.ui.themes.cinematic.CinematicGold
+import com.streamvault.app.ui.themes.cinematic.CinematicMuted
+import com.streamvault.app.ui.themes.cinematic.CinematicPanel
+import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
+import com.streamvault.app.ui.themes.cinematic.CinematicText
+import com.streamvault.domain.model.AppHomeTheme
+
+@Composable
+private fun isCinematicSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
 
 @Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
 ) {
+    val isCinematic = isCinematicSettingsPresentation()
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -57,12 +69,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = Primary
+            color = if (isCinematic) CinematicGold else Primary,
+            fontWeight = if (isCinematic) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceDim
+            color = if (isCinematic) CinematicMuted else OnSurfaceDim
         )
     }
 }
@@ -70,14 +83,15 @@ internal fun SettingsSectionHeader(
 @Composable
 internal fun SettingsRow(label: String, value: String) {
     val focusRequester = remember { FocusRequester() }
+    val isCinematic = isCinematicSettingsPresentation()
     TvClickableSurface(
         onClick = {},
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else 8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Primary.copy(alpha = 0.15f)
+            containerColor = if (isCinematic) CinematicPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else Primary.copy(alpha = 0.15f)
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -89,12 +103,12 @@ internal fun SettingsRow(label: String, value: String) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = if (isCinematic) 16.dp else 8.dp, vertical = if (isCinematic) 12.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = OnBackground)
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else OnSurface)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else OnBackground)
         }
     }
 }
@@ -108,14 +122,15 @@ internal fun ClickableSettingsRow(
     indent: Dp = 0.dp
 ) {
     val focusRequester = remember { FocusRequester() }
+    val isCinematic = isCinematicSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onClick() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else 8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -127,19 +142,24 @@ internal fun ClickableSettingsRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp + indent, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                .padding(
+                    start = (if (isCinematic) 16.dp else 8.dp) + indent,
+                    end = if (isCinematic) 16.dp else 8.dp,
+                    top = if (isCinematic) 14.dp else 12.dp,
+                    bottom = if (isCinematic) 14.dp else 12.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) OnSurface else OnSurfaceDim
+                color = if (enabled) if (isCinematic) CinematicText else OnSurface else OnSurfaceDim
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) Primary else OnSurfaceDim
+                color = if (enabled) if (isCinematic) CinematicGold else Primary else OnSurfaceDim
             )
         }
     }
@@ -155,14 +175,15 @@ internal fun SwitchSettingsRow(
     indent: Dp = 0.dp
 ) {
     val focusRequester = remember { FocusRequester() }
+    val isCinematic = isCinematicSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onCheckedChange(!checked) },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else 8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -174,7 +195,12 @@ internal fun SwitchSettingsRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 8.dp + indent, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                .padding(
+                    start = (if (isCinematic) 16.dp else 8.dp) + indent,
+                    end = if (isCinematic) 16.dp else 8.dp,
+                    top = if (isCinematic) 14.dp else 12.dp,
+                    bottom = if (isCinematic) 14.dp else 12.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -182,9 +208,13 @@ internal fun SwitchSettingsRow(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (enabled) OnSurface else OnSurfaceDim
+                    color = if (enabled) if (isCinematic) CinematicText else OnSurface else OnSurfaceDim
                 )
-                Text(text = value, style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim)
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isCinematic) CinematicMuted else OnSurfaceDim
+                )
             }
             Switch(
                 checked = checked,
