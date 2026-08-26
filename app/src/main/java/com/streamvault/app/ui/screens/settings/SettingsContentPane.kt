@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
+import com.streamvault.app.ui.themes.neon.NeonCanvas
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 
@@ -45,18 +46,20 @@ internal fun SettingsContentPane(
     modifier: Modifier = Modifier
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFuture = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isThemedPresentation = isCinematic || isNeonFuture
     LazyColumn(
         modifier = modifier
             .fillMaxHeight()
             .imePadding()
-            .background(if (isCinematic) CinematicCanvas else androidx.compose.ui.graphics.Color.Transparent),
+            .background(when { isCinematic -> CinematicCanvas; isNeonFuture -> NeonCanvas; else -> androidx.compose.ui.graphics.Color.Transparent }),
         contentPadding = PaddingValues(
-            start = if (isCinematic) 26.dp else 20.dp,
-            top = if (isCinematic) 28.dp else 76.dp,
-            end = if (isCinematic) 26.dp else 20.dp,
+            start = if (isThemedPresentation) 26.dp else 20.dp,
+            top = if (isThemedPresentation) 28.dp else 76.dp,
+            end = if (isThemedPresentation) 26.dp else 20.dp,
             bottom = 32.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(if (isCinematic) 14.dp else 10.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isThemedPresentation) 14.dp else 10.dp),
         userScrollEnabled = !uiState.isSyncing
     ) {
         if (dialogState.selectedCategory == 0) {
