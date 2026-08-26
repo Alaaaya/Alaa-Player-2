@@ -71,7 +71,7 @@ internal fun RedCinemaPlayerOverlay(
         Box(Modifier.fillMaxSize().background(surfaces.canvas.copy(alpha = .8f)).onPreviewKeyEvent { event -> if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) onUserInteraction(); false }) {
             RedCinemaMarquee(showTitle, currentChannelName ?: currentChannel?.name.orEmpty(), displayChannelNumber, Modifier.align(Alignment.TopCenter).padding(top = 30.dp))
             RedCinemaReelTransport(isPlaying, onSeekBackward, onTogglePlayPause, onSeekForward, playButtonFocusRequester, Modifier.align(Alignment.Center))
-            RedCinemaFilmStrip(currentPosition, duration, seekPreview, onSeekToPosition, onSetScrubbingMode, onSeekPreviewPositionChanged, timeshiftUiState, Modifier.align(Alignment.BottomCenter).padding(horizontal = 170.dp, bottom = 118.dp))
+            RedCinemaFilmStrip(currentPosition, duration, seekPreview, onSeekToPosition, onSetScrubbingMode, onSeekPreviewPositionChanged, timeshiftUiState, Modifier.align(Alignment.BottomCenter).padding(start = 170.dp, end = 170.dp, bottom = 118.dp))
             RedCinemaTicketWindow(actions, quickActionsFocusRequester, sleepTimerUiState, isCastConnected, onCast, onStopCasting, Modifier.align(Alignment.BottomCenter).padding(horizontal = 28.dp, vertical = 22.dp))
         }
     }
