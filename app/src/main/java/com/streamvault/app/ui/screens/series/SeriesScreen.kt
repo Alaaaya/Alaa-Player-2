@@ -91,6 +91,7 @@ import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesLayout
+import com.streamvault.app.ui.themes.neon.NeonFutureSeriesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
@@ -108,6 +109,7 @@ fun SeriesScreen(
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -161,7 +163,7 @@ fun SeriesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_series),
             subtitle = null,
-            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -215,7 +217,7 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
-        } else if (isCinematicTheme && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -230,30 +232,44 @@ fun SeriesScreen(
                     uiState.parentalControlLevel in 1..2 &&
                     (seriesCategoryId == null || kotlin.math.abs(seriesCategoryId) !in uiState.unlockedCategoryIds)
             }
-            CinematicSeriesLayout(
+            val onThemedCategoryClick: (Category) -> Unit = { category ->
+                if (isCategoryLocked(category)) {
+                    pendingSeries = null
+                    pendingCategory = category
+                    showPinDialog = true
+                } else viewModel.selectCategory(category.name)
+            }
+            val onThemedSeriesClick: (Series) -> Unit = { series ->
+                if (isSeriesLocked(series)) {
+                    pendingCategory = null
+                    pendingSeries = series
+                    showPinDialog = true
+                } else onSeriesClick(series)
+            }
+            if (isNeonFutureTheme) {
+                NeonFutureSeriesLayout(
+                    uiState = uiState,
+                    initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked,
+                    isSeriesLocked = isSeriesLocked,
+                    onCategoryClick = onThemedCategoryClick,
+                    onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onSeriesClick = onThemedSeriesClick,
+                    onSeriesLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery,
+                    onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy,
+                    onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else CinematicSeriesLayout(
                 uiState = uiState,
                 initialFocusRequester = initialContentFocusRequester,
                 isCategoryLocked = isCategoryLocked,
                 isSeriesLocked = isSeriesLocked,
-                onCategoryClick = { category ->
-                    if (isCategoryLocked(category)) {
-                        pendingSeries = null
-                        pendingCategory = category
-                        showPinDialog = true
-                    } else {
-                        viewModel.selectCategory(category.name)
-                    }
-                },
+                onCategoryClick = onThemedCategoryClick,
                 onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
-                onSeriesClick = { series ->
-                    if (isSeriesLocked(series)) {
-                        pendingCategory = null
-                        pendingSeries = series
-                        showPinDialog = true
-                    } else {
-                        onSeriesClick(series)
-                    }
-                },
+                onSeriesClick = onThemedSeriesClick,
                 onSeriesLongClick = viewModel::onShowDialog,
                 onQueryChange = viewModel::setSearchQuery,
                 onFilterChange = viewModel::setSelectedLibraryFilterType,
