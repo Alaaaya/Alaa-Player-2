@@ -75,6 +75,7 @@ import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicFavoritesLayout
+import com.streamvault.app.ui.themes.neon.NeonFutureFavoritesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.ContentType
 import kotlinx.coroutines.launch
@@ -92,6 +93,7 @@ fun FavoritesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val activeReorderSection = uiState.sections.firstOrNull { it.key == uiState.reorderSectionKey }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -404,8 +406,13 @@ fun FavoritesScreen(
                 }
 
                 else -> {
-                    if (isCinematicTheme && !uiState.isReorderMode) {
-                        CinematicFavoritesLayout(
+                    if ((isCinematicTheme || isNeonFutureTheme) && !uiState.isReorderMode) {
+                        val onThemedItemClick: (FavoriteUiModel) -> Unit = { item ->
+                            if (item.favorite.contentType == ContentType.SERIES) {
+                                onNavigate("series_detail/${item.favorite.contentId}")
+                            } else onItemClick(item)
+                        }
+                        if (isNeonFutureTheme) NeonFutureFavoritesLayout(
                             sections = filteredSections,
                             continueWatching = visibleContinueWatching,
                             recentLive = visibleRecentLive,
@@ -415,13 +422,20 @@ fun FavoritesScreen(
                             onPresetSelected = viewModel::selectPreset,
                             onFilterSelected = viewModel::selectFilter,
                             onSortSelected = viewModel::selectSort,
-                            onItemClick = { item ->
-                                if (item.favorite.contentType == ContentType.SERIES) {
-                                    onNavigate("series_detail/${item.favorite.contentId}")
-                                } else {
-                                    onItemClick(item)
-                                }
-                            },
+                            onItemClick = onThemedItemClick,
+                            onItemLongClick = viewModel::showItemOptions,
+                            onHistoryClick = onHistoryClick
+                        ) else CinematicFavoritesLayout(
+                            sections = filteredSections,
+                            continueWatching = visibleContinueWatching,
+                            recentLive = visibleRecentLive,
+                            selectedPreset = uiState.selectedPreset,
+                            selectedFilter = uiState.selectedFilter,
+                            selectedSort = uiState.selectedSort,
+                            onPresetSelected = viewModel::selectPreset,
+                            onFilterSelected = viewModel::selectFilter,
+                            onSortSelected = viewModel::selectSort,
+                            onItemClick = onThemedItemClick,
                             onItemLongClick = viewModel::showItemOptions,
                             onHistoryClick = onHistoryClick
                         )
