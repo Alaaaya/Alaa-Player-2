@@ -78,6 +78,14 @@ internal fun MinimalSeriesDetail(
         }
         selectedSeason?.let { season ->
             item { Text("EPISODES / HOLD FOR COMMANDS", style = MaterialTheme.typography.labelLarge, color = MinimalMuted) }
+            if (season.episodes.isEmpty()) {
+                item("minimal_series_no_episodes") {
+                    MinimalStatePanel(
+                        title = "NO EPISODES",
+                        subtitle = "No episodes are available for the selected season."
+                    )
+                }
+            }
             items(season.episodes, key = { it.id }) { episode ->
                 MinimalSeriesAction(
                     label = "E${episode.episodeNumber}  ${episode.title}",

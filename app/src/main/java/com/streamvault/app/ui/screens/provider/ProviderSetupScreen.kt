@@ -101,6 +101,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalFocus
 import com.streamvault.app.ui.themes.minimal.MinimalMuted
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalRule
+import com.streamvault.app.ui.themes.minimal.MinimalStatePanel
 import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
@@ -2562,11 +2563,17 @@ private fun PolicyOptionRow(
 
 @Composable
 private fun FormErrors(validationError: String?, error: String?) {
-    validationError?.let {
-        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = ErrorColor)
-    }
-    error?.let {
-        Text(text = it, style = MaterialTheme.typography.bodyMedium, color = ErrorColor)
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val message = validationError ?: error
+    if (isMinimal && !message.isNullOrBlank()) {
+        MinimalStatePanel(title = "CONFIGURATION ERROR", subtitle = message)
+    } else {
+        validationError?.let {
+            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = ErrorColor)
+        }
+        error?.let {
+            Text(text = it, style = MaterialTheme.typography.bodyMedium, color = ErrorColor)
+        }
     }
 }
 
