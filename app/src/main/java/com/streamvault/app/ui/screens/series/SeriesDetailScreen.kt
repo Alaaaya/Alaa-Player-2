@@ -80,6 +80,7 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesDetail
+import com.streamvault.app.ui.themes.minimal.MinimalSeriesDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
@@ -100,6 +101,7 @@ fun SeriesDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -138,7 +140,19 @@ fun SeriesDetailScreen(
         return
     }
 
-    if (isNeonFutureTheme) {
+    if (isMinimalTheme) {
+        MinimalSeriesDetail(
+            series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings, isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason, onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode -> coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl(episode)) { is Result.Success -> result.data; else -> null }) } },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode, onCastEpisode = viewModel::castEpisode, onBack = onBack
+        )
+    } else if (isNeonFutureTheme) {
         NeonFutureSeriesDetail(
             series = series,
             selectedSeason = uiState.selectedSeason,
