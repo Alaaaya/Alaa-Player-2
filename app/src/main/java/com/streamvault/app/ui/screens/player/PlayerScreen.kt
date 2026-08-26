@@ -105,6 +105,7 @@ import com.streamvault.app.ui.screens.player.overlay.NextEpisodeCountdownOverlay
 import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
 import com.streamvault.app.ui.screens.multiview.MultiViewPlannerDialog
 import com.streamvault.app.ui.themes.cinematic.CinematicPlayerOverlay
+import com.streamvault.app.ui.themes.glass.GlassmorphismPlayerOverlay
 import com.streamvault.app.ui.themes.minimal.MinimalPlayerOverlay
 import com.streamvault.app.ui.themes.neon.NeonFuturePlayerOverlay
 import com.streamvault.app.navigation.Routes
@@ -1496,8 +1497,36 @@ private fun PlayerControlsOverlayHost(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
 
-    if (isCinematicTheme) {
+    if (isGlassTheme) {
+        GlassmorphismPlayerOverlay(
+            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
+            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
+            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
+            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
+        )
+    } else if (isCinematicTheme) {
         CinematicPlayerOverlay(
             visible = visible,
             title = title,

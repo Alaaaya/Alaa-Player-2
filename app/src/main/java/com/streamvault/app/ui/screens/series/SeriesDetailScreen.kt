@@ -80,6 +80,9 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesDetail
+import com.streamvault.app.ui.themes.glass.GlassmorphismSeriesDetail
+import com.streamvault.app.ui.themes.glass.GlassMuted
+import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalSeriesDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
 import com.streamvault.domain.model.AppHomeTheme
@@ -102,6 +105,7 @@ fun SeriesDetailScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -120,7 +124,7 @@ fun SeriesDetailScreen(
                 .background(AppColors.Canvas),
             contentAlignment = Alignment.Center
         ) {
-            Text(stringResource(R.string.series_loading_details), color = AppColors.TextSecondary)
+            Text(stringResource(R.string.series_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
         }
         return
     }
@@ -134,13 +138,42 @@ fun SeriesDetailScreen(
         ) {
             Text(
                 text = uiState.error ?: stringResource(R.string.series_not_found),
-                color = AppColors.Live
+                color = if (isGlassTheme) GlassText else AppColors.Live
             )
         }
         return
     }
 
-    if (isMinimalTheme) {
+    if (isGlassTheme) {
+        GlassmorphismSeriesDetail(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings,
+            isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode ->
+                coroutineScope.launch {
+                    val url = when (val result = viewModel.resolveCopyStreamUrl(episode)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> null
+                        Result.Loading -> null
+                    }
+                    copyStreamUrlToClipboard(context, url)
+                }
+            },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode,
+            onCastEpisode = viewModel::castEpisode,
+            onBack = onBack
+        )
+    } else if (isMinimalTheme) {
         MinimalSeriesDetail(
             series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
             unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,

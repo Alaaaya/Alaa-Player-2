@@ -11,15 +11,15 @@
 - [x] استكمال مشغل Minimal: شريط أوامر سفلي متعدد الطبقات يصل إلى التسجيل والجدولة والسرعة والمؤقت والمزامنة والحلقات والتقسيم وPiP والبث وseek preview دون إعادة استخدام شريط Neon أو Cinematic.
 - [x] توحيد حالات Minimal للتحميل والفراغ والخطأ في البث والمكتبات والتفاصيل والمفضلة وإعداد المزود، من دون تعديل أي ViewModel أو مصدر بيانات.
 - [x] تسجيل Minimal في Theme Selector فقط بعد اكتمال جميع شاشاته ومشغله.
-- [ ] بناء Glassmorphism بمشغل ملء شاشة وشريط إجراءات سفلي مستقلين.
+- [x] بناء Glassmorphism بمشغل ملء شاشة وشريط إجراءات سفلي مستقلين.
 - [x] بناء أساس Glassmorphism: rail زجاجي عائم، خلفية ضبابية، تركيز مضيء وحركة خاصة به من دون تسجيله قبل اكتمال المسارات.
-- [ ] بناء Live TV وDashboard وMovies وSeries وSearch وFavorites وDetails لـGlassmorphism بطبقات عرض مستقلة مع القنوات العمودية والمعاينة.
+- [x] بناء Live TV وDashboard وMovies وSeries وSearch وFavorites وDetails لـGlassmorphism بطبقات عرض مستقلة مع القنوات العمودية والمعاينة.
 - [x] بناء Live TV لـGlassmorphism: معاينة علوية، قائمة قنوات زجاجية عمودية وسطية، وفئات ضمن bottom sheet أفقي مع callbacks وتركيز مشتركين.
 - [x] بناء Dashboard لـGlassmorphism: موزاييك زجاجي عائم يربط البث والمكتبات والمفضلة والبحث والإعدادات دون رفوف الثيمات السابقة.
 - [x] بناء مكتبة الأفلام لـGlassmorphism: أعمدة شفافة للفئات والعناوين مع بحث وفلاتر وترتيب وحالات loading/error/empty وإجراءات الضغط المطوّل.
 - [x] بناء مكتبة المسلسلات لـGlassmorphism: تدفق زجاجي للفئات والعناوين مع البحث والفلاتر والترتيب وحالات loading/error/empty وإجراءات الضغط المطوّل.
-- [ ] بناء Search وFavorites وMovie Detail وSeries Detail لـGlassmorphism بأسطح زجاجية وإتاحة كل callbacks المشتركة.
-- [ ] بناء Settings وProvider وحوارات وحالات التحميل والخطأ لـGlassmorphism دون تعديل منطق IPTV.
-- [ ] بناء مشغل Glassmorphism بrail إجراءات زجاجي عمودي وBottom Action Bar مختلفين عن جميع الثيمات السابقة.
+- [x] بناء Search وFavorites وMovie Detail وSeries Detail لـGlassmorphism بأسطح زجاجية وإتاحة كل callbacks المشتركة.
+- [x] بناء Settings وProvider وحوارات وحالات التحميل والخطأ لـGlassmorphism دون تعديل منطق IPTV.
+- [x] بناء مشغل Glassmorphism بrail إجراءات زجاجي عمودي وBottom Action Bar مختلفين عن جميع الثيمات السابقة.
 - [ ] تنفيذ بقية الثيمات بالترتيب مع مشغل ملء شاشة وBottom Action Bar مختلفين جذرياً لكل ثيم.
 - [ ] إجراء مقارنة مرئية فعلية لـ1920×1080 عند توفر بيئة Android TV صالحة، بما في ذلك D-pad وauto-hide واستعادة التركيز.

@@ -75,6 +75,9 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicMovieDetail
+import com.streamvault.app.ui.themes.glass.GlassmorphismMovieDetail
+import com.streamvault.app.ui.themes.glass.GlassMuted
+import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalMovieDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureMovieDetail
 import com.streamvault.domain.model.AppHomeTheme
@@ -94,6 +97,7 @@ fun MovieDetailScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -113,7 +117,7 @@ fun MovieDetailScreen(
                     .background(AppColors.Canvas),
                 contentAlignment = Alignment.Center
             ) {
-                Text(stringResource(R.string.movie_loading_details), color = AppColors.TextSecondary)
+                Text(stringResource(R.string.movie_loading_details), color = if (isGlassTheme) GlassMuted else AppColors.TextSecondary)
             }
         }
 
@@ -126,13 +130,41 @@ fun MovieDetailScreen(
             ) {
                 Text(
                     text = uiState.error ?: stringResource(R.string.movie_not_found),
-                    color = AppColors.Live
+                    color = if (isGlassTheme) GlassText else AppColors.Live
                 )
             }
         }
 
         else -> {
-            if (isMinimalTheme) {
+            if (isGlassTheme) {
+                GlassmorphismMovieDetail(
+                    movie = movie,
+                    hasResume = uiState.hasResume,
+                    resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting,
+                    relatedContent = uiState.relatedContent,
+                    onPlay = { onPlay(movie) },
+                    onCopyUrl = {
+                        coroutineScope.launch {
+                            val url = when (val result = viewModel.resolveCopyStreamUrl()) {
+                                is Result.Success -> result.data
+                                is Result.Error -> null
+                                Result.Loading -> null
+                            }
+                            copyStreamUrlToClipboard(context, url)
+                        }
+                    },
+                    onDownload = { viewModel.downloadMovie(context) },
+                    onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay,
+                    onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
+                        { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } }
+                    }
+                )
+            } else if (isMinimalTheme) {
                 MinimalMovieDetail(
                     movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
                     isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
