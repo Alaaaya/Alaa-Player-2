@@ -45,12 +45,18 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `only complete foundation themes are selectable before additions are registered`() {
+    fun `cinematic is registered as a complete selectable presentation`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
-            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA)
+            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA, AppHomeTheme.CINEMATIC)
             .inOrder()
-        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isFalse()
-        assertThat(ThemePresentationRegistry.resolveOrClassic(AppHomeTheme.CINEMATIC).id)
-            .isEqualTo(AppHomeTheme.CLASSIC)
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
+        val cinematic = ThemePresentationRegistry.resolve(AppHomeTheme.CINEMATIC)
+        assertThat(cinematic.id).isEqualTo(AppHomeTheme.CINEMATIC)
+        assertThat(cinematic.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(cinematic.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(cinematic.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemeCatalog.selectableEntries().map { it.theme })
+            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA, AppHomeTheme.CINEMATIC)
+            .inOrder()
     }
 }

@@ -140,6 +140,31 @@ private val alaaPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val cinematicPresentation = ThemePresentation(
+    id = AppHomeTheme.CINEMATIC,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = Color(0xFF08070B),
+        browseRail = Color(0xFF151016),
+        browseContent = Color(0xFF151016),
+        focusedSurface = Color(0xFF261925),
+        textPrimary = Color(0xFFF7F1F2),
+        textSecondary = Color(0xFFB9ACB1),
+        accent = Color(0xFFF0C98A),
+        selectedAccent = Color(0x73D74457),
+        focusBorderWidth = 2.dp,
+        cornerMedium = 18.dp,
+        cornerLarge = 28.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = 1.03f,
+        pressedScale = 0.98f,
+        motionDurationMs = 180
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -150,6 +175,12 @@ object ThemePresentationRegistry {
         AppHomeTheme.ALAA to alaaPresentation
     )
     private val additionalPresentations = mutableMapOf<AppHomeTheme, ThemePresentation>()
+
+    init {
+        // Registration is deterministic: Cinematic reaches Settings only after its complete
+        // presentation surface has been implemented and tested.
+        registerAdditional(cinematicPresentation)
+    }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =
         fixedPresentations[theme] ?: additionalPresentations[theme]
