@@ -133,6 +133,9 @@ import com.streamvault.app.ui.themes.streaming.StreamingMuted
 import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
 import com.streamvault.app.ui.themes.streaming.StreamingText
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumCanvasRaised
+import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
@@ -166,11 +169,12 @@ fun AppScreenScaffold(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
     // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
     val resolvedNavigationChrome = when {
         isStreamingPlatformTheme -> AppNavigationChrome.TopBar
-        isMinimalTheme || isGlassTheme -> AppNavigationChrome.Rail
+        isMinimalTheme || isGlassTheme || isPremiumBlackTheme -> AppNavigationChrome.Rail
         else -> navigationChrome
     }
     val canvasBrush = if (isAlaaTheme) {
@@ -185,6 +189,8 @@ fun AppScreenScaffold(
         Brush.linearGradient(listOf(GlassCanvas, GlassCanvasDeep, GlassCanvas))
     } else if (isStreamingPlatformTheme) {
         Brush.verticalGradient(listOf(StreamingCanvas, StreamingCanvasRaised, StreamingPanel))
+    } else if (isPremiumBlackTheme) {
+        Brush.verticalGradient(listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -210,7 +216,15 @@ fun AppScreenScaffold(
                         onNavigate = onNavigate,
                         modifier = Modifier
                             .fillMaxHeight()
-                            .width(270.dp)
+                        .width(270.dp)
+                    )
+                } else if (isPremiumBlackTheme) {
+                    PremiumBlackDestinationRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(106.dp)
                     )
                 } else {
                     DestinationRail(
@@ -236,10 +250,10 @@ fun AppScreenScaffold(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {

@@ -27,6 +27,14 @@ import com.streamvault.app.ui.themes.streaming.StreamingMuted
 import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
 import com.streamvault.app.ui.themes.streaming.StreamingText
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumFocus
+import com.streamvault.app.ui.themes.premium.PremiumFocusMotionMs
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
+import com.streamvault.app.ui.themes.premium.PremiumText
 
 /**
  * مواصفات عرض الثيم فقط. لا تحمل بيانات مزود أو قناة أو حالة تشغيل؛ تلك تبقى في طبقات
@@ -287,6 +295,31 @@ private val streamingPlatformPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val premiumBlackPresentation = ThemePresentation(
+    id = AppHomeTheme.PREMIUM_BLACK,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = PremiumCanvas,
+        browseRail = PremiumPanel,
+        browseContent = PremiumPanel,
+        focusedSurface = PremiumPanelFocused,
+        textPrimary = PremiumText,
+        textSecondary = PremiumMuted,
+        accent = PremiumGold,
+        selectedAccent = PremiumGold.copy(alpha = 0.16f),
+        focusBorderWidth = 1.dp,
+        cornerMedium = 4.dp,
+        cornerLarge = 8.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = 1.02f,
+        pressedScale = 0.98f,
+        motionDurationMs = PremiumFocusMotionMs
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -306,6 +339,7 @@ object ThemePresentationRegistry {
         registerAdditional(minimalPresentation)
         registerAdditional(glassmorphismPresentation)
         registerAdditional(streamingPlatformPresentation)
+        registerAdditional(premiumBlackPresentation)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

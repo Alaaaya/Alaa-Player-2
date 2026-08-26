@@ -115,6 +115,15 @@ import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.streaming.StreamingCanvas
 import com.streamvault.app.ui.themes.streaming.StreamingCanvasRaised
 import com.streamvault.app.ui.themes.streaming.StreamingPanel
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumCanvasRaised
+import com.streamvault.app.ui.themes.premium.PremiumFocus
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMetal
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
+import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -289,6 +298,7 @@ fun ProviderSetupScreen(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -568,6 +578,8 @@ fun ProviderSetupScreen(
                     Brush.verticalGradient(colors = listOf(GlassCanvas, GlassCanvasDeep, GlassPane, GlassCanvas))
                 } else if (isStreamingPlatformTheme) {
                     Brush.verticalGradient(colors = listOf(StreamingCanvas, StreamingPanel, StreamingCanvasRaised, StreamingCanvas))
+                } else if (isPremiumBlackTheme) {
+                    Brush.verticalGradient(colors = listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
                 } else {
                     Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
                 }
@@ -2582,9 +2594,22 @@ private fun PolicyOptionRow(
 @Composable
 private fun FormErrors(validationError: String?, error: String?) {
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val message = validationError ?: error
     if (isMinimal && !message.isNullOrBlank()) {
         MinimalStatePanel(title = "CONFIGURATION ERROR", subtitle = message)
+    } else if (isPremiumBlack && !message.isNullOrBlank()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(PremiumPanel, RoundedCornerShape(4.dp))
+                .border(1.dp, PremiumMetal, RoundedCornerShape(4.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text("CONFIGURATION ERROR", style = MaterialTheme.typography.labelMedium, color = PremiumGold)
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = PremiumText)
+        }
     } else {
         validationError?.let {
             Text(text = it, style = MaterialTheme.typography.bodyMedium, color = ErrorColor)
@@ -2610,13 +2635,14 @@ private fun SourceTypeSelectorPanel(
     val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(if (isGlass) 26.dp else if (isNeon) 10.dp else 0.dp),
-        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else Surface.copy(alpha = 0.92f)),
+        shape = RoundedCornerShape(if (isGlass) 26.dp else if (isNeon) 10.dp else if (isPremiumBlack) 4.dp else 0.dp),
+        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else if (isPremiumBlack) PremiumPanel else Surface.copy(alpha = 0.92f)),
         border = Border(
-            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else if (isNeon) BorderStroke(1.dp, NeonCyan.copy(alpha = .34f)) else if (isMinimal) BorderStroke(1.dp, MinimalRule) else if (isGlass) BorderStroke(1.dp, GlassRule) else BorderStroke(0.dp, Color.Transparent),
-            shape = RoundedCornerShape(if (isGlass) 26.dp else if (isNeon) 10.dp else 0.dp)
+            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else if (isNeon) BorderStroke(1.dp, NeonCyan.copy(alpha = .34f)) else if (isMinimal) BorderStroke(1.dp, MinimalRule) else if (isGlass) BorderStroke(1.dp, GlassRule) else if (isPremiumBlack) BorderStroke(1.dp, PremiumMetal) else BorderStroke(0.dp, Color.Transparent),
+            shape = RoundedCornerShape(if (isGlass) 26.dp else if (isNeon) 10.dp else if (isPremiumBlack) 4.dp else 0.dp)
         )
     ) {
         Column(
@@ -2626,17 +2652,17 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = isEditLabel,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else TextPrimary
+                color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else if (isPremiumBlack) PremiumText else TextPrimary
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_shell_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else OnSurfaceDim
+                color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isPremiumBlack) PremiumMuted else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_source_type_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else if (isGlass) GlassAccent else TextTertiary
+                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else if (isGlass) GlassAccent else if (isPremiumBlack) PremiumGold else TextTertiary
             )
             if (!isEditing || sourceType == SourceType.XTREAM) {
                 SourceTypeCard(
@@ -2720,7 +2746,8 @@ private fun SourceTypeCard(
     val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
-    val shape = RoundedCornerShape(if (isGlass) 18.dp else if (isNeon) 7.dp else 0.dp)
+    val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val shape = RoundedCornerShape(if (isGlass) 18.dp else if (isNeon) 7.dp else if (isPremiumBlack) 4.dp else 0.dp)
     Surface(
         onClick = { if (enabled) onClick() },
         modifier = Modifier.fillMaxWidth().mouseClickable(enabled = enabled, onClick = onClick),
@@ -2734,16 +2761,18 @@ private fun SourceTypeCard(
                 if (selected) MinimalCanvas else MinimalPaper
             } else if (isGlass) {
                 if (selected) GlassPaneFocused else GlassPane
+            } else if (isPremiumBlack) {
+                if (selected) PremiumPanelFocused else PremiumPanel
             } else if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else if (isPremiumBlack) PremiumPanelFocused else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(
-                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (isMinimal) MinimalRule else if (isGlass) if (selected) GlassAccent else GlassRule else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
+                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (isMinimal) MinimalRule else if (isGlass) if (selected) GlassAccent else GlassRule else if (isPremiumBlack) if (selected) PremiumGold else PremiumMetal else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
                 shape = shape
             ),
             focusedBorder = Border(
-                border = BorderStroke(if (isMinimal) 1.dp else 2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalFocus else if (isGlass) GlassFocus else FocusBorder),
+                border = BorderStroke(if (isMinimal || isPremiumBlack) 1.dp else 2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalFocus else if (isGlass) GlassFocus else if (isPremiumBlack) PremiumFocus else FocusBorder),
                 shape = shape
             )
         )
@@ -2759,7 +2788,7 @@ private fun SourceTypeCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (isMinimal && selected) MinimalText else if (isGlass && selected) GlassFocus else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else TextPrimary
+                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (isMinimal && selected) MinimalText else if (isGlass && selected) GlassFocus else if (isPremiumBlack && selected) PremiumGold else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else if (isPremiumBlack) PremiumText else TextPrimary
                 )
                 badge?.let {
                     StatusPill(
@@ -2772,7 +2801,7 @@ private fun SourceTypeCard(
                     )
                 }
             }
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else OnSurfaceDim, maxLines = 2)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isPremiumBlack) PremiumMuted else OnSurfaceDim, maxLines = 2)
         }
     }
 }
@@ -2847,6 +2876,7 @@ private fun ProviderTextField(
     val isTelevisionDevice = rememberIsTelevisionDevice()
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     var hasContainerFocus by remember { mutableStateOf(false) }
     var hasInputFocus by remember { mutableStateOf(false) }
     var acceptsInput by remember(isTelevisionDevice) { mutableStateOf(!isTelevisionDevice) }
@@ -2953,18 +2983,18 @@ private fun ProviderTextField(
     }
 
     val borderColor by animateColorAsState(
-        targetValue = if (isMinimal) if (isFocused) MinimalFocus else MinimalRule else if (isGlass) if (isFocused) GlassFocus else GlassRule else if (isFocused) Primary else SurfaceHighlight,
-        animationSpec = tween(if (isMinimal) 140 else if (isGlass) 180 else 150),
+        targetValue = if (isMinimal) if (isFocused) MinimalFocus else MinimalRule else if (isGlass) if (isFocused) GlassFocus else GlassRule else if (isPremiumBlack) if (isFocused) PremiumFocus else PremiumMetal else if (isFocused) Primary else SurfaceHighlight,
+        animationSpec = tween(if (isMinimal) 140 else if (isGlass) 180 else if (isPremiumBlack) 220 else 150),
         label = "border"
     )
     val bgColor by animateColorAsState(
-        targetValue = if (isMinimal) if (isFocused) MinimalCanvas else MinimalPaper else if (isGlass) if (isFocused) GlassPaneFocused else GlassPane else if (isFocused) Surface else SurfaceElevated,
-        animationSpec = tween(if (isMinimal) 140 else if (isGlass) 180 else 150),
+        targetValue = if (isMinimal) if (isFocused) MinimalCanvas else MinimalPaper else if (isGlass) if (isFocused) GlassPaneFocused else GlassPane else if (isPremiumBlack) if (isFocused) PremiumPanelFocused else PremiumPanel else if (isFocused) Surface else SurfaceElevated,
+        animationSpec = tween(if (isMinimal) 140 else if (isGlass) 180 else if (isPremiumBlack) 220 else 150),
         label = "bg"
     )
-    val textColor = if (isMinimal) MinimalText else if (isGlass) GlassText else OnBackground
-    val mutedColor = if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else OnSurfaceDim
-    val fieldShape = RoundedCornerShape(if (isMinimal) 0.dp else if (isGlass) 18.dp else 10.dp)
+    val textColor = if (isMinimal) MinimalText else if (isGlass) GlassText else if (isPremiumBlack) PremiumText else OnBackground
+    val mutedColor = if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isPremiumBlack) PremiumMuted else OnSurfaceDim
+    val fieldShape = RoundedCornerShape(if (isMinimal) 0.dp else if (isGlass) 18.dp else if (isPremiumBlack) 4.dp else 10.dp)
 
     Box(
         modifier = modifier
@@ -3058,12 +3088,12 @@ private fun ProviderTextField(
                 !isPassword || isPasswordVisible -> VisualTransformation.None
                 else -> RevealingPasswordVisualTransformation(revealedPasswordIndex)
             },
-            cursorBrush = SolidColor(Primary),
+            cursorBrush = SolidColor(if (isPremiumBlack) PremiumGold else Primary),
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier
                         .background(bgColor, fieldShape)
-                        .border(if (isMinimal) 1.dp else if (isFocused) 2.dp else 1.dp, borderColor, fieldShape)
+                        .border(if (isMinimal || isPremiumBlack) 1.dp else if (isFocused) 2.dp else 1.dp, borderColor, fieldShape)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

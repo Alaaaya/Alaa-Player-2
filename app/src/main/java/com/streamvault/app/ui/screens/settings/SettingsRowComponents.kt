@@ -78,6 +78,13 @@ import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
 import com.streamvault.app.ui.themes.streaming.StreamingRule
 import com.streamvault.app.ui.themes.streaming.StreamingText
+import com.streamvault.app.ui.themes.premium.PremiumFocus
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMetal
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
+import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.domain.model.AppHomeTheme
 
 @Composable
@@ -101,6 +108,10 @@ private fun isStreamingSettingsPresentation(): Boolean =
     LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
 
 @Composable
+private fun isPremiumBlackSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+
+@Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
@@ -110,6 +121,7 @@ internal fun SettingsSectionHeader(
     val isMinimal = isMinimalSettingsPresentation()
     val isGlass = isGlassSettingsPresentation()
     val isStreaming = isStreamingSettingsPresentation()
+    val isPremiumBlack = isPremiumBlackSettingsPresentation()
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -117,13 +129,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; else -> Primary },
+            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; isPremiumBlack -> PremiumGold; else -> Primary },
             fontWeight = if (isCinematic || isNeon) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; else -> OnSurfaceDim }
+            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; isPremiumBlack -> PremiumMuted; else -> OnSurfaceDim }
         )
     }
 }
@@ -184,20 +196,24 @@ internal fun ClickableSettingsRow(
     val isNeon = isNeonSettingsPresentation()
     val isMinimal = isMinimalSettingsPresentation()
     val isGlass = isGlassSettingsPresentation()
+    val isPremiumBlack = isPremiumBlackSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onClick() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else 0.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else if (isPremiumBlack) 4.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else Color.Transparent,
-            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (isGlass && enabled) GlassPaneFocused else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else if (isPremiumBlack) PremiumPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (isGlass && enabled) GlassPaneFocused else if (isPremiumBlack && enabled) PremiumPanelFocused else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
         border = if (isMinimal) ClickableSurfaceDefaults.border(
             focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
         ) else if (isGlass) ClickableSurfaceDefaults.border(
             border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(18.dp)),
             focusedBorder = Border(border = BorderStroke(2.dp, GlassFocus), shape = RoundedCornerShape(18.dp))
+        ) else if (isPremiumBlack) ClickableSurfaceDefaults.border(
+            border = Border(border = BorderStroke(1.dp, PremiumMetal), shape = RoundedCornerShape(4.dp)),
+            focusedBorder = Border(border = BorderStroke(1.dp, PremiumFocus), shape = RoundedCornerShape(4.dp))
         ) else ClickableSurfaceDefaults.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else if (isGlass) 1.025f else 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon || isPremiumBlack) 1.01f else if (isGlass) 1.025f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -246,20 +262,24 @@ internal fun SwitchSettingsRow(
     val isNeon = isNeonSettingsPresentation()
     val isMinimal = isMinimalSettingsPresentation()
     val isGlass = isGlassSettingsPresentation()
+    val isPremiumBlack = isPremiumBlackSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onCheckedChange(!checked) },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else 0.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else if (isPremiumBlack) 4.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else Color.Transparent,
-            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (isGlass && enabled) GlassPaneFocused else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else if (isPremiumBlack) PremiumPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (isGlass && enabled) GlassPaneFocused else if (isPremiumBlack && enabled) PremiumPanelFocused else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
         border = if (isMinimal) ClickableSurfaceDefaults.border(
             focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
         ) else if (isGlass) ClickableSurfaceDefaults.border(
             border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(18.dp)),
             focusedBorder = Border(border = BorderStroke(2.dp, GlassFocus), shape = RoundedCornerShape(18.dp))
+        ) else if (isPremiumBlack) ClickableSurfaceDefaults.border(
+            border = Border(border = BorderStroke(1.dp, PremiumMetal), shape = RoundedCornerShape(4.dp)),
+            focusedBorder = Border(border = BorderStroke(1.dp, PremiumFocus), shape = RoundedCornerShape(4.dp))
         ) else ClickableSurfaceDefaults.border(),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else if (isGlass) 1.025f else 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon || isPremiumBlack) 1.01f else if (isGlass) 1.025f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)

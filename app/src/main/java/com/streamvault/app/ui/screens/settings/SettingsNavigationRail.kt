@@ -54,6 +54,14 @@ import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalRule
 import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.app.ui.themes.glass.GlassPane
+import com.streamvault.app.ui.themes.premium.PremiumCanvas
+import com.streamvault.app.ui.themes.premium.PremiumFocus
+import com.streamvault.app.ui.themes.premium.PremiumGold
+import com.streamvault.app.ui.themes.premium.PremiumMetal
+import com.streamvault.app.ui.themes.premium.PremiumMuted
+import com.streamvault.app.ui.themes.premium.PremiumPanel
+import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
+import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.domain.model.AppHomeTheme
 
 private data class SettingsNavEntry(
@@ -143,6 +151,15 @@ internal fun SettingsNavigationRail(
         )
         return
     }
+    if (LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK) {
+        PremiumBlackSettingsNavigationRail(
+            entries = entries,
+            selectedCategory = selectedCategory,
+            focusRequester = focusRequester,
+            onCategorySelected = onCategorySelected
+        )
+        return
+    }
 
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     LazyColumn(
@@ -171,6 +188,73 @@ internal fun SettingsNavigationRail(
                 modifier = if (selectedCategory == index) Modifier.focusRequester(focusRequester) else Modifier,
                 onClick = { onCategorySelected(index) }
             )
+        }
+    }
+}
+
+@Composable
+private fun PremiumBlackSettingsNavigationRail(
+    entries: List<SettingsNavEntry>,
+    selectedCategory: Int,
+    focusRequester: FocusRequester,
+    onCategorySelected: (Int) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .width(174.dp)
+            .fillMaxHeight()
+            .background(PremiumCanvas),
+        contentPadding = PaddingValues(start = 12.dp, top = 28.dp, end = 12.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        item("premium_settings_rail_heading") {
+            Column(
+                modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("PREMIUM", style = androidx.tv.material3.MaterialTheme.typography.titleLarge, color = PremiumGold, fontWeight = FontWeight.Black)
+                Text("SYSTEM", style = androidx.tv.material3.MaterialTheme.typography.labelSmall, color = PremiumMuted)
+            }
+        }
+        itemsIndexed(entries) { index, entry ->
+            val selected = selectedCategory == index
+            val shape = RoundedCornerShape(4.dp)
+            TvClickableSurface(
+                onClick = { onCategorySelected(index) },
+                modifier = (if (selected) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth(),
+                shape = ClickableSurfaceDefaults.shape(shape),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) PremiumPanelFocused else PremiumPanel,
+                    focusedContainerColor = PremiumPanelFocused,
+                    contentColor = PremiumText,
+                    focusedContentColor = PremiumText
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    border = Border(border = BorderStroke(1.dp, PremiumMetal), shape = shape),
+                    focusedBorder = Border(border = BorderStroke(1.dp, PremiumFocus), shape = shape)
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = entry.icon,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                        color = if (selected) PremiumGold else PremiumMuted,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = entry.label,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+                        color = PremiumText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

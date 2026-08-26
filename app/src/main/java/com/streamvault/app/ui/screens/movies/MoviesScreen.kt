@@ -93,6 +93,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalMoviesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureMoviesLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismMoviesLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformMoviesLayout
+import com.streamvault.app.ui.themes.premium.PremiumBlackMoviesLayout
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
@@ -117,6 +118,7 @@ fun MoviesScreen(
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -224,7 +226,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -253,7 +255,17 @@ fun MoviesScreen(
                     showPinDialog = true
                 } else onMovieClick(movie)
             }
-            if (isStreamingPlatformTheme) {
+            if (isPremiumBlackTheme) {
+                PremiumBlackMoviesLayout(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick, onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isStreamingPlatformTheme) {
                 StreamingPlatformMoviesLayout(
                     uiState = uiState,
                     initialFocusRequester = initialContentFocusRequester,

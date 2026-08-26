@@ -45,7 +45,7 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `cinematic neon future minimal glassmorphism and streaming platform are registered as complete selectable presentations`() {
+    fun `completed additional presentations are registered in the approved order`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
             .containsExactly(
                 AppHomeTheme.CLASSIC,
@@ -54,7 +54,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.NEON_FUTURE,
                 AppHomeTheme.MINIMAL,
                 AppHomeTheme.GLASSMORPHISM,
-                AppHomeTheme.STREAMING_PLATFORM
+                AppHomeTheme.STREAMING_PLATFORM,
+                AppHomeTheme.PREMIUM_BLACK
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -87,6 +88,13 @@ class ThemePresentationRegistryTest {
         assertThat(streaming.navigationLayout).isEqualTo(ThemeNavigationLayout.TOP_BAR)
         assertThat(streaming.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
         assertThat(streaming.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.PREMIUM_BLACK)).isTrue()
+        val premiumBlack = ThemePresentationRegistry.resolve(AppHomeTheme.PREMIUM_BLACK)
+        assertThat(premiumBlack.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(premiumBlack.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(premiumBlack.focus.focusedScale).isEqualTo(1.02f)
+        assertThat(premiumBlack.focus.motionDurationMs).isEqualTo(220)
+        assertThat(premiumBlack.replacesHomeWhenOpeningSections).isTrue()
         assertThat(ThemeCatalog.selectableEntries().map { it.theme })
             .containsExactly(
                 AppHomeTheme.CLASSIC,
@@ -95,7 +103,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.NEON_FUTURE,
                 AppHomeTheme.MINIMAL,
                 AppHomeTheme.GLASSMORPHISM,
-                AppHomeTheme.STREAMING_PLATFORM
+                AppHomeTheme.STREAMING_PLATFORM,
+                AppHomeTheme.PREMIUM_BLACK
             )
             .inOrder()
     }
