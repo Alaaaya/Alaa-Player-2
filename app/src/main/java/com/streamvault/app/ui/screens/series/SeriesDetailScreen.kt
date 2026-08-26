@@ -88,6 +88,7 @@ import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformSeriesDetail
 import com.streamvault.app.ui.themes.premium.PremiumBlackSeriesDetail
 import com.streamvault.app.ui.themes.blueocean.BlueOceanSeriesDetail
+import com.streamvault.app.ui.themes.redcinema.RedCinemaSerialFile
 import com.streamvault.app.ui.themes.premium.PremiumCanvas
 import com.streamvault.app.ui.themes.premium.PremiumGold
 import com.streamvault.app.ui.themes.premium.PremiumMuted
@@ -116,6 +117,7 @@ fun SeriesDetailScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -165,7 +167,19 @@ fun SeriesDetailScreen(
         return
     }
 
-    if (isBlueOceanTheme) {
+    if (isRedCinemaTheme) {
+        RedCinemaSerialFile(
+            series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings, isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason, onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode -> coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl(episode)) { is Result.Success -> result.data; else -> null }) } },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode, onCastEpisode = viewModel::castEpisode, onBack = onBack
+        )
+    } else if (isBlueOceanTheme) {
         BlueOceanSeriesDetail(
             series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
             unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,

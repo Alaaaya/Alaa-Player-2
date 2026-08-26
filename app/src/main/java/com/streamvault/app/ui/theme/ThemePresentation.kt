@@ -396,6 +396,7 @@ object ThemePresentationRegistry {
         registerAdditional(glassmorphismPresentation)
         registerAdditional(streamingPlatformPresentation)
         registerAdditional(premiumBlackPresentation)
+        registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.RED_CINEMA })
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

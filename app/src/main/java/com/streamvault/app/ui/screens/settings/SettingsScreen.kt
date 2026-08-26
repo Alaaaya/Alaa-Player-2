@@ -33,6 +33,7 @@ import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.*
 import com.streamvault.app.ui.themes.blueocean.BlueOceanSettingsSurface
+import com.streamvault.app.ui.themes.redcinema.RedCinemaSettingsSurface
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 import androidx.compose.ui.res.stringResource
@@ -66,6 +67,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val settingsNavFocusRequester = remember { FocusRequester() }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -469,6 +471,17 @@ fun SettingsScreen(
         ) {
             if (isBlueOceanTheme) {
                 BlueOceanSettingsSurface(
+                    navigation = {
+                        SettingsNavigationRail(
+                            selectedCategory = dialogState.selectedCategory,
+                            focusRequester = settingsNavFocusRequester,
+                            onCategorySelected = { dialogState.selectedCategory = it }
+                        )
+                    },
+                    content = { SettingsContent(Modifier.fillMaxSize()) }
+                )
+            } else if (isRedCinemaTheme) {
+                RedCinemaSettingsSurface(
                     navigation = {
                         SettingsNavigationRail(
                             selectedCategory = dialogState.selectedCategory,

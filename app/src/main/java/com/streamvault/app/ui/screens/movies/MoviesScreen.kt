@@ -95,6 +95,7 @@ import com.streamvault.app.ui.themes.glass.GlassmorphismMoviesLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformMoviesLayout
 import com.streamvault.app.ui.themes.premium.PremiumBlackMoviesLayout
 import com.streamvault.app.ui.themes.blueocean.BlueOceanMoviesLayout
+import com.streamvault.app.ui.themes.redcinema.RedCinemaScreeningLedger
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
@@ -121,6 +122,7 @@ fun MoviesScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -228,7 +230,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -257,7 +259,17 @@ fun MoviesScreen(
                     showPinDialog = true
                 } else onMovieClick(movie)
             }
-            if (isBlueOceanTheme) {
+            if (isRedCinemaTheme) {
+                RedCinemaScreeningLedger(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick, onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isBlueOceanTheme) {
                 BlueOceanMoviesLayout(
                     uiState = uiState, initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,

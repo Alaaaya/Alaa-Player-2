@@ -117,6 +117,7 @@ fun PremiumDialog(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val dialogSurface = if (isGlassTheme) GlassPane else if (isStreamingPlatformTheme) StreamingPanel else if (isPremiumBlackTheme) PremiumPanel else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
     val dialogBackground = if (isGlassTheme) {
         Brush.verticalGradient(colors = listOf(GlassCanvas.copy(alpha = 0.9f), GlassPane, GlassCanvas))
@@ -191,6 +192,26 @@ fun PremiumDialog(
     if (isBlueOceanTheme) {
         LaunchedEffect(Unit) { delay(160); canInteract = true }
         BlueOceanPremiumDialog(
+            title = title,
+            subtitle = subtitle,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            widthFraction = widthFraction,
+            heightFraction = heightFraction,
+            bodyHeightFraction = bodyHeightFraction,
+            bodyScrollHint = bodyScrollHint,
+            initialBodyFocusRequester = initialBodyFocusRequester,
+            canInteract = canInteract,
+            isTelevisionDevice = isTelevisionDevice,
+            blockOpenGesture = blockOpenGesture,
+            content = content,
+            footer = footer
+        )
+        return
+    }
+    if (isRedCinemaTheme) {
+        LaunchedEffect(Unit) { delay(180); canInteract = true }
+        RedCinemaPremiumDialog(
             title = title,
             subtitle = subtitle,
             onDismissRequest = onDismissRequest,
@@ -418,6 +439,82 @@ private fun BlueOceanPremiumDialog(
                             maxHeight = maxDialogBodyHeight,
                             scrollHint = bodyScrollHint,
                             initialFocusRequester = initialBodyFocusRequester,
+                            content = content
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                            content = footer
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Red Cinema dialogs use a box-office ticket sheet rather than the standard elevated dialog. */
+@Composable
+private fun RedCinemaPremiumDialog(
+    title: String,
+    subtitle: String?,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    widthFraction: Float,
+    heightFraction: Float?,
+    bodyHeightFraction: Float,
+    bodyScrollHint: String?,
+    initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+    canInteract: Boolean,
+    isTelevisionDevice: Boolean,
+    blockOpenGesture: (KeyEvent) -> Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit
+) {
+    val s = LocalThemePresentation.current.surfaces
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = canInteract,
+            dismissOnClickOutside = canInteract,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogCanInteract provides canInteract) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val resolvedWidthFraction = when {
+                    isTelevisionDevice -> widthFraction
+                    maxWidth < 700.dp -> 0.9f
+                    maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
+                    else -> widthFraction
+                }
+                val maxDialogBodyHeight = maxHeight * bodyHeightFraction
+                val dialogModifier = modifier
+                    .fillMaxWidth(resolvedWidthFraction)
+                    .then(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier)
+                    .onPreviewKeyEvent(blockOpenGesture)
+                val shape = RoundedCornerShape(2.dp)
+                Surface(
+                    modifier = dialogModifier,
+                    shape = shape,
+                    colors = SurfaceDefaults.colors(containerColor = s.browseContent),
+                    border = androidx.tv.material3.Border(border = BorderStroke(2.dp, s.accent), shape = shape)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .background(Brush.verticalGradient(listOf(s.focusedSurface, s.browseContent, s.canvas)))
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("BOX OFFICE NOTICE", style = MaterialTheme.typography.labelSmall, color = s.accent)
+                            Text(title, style = MaterialTheme.typography.headlineMedium, color = s.textPrimary)
+                            if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = s.textSecondary)
+                        }
+                        PremiumDialogScrollableBody(
+                            maxHeight = maxDialogBodyHeight,
+                            scrollHint = bodyScrollHint,
+                            initialBodyFocusRequester = initialBodyFocusRequester,
                             content = content
                         )
                         Row(

@@ -14,6 +14,8 @@ Increasing the Gradle heap to 2 GB did not produce additional Kotlin diagnostics
 
 After adding the Blue Ocean EPG and settings surfaces, a source check identified and corrected one `Border` argument-order error in `BlueOceanEpgSurface.kt`. The corrected check reached `:app:compileDebugKotlin` without another `e:` diagnostic, then exhausted the configured 1.5 GB heap and remained at 98%; it was stopped after roughly four minutes. This is not a successful build.
 
+After routing Red Cinema through the dashboard, Live TV, EPG, libraries, details, search, favourites, settings, provider setup, dialogs, and fullscreen player, `:app:compileDebugKotlin` again reached 98% without an emitted source diagnostic. The check was stopped at high memory pressure before a final Gradle result, so a successful Android build remains outstanding.
+
 Android's official documentation states that command-line packages are installed under `android_sdk/cmdline-tools/version/bin/` and that `ANDROID_HOME` should identify the SDK directory. The same documentation confirms that Build Tools are required for Android builds.[^tools]
 
 [^tools]: Android Developers, [Command-line tools](https://developer.android.com/tools), accessed 2026-08-26. See also [Android SDK Command-Line Tools release notes](https://developer.android.com/tools/releases/cmdline-tools).
