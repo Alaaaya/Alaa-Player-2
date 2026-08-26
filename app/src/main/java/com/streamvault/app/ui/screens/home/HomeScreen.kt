@@ -167,7 +167,7 @@ fun HomeScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -352,7 +352,7 @@ fun HomeScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_live_tv),
             subtitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name },
-            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
