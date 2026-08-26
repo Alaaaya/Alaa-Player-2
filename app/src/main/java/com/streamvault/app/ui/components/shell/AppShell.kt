@@ -125,6 +125,14 @@ import com.streamvault.app.ui.themes.glass.GlassPane
 import com.streamvault.app.ui.themes.glass.GlassPaneFocused
 import com.streamvault.app.ui.themes.glass.GlassRule
 import com.streamvault.app.ui.themes.glass.GlassText
+import com.streamvault.app.ui.themes.streaming.StreamingCanvas
+import com.streamvault.app.ui.themes.streaming.StreamingCanvasRaised
+import com.streamvault.app.ui.themes.streaming.StreamingFocus
+import com.streamvault.app.ui.themes.streaming.StreamingFocusMotionMs
+import com.streamvault.app.ui.themes.streaming.StreamingMuted
+import com.streamvault.app.ui.themes.streaming.StreamingPanel
+import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
+import com.streamvault.app.ui.themes.streaming.StreamingText
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
@@ -157,9 +165,14 @@ fun AppScreenScaffold(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
     // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
-    val resolvedNavigationChrome = if (isMinimalTheme || isGlassTheme) AppNavigationChrome.Rail else navigationChrome
+    val resolvedNavigationChrome = when {
+        isStreamingPlatformTheme -> AppNavigationChrome.TopBar
+        isMinimalTheme || isGlassTheme -> AppNavigationChrome.Rail
+        else -> navigationChrome
+    }
     val canvasBrush = if (isAlaaTheme) {
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
     } else if (isCinematicTheme) {
@@ -170,6 +183,8 @@ fun AppScreenScaffold(
         Brush.verticalGradient(listOf(MinimalCanvas, MinimalPaper, MinimalCanvas))
     } else if (isGlassTheme) {
         Brush.linearGradient(listOf(GlassCanvas, GlassCanvasDeep, GlassCanvas))
+    } else if (isStreamingPlatformTheme) {
+        Brush.verticalGradient(listOf(StreamingCanvas, StreamingCanvasRaised, StreamingPanel))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -513,6 +528,7 @@ private fun TopNavigationBar(
     val items = rememberDestinationItems()
     val scrollState = rememberScrollState()
     val isAlaaTheme = LocalIsAlaaTheme.current
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
 
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     
@@ -523,15 +539,15 @@ private fun TopNavigationBar(
                 focusRequesters[activeItem?.route] ?: FocusRequester.Default
             }
         },
-        shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp),
+        shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isStreamingPlatformTheme) 14.dp else 18.dp),
         colors = SurfaceDefaults.colors(
-            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface.copy(alpha = 0.96f) else AppColors.Surface.copy(alpha = 0.9f)
+            containerColor = if (isAlaaTheme) AlaaThemeColors.Surface.copy(alpha = 0.96f) else if (isStreamingPlatformTheme) StreamingCanvasRaised.copy(alpha = 0.96f) else AppColors.Surface.copy(alpha = 0.9f)
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(if (isStreamingPlatformTheme) 64.dp else 56.dp)
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -539,7 +555,7 @@ private fun TopNavigationBar(
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.titleSmall,
-                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary,
+                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else if (isStreamingPlatformTheme) StreamingText else AppColors.TextPrimary,
                 modifier = Modifier.wrapContentWidth(Alignment.Start)
             )
             Spacer(modifier = Modifier.width(32.dp)) // Increased spacing to prevent overlap
@@ -647,10 +663,11 @@ private fun TopNavigationButton(
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
     val isAlaaTheme = LocalIsAlaaTheme.current
-    val navigationShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 14.dp)
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val navigationShape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isStreamingPlatformTheme) 10.dp else 14.dp)
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
-            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else if (isStreamingPlatformTheme) 1.02f else FocusSpec.FocusedScale
         } else 1f,
         animationSpec = if (isAlaaTheme) {
             androidx.compose.animation.core.tween(durationMillis = AlaaThemeFocus.AnimationDurationMs)
@@ -688,15 +705,15 @@ private fun TopNavigationButton(
         shape = ClickableSurfaceDefaults.shape(navigationShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) {
-                if (isAlaaTheme) AlaaThemeColors.AccentMuted else AppColors.BrandMuted
+                if (isAlaaTheme) AlaaThemeColors.AccentMuted else if (isStreamingPlatformTheme) StreamingPanelFocused else AppColors.BrandMuted
             } else Color.Transparent,
-            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else if (isStreamingPlatformTheme) StreamingPanelFocused else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(
-                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else FocusSpec.BorderWidth,
-                    if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Focus
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else if (isStreamingPlatformTheme) 2.dp else FocusSpec.BorderWidth,
+                    if (isAlaaTheme) AlaaThemeColors.Accent else if (isStreamingPlatformTheme) StreamingFocus else AppColors.Focus
                 ),
                 shape = navigationShape
             )
@@ -711,16 +728,16 @@ private fun TopNavigationButton(
                 imageVector = icon,
                 contentDescription = label,
                 tint = if (selected) {
-                    if (isAlaaTheme) AlaaThemeColors.AccentStrong else AppColors.Brand
-                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
+                    if (isAlaaTheme) AlaaThemeColors.AccentStrong else if (isStreamingPlatformTheme) StreamingFocus else AppColors.Brand
+                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else if (isStreamingPlatformTheme) StreamingMuted else AppColors.TextSecondary,
                 modifier = Modifier.size(14.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (selected || isFocused) {
-                    if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
-                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary
+                    if (isAlaaTheme) AlaaThemeColors.TextPrimary else if (isStreamingPlatformTheme) StreamingText else AppColors.TextPrimary
+                } else if (isAlaaTheme) AlaaThemeColors.TextSecondary else if (isStreamingPlatformTheme) StreamingMuted else AppColors.TextSecondary
             )
         }
     }

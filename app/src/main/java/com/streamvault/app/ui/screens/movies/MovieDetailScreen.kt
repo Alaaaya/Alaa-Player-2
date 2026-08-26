@@ -80,6 +80,7 @@ import com.streamvault.app.ui.themes.glass.GlassMuted
 import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalMovieDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureMovieDetail
+import com.streamvault.app.ui.themes.streaming.StreamingPlatformMovieDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
@@ -98,6 +99,7 @@ fun MovieDetailScreen(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -136,7 +138,24 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            if (isGlassTheme) {
+            if (isStreamingPlatformTheme) {
+                StreamingPlatformMovieDetail(
+                    movie = movie,
+                    hasResume = uiState.hasResume,
+                    resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting,
+                    relatedContent = uiState.relatedContent,
+                    onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) },
+                    onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay,
+                    onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                )
+            } else if (isGlassTheme) {
                 GlassmorphismMovieDetail(
                     movie = movie,
                     hasResume = uiState.hasResume,

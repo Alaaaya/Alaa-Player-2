@@ -78,6 +78,7 @@ import com.streamvault.app.ui.themes.cinematic.CinematicFavoritesLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismFavoritesLayout
 import com.streamvault.app.ui.themes.minimal.MinimalFavoritesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureFavoritesLayout
+import com.streamvault.app.ui.themes.streaming.StreamingPlatformFavoritesLayout
 import com.streamvault.app.ui.themes.neon.NeonCyan
 import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.domain.model.AppHomeTheme
@@ -100,6 +101,7 @@ fun FavoritesScreen(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val activeReorderSection = uiState.sections.firstOrNull { it.key == uiState.reorderSectionKey }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -393,7 +395,7 @@ fun FavoritesScreen(
                     }
                 }
 
-                !hasVisibleContent && !isGlassTheme -> {
+                !hasVisibleContent && !isGlassTheme && !isStreamingPlatformTheme -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -412,13 +414,26 @@ fun FavoritesScreen(
                 }
 
                 else -> {
-                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) && !uiState.isReorderMode) {
+                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme) && !uiState.isReorderMode) {
                         val onThemedItemClick: (FavoriteUiModel) -> Unit = { item ->
                             if (item.favorite.contentType == ContentType.SERIES) {
                                 onNavigate("series_detail/${item.favorite.contentId}")
                             } else onItemClick(item)
                         }
-                        if (isGlassTheme) GlassmorphismFavoritesLayout(
+                        if (isStreamingPlatformTheme) StreamingPlatformFavoritesLayout(
+                            sections = filteredSections,
+                            continueWatching = visibleContinueWatching,
+                            recentLive = visibleRecentLive,
+                            selectedPreset = uiState.selectedPreset,
+                            selectedFilter = uiState.selectedFilter,
+                            selectedSort = uiState.selectedSort,
+                            onPresetSelected = viewModel::selectPreset,
+                            onFilterSelected = viewModel::selectFilter,
+                            onSortSelected = viewModel::selectSort,
+                            onItemClick = onThemedItemClick,
+                            onItemLongClick = viewModel::showItemOptions,
+                            onHistoryClick = onHistoryClick
+                        ) else if (isGlassTheme) GlassmorphismFavoritesLayout(
                             sections = filteredSections,
                             continueWatching = visibleContinueWatching,
                             recentLive = visibleRecentLive,

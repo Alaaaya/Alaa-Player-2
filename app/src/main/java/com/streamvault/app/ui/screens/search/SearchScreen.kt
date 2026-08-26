@@ -59,6 +59,7 @@ import com.streamvault.app.ui.themes.cinematic.CinematicSearchLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismSearchLayout
 import com.streamvault.app.ui.themes.minimal.MinimalSearchLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureSearchLayout
+import com.streamvault.app.ui.themes.streaming.StreamingPlatformSearchLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Channel
@@ -545,7 +546,8 @@ fun SearchScreen(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
-    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) {
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme) {
         val onThemedChannelClick: (Channel) -> Unit = { channel ->
             if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
                 pendingChannel = channel
@@ -564,7 +566,32 @@ fun SearchScreen(
                 showPinDialog = true
             } else onSeriesClick(seriesItem)
         }
-        if (isGlassTheme) {
+        if (isStreamingPlatformTheme) {
+            StreamingPlatformSearchLayout(
+                query = query,
+                selectedTab = selectedTab,
+                recentQueries = recentQueries,
+                uiState = uiState,
+                recordingChannelIds = recordingChannelIds,
+                scheduledChannelIds = scheduledChannelIds,
+                searchFocusRequester = searchFocusRequester,
+                onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::onSearchSubmitted,
+                onTabSelected = viewModel::onTabSelected,
+                onRecentQuerySelected = viewModel::onRecentQuerySelected,
+                onClearRecentQueries = viewModel::clearRecentQueries,
+                onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex,
+                onChannelClick = onThemedChannelClick,
+                onChannelLongClick = ::showChannelActions,
+                onMovieClick = onThemedMovieClick,
+                onMovieLongClick = ::showMovieActions,
+                onSeriesClick = onThemedSeriesClick,
+                onSeriesLongClick = ::showSeriesActions,
+                isChannelLocked = { channel -> isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected) },
+                isMovieLocked = { movie -> isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected) },
+                isSeriesLocked = { seriesItem -> isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected) }
+            )
+        } else if (isGlassTheme) {
             GlassmorphismSearchLayout(
                 query = query,
                 selectedTab = selectedTab,
