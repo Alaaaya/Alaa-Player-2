@@ -75,6 +75,7 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicMovieDetail
+import com.streamvault.app.ui.themes.minimal.MinimalMovieDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureMovieDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
@@ -92,6 +93,7 @@ fun MovieDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -130,7 +132,17 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            if (isNeonFutureTheme) {
+            if (isMinimalTheme) {
+                MinimalMovieDetail(
+                    movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay, onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                )
+            } else if (isNeonFutureTheme) {
                 NeonFutureMovieDetail(
                     movie = movie,
                     hasResume = uiState.hasResume,
