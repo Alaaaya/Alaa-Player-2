@@ -95,6 +95,8 @@ import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.remote.LiveBrowseRemoteShortcutHandler
 import com.streamvault.app.ui.remote.dispatchLiveBrowseRemoteShortcut
 import com.streamvault.app.ui.remote.remoteColorButtonForKeyCode
+import com.streamvault.app.ui.themes.cinematic.CinematicLiveTvLayout
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
 private enum class FocusRestoreTarget {
@@ -161,8 +163,9 @@ fun HomeScreen(
     val isReorderMode = uiState.isChannelReorderMode
     val isProMode = uiState.liveTvChannelMode == LiveTvChannelMode.PRO
     val isAlaaTheme = LocalIsAlaaTheme.current
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -347,7 +350,7 @@ fun HomeScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_live_tv),
             subtitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name },
-            navigationChrome = AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -683,6 +686,75 @@ fun HomeScreen(
                         }
                     }
                 ) {
+                if (isCinematicTheme && !isReorderMode) {
+                    CinematicLiveTvLayout(
+                        sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                        categories = visibleCategories,
+                        selectedCategoryId = uiState.selectedCategory?.id,
+                        categorySearchQuery = uiState.categorySearchQuery,
+                        channelSearchQuery = uiState.channelSearchQuery,
+                        channels = uiState.filteredChannels,
+                        previewChannel = previewChannel,
+                        previewPlayerEngine = uiState.previewPlayerEngine,
+                        isPreviewLoading = uiState.isPreviewLoading,
+                        previewErrorMessage = uiState.previewErrorMessage,
+                        isCategoryLocked = isCategoryLocked,
+                        isChannelLocked = isChannelLocked,
+                        categoryFocusRequesters = categoryFocusRequesters,
+                        channelFocusRequesters = channelFocusRequesters,
+                        previewFocusRequester = previewFocusRequester,
+                        onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                        onChannelSearchChange = viewModel::updateChannelSearchQuery,
+                        onCategoryClick = { category ->
+                            if (isCategoryLocked(category)) {
+                                pendingUnlockCategory = category
+                                showPinDialog = true
+                            } else {
+                                viewModel.selectCategory(category)
+                            }
+                        },
+                        onCategoryLongClick = { category ->
+                            if (!isCategoryLocked(category)) {
+                                preferredRestoreTarget = FocusRestoreTarget.CATEGORY.name
+                                viewModel.showCategoryOptions(category)
+                            }
+                        },
+                        onChannelClick = { channel ->
+                            if (isChannelLocked(channel)) {
+                                pendingUnlockChannel = channel
+                                showPinDialog = true
+                            } else if (uiState.previewChannelId == channel.id) {
+                                val handedOff = viewModel.beginPreviewHandoff(channel)
+                                if (!handedOff) viewModel.clearPreview()
+                                onChannelClick(
+                                    channel,
+                                    uiState.selectedCategory,
+                                    resolveProviderForChannel(channel),
+                                    (uiState.activeLiveSource as? ActiveLiveSource.CombinedM3uSource)?.profileId,
+                                    uiState.selectedCombinedSourceProviderId
+                                )
+                            } else {
+                                viewModel.previewChannel(channel)
+                            }
+                        },
+                        onChannelLongClick = { channel ->
+                            preferredRestoreTarget = FocusRestoreTarget.CHANNEL.name
+                            viewModel.onShowDialog(channel)
+                        },
+                        onCategoryFocused = { category ->
+                            lastFocusedCategoryId = category.id
+                            focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.CategoryTarget(category)
+                        },
+                        onChannelFocused = { channel ->
+                            lastFocusedChannelId = channel.id
+                            focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.ChannelTarget(channel)
+                            if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
+                        },
+                        onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                        onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                        onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                    )
+                } else {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1433,6 +1505,7 @@ fun HomeScreen(
                                 .fillMaxHeight()
                         )
                     }
+                }
                 }
                 }
             }
