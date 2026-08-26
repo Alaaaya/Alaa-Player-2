@@ -56,6 +56,7 @@ import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.theme.*
 import com.streamvault.app.ui.themes.cinematic.CinematicSearchLayout
+import com.streamvault.app.ui.themes.minimal.MinimalSearchLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureSearchLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.ParentalControlManager
@@ -541,7 +542,8 @@ fun SearchScreen(
 
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    if (isCinematicTheme || isNeonFutureTheme) {
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) {
         val onThemedChannelClick: (Channel) -> Unit = { channel ->
             if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
                 pendingChannel = channel
@@ -560,7 +562,13 @@ fun SearchScreen(
                 showPinDialog = true
             } else onSeriesClick(seriesItem)
         }
-        if (isNeonFutureTheme) {
+        if (isMinimalTheme) {
+            MinimalSearchLayout(
+                query = query, selectedTab = selectedTab, uiState = uiState, searchFocusRequester = searchFocusRequester,
+                onQueryChange = viewModel::onQueryChange, onSearch = viewModel::onSearchSubmitted,
+                onChannelClick = onThemedChannelClick, onMovieClick = onThemedMovieClick, onSeriesClick = onThemedSeriesClick
+            )
+        } else if (isNeonFutureTheme) {
             NeonFutureSearchLayout(
                 query = query,
                 selectedTab = selectedTab,
