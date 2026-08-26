@@ -43,4 +43,14 @@ class ThemePresentationRegistryTest {
         assertThat(ThemePresentationRegistry.resolve(AppHomeTheme.CLASSIC).navigationLayout)
             .isEqualTo(ThemeNavigationLayout.ADAPTIVE)
     }
+
+    @Test
+    fun `only complete foundation themes are selectable before additions are registered`() {
+        assertThat(ThemePresentationRegistry.selectableThemes())
+            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA)
+            .inOrder()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isFalse()
+        assertThat(ThemePresentationRegistry.resolveOrClassic(AppHomeTheme.CINEMATIC).id)
+            .isEqualTo(AppHomeTheme.CLASSIC)
+    }
 }

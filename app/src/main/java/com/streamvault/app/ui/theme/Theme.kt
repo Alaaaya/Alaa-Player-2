@@ -43,12 +43,12 @@ fun StreamVaultTheme(
     content: @Composable () -> Unit
 ) {
     val typography = rememberAppTypography()
-    val presentation = ThemePresentationRegistry.resolve(appHomeTheme)
+    val presentation = ThemePresentationRegistry.resolveOrClassic(appHomeTheme)
     val isAlaa = presentation.id == AppHomeTheme.ALAA
     CompositionLocalProvider(
         LocalAppSpacing provides com.streamvault.app.ui.design.AppSpacing(),
         LocalAppShapes provides AppShapes(),
-        LocalAppHomeTheme provides appHomeTheme,
+        LocalAppHomeTheme provides presentation.id,
         LocalThemePresentation provides presentation,
         LocalIsAlaaTheme provides isAlaa
     ) {
