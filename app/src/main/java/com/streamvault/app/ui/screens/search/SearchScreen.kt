@@ -56,6 +56,7 @@ import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.theme.*
 import com.streamvault.app.ui.themes.cinematic.CinematicSearchLayout
+import com.streamvault.app.ui.themes.neon.NeonFutureSearchLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Channel
@@ -538,7 +539,53 @@ fun SearchScreen(
         )
     }
 
-    if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    if (isCinematicTheme || isNeonFutureTheme) {
+        val onThemedChannelClick: (Channel) -> Unit = { channel ->
+            if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
+                pendingChannel = channel
+                showPinDialog = true
+            } else onChannelClick(channel)
+        }
+        val onThemedMovieClick: (Movie) -> Unit = { movie ->
+            if (isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected)) {
+                pendingMovie = movie
+                showPinDialog = true
+            } else onMovieClick(movie)
+        }
+        val onThemedSeriesClick: (Series) -> Unit = { seriesItem ->
+            if (isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected)) {
+                pendingSeries = seriesItem
+                showPinDialog = true
+            } else onSeriesClick(seriesItem)
+        }
+        if (isNeonFutureTheme) {
+            NeonFutureSearchLayout(
+                query = query,
+                selectedTab = selectedTab,
+                recentQueries = recentQueries,
+                uiState = uiState,
+                recordingChannelIds = recordingChannelIds,
+                scheduledChannelIds = scheduledChannelIds,
+                searchFocusRequester = searchFocusRequester,
+                onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::onSearchSubmitted,
+                onTabSelected = viewModel::onTabSelected,
+                onRecentQuerySelected = viewModel::onRecentQuerySelected,
+                onClearRecentQueries = viewModel::clearRecentQueries,
+                onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex,
+                onChannelClick = onThemedChannelClick,
+                onChannelLongClick = ::showChannelActions,
+                onMovieClick = onThemedMovieClick,
+                onMovieLongClick = ::showMovieActions,
+                onSeriesClick = onThemedSeriesClick,
+                onSeriesLongClick = ::showSeriesActions,
+                isChannelLocked = { channel -> isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected) },
+                isMovieLocked = { movie -> isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected) },
+                isSeriesLocked = { seriesItem -> isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected) }
+            )
+        } else {
         CinematicSearchLayout(
             query = query,
             selectedTab = selectedTab,
@@ -553,32 +600,11 @@ fun SearchScreen(
             onRecentQuerySelected = viewModel::onRecentQuerySelected,
             onClearRecentQueries = viewModel::clearRecentQueries,
             onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex,
-            onChannelClick = { channel ->
-                if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
-                    pendingChannel = channel
-                    showPinDialog = true
-                } else {
-                    onChannelClick(channel)
-                }
-            },
+            onChannelClick = onThemedChannelClick,
             onChannelLongClick = ::showChannelActions,
-            onMovieClick = { movie ->
-                if (isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected)) {
-                    pendingMovie = movie
-                    showPinDialog = true
-                } else {
-                    onMovieClick(movie)
-                }
-            },
+            onMovieClick = onThemedMovieClick,
             onMovieLongClick = ::showMovieActions,
-            onSeriesClick = { seriesItem ->
-                if (isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected)) {
-                    pendingSeries = seriesItem
-                    showPinDialog = true
-                } else {
-                    onSeriesClick(seriesItem)
-                }
-            },
+            onSeriesClick = onThemedSeriesClick,
             onSeriesLongClick = ::showSeriesActions,
             isChannelLocked = { channel ->
                 isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)
@@ -590,6 +616,7 @@ fun SearchScreen(
                 isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected)
             }
         )
+        }
         return
     }
 
