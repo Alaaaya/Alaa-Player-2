@@ -80,6 +80,7 @@ import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesDetail
+import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
@@ -98,6 +99,7 @@ fun SeriesDetailScreen(
     val mainActivity = remember(context) { context.findMainActivity() }
     val coroutineScope = rememberCoroutineScope()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -136,7 +138,36 @@ fun SeriesDetailScreen(
         return
     }
 
-    if (isCinematicTheme) {
+    if (isNeonFutureTheme) {
+        NeonFutureSeriesDetail(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings,
+            isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode ->
+                coroutineScope.launch {
+                    val url = when (val result = viewModel.resolveCopyStreamUrl(episode)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> null
+                        Result.Loading -> null
+                    }
+                    copyStreamUrlToClipboard(context, url)
+                }
+            },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode,
+            onCastEpisode = viewModel::castEpisode,
+            onBack = onBack
+        )
+    } else if (isCinematicTheme) {
         CinematicSeriesDetail(
             series = series,
             selectedSeason = uiState.selectedSeason,
