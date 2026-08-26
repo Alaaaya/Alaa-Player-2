@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,14 +88,6 @@ internal fun RedCinemaLiveTvLayout(
             Text(sourceTitle.ifBlank { "MAIN THEATRE" }, style = MaterialTheme.typography.titleSmall, color = surfaces.textSecondary)
         }
         Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            RedCinemaStage(
-                channel = previewChannel,
-                engine = previewPlayerEngine,
-                loading = isPreviewLoading,
-                error = previewErrorMessage,
-                onOpenPlaybill = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(1.15f).fillMaxHeight().focusRequester(previewFocusRequester)
-            )
             RedCinemaPlaybill(
                 categories = categories,
                 selectedCategoryId = selectedCategoryId,
@@ -115,7 +108,15 @@ internal fun RedCinemaLiveTvLayout(
                 onChannelFocused = onChannelFocused,
                 onRequestChannelsFromCategory = onRequestChannelsFromCategory,
                 onRequestPreviewFromChannel = onRequestPreviewFromChannel,
-                modifier = Modifier.weight(.85f).fillMaxHeight()
+                modifier = Modifier.width(610.dp).fillMaxHeight()
+            )
+            RedCinemaStage(
+                channel = previewChannel,
+                engine = previewPlayerEngine,
+                loading = isPreviewLoading,
+                error = previewErrorMessage,
+                onOpenPlaybill = onRequestChannelsFromPreview,
+                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
             )
         }
     }
@@ -163,41 +164,30 @@ private fun RedCinemaPlaybill(
     onRequestChannelsFromCategory: () -> Boolean, onRequestPreviewFromChannel: () -> Boolean, modifier: Modifier
 ) {
     val surfaces = LocalThemePresentation.current.surfaces
-    Column(modifier.background(surfaces.browseRail, RoundedCornerShape(2.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("PLAYBILL", style = MaterialTheme.typography.titleLarge, color = surfaces.accent)
-        Text("ACTS", style = MaterialTheme.typography.labelMedium, color = surfaces.textSecondary)
-        RedCinemaQuery(categoryQuery, "Filter acts", onCategorySearchChange)
-        LazyColumn(modifier = Modifier.weight(.42f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(categories, key = { it.id }) { category ->
-                val requester = categoryRequesters.getOrPut(category.id) { FocusRequester() }
-                RedCinemaTicket(
-                    number = "ACT",
-                    title = if (isCategoryLocked(category)) "RESTRICTED" else category.name,
-                    selected = category.id == selectedCategoryId,
-                    onClick = { onCategoryClick(category) },
-                    onLongClick = { onCategoryLongClick(category) },
-                    modifier = Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onCategoryFocused(category) }.onPreviewKeyEvent { event ->
+    Row(modifier.background(surfaces.browseRail, RoundedCornerShape(2.dp)).padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.width(272.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("PLAYBILL", style = MaterialTheme.typography.titleLarge, color = surfaces.accent)
+            Text("ACTS", style = MaterialTheme.typography.labelMedium, color = surfaces.textSecondary)
+            RedCinemaQuery(categoryQuery, "Filter acts", onCategorySearchChange)
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(categories, key = { it.id }) { category ->
+                    val requester = categoryRequesters.getOrPut(category.id) { FocusRequester() }
+                    RedCinemaTicket(number = "ACT", title = if (isCategoryLocked(category)) "RESTRICTED" else category.name, selected = category.id == selectedCategoryId, onClick = { onCategoryClick(category) }, onLongClick = { onCategoryLongClick(category) }, modifier = Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onCategoryFocused(category) }.onPreviewKeyEvent { event ->
                         event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && onRequestChannelsFromCategory()
-                    }
-                )
+                    })
+                }
             }
         }
-        Text("REEL LIST · ${channels.size}", style = MaterialTheme.typography.labelMedium, color = surfaces.textSecondary)
-        RedCinemaQuery(channelQuery, "Search screenings", onChannelSearchChange)
-        LazyColumn(modifier = Modifier.weight(.58f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(channels, key = { it.id }) { channel ->
-                val requester = channelRequesters.getOrPut(channel.id) { FocusRequester() }
-                RedCinemaTicket(
-                    number = channel.number.toString().padStart(3, '0'),
-                    title = if (isChannelLocked(channel)) "RESTRICTED SCREENING" else channel.name,
-                    selected = false,
-                    supporting = if (isChannelLocked(channel)) "Protected programme" else channel.currentProgram?.title ?: "Live now",
-                    onClick = { onChannelClick(channel) },
-                    onLongClick = { onChannelLongClick(channel) },
-                    modifier = Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onChannelFocused(channel) }.onPreviewKeyEvent { event ->
-                        event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && onRequestPreviewFromChannel()
-                    }
-                )
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("REEL LIST · ${channels.size}", style = MaterialTheme.typography.labelMedium, color = surfaces.textSecondary)
+            RedCinemaQuery(channelQuery, "Search screenings", onChannelSearchChange)
+            LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(channels, key = { it.id }) { channel ->
+                    val requester = channelRequesters.getOrPut(channel.id) { FocusRequester() }
+                    RedCinemaTicket(number = channel.number.toString().padStart(3, '0'), title = if (isChannelLocked(channel)) "RESTRICTED SCREENING" else channel.name, selected = false, supporting = if (isChannelLocked(channel)) "Protected programme" else channel.currentProgram?.title ?: "Live now", onClick = { onChannelClick(channel) }, onLongClick = { onChannelLongClick(channel) }, modifier = Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onChannelFocused(channel) }.onPreviewKeyEvent { event ->
+                        event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && onRequestPreviewFromChannel()
+                    })
+                }
             }
         }
     }

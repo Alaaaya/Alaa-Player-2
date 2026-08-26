@@ -73,21 +73,12 @@ internal fun GlassmorphismLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier.fillMaxSize().background(GlassCanvas).padding(26.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        GlassPreviewPane(
-            channel = previewChannel,
-            playerEngine = previewPlayerEngine,
-            isLoading = isPreviewLoading,
-            errorMessage = previewErrorMessage,
-            onJumpToChannels = onRequestChannelsFromPreview,
-            modifier = Modifier.fillMaxWidth().height(286.dp).focusRequester(previewFocusRequester)
-        )
-        Row(modifier = Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Surface(
-                modifier = Modifier.width(250.dp).fillMaxHeight(),
+                modifier = Modifier.width(272.dp).fillMaxHeight(),
                 shape = RoundedCornerShape(24.dp),
                 colors = SurfaceDefaults.colors(containerColor = GlassPane),
                 border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(24.dp))
@@ -97,10 +88,31 @@ internal fun GlassmorphismLiveTvLayout(
                     Text(sourceTitle.ifBlank { "CURRENT SOURCE" }, style = MaterialTheme.typography.titleMedium, color = GlassText, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     GlassQuery(categorySearchQuery, "Filter categories", onCategorySearchChange)
                     Text("${categories.size} CATEGORIES", style = MaterialTheme.typography.labelSmall, color = GlassMuted)
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        items(categories, key = { it.id }) { category ->
+                            val requester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
+                            GlassCategoryChip(
+                                category = category,
+                                selected = category.id == selectedCategoryId,
+                                locked = isCategoryLocked(category),
+                                onClick = { onCategoryClick(category) },
+                                onLongClick = { onCategoryLongClick(category) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(requester)
+                                    .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
+                                    .onPreviewKeyEvent { event ->
+                                        event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
+                                            onRequestChannelsFromCategory()
+                                    }
+                            )
+                        }
+                    }
                 }
             }
             Surface(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
+                modifier = Modifier.width(320.dp).fillMaxHeight(),
                 shape = RoundedCornerShape(28.dp),
                 colors = SurfaceDefaults.colors(containerColor = GlassPane),
                 border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(28.dp))
@@ -124,7 +136,7 @@ internal fun GlassmorphismLiveTvLayout(
                                     .onFocusChanged { if (it.isFocused) onChannelFocused(channel) }
                                     .onPreviewKeyEvent { event ->
                                         event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP &&
+                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT &&
                                             onRequestPreviewFromChannel()
                                     }
                             )
@@ -132,38 +144,14 @@ internal fun GlassmorphismLiveTvLayout(
                     }
                 }
             }
-        }
-        Surface(
-            modifier = Modifier.fillMaxWidth().height(92.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = SurfaceDefaults.colors(containerColor = GlassPane),
-            border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(24.dp))
-        ) {
-            LazyRow(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                items(categories, key = { it.id }) { category ->
-                    val requester = categoryFocusRequesters.getOrPut(category.id) { FocusRequester() }
-                    GlassCategoryChip(
-                        category = category,
-                        selected = category.id == selectedCategoryId,
-                        locked = isCategoryLocked(category),
-                        onClick = { onCategoryClick(category) },
-                        onLongClick = { onCategoryLongClick(category) },
-                        modifier = Modifier
-                            .focusRequester(requester)
-                            .onFocusChanged { if (it.isFocused) onCategoryFocused(category) }
-                            .onPreviewKeyEvent { event ->
-                                event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP &&
-                                    onRequestChannelsFromCategory()
-                            }
-                    )
-                }
-            }
-        }
+            GlassPreviewPane(
+                channel = previewChannel,
+                playerEngine = previewPlayerEngine,
+                isLoading = isPreviewLoading,
+                errorMessage = previewErrorMessage,
+                onJumpToChannels = onRequestChannelsFromPreview,
+                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
+            )
     }
 }
 

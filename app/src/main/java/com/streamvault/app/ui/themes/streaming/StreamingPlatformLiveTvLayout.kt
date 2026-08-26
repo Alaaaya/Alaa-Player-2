@@ -87,7 +87,7 @@ internal fun StreamingPlatformLiveTvLayout(
             onLongClick = onCategoryLongClick,
             onFocused = onCategoryFocused,
             onRequestChannels = onRequestChannelsFromCategory,
-            modifier = Modifier.width(252.dp).fillMaxHeight()
+            modifier = Modifier.width(272.dp).fillMaxHeight()
         )
         StreamingChannelList(
             channels = channels,
@@ -99,7 +99,7 @@ internal fun StreamingPlatformLiveTvLayout(
             onLongClick = onChannelLongClick,
             onFocused = onChannelFocused,
             onRequestPreview = onRequestPreviewFromChannel,
-            modifier = Modifier.weight(1f).fillMaxHeight()
+            modifier = Modifier.width(320.dp).fillMaxHeight()
         )
         StreamingPreviewPane(
             channel = previewChannel,
@@ -107,7 +107,7 @@ internal fun StreamingPlatformLiveTvLayout(
             isLoading = isPreviewLoading,
             errorMessage = previewErrorMessage,
             onJumpToChannels = onRequestChannelsFromPreview,
-            modifier = Modifier.width(420.dp).fillMaxHeight().focusRequester(previewFocusRequester)
+            modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
         )
     }
 }

@@ -53,24 +53,24 @@ internal fun PremiumBlackLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean, modifier: Modifier = Modifier
 ) {
     Row(modifier.fillMaxSize().background(PremiumCanvas).padding(22.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        PremiumCategoryColumn(sourceTitle, categories, selectedCategoryId, categorySearchQuery, isCategoryLocked, categoryFocusRequesters, onCategorySearchChange, onCategoryClick, onCategoryLongClick, onCategoryFocused, onRequestChannelsFromCategory, Modifier.width(122.dp).fillMaxHeight())
-        PremiumChannelMetalList(channels, channelSearchQuery, isChannelLocked, channelFocusRequesters, onChannelSearchChange, onChannelClick, onChannelLongClick, onChannelFocused, onRequestPreviewFromChannel, Modifier.weight(1f).fillMaxHeight())
-        PremiumPreviewWell(previewChannel, previewPlayerEngine, isPreviewLoading, previewErrorMessage, onRequestChannelsFromPreview, Modifier.width(350.dp).fillMaxHeight().focusRequester(previewFocusRequester))
+        PremiumCategoryColumn(sourceTitle, categories, selectedCategoryId, categorySearchQuery, isCategoryLocked, categoryFocusRequesters, onCategorySearchChange, onCategoryClick, onCategoryLongClick, onCategoryFocused, onRequestChannelsFromCategory, Modifier.width(272.dp).fillMaxHeight())
+        PremiumChannelMetalList(channels, channelSearchQuery, isChannelLocked, channelFocusRequesters, onChannelSearchChange, onChannelClick, onChannelLongClick, onChannelFocused, onRequestPreviewFromChannel, Modifier.width(320.dp).fillMaxHeight())
+        PremiumPreviewWell(previewChannel, previewPlayerEngine, isPreviewLoading, previewErrorMessage, onRequestChannelsFromPreview, Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester))
     }
 }
 
 @Composable private fun PremiumCategoryColumn(source: String, categories: List<Category>, selectedId: Long?, query: String, locked: (Category) -> Boolean, requesters: MutableMap<Long, FocusRequester>, onQuery: (String) -> Unit, onClick: (Category) -> Unit, onLongClick: (Category) -> Unit, onFocused: (Category) -> Unit, onRight: () -> Boolean, modifier: Modifier) {
     Surface(modifier, shape = RoundedCornerShape(10.dp), colors = SurfaceDefaults.colors(containerColor = PremiumPanel), border = Border(border = BorderStroke(1.dp, PremiumMetal), shape = RoundedCornerShape(10.dp))) {
         Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text("CAT", style = MaterialTheme.typography.labelLarge, color = PremiumGold)
-            Text(source.take(12).uppercase(), style = MaterialTheme.typography.labelSmall, color = PremiumMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = PremiumGold)
+            Text(source, style = MaterialTheme.typography.labelSmall, color = PremiumMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             PremiumQuery(query, "FILTER", onQuery)
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(categories, key = { it.id }) { category ->
                     val requester = requesters.getOrPut(category.id) { FocusRequester() }
                     val shape = RoundedCornerShape(8.dp)
                     TvClickableSurface(onClick = { onClick(category) }, onLongClick = { onLongClick(category) }, modifier = Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onFocused(category) }.onPreviewKeyEvent { event -> event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && onRight() }, shape = ClickableSurfaceDefaults.shape(shape), colors = ClickableSurfaceDefaults.colors(containerColor = if (category.id == selectedId) PremiumCanvasRaised else PremiumCanvas, focusedContainerColor = PremiumPanelFocused, contentColor = PremiumText, focusedContentColor = PremiumText), border = ClickableSurfaceDefaults.border(focusedBorder = Border(border = BorderStroke(1.dp, PremiumFocus), shape = shape)), scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)) {
-                        Column(Modifier.padding(vertical = 11.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (locked(category)) "LOCK" else category.name.take(8).uppercase(), style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        Column(Modifier.padding(vertical = 11.dp, horizontal = 12.dp)) { Text(if (locked(category)) "LOCK" else category.name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }
