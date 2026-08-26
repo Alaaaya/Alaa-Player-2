@@ -88,9 +88,11 @@ import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
+import com.streamvault.app.ui.themes.cinematic.CinematicMoviesLayout
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
+import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -106,6 +108,7 @@ fun MoviesScreen(
         viewModel.resetPreviewRowsForScreenEntry()
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -159,7 +162,7 @@ fun MoviesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_movies),
             subtitle = null,
-            navigationChrome = AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -213,6 +216,48 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
+        } else if (isCinematicTheme && !uiState.isReorderMode) {
+            val isCategoryLocked: (Category) -> Boolean = { category ->
+                (category.isAdult || category.isUserProtected) &&
+                    uiState.parentalControlLevel in 1..2 &&
+                    kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
+            }
+            val isMovieLocked: (Movie) -> Boolean = { movie ->
+                val movieCategoryId = movie.categoryId
+                val movieCategoryLocked = movieCategoryId?.let { categoryId ->
+                    uiState.categories.firstOrNull { it.id == categoryId }?.let(isCategoryLocked) == true
+                } == true
+                (movie.isAdult || movie.isUserProtected || movieCategoryLocked) &&
+                    uiState.parentalControlLevel in 1..2 &&
+                    (movieCategoryId == null || kotlin.math.abs(movieCategoryId) !in uiState.unlockedCategoryIds)
+            }
+            CinematicMoviesLayout(
+                categories = uiState.categories,
+                selectedCategory = uiState.selectedCategory,
+                movies = uiState.filteredMovies,
+                isCategoryLocked = isCategoryLocked,
+                isMovieLocked = isMovieLocked,
+                onCategoryClick = { category ->
+                    if (isCategoryLocked(category)) {
+                        pendingMovie = null
+                        pendingCategory = category
+                        showPinDialog = true
+                    } else {
+                        viewModel.selectCategory(category.name)
+                    }
+                },
+                onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                onMovieClick = { movie ->
+                    if (isMovieLocked(movie)) {
+                        pendingCategory = null
+                        pendingMovie = movie
+                        showPinDialog = true
+                    } else {
+                        onMovieClick(movie)
+                    }
+                },
+                onMovieLongClick = viewModel::onShowDialog
+            )
         } else {
             MoviesVodContent(
                 uiState = uiState,
@@ -1304,5 +1349,3 @@ private fun movieSortChips(): List<SelectionChip> {
         )
     }
 }
-
-
