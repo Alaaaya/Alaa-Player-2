@@ -78,6 +78,9 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicSeriesDetail
+import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
 private const val EPISODE_DETAIL_PAGE_SIZE = 100
@@ -93,6 +96,8 @@ fun SeriesDetailScreen(
     val series = uiState.series
     val context = LocalContext.current
     val mainActivity = remember(context) { context.findMainActivity() }
+    val coroutineScope = rememberCoroutineScope()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -131,33 +136,64 @@ fun SeriesDetailScreen(
         return
     }
 
-    SeriesDetailContent(
-        series = series,
-        selectedSeason = uiState.selectedSeason,
-        resumeEpisode = uiState.resumeEpisode,
-        unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
-        isCasting = uiState.isCasting,
-        externalRatings = uiState.externalRatings,
-        isLoadingExternalRatings = uiState.isLoadingExternalRatings,
-        onToggleFavorite = viewModel::toggleFavorite,
-        onSelectVariant = viewModel::selectSeriesVariant,
-        onSeasonSelected = viewModel::selectSeason,
-        onEpisodeClick = onEpisodeClick,
-        onResumeClick = onResumeClick ?: onEpisodeClick,
-        onCopyEpisodeUrl = { episode ->
-            when (val result = viewModel.resolveCopyStreamUrl(episode)) {
-                is Result.Success -> result.data
-                is Result.Error -> null
-                Result.Loading -> null
-            }
-        },
-        onDownloadEpisode = { episode ->
-            viewModel.downloadEpisode(context, episode)
-        },
-        onCastResumeEpisode = viewModel::castResumeEpisode,
-        onCastEpisode = viewModel::castEpisode,
-        onBack = onBack
-    )
+    if (isCinematicTheme) {
+        CinematicSeriesDetail(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings,
+            isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode ->
+                coroutineScope.launch {
+                    val url = when (val result = viewModel.resolveCopyStreamUrl(episode)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> null
+                        Result.Loading -> null
+                    }
+                    copyStreamUrlToClipboard(context, url)
+                }
+            },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode,
+            onCastEpisode = viewModel::castEpisode,
+            onBack = onBack
+        )
+    } else {
+        SeriesDetailContent(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings,
+            isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode ->
+                when (val result = viewModel.resolveCopyStreamUrl(episode)) {
+                    is Result.Success -> result.data
+                    is Result.Error -> null
+                    Result.Loading -> null
+                }
+            },
+            onDownloadEpisode = { episode ->
+                viewModel.downloadEpisode(context, episode)
+            },
+            onCastResumeEpisode = viewModel::castResumeEpisode,
+            onCastEpisode = viewModel::castEpisode,
+            onBack = onBack
+        )
+    }
 }
 
 @Composable
