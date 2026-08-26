@@ -85,9 +85,14 @@ internal fun shouldReplaceHomeStack(
     currentRoute: String?,
     destinationRoute: String
 ): Boolean {
-    if (!presentation.replacesHomeWhenOpeningSections || currentRoute != Routes.HOME) return false
-    return destinationRoute == Routes.LIVE_TV ||
-        destinationRoute.startsWith("${Routes.LIVE_TV}?") ||
+    if (currentRoute != Routes.HOME) return false
+
+    // Live TV is a complete destination in every theme: never retain Dashboard beneath it.
+    if (destinationRoute == Routes.LIVE_TV || destinationRoute.startsWith("${Routes.LIVE_TV}?")) {
+        return true
+    }
+
+    return presentation.replacesHomeWhenOpeningSections &&
         destinationRoute in setOf(Routes.MOVIES, Routes.SERIES, Routes.VOD)
 }
 
