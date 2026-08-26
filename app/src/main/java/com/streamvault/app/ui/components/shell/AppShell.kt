@@ -95,7 +95,16 @@ import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.app.ui.theme.AlaaThemeColors
 import com.streamvault.app.ui.theme.AlaaThemeDimensions
 import com.streamvault.app.ui.theme.AlaaThemeFocus
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
+import com.streamvault.app.ui.themes.cinematic.CinematicGold
+import com.streamvault.app.ui.themes.cinematic.CinematicMuted
+import com.streamvault.app.ui.themes.cinematic.CinematicPanel
+import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
+import com.streamvault.app.ui.themes.cinematic.CinematicText
+import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
 import com.streamvault.domain.model.VirtualCategoryIds
@@ -123,11 +132,14 @@ fun AppScreenScaffold(
 ) {
     val spacing = LocalAppSpacing.current
     val isAlaaTheme = LocalIsAlaaTheme.current
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     // لا يفرض الثيم موضع التنقّل: Live TV يطلب شريطاً علوياً مرجعياً،
     // بينما تبقى الشاشات التي تطلب Rail على العمود الجانبي.
     val resolvedNavigationChrome = navigationChrome
     val canvasBrush = if (isAlaaTheme) {
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
+    } else if (isCinematicTheme) {
+        Brush.verticalGradient(listOf(CinematicCanvas, CinematicPanel, CinematicCanvas))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -143,19 +155,26 @@ fun AppScreenScaffold(
                     currentRoute = currentRoute,
                     onNavigate = onNavigate,
                     isAlaaTheme = isAlaaTheme,
+                    isCinematicTheme = isCinematicTheme,
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(if (isAlaaTheme) AlaaThemeDimensions.RailWidth else spacing.railWidth)
+                        .width(
+                            when {
+                                isAlaaTheme -> AlaaThemeDimensions.RailWidth
+                                isCinematicTheme -> 262.dp
+                                else -> spacing.railWidth
+                            }
+                        )
                 )
 
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {
@@ -789,7 +808,8 @@ private fun DestinationRail(
     currentRoute: String,
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier,
-    isAlaaTheme: Boolean = false
+    isAlaaTheme: Boolean = false,
+    isCinematicTheme: Boolean = false
 ) {
     val spacing = LocalAppSpacing.current
     val items = rememberDestinationItems()
@@ -803,14 +823,16 @@ private fun DestinationRail(
     Box(
         modifier = modifier
             .padding(
-                start = if (isAlaaTheme) 0.dp else spacing.lg,
-                top = if (isAlaaTheme) 0.dp else spacing.safeTop,
-                bottom = if (isAlaaTheme) 0.dp else spacing.safeBottom
+                start = if (isAlaaTheme || isCinematicTheme) 0.dp else spacing.lg,
+                top = if (isAlaaTheme || isCinematicTheme) 0.dp else spacing.safeTop,
+                bottom = if (isAlaaTheme || isCinematicTheme) 0.dp else spacing.safeBottom
             )
-            .clip(if (isAlaaTheme) RoundedCornerShape(0.dp) else RoundedCornerShape(28.dp))
+            .clip(if (isAlaaTheme) RoundedCornerShape(0.dp) else if (isCinematicTheme) RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp) else RoundedCornerShape(28.dp))
             .background(
                 if (isAlaaTheme) {
                     Brush.verticalGradient(listOf(AlaaThemeColors.Sidebar, AlaaThemeColors.Sidebar))
+                } else if (isCinematicTheme) {
+                    Brush.verticalGradient(listOf(CinematicPanel, CinematicCanvas))
                 } else {
                     Brush.verticalGradient(listOf(AppColors.SurfaceElevated, AppColors.Surface))
                 }
@@ -833,21 +855,21 @@ private fun DestinationRail(
             modifier = Modifier
                 .fillMaxSize()
                                 .padding(
-                    horizontal = if (isAlaaTheme) AlaaThemeDimensions.RailPadding else 12.dp,
-                    vertical = if (isAlaaTheme) 28.dp else 20.dp
+                    horizontal = if (isAlaaTheme) AlaaThemeDimensions.RailPadding else if (isCinematicTheme) 18.dp else 12.dp,
+                    vertical = if (isAlaaTheme) 28.dp else if (isCinematicTheme) 24.dp else 20.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(if (isAlaaTheme) 12.dp else 10.dp)
+                verticalArrangement = Arrangement.spacedBy(if (isAlaaTheme) 12.dp else if (isCinematicTheme) 11.dp else 10.dp)
 
         ) {
             Text(
                 text = stringResource(R.string.app_name),
-                style = if (isAlaaTheme) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
-                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else AppColors.TextPrimary
+                style = if (isAlaaTheme) MaterialTheme.typography.headlineSmall else if (isCinematicTheme) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                color = if (isAlaaTheme) AlaaThemeColors.TextPrimary else if (isCinematicTheme) CinematicText else AppColors.TextPrimary
             )
             Text(
                 text = stringResource(R.string.label_tv),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.TextTertiary
+                color = if (isAlaaTheme) AlaaThemeColors.Accent else if (isCinematicTheme) CinematicGold else AppColors.TextTertiary
             )
             Spacer(modifier = Modifier.height(10.dp))
             items.forEach { item ->
@@ -857,6 +879,7 @@ private fun DestinationRail(
                     icon = item.icon,
                     selected = currentRoute.startsWith(item.route),
                     isAlaaTheme = isAlaaTheme,
+                    isCinematicTheme = isCinematicTheme,
                     modifier = Modifier.focusRequester(requester),
                     onClick = {
                         if (!currentRoute.startsWith(item.route)) {
@@ -918,13 +941,14 @@ private fun RailButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isAlaaTheme: Boolean = false
+    isAlaaTheme: Boolean = false,
+    isCinematicTheme: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
-            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else FocusSpec.FocusedScale
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else if (isCinematicTheme) 1.025f else FocusSpec.FocusedScale
         } else {
             1f
         },
@@ -947,23 +971,24 @@ private fun RailButton(
             }
             .onFocusChanged { isFocused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(
-            RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp)
+            RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else 18.dp)
         ),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = when {
                 isAlaaTheme && selected -> AlaaThemeColors.AccentMuted
+                isCinematicTheme && selected -> CinematicWine.copy(alpha = 0.50f)
                 selected -> AppColors.BrandMuted
                 else -> Color.Transparent
             },
-            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else AppColors.SurfaceEmphasis
+            focusedContainerColor = if (isAlaaTheme) AlaaThemeColors.SurfaceFocused else if (isCinematicTheme) CinematicPanelRaised else AppColors.SurfaceEmphasis
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(
-                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else FocusSpec.BorderWidth,
-                    if (isAlaaTheme) AlaaThemeColors.Accent else AppColors.Focus
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else if (isCinematicTheme) 2.dp else FocusSpec.BorderWidth,
+                    if (isAlaaTheme) AlaaThemeColors.Accent else if (isCinematicTheme) CinematicGold else AppColors.Focus
                 ),
-                shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else 18.dp)
+                shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else 18.dp)
             )
         )
     ) {
@@ -980,6 +1005,8 @@ private fun RailButton(
                 tint = when {
                     isAlaaTheme && selected -> AlaaThemeColors.Accent
                     isAlaaTheme -> AlaaThemeColors.TextSecondary
+                    isCinematicTheme && selected -> CinematicGold
+                    isCinematicTheme -> CinematicMuted
                     selected -> AppColors.Brand
                     else -> AppColors.TextSecondary
                 },
@@ -991,6 +1018,8 @@ private fun RailButton(
                 color = when {
                     isAlaaTheme && selected -> AlaaThemeColors.TextPrimary
                     isAlaaTheme -> AlaaThemeColors.TextSecondary
+                    isCinematicTheme && selected -> CinematicText
+                    isCinematicTheme -> CinematicMuted
                     selected -> AppColors.TextPrimary
                     else -> AppColors.TextSecondary
                 },
