@@ -52,6 +52,9 @@ import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.neon.NeonCyan
 import com.streamvault.app.ui.themes.neon.NeonMuted
+import com.streamvault.app.ui.themes.neon.NeonPanel
+import com.streamvault.app.ui.themes.neon.NeonPanelRaised
+import com.streamvault.app.ui.themes.neon.NeonText
 import com.streamvault.domain.model.AppHomeTheme
 
 @Composable
@@ -91,14 +94,15 @@ internal fun SettingsSectionHeader(
 internal fun SettingsRow(label: String, value: String) {
     val focusRequester = remember { FocusRequester() }
     val isCinematic = isCinematicSettingsPresentation()
+    val isNeon = isNeonSettingsPresentation()
     TvClickableSurface(
         onClick = {},
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else 8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else Color.Transparent,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else Primary.copy(alpha = 0.15f)
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else Primary.copy(alpha = 0.15f)
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic) 1.01f else 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
@@ -110,12 +114,12 @@ internal fun SettingsRow(label: String, value: String) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isCinematic) 16.dp else 8.dp, vertical = if (isCinematic) 12.dp else 8.dp),
+                .padding(horizontal = if (isCinematic || isNeon) 16.dp else 8.dp, vertical = if (isCinematic || isNeon) 12.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else OnSurface)
-            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else OnBackground)
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else if (isNeon) NeonText else OnSurface)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else OnBackground)
         }
     }
 }
@@ -130,14 +134,15 @@ internal fun ClickableSettingsRow(
 ) {
     val focusRequester = remember { FocusRequester() }
     val isCinematic = isCinematicSettingsPresentation()
+    val isNeon = isNeonSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onClick() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else 8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else Color.Transparent,
-            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic) 1.01f else 1f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester)
