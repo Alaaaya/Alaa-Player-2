@@ -18,6 +18,7 @@
 - [x] بناء Dashboard لـGlassmorphism: موزاييك زجاجي عائم يربط البث والمكتبات والمفضلة والبحث والإعدادات دون رفوف الثيمات السابقة.
 - [x] بناء مكتبة الأفلام لـGlassmorphism: أعمدة شفافة للفئات والعناوين مع بحث وفلاتر وترتيب وحالات loading/error/empty وإجراءات الضغط المطوّل.
 - [x] بناء مكتبة المسلسلات لـGlassmorphism: تدفق زجاجي للفئات والعناوين مع البحث والفلاتر والترتيب وحالات loading/error/empty وإجراءات الضغط المطوّل.
+- [ ] بناء Search وFavorites وMovie Detail وSeries Detail لـGlassmorphism بأسطح زجاجية وإتاحة كل callbacks المشتركة.
 - [ ] بناء Settings وProvider وحوارات وحالات التحميل والخطأ لـGlassmorphism دون تعديل منطق IPTV.
 - [ ] بناء مشغل Glassmorphism بrail إجراءات زجاجي عمودي وBottom Action Bar مختلفين عن جميع الثيمات السابقة.
 - [ ] تنفيذ بقية الثيمات بالترتيب مع مشغل ملء شاشة وBottom Action Bar مختلفين جذرياً لكل ثيم.
