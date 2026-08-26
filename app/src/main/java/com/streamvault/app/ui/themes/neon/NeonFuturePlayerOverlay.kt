@@ -186,16 +186,13 @@ internal fun NeonFuturePlayerOverlay(
                 onSeekToPosition = onSeekToPosition,
                 onSetScrubbingMode = onSetScrubbingMode,
                 onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 42.dp, vertical = 24.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = 42.dp, end = 42.dp, bottom = 104.dp)
             )
-            LazyRow(
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 26.dp).width(300.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(quickActions, key = { it.label }) { action ->
-                    NeonFuturePlayerActionNode(action, Modifier.focusRequester(quickActionsFocusRequester))
-                }
-            }
+            NeonFutureBottomActionCapsules(
+                actions = quickActions,
+                quickActionsFocusRequester = quickActionsFocusRequester,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(start = 42.dp, end = 42.dp, bottom = 26.dp)
+            )
             Text(
                 text = when {
                     sleepTimerUiState.stopTimerActive -> "STOP TIMER ACTIVE"
@@ -207,6 +204,24 @@ internal fun NeonFuturePlayerOverlay(
                 style = MaterialTheme.typography.labelMedium,
                 color = NeonMuted
             )
+        }
+    }
+}
+
+/** Fullscreen-only Bottom Action Bar, architected as independently focused Neon capsules. */
+@Composable
+private fun NeonFutureBottomActionCapsules(
+    actions: List<NeonPlayerAction>,
+    quickActionsFocusRequester: FocusRequester,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items(actions, key = { it.label }) { action ->
+            NeonFuturePlayerActionNode(action, Modifier.focusRequester(quickActionsFocusRequester))
         }
     }
 }
