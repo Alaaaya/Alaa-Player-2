@@ -45,13 +45,14 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `cinematic and neon future are registered as complete selectable presentations`() {
+    fun `cinematic neon future and minimal are registered as complete selectable presentations`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
             .containsExactly(
                 AppHomeTheme.CLASSIC,
                 AppHomeTheme.ALAA,
                 AppHomeTheme.CINEMATIC,
-                AppHomeTheme.NEON_FUTURE
+                AppHomeTheme.NEON_FUTURE,
+                AppHomeTheme.MINIMAL
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -66,12 +67,20 @@ class ThemePresentationRegistryTest {
         assertThat(neon.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
         assertThat(neon.surfaces.accent).isEqualTo(androidx.compose.ui.graphics.Color(0xFF5BF4FF))
         assertThat(neon.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.MINIMAL)).isTrue()
+        val minimal = ThemePresentationRegistry.resolve(AppHomeTheme.MINIMAL)
+        assertThat(minimal.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(minimal.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(minimal.focus.focusedScale).isEqualTo(1f)
+        assertThat(minimal.focus.motionDurationMs).isEqualTo(140)
+        assertThat(minimal.replacesHomeWhenOpeningSections).isTrue()
         assertThat(ThemeCatalog.selectableEntries().map { it.theme })
             .containsExactly(
                 AppHomeTheme.CLASSIC,
                 AppHomeTheme.ALAA,
                 AppHomeTheme.CINEMATIC,
-                AppHomeTheme.NEON_FUTURE
+                AppHomeTheme.NEON_FUTURE,
+                AppHomeTheme.MINIMAL
             )
             .inOrder()
     }
