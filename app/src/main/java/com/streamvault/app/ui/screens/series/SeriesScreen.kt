@@ -93,6 +93,7 @@ import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesLayout
 import com.streamvault.app.ui.themes.minimal.MinimalSeriesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesLayout
+import com.streamvault.app.ui.themes.glass.GlassmorphismSeriesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
@@ -112,6 +113,7 @@ fun SeriesScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -219,7 +221,7 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -264,6 +266,8 @@ fun SeriesScreen(
                     onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
                     onLoadMorePreview = viewModel::loadMorePreviewRows
                 )
+            } else if (isGlassTheme) {
+                GlassmorphismSeriesLayout(uiState, initialContentFocusRequester, isCategoryLocked, isSeriesLocked, onThemedCategoryClick, { category -> viewModel.showCategoryOptions(category.name) }, onThemedSeriesClick, viewModel::onShowDialog, viewModel::setSearchQuery, viewModel::setSelectedLibraryFilterType, viewModel::setSelectedLibrarySortBy, viewModel::loadMoreSelectedCategory, viewModel::loadMorePreviewRows)
             } else if (isNeonFutureTheme) {
                 NeonFutureSeriesLayout(
                     uiState = uiState,
