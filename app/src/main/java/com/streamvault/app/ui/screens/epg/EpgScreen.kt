@@ -493,8 +493,9 @@ fun FullEpgScreen(
                             onRequestMoreChannels = viewModel::requestMoreChannels,
                             modifier = Modifier.weight(1f)
                         )
-                    } else GuideNowProvider {
-                        GuidePreviewPane(
+                    } else {
+                        GuideNowProvider {
+                            GuidePreviewPane(
                             previewPlayerEngine = uiState.previewPlayerEngine,
                             isPreviewLoading = uiState.isPreviewLoading,
                             focusedChannel = focusedChannel,
@@ -608,6 +609,7 @@ fun FullEpgScreen(
                             },
                             onRequestMoreChannels = viewModel::requestMoreChannels
                         )
+                    }
                     }
                 }
             }
