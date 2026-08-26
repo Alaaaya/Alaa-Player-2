@@ -102,6 +102,7 @@ import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.app.ui.themes.minimal.MinimalLiveTvLayout
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalStatePanel
+import com.streamvault.app.ui.themes.glass.GlassmorphismLiveTvLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
@@ -176,8 +177,9 @@ fun HomeScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -753,6 +755,35 @@ fun HomeScreen(
                     }
                     if (isMinimalTheme) {
                         MinimalLiveTvLayout(
+                            sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                            categories = visibleCategories,
+                            selectedCategoryId = uiState.selectedCategory?.id,
+                            categorySearchQuery = uiState.categorySearchQuery,
+                            channelSearchQuery = uiState.channelSearchQuery,
+                            channels = uiState.filteredChannels,
+                            previewChannel = previewChannel,
+                            previewPlayerEngine = uiState.previewPlayerEngine,
+                            isPreviewLoading = uiState.isPreviewLoading,
+                            previewErrorMessage = uiState.previewErrorMessage,
+                            isCategoryLocked = isCategoryLocked,
+                            isChannelLocked = isChannelLocked,
+                            categoryFocusRequesters = categoryFocusRequesters,
+                            channelFocusRequesters = channelFocusRequesters,
+                            previewFocusRequester = previewFocusRequester,
+                            onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                            onChannelSearchChange = viewModel::updateChannelSearchQuery,
+                            onCategoryClick = onThemedCategoryClick,
+                            onCategoryLongClick = onThemedCategoryLongClick,
+                            onChannelClick = onThemedChannelClick,
+                            onChannelLongClick = onThemedChannelLongClick,
+                            onCategoryFocused = onThemedCategoryFocused,
+                            onChannelFocused = onThemedChannelFocused,
+                            onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                            onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                        )
+                    } else if (isGlassTheme) {
+                        GlassmorphismLiveTvLayout(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
                             categories = visibleCategories,
                             selectedCategoryId = uiState.selectedCategory?.id,
