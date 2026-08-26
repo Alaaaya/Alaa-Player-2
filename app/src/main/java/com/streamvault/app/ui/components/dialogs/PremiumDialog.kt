@@ -57,6 +57,12 @@ import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
 import com.streamvault.app.ui.themes.neon.NeonCanvas
 import com.streamvault.app.ui.themes.neon.NeonPanel
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalRule
+import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
@@ -102,6 +108,26 @@ fun PremiumDialog(
     }
     if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
         CinematicPremiumDialog(
+            title = title,
+            subtitle = subtitle,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            widthFraction = widthFraction,
+            heightFraction = heightFraction,
+            bodyHeightFraction = bodyHeightFraction,
+            bodyScrollHint = bodyScrollHint,
+            initialBodyFocusRequester = initialBodyFocusRequester,
+            canInteract = canInteract,
+            isTelevisionDevice = isTelevisionDevice,
+            blockOpenGesture = blockOpenGesture,
+            content = content,
+            footer = footer
+        )
+        return
+    }
+    if (LocalAppHomeTheme.current == AppHomeTheme.MINIMAL) {
+        LaunchedEffect(Unit) { delay(140); canInteract = true }
+        MinimalPremiumDialog(
             title = title,
             subtitle = subtitle,
             onDismissRequest = onDismissRequest,
@@ -255,6 +281,86 @@ fun PremiumDialog(
                                 content = footer
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Minimal keeps dialogs as a squared editorial sheet rather than a recolored card. */
+@Composable
+private fun MinimalPremiumDialog(
+    title: String,
+    subtitle: String?,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    widthFraction: Float,
+    heightFraction: Float?,
+    bodyHeightFraction: Float,
+    bodyScrollHint: String?,
+    initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+    canInteract: Boolean,
+    isTelevisionDevice: Boolean,
+    blockOpenGesture: (KeyEvent) -> Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = canInteract,
+            dismissOnClickOutside = canInteract,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogCanInteract provides canInteract) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val resolvedWidthFraction = when {
+                    isTelevisionDevice -> widthFraction
+                    maxWidth < 700.dp -> 0.9f
+                    maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
+                    else -> widthFraction
+                }
+                val maxDialogBodyHeight = maxHeight * bodyHeightFraction
+                val dialogModifier = modifier
+                    .fillMaxWidth(resolvedWidthFraction)
+                    .then(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier)
+                    .onPreviewKeyEvent(blockOpenGesture)
+                val shape = RoundedCornerShape(0.dp)
+                Surface(
+                    modifier = dialogModifier,
+                    shape = shape,
+                    colors = SurfaceDefaults.colors(containerColor = MinimalPaper),
+                    border = androidx.tv.material3.Border(
+                        border = BorderStroke(1.dp, MinimalRule),
+                        shape = shape
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .background(Brush.verticalGradient(listOf(MinimalCanvas, MinimalPaper)))
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("COMMAND", style = MaterialTheme.typography.labelSmall, color = MinimalMuted)
+                            Text(title, style = MaterialTheme.typography.headlineMedium, color = MinimalText)
+                            if (!subtitle.isNullOrBlank()) {
+                                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MinimalMuted)
+                            }
+                        }
+                        PremiumDialogScrollableBody(
+                            maxHeight = maxDialogBodyHeight,
+                            scrollHint = bodyScrollHint,
+                            initialFocusRequester = initialBodyFocusRequester,
+                            content = content
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, androidx.compose.ui.Alignment.End),
+                            content = footer
+                        )
                     }
                 }
             }
@@ -428,12 +534,18 @@ fun PremiumDialogActionButton(
     emphasized: Boolean = false
 ) {
     val canInteract = LocalDialogCanInteract.current
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val containerColor = when {
+        isMinimal && destructive -> AppColors.Live.copy(alpha = 0.25f)
+        isMinimal && emphasized -> MinimalText
+        isMinimal -> MinimalCanvas
         destructive -> AppColors.Live.copy(alpha = 0.22f)
         emphasized -> AppColors.Brand
         else -> Color.White.copy(alpha = 0.08f)
     }
     val contentColor = when {
+        isMinimal && emphasized -> MinimalCanvas
+        isMinimal -> MinimalText
         destructive -> AppColors.TextPrimary
         emphasized -> Color.Black
         else -> AppColors.TextPrimary
@@ -446,20 +558,20 @@ fun PremiumDialogActionButton(
         colors = ButtonDefaults.colors(
             containerColor = containerColor,
             contentColor = contentColor,
-            focusedContainerColor = if (destructive) AppColors.Live else AppColors.SurfaceEmphasis,
-            focusedContentColor = AppColors.Focus,
-            disabledContainerColor = AppColors.Surface.copy(alpha = 0.85f),
-            disabledContentColor = AppColors.TextDisabled
+            focusedContainerColor = if (isMinimal) MinimalCanvas else if (destructive) AppColors.Live else AppColors.SurfaceEmphasis,
+            focusedContentColor = if (isMinimal) MinimalText else AppColors.Focus,
+            disabledContainerColor = if (isMinimal) MinimalPaper else AppColors.Surface.copy(alpha = 0.85f),
+            disabledContentColor = if (isMinimal) MinimalMuted else AppColors.TextDisabled
         ),
         border = ButtonDefaults.border(
             focusedBorder = androidx.tv.material3.Border(
-                border = BorderStroke(FocusSpec.BorderWidth, AppColors.Focus)
+                border = BorderStroke(if (isMinimal) 1.dp else FocusSpec.BorderWidth, if (isMinimal) MinimalFocus else AppColors.Focus)
             )
         ),
-        scale = ButtonDefaults.scale(focusedScale = FocusSpec.FocusedScale)
+        scale = ButtonDefaults.scale(focusedScale = if (isMinimal) 1f else FocusSpec.FocusedScale)
     ) {
         Text(
-            text = label,
+            text = if (isMinimal) "[ $label ]" else label,
             style = MaterialTheme.typography.labelLarge
         )
     }
@@ -475,12 +587,16 @@ fun PremiumDialogFooterButton(
     emphasized: Boolean = false
 ) {
     val canInteract = LocalDialogCanInteract.current
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val containerColor = when {
+        isMinimal && destructive -> AppColors.Live.copy(alpha = 0.22f)
+        isMinimal && emphasized -> MinimalText
+        isMinimal -> MinimalCanvas
         destructive -> AppColors.Live.copy(alpha = 0.18f)
         emphasized -> AppColors.Brand
         else -> Color.White.copy(alpha = 0.08f)
     }
-    val contentColor = if (emphasized) Color.Black else AppColors.TextPrimary
+    val contentColor = if (isMinimal && emphasized) MinimalCanvas else if (isMinimal) MinimalText else if (emphasized) Color.Black else AppColors.TextPrimary
 
     Button(
         onClick = { if (canInteract) onClick() },
@@ -489,18 +605,18 @@ fun PremiumDialogFooterButton(
         colors = ButtonDefaults.colors(
             containerColor = containerColor,
             contentColor = contentColor,
-            focusedContainerColor = if (destructive) AppColors.Live else AppColors.SurfaceEmphasis,
-            focusedContentColor = AppColors.Focus,
-            disabledContainerColor = AppColors.Surface.copy(alpha = 0.85f),
-            disabledContentColor = AppColors.TextDisabled
+            focusedContainerColor = if (isMinimal) MinimalCanvas else if (destructive) AppColors.Live else AppColors.SurfaceEmphasis,
+            focusedContentColor = if (isMinimal) MinimalText else AppColors.Focus,
+            disabledContainerColor = if (isMinimal) MinimalPaper else AppColors.Surface.copy(alpha = 0.85f),
+            disabledContentColor = if (isMinimal) MinimalMuted else AppColors.TextDisabled
         ),
         border = ButtonDefaults.border(
             focusedBorder = androidx.tv.material3.Border(
-                border = BorderStroke(FocusSpec.BorderWidth, AppColors.Focus)
+                border = BorderStroke(if (isMinimal) 1.dp else FocusSpec.BorderWidth, if (isMinimal) MinimalFocus else AppColors.Focus)
             )
         ),
-        scale = ButtonDefaults.scale(focusedScale = FocusSpec.FocusedScale)
+        scale = ButtonDefaults.scale(focusedScale = if (isMinimal) 1f else FocusSpec.FocusedScale)
     ) {
-        Text(text = label, style = MaterialTheme.typography.labelLarge)
+        Text(text = if (isMinimal) "[ $label ]" else label, style = MaterialTheme.typography.labelLarge)
     }
 }
