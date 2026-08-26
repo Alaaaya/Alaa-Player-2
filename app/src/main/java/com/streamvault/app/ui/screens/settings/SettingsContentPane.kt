@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.settings
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -9,6 +10,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 
 @Composable
@@ -40,12 +44,19 @@ internal fun SettingsContentPane(
     onOpenUri: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     LazyColumn(
         modifier = modifier
             .fillMaxHeight()
-            .imePadding(),
-        contentPadding = PaddingValues(start = 20.dp, top = 76.dp, end = 20.dp, bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .imePadding()
+            .background(if (isCinematic) CinematicCanvas else androidx.compose.ui.graphics.Color.Transparent),
+        contentPadding = PaddingValues(
+            start = if (isCinematic) 26.dp else 20.dp,
+            top = if (isCinematic) 28.dp else 76.dp,
+            end = if (isCinematic) 26.dp else 20.dp,
+            bottom = 32.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(if (isCinematic) 14.dp else 10.dp),
         userScrollEnabled = !uiState.isSyncing
     ) {
         if (dialogState.selectedCategory == 0) {
