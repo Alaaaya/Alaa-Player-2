@@ -137,6 +137,7 @@ import com.streamvault.domain.model.StalkerTransportChallengeReason
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.app.ui.themes.blueocean.BlueOceanProviderBeacon
+import com.streamvault.app.ui.themes.redcinema.RedCinemaProviderBanner
 import com.streamvault.domain.manager.DriveBackupSnapshot
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.BarcodeFormat
@@ -302,7 +303,8 @@ fun ProviderSetupScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
-    val blueOceanSurfaces = LocalThemePresentation.current.surfaces
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val themeSurfaces = LocalThemePresentation.current.surfaces
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -585,7 +587,9 @@ fun ProviderSetupScreen(
                 } else if (isPremiumBlackTheme) {
                     Brush.verticalGradient(colors = listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
                 } else if (isBlueOceanTheme) {
-                    Brush.verticalGradient(colors = listOf(blueOceanSurfaces.canvas, blueOceanSurfaces.browseContent, blueOceanSurfaces.canvas))
+                    Brush.verticalGradient(colors = listOf(themeSurfaces.canvas, themeSurfaces.browseContent, themeSurfaces.canvas))
+                } else if (isRedCinemaTheme) {
+                    Brush.verticalGradient(colors = listOf(themeSurfaces.canvas, themeSurfaces.browseContent, themeSurfaces.canvas))
                 } else {
                     Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
                 }
@@ -597,10 +601,17 @@ fun ProviderSetupScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = hPad, vertical = if (isBlueOceanTheme) 72.dp else 16.dp)
+                .padding(horizontal = hPad, vertical = if (isBlueOceanTheme || isRedCinemaTheme) 72.dp else 16.dp)
         ) {
             if (isBlueOceanTheme) {
                 BlueOceanProviderBeacon(
+                    isEditing = uiState.isEditing,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 12.dp)
+                )
+            } else if (isRedCinemaTheme) {
+                RedCinemaProviderBanner(
                     isEditing = uiState.isEditing,
                     modifier = Modifier
                         .align(Alignment.TopStart)

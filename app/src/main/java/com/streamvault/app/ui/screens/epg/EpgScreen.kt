@@ -132,6 +132,7 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.app.ui.themes.blueocean.BlueOceanEpgSurface
+import com.streamvault.app.ui.themes.redcinema.RedCinemaEpgSurface
 
 private sealed interface LockedGuideAction {
     data class SelectCategory(val category: Category) : LockedGuideAction
@@ -153,6 +154,7 @@ fun FullEpgScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val blueOceanSurfaces = LocalThemePresentation.current.surfaces
     val overrideUiState by viewModel.overrideUiState.collectAsStateWithLifecycle()
     val programReminderUiState by viewModel.programReminderUiState.collectAsStateWithLifecycle()
@@ -425,6 +427,76 @@ fun FullEpgScreen(
                 else -> {
                     if (isBlueOceanTheme) {
                         BlueOceanEpgSurface(
+                            selectedCategoryName = uiState.categories
+                                .firstOrNull { it.id == uiState.selectedCategoryId }
+                                ?.name
+                                ?: stringResource(R.string.epg_filter_short),
+                            previewPlayerEngine = uiState.previewPlayerEngine,
+                            isPreviewLoading = uiState.isPreviewLoading,
+                            focusedChannel = focusedChannel,
+                            focusedProgram = focusedProgram,
+                            isRefreshing = uiState.isRefreshing,
+                            channels = uiState.channels,
+                            favoriteChannelIds = uiState.favoriteChannelIds,
+                            programsByChannel = uiState.programsByChannel,
+                            guideWindowStart = uiState.guideWindowStart,
+                            guideWindowEnd = uiState.guideWindowEnd,
+                            density = uiState.selectedDensity,
+                            onOpenCategoryPicker = { showCategoryPicker = true },
+                            onJumpToNow = viewModel::jumpToNow,
+                            onOpenSearch = { showSearchOverlay = true },
+                            onOpenOptions = { showGuideOptions = true },
+                            onGuideInteract = { topNavVisible = true },
+                            onChannelClick = { channel ->
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                                } else if (uiState.previewChannelId == channel.id) {
+                                    viewModel.handoffOrClearForFullscreen(channel)
+                                    onPlayChannel(channel, playerCategoryId, playerIsVirtualCategory, uiState.combinedProfileId, returnRoute)
+                                } else {
+                                    viewModel.previewChannel(channel)
+                                }
+                            },
+                            onChannelLongClick = { channel, currentProgram ->
+                                topNavVisible = false
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                                } else {
+                                    val program = currentProgram ?: Program(
+                                        channelId = channel.id.toString(),
+                                        title = channel.name,
+                                        startTime = System.currentTimeMillis(),
+                                        endTime = System.currentTimeMillis() + 60L * 60L * 1000L
+                                    )
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(350)
+                                        selectedProgram = channel to program
+                                    }
+                                }
+                            },
+                            onProgramClick = { channel, program ->
+                                topNavVisible = false
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.OpenProgram(channel, program))
+                                } else {
+                                    selectedProgram = channel to program
+                                }
+                            },
+                            onChannelFocused = { channel, currentProgram, isFirstRow ->
+                                topNavVisible = isFirstRow
+                                focusedChannel = channel
+                                focusedProgram = currentProgram
+                            },
+                            onProgramFocused = { channel, program, isFirstRow ->
+                                topNavVisible = isFirstRow
+                                focusedChannel = channel
+                                focusedProgram = program
+                            },
+                            onRequestMoreChannels = viewModel::requestMoreChannels,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else if (isRedCinemaTheme) {
+                        RedCinemaEpgSurface(
                             selectedCategoryName = uiState.categories
                                 .firstOrNull { it.id == uiState.selectedCategoryId }
                                 ?.name

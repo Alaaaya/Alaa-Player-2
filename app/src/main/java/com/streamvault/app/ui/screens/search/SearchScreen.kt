@@ -62,6 +62,7 @@ import com.streamvault.app.ui.themes.neon.NeonFutureSearchLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformSearchLayout
 import com.streamvault.app.ui.themes.premium.PremiumBlackSearchLayout
 import com.streamvault.app.ui.themes.blueocean.BlueOceanSearchLayout
+import com.streamvault.app.ui.themes.redcinema.RedCinemaArchiveSearch
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Channel
@@ -551,7 +552,8 @@ fun SearchScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
-    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme) {
+    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) {
         val onThemedChannelClick: (Channel) -> Unit = { channel ->
             if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
                 pendingChannel = channel
@@ -570,7 +572,22 @@ fun SearchScreen(
                 showPinDialog = true
             } else onSeriesClick(seriesItem)
         }
-        if (isBlueOceanTheme) {
+        if (isRedCinemaTheme) {
+            RedCinemaArchiveSearch(
+                query = query, selectedTab = selectedTab, recentQueries = recentQueries, uiState = uiState,
+                recordingChannelIds = recordingChannelIds, scheduledChannelIds = scheduledChannelIds,
+                searchFocusRequester = searchFocusRequester, onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::onSearchSubmitted, onTabSelected = viewModel::onTabSelected,
+                onRecentQuerySelected = viewModel::onRecentQuerySelected, onClearRecentQueries = viewModel::clearRecentQueries,
+                onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex, onChannelClick = onThemedChannelClick,
+                onChannelLongClick = ::showChannelActions, onMovieClick = onThemedMovieClick,
+                onMovieLongClick = ::showMovieActions, onSeriesClick = onThemedSeriesClick,
+                onSeriesLongClick = ::showSeriesActions,
+                isChannelLocked = { channel -> isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected) },
+                isMovieLocked = { movie -> isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected) },
+                isSeriesLocked = { seriesItem -> isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected) }
+            )
+        } else if (isBlueOceanTheme) {
             BlueOceanSearchLayout(
                 query = query, selectedTab = selectedTab, recentQueries = recentQueries, uiState = uiState,
                 recordingChannelIds = recordingChannelIds, scheduledChannelIds = scheduledChannelIds,
