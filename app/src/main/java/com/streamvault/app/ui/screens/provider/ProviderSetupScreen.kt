@@ -90,6 +90,8 @@ import com.streamvault.app.ui.themes.cinematic.CinematicPanel
 import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -261,6 +263,7 @@ fun ProviderSetupScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -534,6 +537,8 @@ fun ProviderSetupScreen(
             .background(
                 if (isCinematicTheme) {
                     Brush.verticalGradient(colors = listOf(CinematicCanvas, CinematicPanel, CinematicCanvas))
+                } else if (isNeonFutureTheme) {
+                    Brush.verticalGradient(colors = listOf(NeonCanvas, NeonPanel, NeonCanvas))
                 } else {
                     Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
                 }
