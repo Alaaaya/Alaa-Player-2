@@ -39,6 +39,9 @@
 - [x] بناء Movies مستقل لـRed Cinema: Screening Ledger عمودي مع فئات تذاكر وخيارات فرز وتصفية.
 - [x] بناء Series مستقل لـRed Cinema: Season Playbill عمودي مع فهرس أفعال ومسارات مواسم وحلقات.
 - [x] بناء Search مستقل لـRed Cinema: Archive Office مع سجلات نتائج وتذاكر أفعال وفلاتر بحث.
+- [x] بناء Favorites وRecently Watched مستقلين لـRed Cinema: Saved Seats وEncore وسجل بث حديث عمودي.
+- [x] بناء Movie Details مستقل لـRed Cinema: Feature File مع تذاكر تشغيل وأدوات ونسخ وعروض مرتبطة.
+- [x] بناء Series Details مستقل لـRed Cinema: Production File مع مواسم وحلقات عمودية ومكتب تذاكر للحلقة.
 - [ ] إكمال Red Cinema قبل التسجيل: كل مسارات المكتبات والتفاصيل والبحث والمفضلة والإعدادات والمزوّد وEPG.
 - [ ] تنفيذ Purple Galaxy: مكتبة مدارية ومشغل زمني على هيئة كوكبات.
 - [ ] تنفيذ Tech Dashboard: لوحة بيانات وظيفية ومشغل مبني على القياسات.
