@@ -165,6 +165,31 @@ private val cinematicPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val neonFuturePresentation = ThemePresentation(
+    id = AppHomeTheme.NEON_FUTURE,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = Color(0xFF040812),
+        browseRail = Color(0xFF0A1324),
+        browseContent = Color(0xFF0A1324),
+        focusedSurface = Color(0xFF10243B),
+        textPrimary = Color(0xFFE8FCFF),
+        textSecondary = Color(0xFF8EAEBD),
+        accent = Color(0xFF5BF4FF),
+        selectedAccent = Color(0x295BF4FF),
+        focusBorderWidth = 2.dp,
+        cornerMedium = 8.dp,
+        cornerLarge = 18.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = 1.018f,
+        pressedScale = 0.98f,
+        motionDurationMs = 160
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -177,9 +202,10 @@ object ThemePresentationRegistry {
     private val additionalPresentations = mutableMapOf<AppHomeTheme, ThemePresentation>()
 
     init {
-        // Registration is deterministic: Cinematic reaches Settings only after its complete
+        // Registration is deterministic: additions reach Settings only after their complete
         // presentation surface has been implemented and tested.
         registerAdditional(cinematicPresentation)
+        registerAdditional(neonFuturePresentation)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

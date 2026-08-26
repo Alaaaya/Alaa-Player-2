@@ -45,9 +45,14 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `cinematic is registered as a complete selectable presentation`() {
+    fun `cinematic and neon future are registered as complete selectable presentations`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
-            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA, AppHomeTheme.CINEMATIC)
+            .containsExactly(
+                AppHomeTheme.CLASSIC,
+                AppHomeTheme.ALAA,
+                AppHomeTheme.CINEMATIC,
+                AppHomeTheme.NEON_FUTURE
+            )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
         val cinematic = ThemePresentationRegistry.resolve(AppHomeTheme.CINEMATIC)
@@ -55,8 +60,19 @@ class ThemePresentationRegistryTest {
         assertThat(cinematic.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
         assertThat(cinematic.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
         assertThat(cinematic.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.NEON_FUTURE)).isTrue()
+        val neon = ThemePresentationRegistry.resolve(AppHomeTheme.NEON_FUTURE)
+        assertThat(neon.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(neon.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(neon.surfaces.accent).isEqualTo(androidx.compose.ui.graphics.Color(0xFF5BF4FF))
+        assertThat(neon.replacesHomeWhenOpeningSections).isTrue()
         assertThat(ThemeCatalog.selectableEntries().map { it.theme })
-            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA, AppHomeTheme.CINEMATIC)
+            .containsExactly(
+                AppHomeTheme.CLASSIC,
+                AppHomeTheme.ALAA,
+                AppHomeTheme.CINEMATIC,
+                AppHomeTheme.NEON_FUTURE
+            )
             .inOrder()
     }
 }
