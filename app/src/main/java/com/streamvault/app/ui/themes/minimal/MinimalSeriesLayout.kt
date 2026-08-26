@@ -51,6 +51,12 @@ internal fun MinimalSeriesLayout(
     val series = if (uiState.selectedCategory == null) uiState.seriesByCategory.values.flatten().distinctBy { it.id } else uiState.selectedCategoryItems
     val loading = if (uiState.selectedCategory == null) uiState.isLoadingPreviewRows else uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory
     val canLoadMore = if (uiState.selectedCategory == null) uiState.hasMorePreviewRows else uiState.canLoadMoreSelectedCategory
+    val libraryState = when {
+        !uiState.hasActiveProvider -> "NO PROVIDER" to "Choose an active provider before opening the series index."
+        !uiState.errorMessage.isNullOrBlank() -> "CATALOGUE ERROR" to uiState.errorMessage
+        uiState.isLoading && uiState.categories.isEmpty() -> "LOADING CATALOGUE" to "Loading series and available categories."
+        else -> null
+    }
     Column(modifier = modifier.fillMaxSize().background(MinimalCanvas).padding(30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("SERIES INDEX", style = MaterialTheme.typography.headlineMedium, color = MinimalText)
         SearchInput(value = uiState.searchQuery, onValueChange = onQueryChange, placeholder = "Search series", focusRequester = initialFocusRequester)
@@ -58,15 +64,21 @@ internal fun MinimalSeriesLayout(
             MinimalSeriesLine("FILTER: ${uiState.selectedLibraryFilterType.name}", false, false, { onFilterChange(LibraryFilterType.entries[(LibraryFilterType.entries.indexOf(uiState.selectedLibraryFilterType) + 1) % LibraryFilterType.entries.size]) }, {})
             MinimalSeriesLine("SORT: ${uiState.selectedLibrarySortBy.name}", false, false, { onSortChange(LibrarySortBy.entries[(LibrarySortBy.entries.indexOf(uiState.selectedLibrarySortBy) + 1) % LibrarySortBy.entries.size]) }, {})
         }
-        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        if (libraryState != null) {
+            MinimalStatePanel(
+                title = libraryState.first,
+                subtitle = libraryState.second,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             LazyColumn(modifier = Modifier.width(210.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 item { Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = MinimalMuted, modifier = Modifier.padding(bottom = 8.dp)) }
                 items(uiState.categories, key = { it.id }) { category -> MinimalSeriesLine(category.name, category.name == uiState.selectedCategory, isCategoryLocked(category), { onCategoryClick(category) }, { onCategoryLongClick(category) }) }
             }
             LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (series.isEmpty() && !loading) item { Text("No series match this selection.", color = MinimalMuted, modifier = Modifier.padding(16.dp)) }
+                if (series.isEmpty() && !loading) item { MinimalStatePanel("EMPTY SELECTION", "No series match this selection.") }
                 items(series, key = { it.id }) { item -> MinimalSeriesLine(item.name, false, isSeriesLocked(item), { onSeriesClick(item) }, { onSeriesLongClick(item) }, item.genre) }
-                if (loading) item { Text("Loading series…", color = MinimalMuted, modifier = Modifier.padding(12.dp)) }
+                if (loading) item { MinimalStatePanel("LOADING", "Loading series entries…") }
                 if (canLoadMore && !loading) item { MinimalSeriesLine("LOAD MORE", false, false, { if (uiState.selectedCategory == null) onLoadMorePreview() else onLoadMoreSelected() }, {}) }
             }
         }

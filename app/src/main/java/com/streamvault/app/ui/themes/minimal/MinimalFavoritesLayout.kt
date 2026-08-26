@@ -41,6 +41,14 @@ internal fun MinimalFavoritesLayout(
         item { MinimalFavoriteLine(label = "ORDER: ${selectedSort.name}", onClick = { onSortSelected(SavedLibrarySort.entries[(SavedLibrarySort.entries.indexOf(selectedSort) + 1) % SavedLibrarySort.entries.size]) }) }
         if (continueWatching.isNotEmpty()) { item { Text("CONTINUE", style = MaterialTheme.typography.labelLarge, color = MinimalMuted) }; items(continueWatching, key = { it.history.id }) { item -> MinimalFavoriteLine(label = item.title, onClick = { onHistoryClick(item) }) } }
         if (recentLive.isNotEmpty()) { item { Text("RECENT LIVE", style = MaterialTheme.typography.labelLarge, color = MinimalMuted) }; items(recentLive, key = { it.history.id }) { item -> MinimalFavoriteLine(label = item.title, onClick = { onHistoryClick(item) }) } }
+        if (sections.all { it.items.isEmpty() } && continueWatching.isEmpty() && recentLive.isEmpty()) {
+            item("minimal_favorites_empty") {
+                MinimalStatePanel(
+                    title = "EMPTY SAVED INDEX",
+                    subtitle = "Save channels, films or series to collect them here."
+                )
+            }
+        }
         sections.forEach { section -> item("minimal_${section.key}") { Column { Text(section.title, style = MaterialTheme.typography.titleMedium, color = MinimalText); Text(section.subtitle, style = MaterialTheme.typography.bodySmall, color = MinimalMuted); section.items.forEach { item -> MinimalFavoriteLine(item.title, { onItemClick(item) }, { onItemLongClick(item) }) } } } }
     }
 }

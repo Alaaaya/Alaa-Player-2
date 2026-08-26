@@ -53,6 +53,12 @@ internal fun MinimalMoviesLayout(
     val films = if (uiState.selectedCategory == null) uiState.moviesByCategory.values.flatten().distinctBy { it.id } else uiState.selectedCategoryItems
     val loading = if (uiState.selectedCategory == null) uiState.isLoadingPreviewRows else uiState.isLoadingSelectedCategory || uiState.isLoadingMoreSelectedCategory
     val canLoadMore = if (uiState.selectedCategory == null) uiState.hasMorePreviewRows else uiState.canLoadMoreSelectedCategory
+    val libraryState = when {
+        !uiState.hasActiveProvider -> "NO PROVIDER" to "Choose an active provider before opening the film index."
+        !uiState.errorMessage.isNullOrBlank() -> "CATALOGUE ERROR" to uiState.errorMessage
+        uiState.isLoading && uiState.categories.isEmpty() -> "LOADING CATALOGUE" to "Loading films and available categories."
+        else -> null
+    }
     Column(modifier = modifier.fillMaxSize().background(MinimalCanvas).padding(30.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("FILM INDEX", style = MaterialTheme.typography.headlineMedium, color = MinimalText)
@@ -63,7 +69,13 @@ internal fun MinimalMoviesLayout(
             MinimalLibraryAction("FILTER: ${uiState.selectedLibraryFilterType.name}") { onFilterChange(LibraryFilterType.entries[(LibraryFilterType.entries.indexOf(uiState.selectedLibraryFilterType) + 1) % LibraryFilterType.entries.size]) }
             MinimalLibraryAction("SORT: ${uiState.selectedLibrarySortBy.name}") { onSortChange(LibrarySortBy.entries[(LibrarySortBy.entries.indexOf(uiState.selectedLibrarySortBy) + 1) % LibrarySortBy.entries.size]) }
         }
-        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        if (libraryState != null) {
+            MinimalStatePanel(
+                title = libraryState.first,
+                subtitle = libraryState.second,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             LazyColumn(modifier = Modifier.width(210.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 item { Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = MinimalMuted, modifier = Modifier.padding(bottom = 8.dp)) }
                 items(uiState.categories, key = { it.id }) { category ->
@@ -71,11 +83,11 @@ internal fun MinimalMoviesLayout(
                 }
             }
             LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (films.isEmpty() && !loading) item { Text("No films match this selection.", color = MinimalMuted, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(16.dp)) }
+                if (films.isEmpty() && !loading) item { MinimalStatePanel("EMPTY SELECTION", "No films match this selection.") }
                 items(films, key = { it.id }) { film ->
                     MinimalListItem(film.name, false, isMovieLocked(film), { onMovieClick(film) }, { onMovieLongClick(film) })
                 }
-                if (loading) item { Text("Loading catalogue…", color = MinimalMuted, modifier = Modifier.padding(12.dp)) }
+                if (loading) item { MinimalStatePanel("LOADING", "Loading catalogue entries…") }
                 if (canLoadMore && !loading) item { MinimalLibraryAction("LOAD MORE") { if (uiState.selectedCategory == null) onLoadMorePreview() else onLoadMoreSelected() } }
             }
         }

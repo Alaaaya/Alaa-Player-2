@@ -100,6 +100,8 @@ import com.streamvault.app.ui.themes.neon.NeonFutureLiveTvLayout
 import com.streamvault.app.ui.themes.neon.NeonCyan
 import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.app.ui.themes.minimal.MinimalLiveTvLayout
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalStatePanel
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
@@ -121,11 +123,14 @@ private fun HomeLoadingPane(
     modifier: Modifier = Modifier
 ) {
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(
+        if (isMinimalTheme) {
+            MinimalStatePanel(title = "LOADING", subtitle = message)
+        } else Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -377,10 +382,17 @@ fun HomeScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    TvEmptyState(
-                        title = stringResource(R.string.home_add_first_provider),
-                        subtitle = stringResource(R.string.home_add_first_provider_subtitle)
-                    )
+                    if (isMinimalTheme) {
+                        MinimalStatePanel(
+                            title = "NO PROVIDER",
+                            subtitle = stringResource(R.string.home_add_first_provider_subtitle)
+                        )
+                    } else {
+                        TvEmptyState(
+                            title = stringResource(R.string.home_add_first_provider),
+                            subtitle = stringResource(R.string.home_add_first_provider_subtitle)
+                        )
+                    }
                 }
             } else if (uiState.isCategoriesLoading && uiState.categories.isEmpty()) {
                 Row(
@@ -391,7 +403,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .width(sidebarWidth)
                             .fillMaxHeight()
-                            .background(if (isAlaaTheme) AlaaThemeColors.Sidebar else SurfaceElevated, RoundedCornerShape(20.dp))
+                            .background(if (isAlaaTheme) AlaaThemeColors.Sidebar else if (isMinimalTheme) MinimalPaper else SurfaceElevated, RoundedCornerShape(if (isMinimalTheme) 0.dp else 20.dp))
                             .padding(horizontal = 16.dp, vertical = 24.dp)
                     ) {
                         HomeLoadingPane(
@@ -414,7 +426,7 @@ fun HomeScreen(
                             modifier = Modifier
                                 .weight(1.08f)
                                 .fillMaxHeight()
-                                .background(if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else SurfaceElevated, RoundedCornerShape(20.dp))
+                            .background(if (isAlaaTheme) AlaaThemeColors.SurfaceElevated else if (isMinimalTheme) MinimalPaper else SurfaceElevated, RoundedCornerShape(if (isMinimalTheme) 0.dp else 20.dp))
                                 .padding(24.dp)
                         ) {
                             HomeLoadingPane(message = stringResource(R.string.live_preview_title))
