@@ -76,6 +76,8 @@ import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicFavoritesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureFavoritesLayout
+import com.streamvault.app.ui.themes.neon.NeonCyan
+import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.ContentType
 import kotlinx.coroutines.launch
@@ -372,7 +374,7 @@ fun FavoritesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.favorites_title),
             subtitle = stringResource(R.string.saved_shell_subtitle),
-            navigationChrome = AppNavigationChrome.TopBar,
+            navigationChrome = if (isNeonFutureTheme || isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -382,7 +384,7 @@ fun FavoritesScreen(
                         Text(
                             text = stringResource(R.string.favorites_loading),
                             style = MaterialTheme.typography.bodyLarge,
-                            color = OnSurface
+                            color = if (isNeonFutureTheme) NeonCyan else OnSurface
                         )
                     }
                 }
@@ -393,13 +395,13 @@ fun FavoritesScreen(
                             Text(
                                 text = stringResource(R.string.favorites_no_favorites),
                                 style = MaterialTheme.typography.titleLarge,
-                                color = OnSurface
+                                color = if (isNeonFutureTheme) NeonCyan else OnSurface
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 text = stringResource(R.string.favorites_empty_hint),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = OnSurfaceDim
+                                color = if (isNeonFutureTheme) NeonMuted else OnSurfaceDim
                             )
                         }
                     }
