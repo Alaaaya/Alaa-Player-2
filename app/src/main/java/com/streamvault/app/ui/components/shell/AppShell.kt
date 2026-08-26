@@ -109,6 +109,12 @@ import com.streamvault.app.ui.themes.neon.NeonCyan
 import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.app.ui.themes.neon.NeonText
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalRule
+import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
@@ -139,15 +145,18 @@ fun AppScreenScaffold(
     val isAlaaTheme = LocalIsAlaaTheme.current
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    // لا يفرض الثيم موضع التنقّل: Live TV يطلب شريطاً علوياً مرجعياً،
-    // بينما تبقى الشاشات التي تطلب Rail على العمود الجانبي.
-    val resolvedNavigationChrome = navigationChrome
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
+    // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
+    val resolvedNavigationChrome = if (isMinimalTheme) AppNavigationChrome.Rail else navigationChrome
     val canvasBrush = if (isAlaaTheme) {
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
     } else if (isCinematicTheme) {
         Brush.verticalGradient(listOf(CinematicCanvas, CinematicPanel, CinematicCanvas))
     } else if (isNeonFutureTheme) {
         Brush.verticalGradient(listOf(NeonCanvas, NeonPanel, NeonCanvas))
+    } else if (isMinimalTheme) {
+        Brush.verticalGradient(listOf(MinimalCanvas, MinimalPaper, MinimalCanvas))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -159,32 +168,42 @@ fun AppScreenScaffold(
     ) {
         if (resolvedNavigationChrome == AppNavigationChrome.Rail) {
             Row(modifier = Modifier.fillMaxSize()) {
-                DestinationRail(
-                    currentRoute = currentRoute,
-                    onNavigate = onNavigate,
-                    isAlaaTheme = isAlaaTheme,
-                    isCinematicTheme = isCinematicTheme,
-                    isNeonFutureTheme = isNeonFutureTheme,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(
-                            when {
-                                isAlaaTheme -> AlaaThemeDimensions.RailWidth
-                                isCinematicTheme -> 262.dp
-                                isNeonFutureTheme -> 246.dp
-                                else -> spacing.railWidth
-                            }
-                        )
-                )
+                if (isMinimalTheme) {
+                    MinimalCommandRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(238.dp)
+                    )
+                } else {
+                    DestinationRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        isAlaaTheme = isAlaaTheme,
+                        isCinematicTheme = isCinematicTheme,
+                        isNeonFutureTheme = isNeonFutureTheme,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(
+                                when {
+                                    isAlaaTheme -> AlaaThemeDimensions.RailWidth
+                                    isCinematicTheme -> 262.dp
+                                    isNeonFutureTheme -> 246.dp
+                                    else -> spacing.railWidth
+                                }
+                            )
+                    )
+                }
 
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {
@@ -313,6 +332,149 @@ fun AppScreenHeader(
                 style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyLarge,
                 color = if (isAlaaTheme) AlaaThemeColors.TextSecondary else AppColors.TextSecondary,
                 maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * فهرس Minimal ليس إعادة تلوين للـ rail العام: هو قائمة أوامر تحريرية ثابتة
+ * بلا تكبير عند التركيز، وتبقى كل وجهة مرتبطة بمسار التطبيق المشترك نفسه.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+private fun MinimalCommandRail(
+    currentRoute: String,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val items = rememberDestinationItems()
+    val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+
+    Surface(
+        modifier = modifier
+            .background(MinimalPaper)
+            .focusProperties {
+                val activeItem = findActiveDestinationItem(items, currentRoute)
+                onEnter = { focusRequesters[activeItem?.route] ?: FocusRequester.Default }
+            },
+        shape = RoundedCornerShape(0.dp),
+        colors = SurfaceDefaults.colors(containerColor = MinimalPaper),
+        border = Border(
+            border = BorderStroke(1.dp, MinimalRule),
+            shape = RoundedCornerShape(0.dp)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp, vertical = 26.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MinimalText
+            )
+            Text(
+                text = "COMMAND INDEX",
+                style = MaterialTheme.typography.labelSmall,
+                color = MinimalMuted
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            items.forEachIndexed { index, item ->
+                val requester = focusRequesters.getOrPut(item.route) { FocusRequester() }
+                MinimalCommandRailItem(
+                    index = index + 1,
+                    label = stringResource(item.labelRes),
+                    selected = currentRoute.startsWith(item.route),
+                    focusRequester = requester,
+                    onClick = {
+                        if (!currentRoute.startsWith(item.route)) {
+                            onNavigate(item.route)
+                        }
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MinimalRule)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = stringResource(R.string.label_tv),
+                style = MaterialTheme.typography.labelSmall,
+                color = MinimalMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun MinimalCommandRailItem(
+    index: Int,
+    label: String,
+    selected: Boolean,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val sounds = rememberTvInteractionSounds()
+    val shape = RoundedCornerShape(0.dp)
+
+    Surface(
+        onClick = {
+            sounds.playSelect()
+            onClick()
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = {
+                    sounds.playSelect()
+                    onClick()
+                }
+            )
+            .onFocusChanged {
+                if (it.isFocused && !isFocused) sounds.playNavigate()
+                isFocused = it.isFocused
+            },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) MinimalCanvas else Color.Transparent,
+            focusedContainerColor = MinimalCanvas,
+            contentColor = MinimalText,
+            focusedContentColor = MinimalText
+        ),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(1.dp, MinimalFocus),
+                shape = shape
+            )
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = index.toString().padStart(2, '0'),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected || isFocused) MinimalText else MinimalMuted
+            )
+            Text(
+                text = label.uppercase(),
+                style = MaterialTheme.typography.titleSmall,
+                color = if (selected || isFocused) MinimalText else MinimalMuted,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
