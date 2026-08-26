@@ -5,6 +5,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.streamvault.domain.model.AppHomeTheme
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalFocusMotionMs
+import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalText
 
 /**
  * مواصفات عرض الثيم فقط. لا تحمل بيانات مزود أو قناة أو حالة تشغيل؛ تلك تبقى في طبقات
@@ -190,6 +196,31 @@ private val neonFuturePresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val minimalPresentation = ThemePresentation(
+    id = AppHomeTheme.MINIMAL,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = MinimalCanvas,
+        browseRail = MinimalPaper,
+        browseContent = MinimalPaper,
+        focusedSurface = MinimalCanvas,
+        textPrimary = MinimalText,
+        textSecondary = MinimalMuted,
+        accent = MinimalFocus,
+        selectedAccent = MinimalFocus.copy(alpha = 0.12f),
+        focusBorderWidth = 1.dp,
+        cornerMedium = 0.dp,
+        cornerLarge = 0.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = 1f,
+        pressedScale = 1f,
+        motionDurationMs = MinimalFocusMotionMs
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -206,6 +237,7 @@ object ThemePresentationRegistry {
         // presentation surface has been implemented and tested.
         registerAdditional(cinematicPresentation)
         registerAdditional(neonFuturePresentation)
+        registerAdditional(minimalPresentation)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =
