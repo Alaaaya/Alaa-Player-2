@@ -514,7 +514,7 @@ private fun RedCinemaPremiumDialog(
                         PremiumDialogScrollableBody(
                             maxHeight = maxDialogBodyHeight,
                             scrollHint = bodyScrollHint,
-                            initialBodyFocusRequester = initialBodyFocusRequester,
+                            initialFocusRequester = initialBodyFocusRequester,
                             content = content
                         )
                         Row(
