@@ -320,6 +320,62 @@ private val premiumBlackPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private fun futurePresentation(
+    id: AppHomeTheme,
+    canvas: Color,
+    rail: Color,
+    content: Color,
+    focused: Color,
+    text: Color,
+    muted: Color,
+    accent: Color,
+    navigation: ThemeNavigationLayout,
+    cornerMedium: Dp,
+    cornerLarge: Dp,
+    focusedScale: Float,
+    motionDurationMs: Int
+): ThemePresentation = ThemePresentation(
+    id = id,
+    navigationLayout = navigation,
+    liveTvLayout = ThemeLiveTvLayout.THEME_DEFINED,
+    surfaces = ThemeSurfaceSpec(
+        canvas = canvas,
+        browseRail = rail,
+        browseContent = content,
+        focusedSurface = focused,
+        textPrimary = text,
+        textSecondary = muted,
+        accent = accent,
+        selectedAccent = accent.copy(alpha = 0.18f),
+        focusBorderWidth = 2.dp,
+        cornerMedium = cornerMedium,
+        cornerLarge = cornerLarge
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = focusedScale,
+        pressedScale = 0.98f,
+        motionDurationMs = motionDurationMs
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
+private val expansionPresentations = listOf(
+    futurePresentation(AppHomeTheme.BLUE_OCEAN, Color(0xFF061923), Color(0xFF0B2A39), Color(0xFF0D2230), Color(0xFF164A5F), Color(0xFFE7FAFF), Color(0xFF91B8C7), Color(0xFF4DD2E8), ThemeNavigationLayout.SIDE_RAIL, 18.dp, 34.dp, 1.025f, 190),
+    futurePresentation(AppHomeTheme.RED_CINEMA, Color(0xFF19090C), Color(0xFF2A0B12), Color(0xFF241014), Color(0xFF521522), Color(0xFFFFF2F0), Color(0xFFD3A5A8), Color(0xFFE44252), ThemeNavigationLayout.TOP_BAR, 0.dp, 0.dp, 1.018f, 210),
+    futurePresentation(AppHomeTheme.PURPLE_GALAXY, Color(0xFF100A22), Color(0xFF1F133A), Color(0xFF181130), Color(0xFF3A2362), Color(0xFFF5F0FF), Color(0xFFC2B2DD), Color(0xFFA87CFF), ThemeNavigationLayout.SIDE_RAIL, 28.dp, 56.dp, 1.03f, 220),
+    futurePresentation(AppHomeTheme.TECH_DASHBOARD, Color(0xFF07100F), Color(0xFF0D1E1B), Color(0xFF0A1815), Color(0xFF123B32), Color(0xFFE7FFF7), Color(0xFF8BBDB0), Color(0xFF48E0A4), ThemeNavigationLayout.SIDE_RAIL, 4.dp, 8.dp, 1.012f, 140),
+    futurePresentation(AppHomeTheme.MODERN_TV, Color(0xFF101114), Color(0xFF1B1D23), Color(0xFF15171B), Color(0xFF30333C), Color(0xFFF8F7F4), Color(0xFFB9BBC4), Color(0xFFFFB74A), ThemeNavigationLayout.TOP_BAR, 16.dp, 28.dp, 1.03f, 180),
+    futurePresentation(AppHomeTheme.CARD_STACK, Color(0xFF141116), Color(0xFF221A25), Color(0xFF1B1720), Color(0xFF44314A), Color(0xFFFFF4FD), Color(0xFFCBB7C7), Color(0xFFFF6AAE), ThemeNavigationLayout.SIDE_RAIL, 22.dp, 36.dp, 1.04f, 240),
+    futurePresentation(AppHomeTheme.MEDIA_CENTER, Color(0xFF17130D), Color(0xFF2B2216), Color(0xFF211B12), Color(0xFF4D3C22), Color(0xFFFFF7E8), Color(0xFFD0BE9C), Color(0xFFE7B84F), ThemeNavigationLayout.SIDE_RAIL, 8.dp, 14.dp, 1.02f, 170),
+    futurePresentation(AppHomeTheme.FUTURISTIC_HUD, Color(0xFF050C16), Color(0xFF0B1727), Color(0xFF08111F), Color(0xFF12335A), Color(0xFFE6F4FF), Color(0xFF86B0D5), Color(0xFF6AA9FF), ThemeNavigationLayout.SIDE_RAIL, 999.dp, 24.dp, 1.015f, 120),
+    futurePresentation(AppHomeTheme.SOFT_MODERN, Color(0xFFF1EEE9), Color(0xFFE3DED6), Color(0xFFFAF7F2), Color(0xFFD9E7DA), Color(0xFF26342A), Color(0xFF69766C), Color(0xFF3D8660), ThemeNavigationLayout.TOP_BAR, 20.dp, 40.dp, 1.015f, 200),
+    futurePresentation(AppHomeTheme.SPORTS_TV, Color(0xFF0A1620), Color(0xFF102736), Color(0xFF0D1E2A), Color(0xFF16465D), Color(0xFFF4FBFF), Color(0xFFA9C6D3), Color(0xFF9FE231), ThemeNavigationLayout.TOP_BAR, 10.dp, 18.dp, 1.035f, 155),
+    futurePresentation(AppHomeTheme.DARK_GLASS, Color(0xFF080A12), Color(0xFF141827), Color(0xFF0E1120), Color(0xFF263049), Color(0xFFF2F5FF), Color(0xFFB0B8CF), Color(0xFFB69CFF), ThemeNavigationLayout.SIDE_RAIL, 24.dp, 44.dp, 1.022f, 190),
+    futurePresentation(AppHomeTheme.MAGAZINE_MEDIA, Color(0xFFF2EFE8), Color(0xFFE2DDD2), Color(0xFFFBF8F2), Color(0xFFE7D7B7), Color(0xFF29251F), Color(0xFF766E61), Color(0xFFC2572F), ThemeNavigationLayout.TOP_BAR, 0.dp, 0.dp, 1.01f, 210),
+    futurePresentation(AppHomeTheme.NEXT_GEN_TV, Color(0xFF0B0D13), Color(0xFF151824), Color(0xFF10131E), Color(0xFF273254), Color(0xFFF1F5FF), Color(0xFFAEB9D1), Color(0xFF61C4FF), ThemeNavigationLayout.SIDE_RAIL, 12.dp, 26.dp, 1.05f, 160),
+    futurePresentation(AppHomeTheme.AURORA_LOUNGE, Color(0xFF0C0B19), Color(0xFF19152C), Color(0xFF141126), Color(0xFF332854), Color(0xFFF8F3FF), Color(0xFFC4B6D2), Color(0xFFE6AD68), ThemeNavigationLayout.TOP_BAR, 32.dp, 64.dp, 1.018f, 280)
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -340,6 +396,7 @@ object ThemePresentationRegistry {
         registerAdditional(glassmorphismPresentation)
         registerAdditional(streamingPlatformPresentation)
         registerAdditional(premiumBlackPresentation)
+        registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.BLUE_OCEAN })
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

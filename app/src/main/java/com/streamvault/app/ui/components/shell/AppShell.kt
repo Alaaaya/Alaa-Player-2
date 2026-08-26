@@ -97,6 +97,8 @@ import com.streamvault.app.ui.theme.AlaaThemeDimensions
 import com.streamvault.app.ui.theme.AlaaThemeFocus
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
+import com.streamvault.app.ui.theme.ThemeNavigationLayout
 import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
 import com.streamvault.app.ui.themes.cinematic.CinematicGold
 import com.streamvault.app.ui.themes.cinematic.CinematicMuted
@@ -170,9 +172,13 @@ fun AppScreenScaffold(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val blueOceanPresentation = LocalThemePresentation.current
     // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
     // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
     val resolvedNavigationChrome = when {
+        isBlueOceanTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.SIDE_RAIL -> AppNavigationChrome.Rail
+        isBlueOceanTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.TOP_BAR -> AppNavigationChrome.TopBar
         isStreamingPlatformTheme -> AppNavigationChrome.TopBar
         isMinimalTheme || isGlassTheme || isPremiumBlackTheme -> AppNavigationChrome.Rail
         else -> navigationChrome
@@ -191,6 +197,14 @@ fun AppScreenScaffold(
         Brush.verticalGradient(listOf(StreamingCanvas, StreamingCanvasRaised, StreamingPanel))
     } else if (isPremiumBlackTheme) {
         Brush.verticalGradient(listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
+    } else if (isBlueOceanTheme) {
+        Brush.linearGradient(
+            listOf(
+                blueOceanPresentation.surfaces.canvas,
+                blueOceanPresentation.surfaces.browseContent,
+                blueOceanPresentation.surfaces.canvas
+            )
+        )
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -250,10 +264,10 @@ fun AppScreenScaffold(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {

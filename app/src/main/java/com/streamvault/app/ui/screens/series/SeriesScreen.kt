@@ -96,6 +96,7 @@ import com.streamvault.app.ui.themes.neon.NeonFutureSeriesLayout
 import com.streamvault.app.ui.themes.glass.GlassmorphismSeriesLayout
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformSeriesLayout
 import com.streamvault.app.ui.themes.premium.PremiumBlackSeriesLayout
+import com.streamvault.app.ui.themes.blueocean.BlueOceanSeriesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
 
@@ -118,6 +119,7 @@ fun SeriesScreen(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -171,7 +173,7 @@ fun SeriesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_series),
             subtitle = null,
-            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme || isBlueOceanTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -225,7 +227,7 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -254,7 +256,17 @@ fun SeriesScreen(
                     showPinDialog = true
                 } else onSeriesClick(series)
             }
-            if (isPremiumBlackTheme) {
+            if (isBlueOceanTheme) {
+                BlueOceanSeriesLayout(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isSeriesLocked = isSeriesLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onSeriesClick = onThemedSeriesClick, onSeriesLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isPremiumBlackTheme) {
                 PremiumBlackSeriesLayout(
                     uiState = uiState, initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked, isSeriesLocked = isSeriesLocked,

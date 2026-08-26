@@ -102,6 +102,8 @@ import com.streamvault.app.ui.components.dialogs.PinDialog
 import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.FocusBorder
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.OnSurfaceDim
@@ -111,6 +113,7 @@ import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.theme.TextPrimary
 import com.streamvault.app.ui.theme.TextSecondary
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.EpgMatchType
 import com.streamvault.domain.model.EpgOverrideCandidate
@@ -148,6 +151,8 @@ fun FullEpgScreen(
     viewModel: EpgViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val blueOceanSurfaces = LocalThemePresentation.current.surfaces
     val overrideUiState by viewModel.overrideUiState.collectAsStateWithLifecycle()
     val programReminderUiState by viewModel.programReminderUiState.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
@@ -350,7 +355,7 @@ fun FullEpgScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(if (isBlueOceanTheme) blueOceanSurfaces.canvas else MaterialTheme.colorScheme.background)
         ) {
             when {
                 uiState.isInitialLoading && uiState.channels.isEmpty() -> {
@@ -456,8 +461,8 @@ fun FullEpgScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 14.dp, vertical = 4.dp)
                                 .height(3.dp),
-                            color = Primary,
-                            trackColor = SurfaceHighlight
+                            color = if (isBlueOceanTheme) blueOceanSurfaces.accent else Primary,
+                            trackColor = if (isBlueOceanTheme) blueOceanSurfaces.browseContent else SurfaceHighlight
                         )
                     }
                     GuideNowProvider {
@@ -897,5 +902,4 @@ private fun isGuideChannelLocked(
     } ?: false
     return channel.isAdult || channel.isUserProtected || categoryLocked
 }
-
 

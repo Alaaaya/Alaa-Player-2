@@ -109,6 +109,7 @@ import com.streamvault.app.ui.themes.premium.PremiumGold
 import com.streamvault.app.ui.themes.premium.PremiumMuted
 import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.app.ui.themes.premium.PremiumText
+import com.streamvault.app.ui.themes.blueocean.BlueOceanLiveTvLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
@@ -199,8 +200,9 @@ fun HomeScreen(
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -385,7 +387,7 @@ fun HomeScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_live_tv),
             subtitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name },
-            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme || (isBlueOceanTheme && LocalThemePresentation.current.navigationLayout == ThemeNavigationLayout.SIDE_RAIL)) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -728,7 +730,7 @@ fun HomeScreen(
                         }
                     }
                 ) {
-                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme) && !isReorderMode) {
+                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme) && !isReorderMode) {
                     val onThemedCategoryClick: (Category) -> Unit = { category ->
                         if (isCategoryLocked(category)) {
                             pendingUnlockCategory = category
@@ -774,7 +776,25 @@ fun HomeScreen(
                         focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.ChannelTarget(channel)
                         if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
                     }
-                    if (isPremiumBlackTheme) {
+                    if (isBlueOceanTheme) {
+                        BlueOceanLiveTvLayout(
+                            sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                            categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
+                            categorySearchQuery = uiState.categorySearchQuery, channelSearchQuery = uiState.channelSearchQuery,
+                            channels = uiState.filteredChannels, previewChannel = previewChannel,
+                            previewPlayerEngine = uiState.previewPlayerEngine, isPreviewLoading = uiState.isPreviewLoading,
+                            previewErrorMessage = uiState.previewErrorMessage, isCategoryLocked = isCategoryLocked,
+                            isChannelLocked = isChannelLocked, categoryFocusRequesters = categoryFocusRequesters,
+                            channelFocusRequesters = channelFocusRequesters, previewFocusRequester = previewFocusRequester,
+                            onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                            onChannelSearchChange = viewModel::updateChannelSearchQuery, onCategoryClick = onThemedCategoryClick,
+                            onCategoryLongClick = onThemedCategoryLongClick, onChannelClick = onThemedChannelClick,
+                            onChannelLongClick = onThemedChannelLongClick, onCategoryFocused = onThemedCategoryFocused,
+                            onChannelFocused = onThemedChannelFocused, onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                            onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                        )
+                    } else if (isPremiumBlackTheme) {
                         PremiumBlackLiveTvLayout(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
                             categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
