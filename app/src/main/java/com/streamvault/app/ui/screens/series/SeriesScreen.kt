@@ -91,6 +91,7 @@ import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesLayout
+import com.streamvault.app.ui.themes.minimal.MinimalSeriesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesLayout
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
@@ -110,6 +111,7 @@ fun SeriesScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -217,7 +219,7 @@ fun SeriesScreen(
                     subtitle = stringResource(R.string.series_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -246,7 +248,23 @@ fun SeriesScreen(
                     showPinDialog = true
                 } else onSeriesClick(series)
             }
-            if (isNeonFutureTheme) {
+            if (isMinimalTheme) {
+                MinimalSeriesLayout(
+                    uiState = uiState,
+                    initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked,
+                    isSeriesLocked = isSeriesLocked,
+                    onCategoryClick = onThemedCategoryClick,
+                    onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onSeriesClick = onThemedSeriesClick,
+                    onSeriesLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery,
+                    onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy,
+                    onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isNeonFutureTheme) {
                 NeonFutureSeriesLayout(
                     uiState = uiState,
                     initialFocusRequester = initialContentFocusRequester,
