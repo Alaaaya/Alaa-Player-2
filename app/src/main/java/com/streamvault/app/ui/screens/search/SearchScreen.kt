@@ -564,9 +564,28 @@ fun SearchScreen(
         }
         if (isMinimalTheme) {
             MinimalSearchLayout(
-                query = query, selectedTab = selectedTab, uiState = uiState, searchFocusRequester = searchFocusRequester,
-                onQueryChange = viewModel::onQueryChange, onSearch = viewModel::onSearchSubmitted,
-                onChannelClick = onThemedChannelClick, onMovieClick = onThemedMovieClick, onSeriesClick = onThemedSeriesClick
+                query = query,
+                selectedTab = selectedTab,
+                recentQueries = recentQueries,
+                uiState = uiState,
+                recordingChannelIds = recordingChannelIds,
+                scheduledChannelIds = scheduledChannelIds,
+                searchFocusRequester = searchFocusRequester,
+                onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::onSearchSubmitted,
+                onTabSelected = viewModel::onTabSelected,
+                onRecentQuerySelected = viewModel::onRecentQuerySelected,
+                onClearRecentQueries = viewModel::clearRecentQueries,
+                onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex,
+                onChannelClick = onThemedChannelClick,
+                onChannelLongClick = ::showChannelActions,
+                onMovieClick = onThemedMovieClick,
+                onMovieLongClick = ::showMovieActions,
+                onSeriesClick = onThemedSeriesClick,
+                onSeriesLongClick = ::showSeriesActions,
+                isChannelLocked = { channel -> isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected) },
+                isMovieLocked = { movie -> isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected) },
+                isSeriesLocked = { seriesItem -> isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected) }
             )
         } else if (isNeonFutureTheme) {
             NeonFutureSearchLayout(
