@@ -97,6 +97,8 @@ import com.streamvault.app.ui.remote.dispatchLiveBrowseRemoteShortcut
 import com.streamvault.app.ui.remote.remoteColorButtonForKeyCode
 import com.streamvault.app.ui.themes.cinematic.CinematicLiveTvLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureLiveTvLayout
+import com.streamvault.app.ui.themes.neon.NeonCyan
+import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
 
@@ -117,6 +119,7 @@ private fun HomeLoadingPane(
     message: String,
     modifier: Modifier = Modifier
 ) {
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -125,10 +128,10 @@ private fun HomeLoadingPane(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            CircularProgressIndicator(color = Color.White)
+            CircularProgressIndicator(color = if (isNeonFutureTheme) NeonCyan else Color.White)
             Text(
                 text = message,
-                color = Color.White.copy(alpha = 0.7f),
+                color = if (isNeonFutureTheme) NeonMuted else Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodyMedium
             )
         }
