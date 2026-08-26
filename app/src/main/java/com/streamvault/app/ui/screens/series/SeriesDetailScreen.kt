@@ -85,6 +85,7 @@ import com.streamvault.app.ui.themes.glass.GlassMuted
 import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.app.ui.themes.minimal.MinimalSeriesDetail
 import com.streamvault.app.ui.themes.neon.NeonFutureSeriesDetail
+import com.streamvault.app.ui.themes.streaming.StreamingPlatformSeriesDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
@@ -106,6 +107,7 @@ fun SeriesDetailScreen(
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -144,7 +146,27 @@ fun SeriesDetailScreen(
         return
     }
 
-    if (isGlassTheme) {
+    if (isStreamingPlatformTheme) {
+        StreamingPlatformSeriesDetail(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings,
+            isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode -> coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl(episode)) { is Result.Success -> result.data; else -> null }) } },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode,
+            onCastEpisode = viewModel::castEpisode,
+            onBack = onBack
+        )
+    } else if (isGlassTheme) {
         GlassmorphismSeriesDetail(
             series = series,
             selectedSeason = uiState.selectedSeason,

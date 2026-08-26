@@ -71,6 +71,13 @@ import com.streamvault.app.ui.themes.glass.GlassPane
 import com.streamvault.app.ui.themes.glass.GlassPaneFocused
 import com.streamvault.app.ui.themes.glass.GlassRule
 import com.streamvault.app.ui.themes.glass.GlassText
+import com.streamvault.app.ui.themes.streaming.StreamingAccent
+import com.streamvault.app.ui.themes.streaming.StreamingFocus
+import com.streamvault.app.ui.themes.streaming.StreamingMuted
+import com.streamvault.app.ui.themes.streaming.StreamingPanel
+import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
+import com.streamvault.app.ui.themes.streaming.StreamingRule
+import com.streamvault.app.ui.themes.streaming.StreamingText
 import com.streamvault.domain.model.AppHomeTheme
 
 @Composable
@@ -90,6 +97,10 @@ private fun isGlassSettingsPresentation(): Boolean =
     LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
 
 @Composable
+private fun isStreamingSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+
+@Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
@@ -98,6 +109,7 @@ internal fun SettingsSectionHeader(
     val isNeon = isNeonSettingsPresentation()
     val isMinimal = isMinimalSettingsPresentation()
     val isGlass = isGlassSettingsPresentation()
+    val isStreaming = isStreamingSettingsPresentation()
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -105,13 +117,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; else -> Primary },
+            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; else -> Primary },
             fontWeight = if (isCinematic || isNeon) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; else -> OnSurfaceDim }
+            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; else -> OnSurfaceDim }
         )
     }
 }
@@ -123,12 +135,13 @@ internal fun SettingsRow(label: String, value: String) {
     val isNeon = isNeonSettingsPresentation()
     val isMinimal = isMinimalSettingsPresentation()
     val isGlass = isGlassSettingsPresentation()
+    val isStreaming = isStreamingSettingsPresentation()
     TvClickableSurface(
         onClick = {},
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else 0.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else if (isGlass) 18.dp else if (isStreaming) 12.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else Color.Transparent,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else Primary.copy(alpha = 0.15f)
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else if (isGlass) GlassPane else if (isStreaming) StreamingPanel else Color.Transparent,
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (isGlass) GlassPaneFocused else if (isStreaming) StreamingPanelFocused else Primary.copy(alpha = 0.15f)
         ),
         border = if (isMinimal) ClickableSurfaceDefaults.border(
             focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
@@ -148,12 +161,12 @@ internal fun SettingsRow(label: String, value: String) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isCinematic || isNeon || isGlass) 16.dp else if (isMinimal) 12.dp else 8.dp, vertical = if (isCinematic || isNeon || isGlass) 12.dp else if (isMinimal) 12.dp else 8.dp),
+                .padding(horizontal = if (isCinematic || isNeon || isGlass || isStreaming) 16.dp else if (isMinimal) 12.dp else 8.dp, vertical = if (isCinematic || isNeon || isGlass || isStreaming) 12.dp else if (isMinimal) 12.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else OnSurface)
-            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else OnBackground)
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else if (isGlass) GlassText else if (isStreaming) StreamingText else OnSurface)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else if (isGlass) GlassMuted else if (isStreaming) StreamingMuted else OnBackground)
         }
     }
 }

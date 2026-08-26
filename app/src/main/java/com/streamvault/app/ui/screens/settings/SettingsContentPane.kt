@@ -15,6 +15,7 @@ import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
 import com.streamvault.app.ui.themes.neon.NeonCanvas
 import com.streamvault.app.ui.themes.minimal.MinimalCanvas
 import com.streamvault.app.ui.themes.glass.GlassCanvas
+import com.streamvault.app.ui.themes.streaming.StreamingCanvas
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 
@@ -51,12 +52,13 @@ internal fun SettingsContentPane(
     val isNeonFuture = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
-    val isThemedPresentation = isCinematic || isNeonFuture || isMinimal || isGlass
+    val isStreamingPlatform = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val isThemedPresentation = isCinematic || isNeonFuture || isMinimal || isGlass || isStreamingPlatform
     LazyColumn(
         modifier = modifier
             .fillMaxHeight()
             .imePadding()
-            .background(when { isCinematic -> CinematicCanvas; isNeonFuture -> NeonCanvas; isMinimal -> MinimalCanvas; isGlass -> GlassCanvas; else -> androidx.compose.ui.graphics.Color.Transparent }),
+            .background(when { isCinematic -> CinematicCanvas; isNeonFuture -> NeonCanvas; isMinimal -> MinimalCanvas; isGlass -> GlassCanvas; isStreamingPlatform -> StreamingCanvas; else -> androidx.compose.ui.graphics.Color.Transparent }),
         contentPadding = PaddingValues(
             start = if (isThemedPresentation) 26.dp else 20.dp,
             top = if (isThemedPresentation) 28.dp else 76.dp,

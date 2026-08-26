@@ -45,7 +45,7 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `cinematic neon future minimal and glassmorphism are registered as complete selectable presentations`() {
+    fun `cinematic neon future minimal glassmorphism and streaming platform are registered as complete selectable presentations`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
             .containsExactly(
                 AppHomeTheme.CLASSIC,
@@ -53,7 +53,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.CINEMATIC,
                 AppHomeTheme.NEON_FUTURE,
                 AppHomeTheme.MINIMAL,
-                AppHomeTheme.GLASSMORPHISM
+                AppHomeTheme.GLASSMORPHISM,
+                AppHomeTheme.STREAMING_PLATFORM
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -81,6 +82,11 @@ class ThemePresentationRegistryTest {
         assertThat(glass.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
         assertThat(glass.focus.motionDurationMs).isEqualTo(180)
         assertThat(glass.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.STREAMING_PLATFORM)).isTrue()
+        val streaming = ThemePresentationRegistry.resolve(AppHomeTheme.STREAMING_PLATFORM)
+        assertThat(streaming.navigationLayout).isEqualTo(ThemeNavigationLayout.TOP_BAR)
+        assertThat(streaming.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(streaming.replacesHomeWhenOpeningSections).isTrue()
         assertThat(ThemeCatalog.selectableEntries().map { it.theme })
             .containsExactly(
                 AppHomeTheme.CLASSIC,
@@ -88,7 +94,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.CINEMATIC,
                 AppHomeTheme.NEON_FUTURE,
                 AppHomeTheme.MINIMAL,
-                AppHomeTheme.GLASSMORPHISM
+                AppHomeTheme.GLASSMORPHISM,
+                AppHomeTheme.STREAMING_PLATFORM
             )
             .inOrder()
     }

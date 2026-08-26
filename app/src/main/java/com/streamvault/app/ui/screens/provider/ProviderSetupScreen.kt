@@ -112,6 +112,9 @@ import com.streamvault.app.ui.themes.glass.GlassPane
 import com.streamvault.app.ui.themes.glass.GlassPaneFocused
 import com.streamvault.app.ui.themes.glass.GlassRule
 import com.streamvault.app.ui.themes.glass.GlassText
+import com.streamvault.app.ui.themes.streaming.StreamingCanvas
+import com.streamvault.app.ui.themes.streaming.StreamingCanvasRaised
+import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -285,6 +288,7 @@ fun ProviderSetupScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
 
     // ?? Local form state ??????????????????????????????????????????????????????
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -562,6 +566,8 @@ fun ProviderSetupScreen(
                     Brush.verticalGradient(colors = listOf(NeonCanvas, NeonPanel, NeonCanvas))
                 } else if (isGlassTheme) {
                     Brush.verticalGradient(colors = listOf(GlassCanvas, GlassCanvasDeep, GlassPane, GlassCanvas))
+                } else if (isStreamingPlatformTheme) {
+                    Brush.verticalGradient(colors = listOf(StreamingCanvas, StreamingPanel, StreamingCanvasRaised, StreamingCanvas))
                 } else {
                     Brush.verticalGradient(colors = listOf(BackgroundDeep, Background, Surface))
                 }

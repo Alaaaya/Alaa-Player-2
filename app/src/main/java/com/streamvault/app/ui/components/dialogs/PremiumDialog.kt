@@ -69,6 +69,10 @@ import com.streamvault.app.ui.themes.glass.GlassMuted
 import com.streamvault.app.ui.themes.glass.GlassPane
 import com.streamvault.app.ui.themes.glass.GlassRule
 import com.streamvault.app.ui.themes.glass.GlassText
+import com.streamvault.app.ui.themes.streaming.StreamingCanvas
+import com.streamvault.app.ui.themes.streaming.StreamingMuted
+import com.streamvault.app.ui.themes.streaming.StreamingPanel
+import com.streamvault.app.ui.themes.streaming.StreamingText
 import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
@@ -107,11 +111,14 @@ fun PremiumDialog(
     val blockOpenGesture = rememberDialogOpenGestureBlocker(canInteract)
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
-    val dialogSurface = if (isGlassTheme) GlassPane else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
+    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+    val dialogSurface = if (isGlassTheme) GlassPane else if (isStreamingPlatformTheme) StreamingPanel else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
     val dialogBackground = if (isGlassTheme) {
         Brush.verticalGradient(colors = listOf(GlassCanvas.copy(alpha = 0.9f), GlassPane, GlassCanvas))
     } else if (isNeonFutureTheme) {
         Brush.verticalGradient(colors = listOf(NeonCanvas.copy(alpha = 0.84f), NeonPanel, NeonCanvas))
+    } else if (isStreamingPlatformTheme) {
+        Brush.verticalGradient(colors = listOf(StreamingCanvas, StreamingPanel, StreamingCanvas))
     } else {
         Brush.verticalGradient(colors = listOf(AppColors.BrandMuted.copy(alpha = 0.18f), AppColors.SurfaceElevated, AppColors.Surface))
     }
