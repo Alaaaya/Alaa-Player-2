@@ -73,6 +73,9 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicMovieDetail
+import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
 
 @Composable
@@ -85,6 +88,8 @@ fun MovieDetailScreen(
     val movie = uiState.movie
     val context = LocalContext.current
     val mainActivity = remember(context) { context.findMainActivity() }
+    val coroutineScope = rememberCoroutineScope()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -123,30 +128,64 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            MovieDetailContent(
-                movie = movie,
-                hasResume = uiState.hasResume,
-                resumePositionMs = uiState.resumePositionMs,
-                isCasting = uiState.isCasting,
-                externalRatings = uiState.externalRatings,
-                isLoadingExternalRatings = uiState.isLoadingExternalRatings,
-                relatedContent = uiState.relatedContent,
-                onPlay = { onPlay(movie) },
-                onCopyUrl = {
-                    when (val result = viewModel.resolveCopyStreamUrl()) {
-                        is Result.Success -> result.data
-                        is Result.Error -> null
-                        Result.Loading -> null
+            if (isCinematicTheme) {
+                CinematicMovieDetail(
+                    movie = movie,
+                    hasResume = uiState.hasResume,
+                    resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting,
+                    relatedContent = uiState.relatedContent,
+                    onPlay = { onPlay(movie) },
+                    onCopyUrl = {
+                        coroutineScope.launch {
+                            val url = when (val result = viewModel.resolveCopyStreamUrl()) {
+                                is Result.Success -> result.data
+                                is Result.Error -> null
+                                Result.Loading -> null
+                            }
+                            copyStreamUrlToClipboard(context, url)
+                        }
+                    },
+                    onDownload = { viewModel.downloadMovie(context) },
+                    onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay,
+                    onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
+                        {
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                            }
+                        }
                     }
-                },
-                onDownload = {},
-                onCast = viewModel::castMovie,
-                onToggleFavorite = viewModel::toggleFavorite,
-                onSelectVariant = viewModel::selectMovieVariant,
-                onRelatedClick = onPlay,
-                onBack = onBack,
-                viewModel = viewModel
-            )
+                )
+            } else {
+                MovieDetailContent(
+                    movie = movie,
+                    hasResume = uiState.hasResume,
+                    resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting,
+                    externalRatings = uiState.externalRatings,
+                    isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+                    relatedContent = uiState.relatedContent,
+                    onPlay = { onPlay(movie) },
+                    onCopyUrl = {
+                        when (val result = viewModel.resolveCopyStreamUrl()) {
+                            is Result.Success -> result.data
+                            is Result.Error -> null
+                            Result.Loading -> null
+                        }
+                    },
+                    onDownload = {},
+                    onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay,
+                    onBack = onBack,
+                    viewModel = viewModel
+                )
+            }
         }
     }
 }
