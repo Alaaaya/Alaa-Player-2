@@ -49,6 +49,13 @@ import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.FocusSpec
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
+import com.streamvault.app.ui.themes.cinematic.CinematicMuted
+import com.streamvault.app.ui.themes.cinematic.CinematicPanel
+import com.streamvault.app.ui.themes.cinematic.CinematicText
+import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
 
@@ -84,6 +91,25 @@ fun PremiumDialog(
     var canInteract by remember { mutableStateOf(false) }
     val isTelevisionDevice = rememberIsTelevisionDevice()
     val blockOpenGesture = rememberDialogOpenGestureBlocker(canInteract)
+    if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
+        CinematicPremiumDialog(
+            title = title,
+            subtitle = subtitle,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            widthFraction = widthFraction,
+            heightFraction = heightFraction,
+            bodyHeightFraction = bodyHeightFraction,
+            bodyScrollHint = bodyScrollHint,
+            initialBodyFocusRequester = initialBodyFocusRequester,
+            canInteract = canInteract,
+            isTelevisionDevice = isTelevisionDevice,
+            blockOpenGesture = blockOpenGesture,
+            content = content,
+            footer = footer
+        )
+        return
+    }
     LaunchedEffect(Unit) { delay(500); canInteract = true }
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -220,6 +246,89 @@ fun PremiumDialog(
                                 content = footer
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CinematicPremiumDialog(
+    title: String,
+    subtitle: String?,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    widthFraction: Float,
+    heightFraction: Float?,
+    bodyHeightFraction: Float,
+    bodyScrollHint: String?,
+    initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+    canInteract: Boolean,
+    isTelevisionDevice: Boolean,
+    blockOpenGesture: (KeyEvent) -> Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit
+) {
+    LaunchedEffect(Unit) { delay(500) }
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = canInteract,
+            dismissOnClickOutside = canInteract,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogCanInteract provides canInteract) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val resolvedWidthFraction = when {
+                    isTelevisionDevice -> widthFraction
+                    maxWidth < 700.dp -> 0.9f
+                    maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
+                    else -> widthFraction
+                }
+                val maxDialogBodyHeight = maxHeight * bodyHeightFraction
+                val dialogModifier = modifier
+                    .fillMaxWidth(resolvedWidthFraction)
+                    .then(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier)
+                    .onPreviewKeyEvent(blockOpenGesture)
+                val shape = RoundedCornerShape(20.dp)
+                Surface(
+                    modifier = dialogModifier,
+                    shape = shape,
+                    colors = SurfaceDefaults.colors(containerColor = CinematicPanel)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        CinematicWine.copy(alpha = 0.28f),
+                                        CinematicPanel,
+                                        CinematicCanvas
+                                    )
+                                )
+                            )
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(title, style = MaterialTheme.typography.headlineMedium, color = CinematicText)
+                            if (!subtitle.isNullOrBlank()) {
+                                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = CinematicMuted)
+                            }
+                        }
+                        PremiumDialogScrollableBody(
+                            maxHeight = maxDialogBodyHeight,
+                            scrollHint = bodyScrollHint,
+                            initialFocusRequester = initialBodyFocusRequester,
+                            content = content
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, androidx.compose.ui.Alignment.End),
+                            content = footer
+                        )
                     }
                 }
             }
