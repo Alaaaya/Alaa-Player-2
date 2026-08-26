@@ -51,6 +51,7 @@ val officialSigningCertSha256 = computeOfficialSigningCertSha256()
 val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1000
 val appVersionName = providers.gradleProperty("appVersionName").orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
 val deviceControlApiBaseUrl = providers.gradleProperty("deviceControlApiBaseUrl").orNull.orEmpty()
+val releaseMinifyEnabled = providers.gradleProperty("releaseMinify").orNull?.toBooleanStrictOrNull() ?: true
 
 android {
     namespace = "com.streamvault.app"
@@ -128,8 +129,8 @@ android {
             matchingFallbacks += listOf("release")
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = releaseMinifyEnabled
+            isShrinkResources = releaseMinifyEnabled
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
