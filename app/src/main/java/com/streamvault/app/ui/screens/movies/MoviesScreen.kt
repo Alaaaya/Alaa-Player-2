@@ -232,9 +232,8 @@ fun MoviesScreen(
                     (movieCategoryId == null || kotlin.math.abs(movieCategoryId) !in uiState.unlockedCategoryIds)
             }
             CinematicMoviesLayout(
-                categories = uiState.categories,
-                selectedCategory = uiState.selectedCategory,
-                movies = uiState.filteredMovies,
+                uiState = uiState,
+                initialFocusRequester = initialContentFocusRequester,
                 isCategoryLocked = isCategoryLocked,
                 isMovieLocked = isMovieLocked,
                 onCategoryClick = { category ->
@@ -256,7 +255,12 @@ fun MoviesScreen(
                         onMovieClick(movie)
                     }
                 },
-                onMovieLongClick = viewModel::onShowDialog
+                onMovieLongClick = viewModel::onShowDialog,
+                onQueryChange = viewModel::setSearchQuery,
+                onFilterChange = viewModel::setSelectedLibraryFilterType,
+                onSortChange = viewModel::setSelectedLibrarySortBy,
+                onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                onLoadMorePreview = viewModel::loadMorePreviewRows
             )
         } else {
             MoviesVodContent(

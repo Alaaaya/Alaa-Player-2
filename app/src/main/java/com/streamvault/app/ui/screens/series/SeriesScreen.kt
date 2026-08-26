@@ -231,9 +231,8 @@ fun SeriesScreen(
                     (seriesCategoryId == null || kotlin.math.abs(seriesCategoryId) !in uiState.unlockedCategoryIds)
             }
             CinematicSeriesLayout(
-                categories = uiState.categories,
-                selectedCategory = uiState.selectedCategory,
-                series = uiState.filteredSeries,
+                uiState = uiState,
+                initialFocusRequester = initialContentFocusRequester,
                 isCategoryLocked = isCategoryLocked,
                 isSeriesLocked = isSeriesLocked,
                 onCategoryClick = { category ->
@@ -255,7 +254,12 @@ fun SeriesScreen(
                         onSeriesClick(series)
                     }
                 },
-                onSeriesLongClick = viewModel::onShowDialog
+                onSeriesLongClick = viewModel::onShowDialog,
+                onQueryChange = viewModel::setSearchQuery,
+                onFilterChange = viewModel::setSelectedLibraryFilterType,
+                onSortChange = viewModel::setSelectedLibrarySortBy,
+                onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                onLoadMorePreview = viewModel::loadMorePreviewRows
             )
         } else {
             SeriesVodContent(
