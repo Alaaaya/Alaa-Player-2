@@ -106,9 +106,28 @@ private val alaaPresentation = ThemePresentation(
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
  */
 object ThemePresentationRegistry {
-    fun resolve(theme: AppHomeTheme): ThemePresentation = when (theme) {
-        AppHomeTheme.CLASSIC -> classicPresentation
-        AppHomeTheme.ALAA -> alaaPresentation
+    private val fixedPresentations = mapOf(
+        AppHomeTheme.CLASSIC to classicPresentation,
+        AppHomeTheme.ALAA to alaaPresentation
+    )
+    private val additionalPresentations = mutableMapOf<AppHomeTheme, ThemePresentation>()
+
+    fun resolve(theme: AppHomeTheme): ThemePresentation =
+        fixedPresentations[theme] ?: additionalPresentations[theme]
+            ?: error("No complete presentation is registered for ${theme.storageValue}")
+
+    /**
+     * نقطة التسجيل الوحيدة للثيمات الإضافية المكتملة. يمنع الحارس استبدال الثيمين
+     * الثابتين حتى لا يتحول التوسّع إلى تعديل هوية Classic أو Signature Alaa.
+     */
+    fun registerAdditional(presentation: ThemePresentation) {
+        require(!presentation.id.isFixedFoundation) {
+            "Fixed theme foundations cannot be replaced: ${presentation.id.storageValue}"
+        }
+        require(presentation.id !in fixedPresentations) {
+            "Fixed theme foundations cannot be registered as additions: ${presentation.id.storageValue}"
+        }
+        additionalPresentations[presentation.id] = presentation
     }
 }
 

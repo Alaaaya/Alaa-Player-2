@@ -3,6 +3,7 @@ package com.streamvault.app.ui.theme
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.domain.model.AppHomeTheme
 import org.junit.Test
+import org.junit.Assert.assertThrows
 
 class ThemePresentationRegistryTest {
     @Test
@@ -21,5 +22,25 @@ class ThemePresentationRegistryTest {
 
         assertThat(presentation.navigationLayout).isEqualTo(ThemeNavigationLayout.ADAPTIVE)
         assertThat(presentation.replacesHomeWhenOpeningSections).isFalse()
+    }
+
+    @Test
+    fun `classic and alaa remain the fixed presentation foundations`() {
+        assertThat(AppHomeTheme.fixedFoundations)
+            .containsExactly(AppHomeTheme.CLASSIC, AppHomeTheme.ALAA)
+    }
+
+    @Test
+    fun `registry rejects attempts to replace fixed theme foundations`() {
+        val classicReplacement = ThemePresentationRegistry.resolve(AppHomeTheme.CLASSIC)
+            .copy(navigationLayout = ThemeNavigationLayout.TOP_BAR)
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            ThemePresentationRegistry.registerAdditional(classicReplacement)
+        }
+
+        assertThat(error).hasMessageThat().contains("Fixed theme foundations cannot be replaced")
+        assertThat(ThemePresentationRegistry.resolve(AppHomeTheme.CLASSIC).navigationLayout)
+            .isEqualTo(ThemeNavigationLayout.ADAPTIVE)
     }
 }
