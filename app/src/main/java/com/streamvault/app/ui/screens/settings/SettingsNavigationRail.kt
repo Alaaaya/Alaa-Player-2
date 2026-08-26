@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -36,6 +37,14 @@ import com.streamvault.app.ui.themes.cinematic.CinematicPanel
 import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.neon.NeonCyan
+import com.streamvault.app.ui.themes.neon.NeonLime
+import com.streamvault.app.ui.themes.neon.NeonMuted
+import com.streamvault.app.ui.themes.neon.NeonPanel
+import com.streamvault.app.ui.themes.neon.NeonPanelRaised
+import com.streamvault.app.ui.themes.neon.NeonPink
+import com.streamvault.app.ui.themes.neon.NeonText
 import com.streamvault.domain.model.AppHomeTheme
 
 private data class SettingsNavEntry(
@@ -100,6 +109,15 @@ internal fun SettingsNavigationRail(
 
     if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
         CinematicSettingsNavigationRail(
+            entries = entries,
+            selectedCategory = selectedCategory,
+            focusRequester = focusRequester,
+            onCategorySelected = onCategorySelected
+        )
+        return
+    }
+    if (LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE) {
+        NeonFutureSettingsNavigationRail(
             entries = entries,
             selectedCategory = selectedCategory,
             focusRequester = focusRequester,
@@ -198,6 +216,68 @@ private fun CinematicSettingsNavigationRail(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NeonFutureSettingsNavigationRail(
+    entries: List<SettingsNavEntry>,
+    selectedCategory: Int,
+    focusRequester: FocusRequester,
+    onCategorySelected: (Int) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .width(254.dp)
+            .fillMaxHeight()
+            .background(NeonPanel),
+        contentPadding = PaddingValues(start = 14.dp, top = 24.dp, end = 14.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        item("neon_settings_rail_heading") {
+            Column(modifier = Modifier.padding(start = 4.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("SYSTEM HUD", style = androidx.tv.material3.MaterialTheme.typography.titleLarge, color = NeonCyan, fontWeight = FontWeight.Black)
+                Text("CONFIGURATION NODES", style = androidx.tv.material3.MaterialTheme.typography.labelSmall, color = NeonMuted)
+            }
+        }
+        itemsIndexed(entries) { index, entry ->
+            val selected = selectedCategory == index
+            val shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            val accent = when (index % 3) {
+                0 -> NeonCyan
+                1 -> NeonPink
+                else -> NeonLime
+            }
+            TvClickableSurface(
+                onClick = { onCategorySelected(index) },
+                modifier = (if (selected) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth(),
+                shape = ClickableSurfaceDefaults.shape(shape),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) accent.copy(alpha = .18f) else NeonCanvas,
+                    focusedContainerColor = NeonPanelRaised,
+                    contentColor = NeonText,
+                    focusedContentColor = NeonText
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(border = BorderStroke(2.dp, accent), shape = shape)
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${(index + 1).toString().padStart(2, '0')} / ${entry.icon}",
+                        style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                        color = accent,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(entry.label, style = androidx.tv.material3.MaterialTheme.typography.labelLarge, color = NeonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
