@@ -11,6 +11,14 @@ import com.streamvault.app.ui.themes.minimal.MinimalFocusMotionMs
 import com.streamvault.app.ui.themes.minimal.MinimalMuted
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalText
+import com.streamvault.app.ui.themes.glass.GlassAccent
+import com.streamvault.app.ui.themes.glass.GlassCanvas
+import com.streamvault.app.ui.themes.glass.GlassFocus
+import com.streamvault.app.ui.themes.glass.GlassFocusMotionMs
+import com.streamvault.app.ui.themes.glass.GlassMuted
+import com.streamvault.app.ui.themes.glass.GlassPane
+import com.streamvault.app.ui.themes.glass.GlassPaneFocused
+import com.streamvault.app.ui.themes.glass.GlassText
 
 /**
  * مواصفات عرض الثيم فقط. لا تحمل بيانات مزود أو قناة أو حالة تشغيل؛ تلك تبقى في طبقات
@@ -221,6 +229,31 @@ private val minimalPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val glassmorphismPresentation = ThemePresentation(
+    id = AppHomeTheme.GLASSMORPHISM,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = GlassCanvas,
+        browseRail = GlassPane,
+        browseContent = GlassPane,
+        focusedSurface = GlassPaneFocused,
+        textPrimary = GlassText,
+        textSecondary = GlassMuted,
+        accent = GlassAccent,
+        selectedAccent = GlassAccent.copy(alpha = 0.18f),
+        focusBorderWidth = 2.dp,
+        cornerMedium = 18.dp,
+        cornerLarge = 28.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = 1.03f,
+        pressedScale = 0.98f,
+        motionDurationMs = GlassFocusMotionMs
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 /**
  * السجل الوحيد للثيمات المكتملة وظيفياً. لا يضاف ثيم إلى هذا السجل أو Selector الإعدادات
  * قبل توفير شاشاته ومشغّله وتنقله الفعليين.
@@ -238,6 +271,7 @@ object ThemePresentationRegistry {
         registerAdditional(cinematicPresentation)
         registerAdditional(neonFuturePresentation)
         registerAdditional(minimalPresentation)
+        registerAdditional(glassmorphismPresentation)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

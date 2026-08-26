@@ -75,6 +75,7 @@ import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicFavoritesLayout
+import com.streamvault.app.ui.themes.glass.GlassmorphismFavoritesLayout
 import com.streamvault.app.ui.themes.minimal.MinimalFavoritesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureFavoritesLayout
 import com.streamvault.app.ui.themes.neon.NeonCyan
@@ -98,6 +99,7 @@ fun FavoritesScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val activeReorderSection = uiState.sections.firstOrNull { it.key == uiState.reorderSectionKey }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -391,7 +393,7 @@ fun FavoritesScreen(
                     }
                 }
 
-                !hasVisibleContent -> {
+                !hasVisibleContent && !isGlassTheme -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -410,13 +412,26 @@ fun FavoritesScreen(
                 }
 
                 else -> {
-                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme) && !uiState.isReorderMode) {
+                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) && !uiState.isReorderMode) {
                         val onThemedItemClick: (FavoriteUiModel) -> Unit = { item ->
                             if (item.favorite.contentType == ContentType.SERIES) {
                                 onNavigate("series_detail/${item.favorite.contentId}")
                             } else onItemClick(item)
                         }
-                        if (isMinimalTheme) MinimalFavoritesLayout(
+                        if (isGlassTheme) GlassmorphismFavoritesLayout(
+                            sections = filteredSections,
+                            continueWatching = visibleContinueWatching,
+                            recentLive = visibleRecentLive,
+                            selectedPreset = uiState.selectedPreset,
+                            selectedFilter = uiState.selectedFilter,
+                            selectedSort = uiState.selectedSort,
+                            onPresetSelected = viewModel::selectPreset,
+                            onFilterSelected = viewModel::selectFilter,
+                            onSortSelected = viewModel::selectSort,
+                            onItemClick = onThemedItemClick,
+                            onItemLongClick = viewModel::showItemOptions,
+                            onHistoryClick = onHistoryClick
+                        ) else if (isMinimalTheme) MinimalFavoritesLayout(
                             sections = filteredSections,
                             continueWatching = visibleContinueWatching,
                             recentLive = visibleRecentLive,

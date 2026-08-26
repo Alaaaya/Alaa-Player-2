@@ -45,14 +45,15 @@ class ThemePresentationRegistryTest {
     }
 
     @Test
-    fun `cinematic neon future and minimal are registered as complete selectable presentations`() {
+    fun `cinematic neon future minimal and glassmorphism are registered as complete selectable presentations`() {
         assertThat(ThemePresentationRegistry.selectableThemes())
             .containsExactly(
                 AppHomeTheme.CLASSIC,
                 AppHomeTheme.ALAA,
                 AppHomeTheme.CINEMATIC,
                 AppHomeTheme.NEON_FUTURE,
-                AppHomeTheme.MINIMAL
+                AppHomeTheme.MINIMAL,
+                AppHomeTheme.GLASSMORPHISM
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -74,13 +75,20 @@ class ThemePresentationRegistryTest {
         assertThat(minimal.focus.focusedScale).isEqualTo(1f)
         assertThat(minimal.focus.motionDurationMs).isEqualTo(140)
         assertThat(minimal.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.GLASSMORPHISM)).isTrue()
+        val glass = ThemePresentationRegistry.resolve(AppHomeTheme.GLASSMORPHISM)
+        assertThat(glass.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(glass.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(glass.focus.motionDurationMs).isEqualTo(180)
+        assertThat(glass.replacesHomeWhenOpeningSections).isTrue()
         assertThat(ThemeCatalog.selectableEntries().map { it.theme })
             .containsExactly(
                 AppHomeTheme.CLASSIC,
                 AppHomeTheme.ALAA,
                 AppHomeTheme.CINEMATIC,
                 AppHomeTheme.NEON_FUTURE,
-                AppHomeTheme.MINIMAL
+                AppHomeTheme.MINIMAL,
+                AppHomeTheme.GLASSMORPHISM
             )
             .inOrder()
     }

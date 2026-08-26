@@ -63,6 +63,12 @@ import com.streamvault.app.ui.themes.minimal.MinimalMuted
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalRule
 import com.streamvault.app.ui.themes.minimal.MinimalText
+import com.streamvault.app.ui.themes.glass.GlassCanvas
+import com.streamvault.app.ui.themes.glass.GlassAccent
+import com.streamvault.app.ui.themes.glass.GlassMuted
+import com.streamvault.app.ui.themes.glass.GlassPane
+import com.streamvault.app.ui.themes.glass.GlassRule
+import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
@@ -100,8 +106,11 @@ fun PremiumDialog(
     val isTelevisionDevice = rememberIsTelevisionDevice()
     val blockOpenGesture = rememberDialogOpenGestureBlocker(canInteract)
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    val dialogSurface = if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
-    val dialogBackground = if (isNeonFutureTheme) {
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+    val dialogSurface = if (isGlassTheme) GlassPane else if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
+    val dialogBackground = if (isGlassTheme) {
+        Brush.verticalGradient(colors = listOf(GlassCanvas.copy(alpha = 0.9f), GlassPane, GlassCanvas))
+    } else if (isNeonFutureTheme) {
         Brush.verticalGradient(colors = listOf(NeonCanvas.copy(alpha = 0.84f), NeonPanel, NeonCanvas))
     } else {
         Brush.verticalGradient(colors = listOf(AppColors.BrandMuted.copy(alpha = 0.18f), AppColors.SurfaceElevated, AppColors.Surface))
@@ -128,6 +137,26 @@ fun PremiumDialog(
     if (LocalAppHomeTheme.current == AppHomeTheme.MINIMAL) {
         LaunchedEffect(Unit) { delay(140); canInteract = true }
         MinimalPremiumDialog(
+            title = title,
+            subtitle = subtitle,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier,
+            widthFraction = widthFraction,
+            heightFraction = heightFraction,
+            bodyHeightFraction = bodyHeightFraction,
+            bodyScrollHint = bodyScrollHint,
+            initialBodyFocusRequester = initialBodyFocusRequester,
+            canInteract = canInteract,
+            isTelevisionDevice = isTelevisionDevice,
+            blockOpenGesture = blockOpenGesture,
+            content = content,
+            footer = footer
+        )
+        return
+    }
+    if (isGlassTheme) {
+        LaunchedEffect(Unit) { delay(180); canInteract = true }
+        GlassmorphismPremiumDialog(
             title = title,
             subtitle = subtitle,
             onDismissRequest = onDismissRequest,
@@ -281,6 +310,81 @@ fun PremiumDialog(
                                 content = footer
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Glassmorphism dialog: عمق شفاف مستقل، مع إعادة استخدام عقد المحتوى والتفاعل نفسه. */
+@Composable
+private fun GlassmorphismPremiumDialog(
+    title: String,
+    subtitle: String?,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    widthFraction: Float,
+    heightFraction: Float?,
+    bodyHeightFraction: Float,
+    bodyScrollHint: String?,
+    initialBodyFocusRequester: androidx.compose.ui.focus.FocusRequester?,
+    canInteract: Boolean,
+    isTelevisionDevice: Boolean,
+    blockOpenGesture: (KeyEvent) -> Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = canInteract,
+            dismissOnClickOutside = canInteract,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogCanInteract provides canInteract) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val resolvedWidthFraction = when {
+                    isTelevisionDevice -> widthFraction
+                    maxWidth < 700.dp -> 0.9f
+                    maxWidth < 1000.dp -> maxOf(widthFraction, 0.62f)
+                    else -> widthFraction
+                }
+                val maxDialogBodyHeight = maxHeight * bodyHeightFraction
+                val dialogModifier = modifier
+                    .fillMaxWidth(resolvedWidthFraction)
+                    .then(if (heightFraction != null) Modifier.fillMaxHeight(heightFraction) else Modifier)
+                    .onPreviewKeyEvent(blockOpenGesture)
+                val shape = RoundedCornerShape(30.dp)
+                Surface(
+                    modifier = dialogModifier,
+                    shape = shape,
+                    colors = SurfaceDefaults.colors(containerColor = GlassPane),
+                    border = androidx.tv.material3.Border(border = BorderStroke(2.dp, GlassRule), shape = shape)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .background(Brush.verticalGradient(listOf(GlassCanvas, GlassPane, GlassCanvas)))
+                            .padding(28.dp),
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("GLASS LAYER", style = MaterialTheme.typography.labelSmall, color = GlassAccent)
+                            Text(title, style = MaterialTheme.typography.headlineMedium, color = GlassText)
+                            if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = GlassMuted)
+                        }
+                        PremiumDialogScrollableBody(
+                            maxHeight = maxDialogBodyHeight,
+                            scrollHint = bodyScrollHint,
+                            initialFocusRequester = initialBodyFocusRequester,
+                            content = content
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, androidx.compose.ui.Alignment.End),
+                            content = footer
+                        )
                     }
                 }
             }

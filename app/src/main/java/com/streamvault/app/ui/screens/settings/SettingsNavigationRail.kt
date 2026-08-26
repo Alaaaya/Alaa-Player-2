@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +53,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalMuted
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalRule
 import com.streamvault.app.ui.themes.minimal.MinimalText
+import com.streamvault.app.ui.themes.glass.GlassPane
 import com.streamvault.domain.model.AppHomeTheme
 
 private data class SettingsNavEntry(
@@ -142,14 +144,24 @@ internal fun SettingsNavigationRail(
         return
     }
 
+    val isGlass = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     LazyColumn(
         modifier = Modifier
             .width(236.dp)
             .fillMaxHeight()
-            .background(Color.Black.copy(alpha = 0.25f)),
-        contentPadding = PaddingValues(top = 76.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(start = if (isGlass) 16.dp else 0.dp, top = if (isGlass) 22.dp else 0.dp, bottom = if (isGlass) 22.dp else 0.dp)
+            .background(if (isGlass) GlassPane else Color.Black.copy(alpha = 0.25f), if (isGlass) RoundedCornerShape(26.dp) else RoundedCornerShape(0.dp)),
+        contentPadding = PaddingValues(start = if (isGlass) 14.dp else 0.dp, top = if (isGlass) 20.dp else 76.dp, end = if (isGlass) 14.dp else 0.dp, bottom = if (isGlass) 20.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isGlass) 8.dp else 2.dp)
     ) {
+        if (isGlass) {
+            item("glass_settings_rail_heading") {
+                Column(modifier = Modifier.padding(start = 5.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("GLASS CONTROL", style = androidx.tv.material3.MaterialTheme.typography.titleLarge, color = com.streamvault.app.ui.themes.glass.GlassAccent, fontWeight = FontWeight.Black)
+                    Text("SETTINGS LAYERS", style = androidx.tv.material3.MaterialTheme.typography.labelSmall, color = com.streamvault.app.ui.themes.glass.GlassMuted)
+                }
+            }
+        }
         itemsIndexed(entries) { index, entry ->
             SettingsNavItem(
                 label = entry.label,
