@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.screens.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Border
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.streamvault.app.R
@@ -56,6 +59,10 @@ import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.app.ui.themes.neon.NeonPanelRaised
 import com.streamvault.app.ui.themes.neon.NeonText
 import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalRule
 import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.domain.model.AppHomeTheme
 
@@ -102,13 +109,17 @@ internal fun SettingsRow(label: String, value: String) {
     val focusRequester = remember { FocusRequester() }
     val isCinematic = isCinematicSettingsPresentation()
     val isNeon = isNeonSettingsPresentation()
+    val isMinimal = isMinimalSettingsPresentation()
     TvClickableSurface(
         onClick = {},
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Color.Transparent,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else Primary.copy(alpha = 0.15f)
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else Color.Transparent,
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else Primary.copy(alpha = 0.15f)
         ),
+        border = if (isMinimal) ClickableSurfaceDefaults.border(
+            focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
+        ) else ClickableSurfaceDefaults.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
@@ -121,12 +132,12 @@ internal fun SettingsRow(label: String, value: String) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isCinematic || isNeon) 16.dp else 8.dp, vertical = if (isCinematic || isNeon) 12.dp else 8.dp),
+                .padding(horizontal = if (isCinematic || isNeon) 16.dp else if (isMinimal) 12.dp else 8.dp, vertical = if (isCinematic || isNeon) 12.dp else if (isMinimal) 12.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else if (isNeon) NeonText else OnSurface)
-            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else OnBackground)
+            Text(text = label, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else OnSurface)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else OnBackground)
         }
     }
 }
@@ -142,13 +153,17 @@ internal fun ClickableSettingsRow(
     val focusRequester = remember { FocusRequester() }
     val isCinematic = isCinematicSettingsPresentation()
     val isNeon = isNeonSettingsPresentation()
+    val isMinimal = isMinimalSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onClick() },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Color.Transparent,
-            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
+        border = if (isMinimal) ClickableSurfaceDefaults.border(
+            focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
+        ) else ClickableSurfaceDefaults.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
@@ -162,10 +177,10 @@ internal fun ClickableSettingsRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = (if (isCinematic) 16.dp else 8.dp) + indent,
-                    end = if (isCinematic) 16.dp else 8.dp,
-                    top = if (isCinematic) 14.dp else 12.dp,
-                    bottom = if (isCinematic) 14.dp else 12.dp
+                    start = (if (isCinematic || isNeon) 16.dp else if (isMinimal) 12.dp else 8.dp) + indent,
+                    end = if (isCinematic || isNeon) 16.dp else if (isMinimal) 12.dp else 8.dp,
+                    top = if (isCinematic || isNeon) 14.dp else 12.dp,
+                    bottom = if (isCinematic || isNeon) 14.dp else 12.dp
                 ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -173,12 +188,12 @@ internal fun ClickableSettingsRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) if (isCinematic) CinematicText else OnSurface else OnSurfaceDim
+                color = if (enabled) if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else OnSurface else OnSurfaceDim
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) if (isCinematic) CinematicGold else Primary else OnSurfaceDim
+                color = if (enabled) if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else Primary else OnSurfaceDim
             )
         }
     }
@@ -196,13 +211,17 @@ internal fun SwitchSettingsRow(
     val focusRequester = remember { FocusRequester() }
     val isCinematic = isCinematicSettingsPresentation()
     val isNeon = isNeonSettingsPresentation()
+    val isMinimal = isMinimalSettingsPresentation()
     TvClickableSurface(
         onClick = { if (enabled) onCheckedChange(!checked) },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (isCinematic) 16.dp else if (isNeon) 6.dp else 0.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Color.Transparent,
-            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
+            containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else Color.Transparent,
+            focusedContainerColor = if (isCinematic && enabled) CinematicPanelRaised else if (isNeon && enabled) NeonPanelRaised else if (isMinimal && enabled) MinimalCanvas else if (enabled) Primary.copy(alpha = 0.15f) else Color.Transparent
         ),
+        border = if (isMinimal) ClickableSurfaceDefaults.border(
+            focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = RoundedCornerShape(0.dp))
+        ) else ClickableSurfaceDefaults.border(),
         scale = ClickableSurfaceDefaults.scale(focusedScale = if (isCinematic || isNeon) 1.01f else 1f),
         modifier = Modifier
             .fillMaxWidth()
@@ -216,8 +235,8 @@ internal fun SwitchSettingsRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = (if (isCinematic || isNeon) 16.dp else 8.dp) + indent,
-                    end = if (isCinematic || isNeon) 16.dp else 8.dp,
+                    start = (if (isCinematic || isNeon) 16.dp else if (isMinimal) 12.dp else 8.dp) + indent,
+                    end = if (isCinematic || isNeon) 16.dp else if (isMinimal) 12.dp else 8.dp,
                     top = if (isCinematic || isNeon) 14.dp else 12.dp,
                     bottom = if (isCinematic || isNeon) 14.dp else 12.dp
                 ),
@@ -228,18 +247,24 @@ internal fun SwitchSettingsRow(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (enabled) if (isCinematic) CinematicText else if (isNeon) NeonText else OnSurface else OnSurfaceDim
+                    color = if (enabled) if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else OnSurface else OnSurfaceDim
                 )
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else OnSurfaceDim
+                    color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else OnSurfaceDim
                 )
             }
             Switch(
                 checked = checked,
                 onCheckedChange = { if (enabled) onCheckedChange(it) },
-                enabled = enabled
+                enabled = enabled,
+                colors = if (isMinimal) SwitchDefaults.colors(
+                    checkedThumbColor = MinimalText,
+                    checkedTrackColor = MinimalText.copy(alpha = 0.42f),
+                    uncheckedThumbColor = MinimalMuted,
+                    uncheckedTrackColor = MinimalRule
+                ) else SwitchDefaults.colors()
             )
         }
     }

@@ -96,6 +96,12 @@ import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.app.ui.themes.neon.NeonPanelRaised
 import com.streamvault.app.ui.themes.neon.NeonText
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalRule
+import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -2577,13 +2583,14 @@ private fun SourceTypeSelectorPanel(
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(if (isNeon) 10.dp else 20.dp),
-        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Surface.copy(alpha = 0.92f)),
+        shape = RoundedCornerShape(if (isNeon) 10.dp else 0.dp),
+        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else if (isMinimal) MinimalPaper else Surface.copy(alpha = 0.92f)),
         border = Border(
-            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else if (isNeon) BorderStroke(1.dp, NeonCyan.copy(alpha = .34f)) else BorderStroke(0.dp, Color.Transparent),
-            shape = RoundedCornerShape(if (isNeon) 10.dp else 20.dp)
+            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else if (isNeon) BorderStroke(1.dp, NeonCyan.copy(alpha = .34f)) else if (isMinimal) BorderStroke(1.dp, MinimalRule) else BorderStroke(0.dp, Color.Transparent),
+            shape = RoundedCornerShape(if (isNeon) 10.dp else 0.dp)
         )
     ) {
         Column(
@@ -2593,17 +2600,17 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = isEditLabel,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (isCinematic) CinematicText else if (isNeon) NeonText else TextPrimary
+                color = if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else TextPrimary
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_shell_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else OnSurfaceDim
+                color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_source_type_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else TextTertiary
+                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalMuted else TextTertiary
             )
             if (!isEditing || sourceType == SourceType.XTREAM) {
                 SourceTypeCard(
@@ -2663,12 +2670,12 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_title),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else OnSurfaceDim
+                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalText else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_body),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicMuted.copy(alpha = 0.7f) else if (isNeon) NeonMuted.copy(alpha = 0.72f) else OnSurfaceDim.copy(alpha = 0.55f)
+                color = if (isCinematic) CinematicMuted.copy(alpha = 0.7f) else if (isNeon) NeonMuted.copy(alpha = 0.72f) else if (isMinimal) MinimalMuted.copy(alpha = 0.72f) else OnSurfaceDim.copy(alpha = 0.55f)
             )
         }
     }
@@ -2685,7 +2692,8 @@ private fun SourceTypeCard(
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    val shape = RoundedCornerShape(if (isNeon) 7.dp else 12.dp)
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val shape = RoundedCornerShape(if (isNeon) 7.dp else 0.dp)
     Surface(
         onClick = { if (enabled) onClick() },
         modifier = Modifier.fillMaxWidth().mouseClickable(enabled = enabled, onClick = onClick),
@@ -2695,16 +2703,18 @@ private fun SourceTypeCard(
                 if (selected) CinematicWine.copy(alpha = 0.48f) else CinematicCanvas
             } else if (isNeon) {
                 if (selected) NeonCyan.copy(alpha = 0.16f) else NeonPanel
+            } else if (isMinimal) {
+                if (selected) MinimalCanvas else MinimalPaper
             } else if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (isMinimal) MinimalCanvas else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(
-                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
+                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (isMinimal) MinimalRule else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
                 shape = shape
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else FocusBorder),
+                border = BorderStroke(if (isMinimal) 1.dp else 2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else if (isMinimal) MinimalFocus else FocusBorder),
                 shape = shape
             )
         )
@@ -2720,7 +2730,7 @@ private fun SourceTypeCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else TextPrimary
+                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (isMinimal && selected) MinimalText else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else if (isMinimal) MinimalText else TextPrimary
                 )
                 badge?.let {
                     StatusPill(
@@ -2733,7 +2743,7 @@ private fun SourceTypeCard(
                     )
                 }
             }
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else OnSurfaceDim, maxLines = 2)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else if (isMinimal) MinimalMuted else OnSurfaceDim, maxLines = 2)
         }
     }
 }
@@ -2806,6 +2816,7 @@ private fun ProviderTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     val isTelevisionDevice = rememberIsTelevisionDevice()
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
     var hasContainerFocus by remember { mutableStateOf(false) }
     var hasInputFocus by remember { mutableStateOf(false) }
     var acceptsInput by remember(isTelevisionDevice) { mutableStateOf(!isTelevisionDevice) }
@@ -2911,8 +2922,19 @@ private fun ProviderTextField(
         if (revealedPasswordIndex == idx) revealedPasswordIndex = null
     }
 
-    val borderColor by animateColorAsState(if (isFocused) Primary else SurfaceHighlight, tween(150), label = "border")
-    val bgColor     by animateColorAsState(if (isFocused) Surface  else SurfaceElevated, tween(150), label = "bg")
+    val borderColor by animateColorAsState(
+        targetValue = if (isMinimal) if (isFocused) MinimalFocus else MinimalRule else if (isFocused) Primary else SurfaceHighlight,
+        animationSpec = tween(if (isMinimal) 140 else 150),
+        label = "border"
+    )
+    val bgColor by animateColorAsState(
+        targetValue = if (isMinimal) if (isFocused) MinimalCanvas else MinimalPaper else if (isFocused) Surface else SurfaceElevated,
+        animationSpec = tween(if (isMinimal) 140 else 150),
+        label = "bg"
+    )
+    val textColor = if (isMinimal) MinimalText else OnBackground
+    val mutedColor = if (isMinimal) MinimalMuted else OnSurfaceDim
+    val fieldShape = RoundedCornerShape(if (isMinimal) 0.dp else 10.dp)
 
     Box(
         modifier = modifier
@@ -3001,7 +3023,7 @@ private fun ProviderTextField(
             readOnly = isTelevisionDevice && !acceptsInput,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = OnBackground),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
             visualTransformation = when {
                 !isPassword || isPasswordVisible -> VisualTransformation.None
                 else -> RevealingPasswordVisualTransformation(revealedPasswordIndex)
@@ -3010,8 +3032,8 @@ private fun ProviderTextField(
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier
-                        .background(bgColor, RoundedCornerShape(10.dp))
-                        .border(if (isFocused) 2.dp else 1.dp, borderColor, RoundedCornerShape(10.dp))
+                        .background(bgColor, fieldShape)
+                        .border(if (isMinimal) 1.dp else if (isFocused) 2.dp else 1.dp, borderColor, fieldShape)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -3020,7 +3042,7 @@ private fun ProviderTextField(
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (fieldValue.text.isEmpty()) {
-                            Text(text = placeholder, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceDim)
+                            Text(text = placeholder, style = MaterialTheme.typography.bodyMedium, color = mutedColor)
                         }
                         innerTextField()
                     }
@@ -3056,7 +3078,7 @@ private fun ProviderTextField(
                         ) {
                             PasswordVisibilityGlyph(
                                 isVisible = isPasswordVisible,
-                                tint = if (isFocused) Primary else OnSurfaceDim,
+                                tint = if (isMinimal) if (isFocused) MinimalText else MinimalMuted else if (isFocused) Primary else OnSurfaceDim,
                                 modifier = Modifier.align(Alignment.Center)
                             )
                         }

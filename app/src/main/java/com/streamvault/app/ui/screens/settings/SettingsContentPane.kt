@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
 import com.streamvault.app.ui.themes.cinematic.CinematicCanvas
 import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.LegacyProvider as Provider
 
@@ -47,12 +48,13 @@ internal fun SettingsContentPane(
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFuture = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    val isThemedPresentation = isCinematic || isNeonFuture
+    val isMinimal = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isThemedPresentation = isCinematic || isNeonFuture || isMinimal
     LazyColumn(
         modifier = modifier
             .fillMaxHeight()
             .imePadding()
-            .background(when { isCinematic -> CinematicCanvas; isNeonFuture -> NeonCanvas; else -> androidx.compose.ui.graphics.Color.Transparent }),
+            .background(when { isCinematic -> CinematicCanvas; isNeonFuture -> NeonCanvas; isMinimal -> MinimalCanvas; else -> androidx.compose.ui.graphics.Color.Transparent }),
         contentPadding = PaddingValues(
             start = if (isThemedPresentation) 26.dp else 20.dp,
             top = if (isThemedPresentation) 28.dp else 76.dp,
