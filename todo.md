@@ -31,6 +31,8 @@
 - [x] بناء مسارات Blue Ocean الأساسية: Dashboard وLive TV وMovies وMovie Detail وSeries وSeries Detail وSearch وFavorites وFullscreen Player.
 - [ ] إكمال Blue Ocean قبل اعتباره مكتملًا: إعدادات ومزوّد/تسجيل دخول وحوارات وEPG وتحقق بناء Android TV.
 - [ ] توثيق فحص Blue Ocean النهائي في بيئة Android مستقرة قبل فتح Theme Selector للثيم الثامن.
+- [ ] استكمال واجهات Blue Ocean الثانوية ثم إجراء تحقق Kotlin مستقر قبل اعتماد الثيم السابع في التسلسل.
+- [ ] ربط Red Cinema فقط بعد استكمال الإعدادات والمزوّد وتسجيل الدخول والتحقق من حزمته المستقلة.
 - [ ] تنفيذ Red Cinema: واجهة ستائر مسرحية ومشغل تحكم قائم على البكرات.
 - [ ] بدء Red Cinema بحزمة Compose مستقلة قابلة للبناء بعد اكتمال تحقق Blue Ocean؛ عقد التصميم محفوظ ولا يزال الثيم خارج Theme Selector.
 - [x] بناء Live TV مستقل لـRed Cinema: خشبة عرض مركزية وPlaybill جانبي بفئات وقنوات عمودية متراكبة.
