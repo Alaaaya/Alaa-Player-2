@@ -89,6 +89,7 @@ import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.themes.cinematic.CinematicMoviesLayout
+import com.streamvault.app.ui.themes.neon.NeonFutureMoviesLayout
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
@@ -109,6 +110,7 @@ fun MoviesScreen(
     }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -162,7 +164,7 @@ fun MoviesScreen(
             onNavigate = onNavigate,
             title = stringResource(R.string.nav_movies),
             subtitle = null,
-            navigationChrome = if (isCinematicTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
+            navigationChrome = if (isCinematicTheme || isNeonFutureTheme) AppNavigationChrome.Rail else AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false
         ) {
@@ -216,7 +218,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if (isCinematicTheme && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -231,30 +233,44 @@ fun MoviesScreen(
                     uiState.parentalControlLevel in 1..2 &&
                     (movieCategoryId == null || kotlin.math.abs(movieCategoryId) !in uiState.unlockedCategoryIds)
             }
-            CinematicMoviesLayout(
+            val onThemedCategoryClick: (Category) -> Unit = { category ->
+                if (isCategoryLocked(category)) {
+                    pendingMovie = null
+                    pendingCategory = category
+                    showPinDialog = true
+                } else viewModel.selectCategory(category.name)
+            }
+            val onThemedMovieClick: (Movie) -> Unit = { movie ->
+                if (isMovieLocked(movie)) {
+                    pendingCategory = null
+                    pendingMovie = movie
+                    showPinDialog = true
+                } else onMovieClick(movie)
+            }
+            if (isNeonFutureTheme) {
+                NeonFutureMoviesLayout(
+                    uiState = uiState,
+                    initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked,
+                    isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick,
+                    onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick,
+                    onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery,
+                    onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy,
+                    onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else CinematicMoviesLayout(
                 uiState = uiState,
                 initialFocusRequester = initialContentFocusRequester,
                 isCategoryLocked = isCategoryLocked,
                 isMovieLocked = isMovieLocked,
-                onCategoryClick = { category ->
-                    if (isCategoryLocked(category)) {
-                        pendingMovie = null
-                        pendingCategory = category
-                        showPinDialog = true
-                    } else {
-                        viewModel.selectCategory(category.name)
-                    }
-                },
+                onCategoryClick = onThemedCategoryClick,
                 onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
-                onMovieClick = { movie ->
-                    if (isMovieLocked(movie)) {
-                        pendingCategory = null
-                        pendingMovie = movie
-                        showPinDialog = true
-                    } else {
-                        onMovieClick(movie)
-                    }
-                },
+                onMovieClick = onThemedMovieClick,
                 onMovieLongClick = viewModel::onShowDialog,
                 onQueryChange = viewModel::setSearchQuery,
                 onFilterChange = viewModel::setSelectedLibraryFilterType,
