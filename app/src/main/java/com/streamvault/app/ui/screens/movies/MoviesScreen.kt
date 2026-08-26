@@ -91,6 +91,7 @@ import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.themes.cinematic.CinematicMoviesLayout
 import com.streamvault.app.ui.themes.minimal.MinimalMoviesLayout
 import com.streamvault.app.ui.themes.neon.NeonFutureMoviesLayout
+import com.streamvault.app.ui.themes.glass.GlassmorphismMoviesLayout
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
@@ -113,6 +114,7 @@ fun MoviesScreen(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -251,6 +253,22 @@ fun MoviesScreen(
             }
             if (isMinimalTheme) {
                 MinimalMoviesLayout(
+                    uiState = uiState,
+                    initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked,
+                    isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick,
+                    onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick,
+                    onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery,
+                    onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy,
+                    onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isGlassTheme) {
+                GlassmorphismMoviesLayout(
                     uiState = uiState,
                     initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked,
