@@ -73,6 +73,9 @@ import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.Surface
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.cinematic.CinematicFavoritesLayout
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.ContentType
 import kotlinx.coroutines.launch
 import com.streamvault.app.ui.interaction.TvClickableSurface
@@ -88,6 +91,7 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val activeReorderSection = uiState.sections.firstOrNull { it.key == uiState.reorderSectionKey }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -400,6 +404,28 @@ fun FavoritesScreen(
                 }
 
                 else -> {
+                    if (isCinematicTheme && !uiState.isReorderMode) {
+                        CinematicFavoritesLayout(
+                            sections = filteredSections,
+                            continueWatching = visibleContinueWatching,
+                            recentLive = visibleRecentLive,
+                            selectedPreset = uiState.selectedPreset,
+                            selectedFilter = uiState.selectedFilter,
+                            selectedSort = uiState.selectedSort,
+                            onPresetSelected = viewModel::selectPreset,
+                            onFilterSelected = viewModel::selectFilter,
+                            onSortSelected = viewModel::selectSort,
+                            onItemClick = { item ->
+                                if (item.favorite.contentType == ContentType.SERIES) {
+                                    onNavigate("series_detail/${item.favorite.contentId}")
+                                } else {
+                                    onItemClick(item)
+                                }
+                            },
+                            onItemLongClick = viewModel::showItemOptions,
+                            onHistoryClick = onHistoryClick
+                        )
+                    } else {
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             state = listState,
@@ -620,6 +646,7 @@ fun FavoritesScreen(
                                 movingFavoriteId = uiState.reorderItem?.id
                             )
                         }
+                    }
                     }
                 }
             }
