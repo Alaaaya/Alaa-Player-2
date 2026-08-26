@@ -50,6 +50,8 @@ import com.streamvault.app.ui.themes.cinematic.CinematicMuted
 import com.streamvault.app.ui.themes.cinematic.CinematicPanel
 import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
+import com.streamvault.app.ui.themes.neon.NeonCyan
+import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.domain.model.AppHomeTheme
 
 @Composable
@@ -57,11 +59,16 @@ private fun isCinematicSettingsPresentation(): Boolean =
     LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
 
 @Composable
+private fun isNeonSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+
+@Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
 ) {
     val isCinematic = isCinematicSettingsPresentation()
+    val isNeon = isNeonSettingsPresentation()
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -69,13 +76,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = if (isCinematic) CinematicGold else Primary,
-            fontWeight = if (isCinematic) FontWeight.Black else FontWeight.Normal
+            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; else -> Primary },
+            fontWeight = if (isCinematic || isNeon) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = if (isCinematic) CinematicMuted else OnSurfaceDim
+            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; else -> OnSurfaceDim }
         )
     }
 }
