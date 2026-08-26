@@ -115,6 +115,16 @@ import com.streamvault.app.ui.themes.minimal.MinimalMuted
 import com.streamvault.app.ui.themes.minimal.MinimalPaper
 import com.streamvault.app.ui.themes.minimal.MinimalRule
 import com.streamvault.app.ui.themes.minimal.MinimalText
+import com.streamvault.app.ui.themes.glass.GlassAccent
+import com.streamvault.app.ui.themes.glass.GlassCanvas
+import com.streamvault.app.ui.themes.glass.GlassCanvasDeep
+import com.streamvault.app.ui.themes.glass.GlassFocus
+import com.streamvault.app.ui.themes.glass.GlassFocusMotionMs
+import com.streamvault.app.ui.themes.glass.GlassMuted
+import com.streamvault.app.ui.themes.glass.GlassPane
+import com.streamvault.app.ui.themes.glass.GlassPaneFocused
+import com.streamvault.app.ui.themes.glass.GlassRule
+import com.streamvault.app.ui.themes.glass.GlassText
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.AppTopLevelDestination
 import com.streamvault.domain.model.CatalogLayout
@@ -146,9 +156,10 @@ fun AppScreenScaffold(
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
     val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
     // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
     // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
-    val resolvedNavigationChrome = if (isMinimalTheme) AppNavigationChrome.Rail else navigationChrome
+    val resolvedNavigationChrome = if (isMinimalTheme || isGlassTheme) AppNavigationChrome.Rail else navigationChrome
     val canvasBrush = if (isAlaaTheme) {
         Brush.verticalGradient(listOf(AlaaThemeColors.Canvas, AlaaThemeColors.CanvasRaised))
     } else if (isCinematicTheme) {
@@ -157,6 +168,8 @@ fun AppScreenScaffold(
         Brush.verticalGradient(listOf(NeonCanvas, NeonPanel, NeonCanvas))
     } else if (isMinimalTheme) {
         Brush.verticalGradient(listOf(MinimalCanvas, MinimalPaper, MinimalCanvas))
+    } else if (isGlassTheme) {
+        Brush.linearGradient(listOf(GlassCanvas, GlassCanvasDeep, GlassCanvas))
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -175,6 +188,14 @@ fun AppScreenScaffold(
                         modifier = Modifier
                             .fillMaxHeight()
                             .width(238.dp)
+                    )
+                } else if (isGlassTheme) {
+                    GlassmorphismDestinationRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(270.dp)
                     )
                 } else {
                     DestinationRail(
@@ -200,10 +221,10 @@ fun AppScreenScaffold(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {
@@ -1211,7 +1232,7 @@ private fun RailButton(
     }
 }
 
-private data class DestinationItem(
+internal data class DestinationItem(
     val route: String,
     @param:StringRes val labelRes: Int,
     val icon: ImageVector
@@ -1250,7 +1271,7 @@ private fun buildDestinationItems(
 }
 
 @Composable
-private fun rememberDestinationItems(): List<DestinationItem> {
+internal fun rememberDestinationItems(): List<DestinationItem> {
     val context = LocalContext.current
     val mainActivity = remember(context) { context.findMainActivity() }
     val configuredDestinations = mainActivity?.preferencesRepository?.appTopLevelDestinations
