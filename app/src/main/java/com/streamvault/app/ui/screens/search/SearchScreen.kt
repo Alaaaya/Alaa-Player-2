@@ -55,6 +55,8 @@ import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.theme.*
+import com.streamvault.app.ui.themes.cinematic.CinematicSearchLayout
+import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.CatalogCompleteness
@@ -534,6 +536,61 @@ fun SearchScreen(
                 }
             } else null
         )
+    }
+
+    if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
+        CinematicSearchLayout(
+            query = query,
+            selectedTab = selectedTab,
+            recentQueries = recentQueries,
+            uiState = uiState,
+            recordingChannelIds = recordingChannelIds,
+            scheduledChannelIds = scheduledChannelIds,
+            searchFocusRequester = searchFocusRequester,
+            onQueryChange = viewModel::onQueryChange,
+            onSearch = viewModel::onSearchSubmitted,
+            onTabSelected = viewModel::onTabSelected,
+            onRecentQuerySelected = viewModel::onRecentQuerySelected,
+            onClearRecentQueries = viewModel::clearRecentQueries,
+            onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex,
+            onChannelClick = { channel ->
+                if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
+                    pendingChannel = channel
+                    showPinDialog = true
+                } else {
+                    onChannelClick(channel)
+                }
+            },
+            onChannelLongClick = ::showChannelActions,
+            onMovieClick = { movie ->
+                if (isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected)) {
+                    pendingMovie = movie
+                    showPinDialog = true
+                } else {
+                    onMovieClick(movie)
+                }
+            },
+            onMovieLongClick = ::showMovieActions,
+            onSeriesClick = { seriesItem ->
+                if (isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected)) {
+                    pendingSeries = seriesItem
+                    showPinDialog = true
+                } else {
+                    onSeriesClick(seriesItem)
+                }
+            },
+            onSeriesLongClick = ::showSeriesActions,
+            isChannelLocked = { channel ->
+                isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)
+            },
+            isMovieLocked = { movie ->
+                isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected)
+            },
+            isSeriesLocked = { seriesItem ->
+                isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected)
+            }
+        )
+        return
     }
 
     AppScreenScaffold(
