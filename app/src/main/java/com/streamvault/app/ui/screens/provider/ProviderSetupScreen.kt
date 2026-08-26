@@ -91,7 +91,11 @@ import com.streamvault.app.ui.themes.cinematic.CinematicPanelRaised
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
 import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.neon.NeonCyan
+import com.streamvault.app.ui.themes.neon.NeonMuted
 import com.streamvault.app.ui.themes.neon.NeonPanel
+import com.streamvault.app.ui.themes.neon.NeonPanelRaised
+import com.streamvault.app.ui.themes.neon.NeonText
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptions
 import com.streamvault.data.remote.stalker.StalkerAdvancedOptionsCodec
 import com.streamvault.data.remote.stalker.StalkerParamOverride
@@ -2572,13 +2576,14 @@ private fun SourceTypeSelectorPanel(
     modifier: Modifier = Modifier
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+    val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else Surface.copy(alpha = 0.92f)),
+        shape = RoundedCornerShape(if (isNeon) 10.dp else 20.dp),
+        colors = SurfaceDefaults.colors(containerColor = if (isCinematic) CinematicPanel else if (isNeon) NeonPanel else Surface.copy(alpha = 0.92f)),
         border = Border(
-            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else BorderStroke(0.dp, Color.Transparent),
-            shape = RoundedCornerShape(20.dp)
+            border = if (isCinematic) BorderStroke(1.dp, CinematicWine.copy(alpha = .54f)) else if (isNeon) BorderStroke(1.dp, NeonCyan.copy(alpha = .34f)) else BorderStroke(0.dp, Color.Transparent),
+            shape = RoundedCornerShape(if (isNeon) 10.dp else 20.dp)
         )
     ) {
         Column(
@@ -2588,17 +2593,17 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = isEditLabel,
                 style = MaterialTheme.typography.titleMedium,
-                color = if (isCinematic) CinematicText else TextPrimary
+                color = if (isCinematic) CinematicText else if (isNeon) NeonText else TextPrimary
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_shell_subtitle),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicMuted else OnSurfaceDim
+                color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_source_type_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isCinematic) CinematicGold else TextTertiary
+                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else TextTertiary
             )
             if (!isEditing || sourceType == SourceType.XTREAM) {
                 SourceTypeCard(
@@ -2658,12 +2663,12 @@ private fun SourceTypeSelectorPanel(
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_title),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicGold else OnSurfaceDim
+                color = if (isCinematic) CinematicGold else if (isNeon) NeonCyan else OnSurfaceDim
             )
             Text(
                 text = androidx.compose.ui.res.stringResource(R.string.setup_info_manage_body),
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCinematic) CinematicMuted.copy(alpha = 0.7f) else OnSurfaceDim.copy(alpha = 0.55f)
+                color = if (isCinematic) CinematicMuted.copy(alpha = 0.7f) else if (isNeon) NeonMuted.copy(alpha = 0.72f) else OnSurfaceDim.copy(alpha = 0.55f)
             )
         }
     }
@@ -2679,7 +2684,8 @@ private fun SourceTypeCard(
     onClick: () -> Unit
 ) {
     val isCinematic = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
-    val shape = RoundedCornerShape(12.dp)
+    val isNeon = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val shape = RoundedCornerShape(if (isNeon) 7.dp else 12.dp)
     Surface(
         onClick = { if (enabled) onClick() },
         modifier = Modifier.fillMaxWidth().mouseClickable(enabled = enabled, onClick = onClick),
@@ -2687,16 +2693,18 @@ private fun SourceTypeCard(
         colors = ClickableSurfaceDefaults.colors(
             containerColor  = if (isCinematic) {
                 if (selected) CinematicWine.copy(alpha = 0.48f) else CinematicCanvas
+            } else if (isNeon) {
+                if (selected) NeonCyan.copy(alpha = 0.16f) else NeonPanel
             } else if (selected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
-            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
+            focusedContainerColor = if (isCinematic) CinematicPanelRaised else if (isNeon) NeonPanelRaised else if (selected) Primary.copy(alpha = 0.28f) else SurfaceHighlight
         ),
         border = ClickableSurfaceDefaults.border(
             border = Border(
-                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
+                border = BorderStroke(1.dp, if (isCinematic && selected) CinematicGold.copy(alpha = .55f) else if (isNeon && selected) NeonCyan.copy(alpha = .62f) else if (selected) Primary.copy(alpha = 0.5f) else SurfaceHighlight),
                 shape = shape
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (isCinematic) CinematicGold else FocusBorder),
+                border = BorderStroke(2.dp, if (isCinematic) CinematicGold else if (isNeon) NeonCyan else FocusBorder),
                 shape = shape
             )
         )
@@ -2712,7 +2720,7 @@ private fun SourceTypeCard(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isCinematic && selected) CinematicGold else if (selected) Primary else if (isCinematic) CinematicText else TextPrimary
+                    color = if (isCinematic && selected) CinematicGold else if (isNeon && selected) NeonCyan else if (selected) Primary else if (isCinematic) CinematicText else if (isNeon) NeonText else TextPrimary
                 )
                 badge?.let {
                     StatusPill(
@@ -2725,7 +2733,7 @@ private fun SourceTypeCard(
                     )
                 }
             }
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else OnSurfaceDim, maxLines = 2)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = if (isCinematic) CinematicMuted else if (isNeon) NeonMuted else OnSurfaceDim, maxLines = 2)
         }
     }
 }
