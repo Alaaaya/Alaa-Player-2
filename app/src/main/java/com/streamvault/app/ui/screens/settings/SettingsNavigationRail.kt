@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,6 +46,12 @@ import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.app.ui.themes.neon.NeonPanelRaised
 import com.streamvault.app.ui.themes.neon.NeonPink
 import com.streamvault.app.ui.themes.neon.NeonText
+import com.streamvault.app.ui.themes.minimal.MinimalCanvas
+import com.streamvault.app.ui.themes.minimal.MinimalFocus
+import com.streamvault.app.ui.themes.minimal.MinimalMuted
+import com.streamvault.app.ui.themes.minimal.MinimalPaper
+import com.streamvault.app.ui.themes.minimal.MinimalRule
+import com.streamvault.app.ui.themes.minimal.MinimalText
 import com.streamvault.domain.model.AppHomeTheme
 
 private data class SettingsNavEntry(
@@ -125,6 +132,15 @@ internal fun SettingsNavigationRail(
         )
         return
     }
+    if (LocalAppHomeTheme.current == AppHomeTheme.MINIMAL) {
+        MinimalSettingsNavigationRail(
+            entries = entries,
+            selectedCategory = selectedCategory,
+            focusRequester = focusRequester,
+            onCategorySelected = onCategorySelected
+        )
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -142,6 +158,77 @@ internal fun SettingsNavigationRail(
                 isSelected = selectedCategory == index,
                 modifier = if (selectedCategory == index) Modifier.focusRequester(focusRequester) else Modifier,
                 onClick = { onCategorySelected(index) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MinimalSettingsNavigationRail(
+    entries: List<SettingsNavEntry>,
+    selectedCategory: Int,
+    focusRequester: FocusRequester,
+    onCategorySelected: (Int) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .width(244.dp)
+            .fillMaxHeight()
+            .background(MinimalPaper),
+        contentPadding = PaddingValues(start = 16.dp, top = 26.dp, end = 16.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item("minimal_settings_rail_heading") {
+            Column(modifier = Modifier.padding(start = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("SYSTEM EDITOR", style = androidx.tv.material3.MaterialTheme.typography.titleLarge, color = MinimalText)
+                Text("SETTINGS INDEX", style = androidx.tv.material3.MaterialTheme.typography.labelSmall, color = MinimalMuted)
+            }
+        }
+        itemsIndexed(entries) { index, entry ->
+            val selected = selectedCategory == index
+            val shape = androidx.compose.foundation.shape.RoundedCornerShape(0.dp)
+            TvClickableSurface(
+                onClick = { onCategorySelected(index) },
+                modifier = (if (selected) Modifier.focusRequester(focusRequester) else Modifier).fillMaxWidth(),
+                shape = ClickableSurfaceDefaults.shape(shape),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) MinimalCanvas else MinimalPaper,
+                    focusedContainerColor = MinimalCanvas,
+                    contentColor = MinimalText,
+                    focusedContentColor = MinimalText
+                ),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(border = BorderStroke(1.dp, MinimalFocus), shape = shape)
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = (index + 1).toString().padStart(2, '0'),
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall,
+                        color = if (selected) MinimalText else MinimalMuted
+                    )
+                    Text(
+                        text = entry.label.uppercase(),
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge,
+                        color = if (selected) MinimalText else MinimalMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        item("minimal_settings_rail_rule") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .height(1.dp)
+                    .background(MinimalRule)
             )
         }
     }
