@@ -55,6 +55,8 @@ import com.streamvault.app.ui.themes.cinematic.CinematicMuted
 import com.streamvault.app.ui.themes.cinematic.CinematicPanel
 import com.streamvault.app.ui.themes.cinematic.CinematicText
 import com.streamvault.app.ui.themes.cinematic.CinematicWine
+import com.streamvault.app.ui.themes.neon.NeonCanvas
+import com.streamvault.app.ui.themes.neon.NeonPanel
 import com.streamvault.domain.model.AppHomeTheme
 
 internal val LocalDialogCanInteract = compositionLocalOf { true }
@@ -91,6 +93,13 @@ fun PremiumDialog(
     var canInteract by remember { mutableStateOf(false) }
     val isTelevisionDevice = rememberIsTelevisionDevice()
     val blockOpenGesture = rememberDialogOpenGestureBlocker(canInteract)
+    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+    val dialogSurface = if (isNeonFutureTheme) NeonPanel else AppColors.SurfaceElevated
+    val dialogBackground = if (isNeonFutureTheme) {
+        Brush.verticalGradient(colors = listOf(NeonCanvas.copy(alpha = 0.84f), NeonPanel, NeonCanvas))
+    } else {
+        Brush.verticalGradient(colors = listOf(AppColors.BrandMuted.copy(alpha = 0.18f), AppColors.SurfaceElevated, AppColors.Surface))
+    }
     if (LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC) {
         CinematicPremiumDialog(
             title = title,
@@ -135,7 +144,7 @@ fun PremiumDialog(
                     Surface(
                         modifier = dialogModifier,
                         shape = RoundedCornerShape(28.dp),
-                        colors = SurfaceDefaults.colors(containerColor = AppColors.SurfaceElevated)
+                        colors = SurfaceDefaults.colors(containerColor = dialogSurface)
                     ) {
                         Column(
                             modifier = Modifier
@@ -202,7 +211,7 @@ fun PremiumDialog(
                     Surface(
                         modifier = dialogModifier,
                         shape = RoundedCornerShape(28.dp),
-                        colors = SurfaceDefaults.colors(containerColor = AppColors.SurfaceElevated)
+                        colors = SurfaceDefaults.colors(containerColor = dialogSurface)
                     ) {
                         Column(
                             modifier = Modifier
