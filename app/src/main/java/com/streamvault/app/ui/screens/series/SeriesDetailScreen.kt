@@ -79,6 +79,8 @@ import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
+import com.streamvault.app.ui.themes.alaa.AlaaSeriesDetail
 import com.streamvault.app.ui.themes.cinematic.CinematicSeriesDetail
 import com.streamvault.app.ui.themes.glass.GlassmorphismSeriesDetail
 import com.streamvault.app.ui.themes.glass.GlassMuted
@@ -102,6 +104,7 @@ private const val EPISODE_DETAIL_PAGE_SIZE = 100
 fun SeriesDetailScreen(
     onEpisodeClick: (Episode) -> Unit,
     onResumeClick: ((Episode) -> Unit)? = null,
+    onEpisodePlayFromBeginning: ((Episode) -> Unit)? = null,
     onBack: () -> Unit,
     viewModel: SeriesDetailViewModel = hiltViewModel()
 ) {
@@ -118,6 +121,7 @@ fun SeriesDetailScreen(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val isAlaaTheme = LocalIsAlaaTheme.current
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -167,7 +171,21 @@ fun SeriesDetailScreen(
         return
     }
 
-    if (isRedCinemaTheme) {
+    if (isAlaaTheme) {
+        AlaaSeriesDetail(
+            series = series,
+            selectedSeason = uiState.selectedSeason,
+            selectedEpisode = uiState.selectedEpisode,
+            resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount,
+            onToggleFavorite = viewModel::toggleFavorite,
+            onSeasonSelected = viewModel::selectSeason,
+            onEpisodeSelected = viewModel::selectEpisode,
+            onResumeEpisode = onResumeClick ?: onEpisodeClick,
+            onPlayEpisodeFromBeginning = onEpisodePlayFromBeginning ?: onEpisodeClick,
+            onBack = onBack
+        )
+    } else if (isRedCinemaTheme) {
         RedCinemaSerialFile(
             series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
             unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,

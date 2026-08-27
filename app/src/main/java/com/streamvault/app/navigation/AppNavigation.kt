@@ -115,7 +115,8 @@ data class PlayerNavigationRequest(
     val seriesId: Long? = null,
     val seasonNumber: Int? = null,
     val episodeNumber: Int? = null,
-    val episodeId: Long? = null
+    val episodeId: Long? = null,
+    val forceStartAtBeginning: Boolean = false
 ) : Serializable
 
 object Routes {
@@ -930,6 +931,7 @@ fun AppNavigation(mainActivity: MainActivity) {
                     seasonNumber = safePlayerRequest.seasonNumber,
                     episodeNumber = safePlayerRequest.episodeNumber,
                     episodeId = safePlayerRequest.episodeId,
+                    forceStartAtBeginning = safePlayerRequest.forceStartAtBeginning,
                     onBack = {
                         val route = safePlayerRequest.returnRoute
                         if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
@@ -987,6 +989,17 @@ fun AppNavigation(mainActivity: MainActivity) {
                         )
                     )
                 },
+                onPlayFromBeginning = { movie ->
+                    navController.navigateToPlayer(
+                        Routes.moviePlayer(movie).copy(
+                            forceStartAtBeginning = true,
+                            returnRoute = Routes.movieDetail(
+                                movieId = movie.id.takeIf { it > 0L } ?: movieId,
+                                returnRoute = returnRoute
+                            )
+                        )
+                    )
+                },
                 onBack = {
                     if (!returnRoute.isNullOrBlank()) {
                         navController.navigate(returnRoute) {
@@ -1022,7 +1035,18 @@ fun AppNavigation(mainActivity: MainActivity) {
                                  returnRoute = returnRoute
                              )
                          )
-                     )
+                    )
+                },
+                onEpisodePlayFromBeginning = { episode ->
+                    navController.navigateToPlayer(
+                        Routes.episodePlayer(episode).copy(
+                            forceStartAtBeginning = true,
+                            returnRoute = Routes.seriesDetail(
+                                seriesId = episode.seriesId.takeIf { it > 0L } ?: seriesId,
+                                returnRoute = returnRoute
+                            )
+                        )
+                    )
                 },
                 onBack = {
                     if (!returnRoute.isNullOrBlank()) {

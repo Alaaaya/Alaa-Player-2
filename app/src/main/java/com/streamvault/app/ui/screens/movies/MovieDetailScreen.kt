@@ -74,6 +74,8 @@ import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
 import com.streamvault.domain.model.Result
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.theme.LocalIsAlaaTheme
+import com.streamvault.app.ui.themes.alaa.AlaaMovieDetail
 import com.streamvault.app.ui.themes.cinematic.CinematicMovieDetail
 import com.streamvault.app.ui.themes.glass.GlassmorphismMovieDetail
 import com.streamvault.app.ui.themes.glass.GlassMuted
@@ -95,6 +97,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MovieDetailScreen(
     onPlay: (Movie) -> Unit,
+    onPlayFromBeginning: ((Movie) -> Unit)? = null,
     onBack: () -> Unit,
     viewModel: MovieDetailViewModel = hiltViewModel()
 ) {
@@ -111,6 +114,7 @@ fun MovieDetailScreen(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val isAlaaTheme = LocalIsAlaaTheme.current
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -160,7 +164,16 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            if (isRedCinemaTheme) {
+            if (isAlaaTheme) {
+                AlaaMovieDetail(
+                    movie = movie,
+                    hasResume = uiState.hasResume,
+                    onPlay = { onPlay(movie) },
+                    onPlayFromBeginning = { (onPlayFromBeginning ?: onPlay)(movie) },
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onBack = onBack
+                )
+            } else if (isRedCinemaTheme) {
                 RedCinemaFeatureFile(
                     movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
                     isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
