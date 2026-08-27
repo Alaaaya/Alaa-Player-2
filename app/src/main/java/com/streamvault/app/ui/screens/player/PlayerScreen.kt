@@ -104,6 +104,8 @@ import com.streamvault.app.ui.screens.player.overlay.PlayerSleepTimerWarningOver
 import com.streamvault.app.ui.screens.player.overlay.NextEpisodeCountdownOverlay
 import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
 import com.streamvault.app.ui.screens.multiview.MultiViewPlannerDialog
+import com.streamvault.app.ui.screens.epg.EpgViewModel
+import com.streamvault.app.ui.screens.player.overlay.PlayerTransparentGuideOverlay
 import com.streamvault.app.ui.themes.cinematic.CinematicPlayerOverlay
 import com.streamvault.app.ui.themes.glass.GlassmorphismPlayerOverlay
 import com.streamvault.app.ui.themes.streaming.StreamingPlatformPlayerOverlay
@@ -112,7 +114,9 @@ import com.streamvault.app.ui.themes.minimal.MinimalPlayerOverlay
 import com.streamvault.app.ui.themes.neon.NeonFuturePlayerOverlay
 import com.streamvault.app.ui.themes.blueocean.BlueOceanPlayerOverlay
 import com.streamvault.app.ui.themes.redcinema.RedCinemaPlayerOverlay
+import com.streamvault.app.ui.themes.alaa.AlaaLivePlayerOverlay
 import com.streamvault.app.ui.themes.alaa.AlaaPlayerOverlay
+import com.streamvault.app.ui.model.isArchivePlayable
 import com.streamvault.app.navigation.Routes
 
 
@@ -202,6 +206,7 @@ fun PlayerScreen(
     val parentalControlLevel by viewModel.parentalControlLevel.collectAsStateWithLifecycle()
     val activeCategoryId by viewModel.activeCategoryId.collectAsStateWithLifecycle()
     val showEpgOverlay by viewModel.showEpgOverlay.collectAsStateWithLifecycle()
+    val showFullGuideOverlay by viewModel.showFullGuideOverlay.collectAsStateWithLifecycle()
     val currentChannelList by viewModel.currentChannelList.collectAsStateWithLifecycle()
     val recentChannels by viewModel.recentChannels.collectAsStateWithLifecycle()
     val lastVisitedCategory by viewModel.lastVisitedCategory.collectAsStateWithLifecycle()
@@ -231,6 +236,8 @@ fun PlayerScreen(
     val timeshiftUiState by viewModel.timeshiftUiState.collectAsStateWithLifecycle()
     val sleepTimerUiState by viewModel.sleepTimerUiState.collectAsStateWithLifecycle()
     val sleepTimerExitEvent by viewModel.sleepTimerExitEvent.collectAsStateWithLifecycle()
+    val playerGuideViewModel: EpgViewModel = hiltViewModel()
+    val playerGuideUiState by playerGuideViewModel.uiState.collectAsStateWithLifecycle()
 
     var showTrackSelection by remember { mutableStateOf<TrackType?>(null) }
     var showVariantSelection by remember { mutableStateOf(false) }
@@ -347,7 +354,7 @@ fun PlayerScreen(
     }
 
     // Consolidated focus management for all overlays
-    val liveOverlayVisible = contentType == "LIVE" && (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay)
+    val liveOverlayVisible = contentType == "LIVE" && (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showFullGuideOverlay || showChannelInfoOverlay)
     val nextEpisodeCountdownVisible = !isInPictureInPictureMode && autoPlayCountdown != null
     val anyOverlayVisible = liveOverlayVisible || nextEpisodeCountdownVisible || showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showDiagnostics || showAlaaPlayerSettings
 
@@ -550,6 +557,7 @@ fun PlayerScreen(
         showChannelListOverlay,
         showCategoryListOverlay,
         showEpgOverlay,
+        showFullGuideOverlay,
         showControls,
         numericChannelInput
     ) {
@@ -574,6 +582,7 @@ fun PlayerScreen(
                 showAlaaPlayerSettings -> showAlaaPlayerSettings = false
                 isAlaaTheme && alaaControlsLocked -> Unit
                 showChannelInfoOverlay -> viewModel.closeChannelInfoOverlay()
+                showFullGuideOverlay -> viewModel.closeFullGuideOverlay()
                 showChannelListOverlay || showCategoryListOverlay || showEpgOverlay -> viewModel.closeOverlays()
                 showControls -> viewModel.toggleControls()
                 else -> onBack()
@@ -1069,6 +1078,8 @@ fun PlayerScreen(
             isCatchUpPlayback = isCatchUpPlayback,
             isPlaying = isPlaying,
             currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            upcomingPrograms = upcomingPrograms,
             currentChannel = currentChannel,
             currentChannelName = currentChannel?.name,
             displayChannelNumber = displayChannelNumber,
@@ -1077,6 +1088,7 @@ fun PlayerScreen(
             liveTranslationAvailable = liveTranslationAvailable,
             audioTrackCount = availableAudioTracks.size,
             videoQualityCount = availableVideoQualities.size,
+            resolutionBadgeLabel = resolutionBadgeLabel,
             currentRecordingStatus = currentChannelRecording?.status,
             isMuted = isMuted,
             playbackSpeed = playbackSpeed,
@@ -1129,6 +1141,10 @@ fun PlayerScreen(
             audioVideoSyncEnabled = audioVideoSyncEnabled,
             showEpisodesAction = canOpenEpisodePicker,
             onOpenEpisodes = { showEpisodePicker = true },
+            onOpenLiveChannels = viewModel::openChannelListOverlay,
+            onToggleLiveFavorite = viewModel::toggleCurrentChannelFavorite,
+            onRestartLiveProgram = viewModel::restartCurrentProgram,
+            onOpenLiveGuide = viewModel::openFullGuideOverlay,
             isAlaaControlsLocked = alaaControlsLocked,
             onToggleAlaaControlsLock = { alaaControlsLocked = !alaaControlsLocked },
             showAlaaPlayerSettings = showAlaaPlayerSettings,
@@ -1304,6 +1320,32 @@ fun PlayerScreen(
         }
 
         // --- Overlays ---
+        if (!isInPictureInPictureMode && contentType == "LIVE" && showFullGuideOverlay) {
+            PlayerTransparentGuideOverlay(
+                uiState = playerGuideUiState,
+                currentPlayerChannelId = currentChannel?.id ?: internalChannelId,
+                onDismiss = viewModel::closeFullGuideOverlay,
+                onJumpToNow = playerGuideViewModel::jumpToNow,
+                onSelectCategory = { category -> playerGuideViewModel.selectCategory(category.id) },
+                onSearchQueryChange = playerGuideViewModel::updateProgramSearchQuery,
+                onClearSearch = playerGuideViewModel::clearProgramSearch,
+                onWatchChannel = { channel ->
+                    viewModel.playChannelFromGuideOverlay(
+                        channel = channel,
+                        selectedGuideCategoryId = playerGuideUiState.selectedCategoryId,
+                        favoritesOnly = playerGuideUiState.showFavoritesOnly,
+                        combinedProfileId = playerGuideUiState.combinedProfileId
+                    )
+                },
+                onWatchArchive = { _, program ->
+                    viewModel.closeFullGuideOverlay()
+                    viewModel.playCatchUp(program)
+                },
+                onRequestMoreChannels = playerGuideViewModel::requestMoreChannels,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         if (!isInPictureInPictureMode && showDiagnostics) {
             val playerStats by viewModel.playerStats.collectAsStateWithLifecycle()
             DiagnosticsOverlay(
@@ -1503,6 +1545,8 @@ private fun PlayerControlsOverlayHost(
     isCatchUpPlayback: Boolean = false,
     isPlaying: Boolean,
     currentProgram: Program?,
+    nextProgram: Program?,
+    upcomingPrograms: List<Program>,
     currentChannel: Channel?,
     currentChannelName: String?,
     displayChannelNumber: Int,
@@ -1511,6 +1555,7 @@ private fun PlayerControlsOverlayHost(
     liveTranslationAvailable: Boolean,
     audioTrackCount: Int,
     videoQualityCount: Int,
+    resolutionBadgeLabel: String?,
     currentRecordingStatus: com.streamvault.domain.model.RecordingStatus?,
     isMuted: Boolean,
     playbackSpeed: Float,
@@ -1547,6 +1592,10 @@ private fun PlayerControlsOverlayHost(
     audioVideoSyncEnabled: Boolean,
     showEpisodesAction: Boolean,
     onOpenEpisodes: () -> Unit,
+    onOpenLiveChannels: () -> Unit,
+    onToggleLiveFavorite: () -> Unit,
+    onRestartLiveProgram: () -> Unit,
+    onOpenLiveGuide: () -> Unit,
     isAlaaControlsLocked: Boolean,
     onToggleAlaaControlsLock: () -> Unit,
     showAlaaPlayerSettings: Boolean,
@@ -1581,7 +1630,37 @@ private fun PlayerControlsOverlayHost(
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val isAlaaTheme = LocalIsAlaaTheme.current
 
-    if (isAlaaTheme) {
+    if (isAlaaTheme && contentType == "LIVE") {
+        AlaaLivePlayerOverlay(
+            visible = visible,
+            channel = currentChannel,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            upcomingPrograms = upcomingPrograms,
+            displayChannelNumber = displayChannelNumber,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            isPlaying = isPlaying,
+            isFavorite = currentChannel?.isFavorite == true,
+            replayAvailable = (currentChannel != null && currentProgram != null && currentChannel.isArchivePlayable(currentProgram)) || timeshiftUiState.available,
+            isMuted = isMuted,
+            showSettings = showAlaaPlayerSettings,
+            actionBarFocusRequester = quickActionsFocusRequester,
+            settingsCloseFocusRequester = alaaSettingsFocusRequester,
+            modifier = modifier,
+            onOpenChannels = onOpenLiveChannels,
+            onToggleFavorite = onToggleLiveFavorite,
+            onRestartProgram = onRestartLiveProgram,
+            onOpenGuide = onOpenLiveGuide,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSettings = onOpenAlaaPlayerSettings,
+            onDismissSettings = onDismissAlaaPlayerSettings,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isAlaaTheme) {
         AlaaPlayerOverlay(
             visible = visible,
             title = title,
