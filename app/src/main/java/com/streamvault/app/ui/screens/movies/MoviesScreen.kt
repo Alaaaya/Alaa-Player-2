@@ -1165,8 +1165,13 @@ private fun MoviesVodClassicContent(
     var draggingMovie by remember { mutableStateOf<Movie?>(null) }
     val initialGridMovieId = filteredGridMovies.firstOrNull()?.id
 
-    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
-        if ((isAlaaTheme || uiState.vodViewMode == VodViewMode.CLASSIC) && uiState.selectedCategory == null && !uiState.isReorderMode) {
+    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode, uiState.providerCategories, uiState.isLoading) {
+        if (uiState.selectedCategory != null || uiState.isReorderMode) return@LaunchedEffect
+        if (isAlaaTheme) {
+            // ALAA must open an actual IPTV section first. Selecting Favorites here made every
+            // newly connected provider look empty and skipped the category hydration request.
+            uiState.providerCategories.firstOrNull()?.name?.let(onSelectCategory)
+        } else if (uiState.vodViewMode == VodViewMode.CLASSIC) {
             onSelectCategory(uiState.favoriteCategoryName)
         }
     }

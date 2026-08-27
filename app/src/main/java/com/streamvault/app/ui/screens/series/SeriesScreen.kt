@@ -1158,8 +1158,13 @@ private fun SeriesVodClassicContent(
     var draggingSeries by remember { mutableStateOf<Series?>(null) }
     val initialGridSeriesId = filteredGridSeries.firstOrNull()?.id
 
-    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
-        if ((isAlaaTheme || uiState.vodViewMode == VodViewMode.CLASSIC) && uiState.selectedCategory == null && !uiState.isReorderMode) {
+    LaunchedEffect(isAlaaTheme, uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode, uiState.providerCategories, uiState.isLoading) {
+        if (uiState.selectedCategory != null || uiState.isReorderMode) return@LaunchedEffect
+        if (isAlaaTheme) {
+            // Begin with a real provider section so Xtream/Stalker hydration starts even when
+            // the user has not added any series to Favorites yet.
+            uiState.providerCategories.firstOrNull()?.name?.let(onSelectCategory)
+        } else if (uiState.vodViewMode == VodViewMode.CLASSIC) {
             onSelectCategory(uiState.favoriteCategoryName)
         }
     }
