@@ -22,6 +22,23 @@ fun PlayerViewModel.openChannelListOverlay() {
     scheduleLiveOverlayAutoHide()
 }
 
+fun PlayerViewModel.toggleCurrentChannelFavorite() {
+    val channel = currentChannelFlow.value ?: return
+    val shouldBeFavorite = !channel.isFavorite
+    viewModelScope.launch {
+        if (playerChannelCoordinator.setChannelFavorite(channel, shouldBeFavorite).isSuccess) {
+            currentChannelFlow.value = channel.copy(isFavorite = shouldBeFavorite)
+            currentChannelFlowList.value = currentChannelFlowList.value.map { listedChannel ->
+                if (listedChannel.id == channel.id && listedChannel.providerId == channel.providerId) {
+                    listedChannel.copy(isFavorite = shouldBeFavorite)
+                } else {
+                    listedChannel
+                }
+            }
+        }
+    }
+}
+
 fun PlayerViewModel.openCategoryListOverlay() {
     if (currentProviderId <= 0 || availableCategoriesFlow.value.isEmpty()) return
     showCategoryListOverlayFlow.value = true

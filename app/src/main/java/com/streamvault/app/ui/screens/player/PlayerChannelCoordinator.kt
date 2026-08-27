@@ -2,15 +2,18 @@ package com.streamvault.app.ui.screens.player
 
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.repository.ChannelRepository
+import com.streamvault.domain.repository.FavoriteRepository
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
 /** Owns channel catalog lookup and channel-scoped playback/error mutations for the player. */
 class PlayerChannelCoordinator @Inject constructor(
-    private val repository: ChannelRepository
+    private val repository: ChannelRepository,
+    private val favoriteRepository: FavoriteRepository
 ) {
     internal fun getCategories(providerId: Long): Flow<List<Category>> =
         repository.getCategories(providerId)
@@ -34,4 +37,11 @@ class PlayerChannelCoordinator @Inject constructor(
 
     internal suspend fun resetChannelErrorCount(channelId: Long): Result<Unit> =
         repository.resetChannelErrorCount(channelId)
+
+    internal suspend fun setChannelFavorite(channel: Channel, shouldBeFavorite: Boolean): Result<Unit> =
+        if (shouldBeFavorite) {
+            favoriteRepository.addFavorite(channel.providerId, channel.id, ContentType.LIVE)
+        } else {
+            favoriteRepository.removeFavorite(channel.providerId, channel.id, ContentType.LIVE)
+        }
 }
