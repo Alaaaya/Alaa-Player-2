@@ -312,6 +312,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun setPlayerImmersiveMode(enabled: Boolean) {
+        val decorView = window.decorView
+        val controller = WindowCompat.getInsetsController(window, decorView)
+        if (enabled) {
+            applyImmersiveSystemUi()
+        } else {
+            decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     fun openCastRouteChooser() {
         startActivity(Intent(this, CastRouteChooserActivity::class.java))
     }

@@ -112,6 +112,7 @@ import com.streamvault.app.ui.themes.minimal.MinimalPlayerOverlay
 import com.streamvault.app.ui.themes.neon.NeonFuturePlayerOverlay
 import com.streamvault.app.ui.themes.blueocean.BlueOceanPlayerOverlay
 import com.streamvault.app.ui.themes.redcinema.RedCinemaPlayerOverlay
+import com.streamvault.app.ui.themes.alaa.AlaaPlayerOverlay
 import com.streamvault.app.navigation.Routes
 
 
@@ -240,6 +241,9 @@ fun PlayerScreen(
     var showProgramHistory by remember { mutableStateOf(false) }
     var showSplitDialog by remember { mutableStateOf(false) }
     var showEpisodePicker by remember { mutableStateOf(false) }
+    var showAlaaPlayerSettings by remember { mutableStateOf(false) }
+    var alaaControlsLocked by remember { mutableStateOf(false) }
+    var alaaPlayerImmersiveMode by remember { mutableStateOf(true) }
     var channelInfoSubPanelOpen by remember { mutableStateOf(false) }
     
     val focusRequester = remember { FocusRequester() }
@@ -248,8 +252,11 @@ fun PlayerScreen(
     val playButtonFocusRequester = remember { FocusRequester() }
     val quickActionsFocusRequester = remember { FocusRequester() }
     val channelInfoFocusRequester = remember { FocusRequester() }
+    val alaaLockFocusRequester = remember { FocusRequester() }
+    val alaaSettingsFocusRequester = remember { FocusRequester() }
     val layoutDirection = LocalLayoutDirection.current
     val isRtl = layoutDirection == LayoutDirection.Rtl
+    val isAlaaTheme = LocalIsAlaaTheme.current
     val currentPictureInPictureMode by rememberUpdatedState(isInPictureInPictureMode)
     val enterPictureInPicture = remember(mainActivity) {
         {
@@ -297,6 +304,12 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(isAlaaTheme, alaaPlayerImmersiveMode) {
+        if (isAlaaTheme) {
+            mainActivity?.setPlayerImmersiveMode(alaaPlayerImmersiveMode)
+        }
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_START) {
         viewModel.onAppForegrounded()
     }
@@ -312,6 +325,7 @@ fun PlayerScreen(
     DisposableEffect(mainActivity) {
         onDispose {
             mainActivity?.clearPlayerPictureInPictureState()
+            if (isAlaaTheme) mainActivity?.setPlayerImmersiveMode(true)
             viewModel.onPlayerScreenDisposed()
         }
     }
@@ -335,7 +349,7 @@ fun PlayerScreen(
     // Consolidated focus management for all overlays
     val liveOverlayVisible = contentType == "LIVE" && (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay)
     val nextEpisodeCountdownVisible = !isInPictureInPictureMode && autoPlayCountdown != null
-    val anyOverlayVisible = liveOverlayVisible || nextEpisodeCountdownVisible || showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showDiagnostics
+    val anyOverlayVisible = liveOverlayVisible || nextEpisodeCountdownVisible || showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showDiagnostics || showAlaaPlayerSettings
 
     LaunchedEffect(contentType, showCategoryListOverlay, showChannelListOverlay, showEpgOverlay, showChannelInfoOverlay) {
         if (contentType == "LIVE" && (showCategoryListOverlay || showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay)) {
@@ -353,6 +367,13 @@ fun PlayerScreen(
         if (!anyOverlayVisible) {
             // Restore focus to main player when all overlays are gone
             focusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Player root")
+        }
+    }
+
+    LaunchedEffect(showAlaaPlayerSettings) {
+        if (showAlaaPlayerSettings) {
+            delay(100)
+            alaaSettingsFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "ALAA settings close control")
         }
     }
 
@@ -473,10 +494,12 @@ fun PlayerScreen(
         )
     }
 
-    LaunchedEffect(showControls) {
+    LaunchedEffect(showControls, isAlaaTheme, alaaControlsLocked) {
         if (showControls) {
             delay(100)
-            if (contentType == "LIVE") {
+            if (isAlaaTheme && alaaControlsLocked) {
+                alaaLockFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "ALAA unlock control")
+            } else if (contentType == "LIVE") {
                 quickActionsFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Player quick actions")
             } else {
                 playButtonFocusRequester.requestFocusSafely(tag = "PlayerScreen", target = "Player transport")
@@ -487,10 +510,10 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, showTrackSelection, showVariantSelection, showSpeedSelection, showAudioVideoOffsetDialog, showStopPlaybackTimerDialog, showIdleStandbyTimerDialog, showProgramHistory, showSplitDialog, showEpisodePicker) {
-        if (!showControls) {
+    LaunchedEffect(showControls, showTrackSelection, showVariantSelection, showSpeedSelection, showAudioVideoOffsetDialog, showStopPlaybackTimerDialog, showIdleStandbyTimerDialog, showProgramHistory, showSplitDialog, showEpisodePicker, showAlaaPlayerSettings, alaaControlsLocked) {
+        if (!showControls || alaaControlsLocked) {
             viewModel.cancelControlsAutoHide()
-        } else if (showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker) {
+        } else if (showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog || showProgramHistory || showSplitDialog || showEpisodePicker || showAlaaPlayerSettings) {
             viewModel.cancelControlsAutoHide()
         } else {
             viewModel.hideControlsAfterDelay()
@@ -521,6 +544,8 @@ fun PlayerScreen(
         showTrackSelection,
         showVariantSelection,
         showDiagnostics,
+        showAlaaPlayerSettings,
+        alaaControlsLocked,
         showChannelInfoOverlay,
         showChannelListOverlay,
         showCategoryListOverlay,
@@ -546,6 +571,8 @@ fun PlayerScreen(
                 showVariantSelection -> showVariantSelection = false
                 showTrackSelection != null -> showTrackSelection = null
                 showDiagnostics -> viewModel.toggleDiagnostics()
+                showAlaaPlayerSettings -> showAlaaPlayerSettings = false
+                isAlaaTheme && alaaControlsLocked -> Unit
                 showChannelInfoOverlay -> viewModel.closeChannelInfoOverlay()
                 showChannelListOverlay || showCategoryListOverlay || showEpgOverlay -> viewModel.closeOverlays()
                 showControls -> viewModel.toggleControls()
@@ -642,6 +669,17 @@ fun PlayerScreen(
                         return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
                             KeyEvent.KEYCODE_BACK -> {
                                 viewModel.cancelAutoPlay()
+                                true
+                            }
+                            else -> true
+                        }
+                    }
+                    if (isAlaaTheme && alaaControlsLocked) {
+                        return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_CENTER,
+                            KeyEvent.KEYCODE_ENTER,
+                            KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                if (!showControls) viewModel.toggleControls()
                                 true
                             }
                             else -> true
@@ -746,7 +784,7 @@ fun PlayerScreen(
                                 if (isRtl) viewModel.openEpgOverlay() else viewModel.openChannelListOverlay()
                                 true
                             } else if (!showChannelListOverlay && !showCategoryListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isRtl) viewModel.seekForward() else viewModel.seekBackward()
+                                if (isAlaaTheme || !isRtl) viewModel.seekBackward() else viewModel.seekForward()
                                 true
                             } else {
                                 false
@@ -761,7 +799,7 @@ fun PlayerScreen(
                                 if (isRtl) viewModel.openChannelListOverlay() else viewModel.openEpgOverlay()
                                 true
                             } else if (!showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isRtl) viewModel.seekBackward() else viewModel.seekForward()
+                                if (isAlaaTheme || !isRtl) viewModel.seekForward() else viewModel.seekBackward()
                                 true
                             } else {
                                 false
@@ -1039,12 +1077,17 @@ fun PlayerScreen(
             isMuted = isMuted,
             playbackSpeed = playbackSpeed,
             mediaTitle = mediaTitle,
+            seriesTitle = currentSeries?.name,
+            episodeTitle = currentEpisode?.title,
+            currentSeasonNumber = currentEpisode?.seasonNumber ?: seasonNumber,
+            currentEpisodeNumber = currentEpisode?.episodeNumber ?: episodeNumber,
             sleepTimerUiState = sleepTimerUiState,
             timeshiftUiState = timeshiftUiState,
             playButtonFocusRequester = playButtonFocusRequester,
             quickActionsFocusRequester = quickActionsFocusRequester,
             modifier = Modifier.fillMaxSize(),
             onClose = viewModel::toggleControls,
+            onNavigateBack = onBack,
             onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
             onSeekBackward = viewModel::seekBackward,
             onSeekForward = viewModel::seekForward,
@@ -1082,6 +1125,15 @@ fun PlayerScreen(
             audioVideoSyncEnabled = audioVideoSyncEnabled,
             showEpisodesAction = canOpenEpisodePicker,
             onOpenEpisodes = { showEpisodePicker = true },
+            isAlaaControlsLocked = alaaControlsLocked,
+            onToggleAlaaControlsLock = { alaaControlsLocked = !alaaControlsLocked },
+            showAlaaPlayerSettings = showAlaaPlayerSettings,
+            onOpenAlaaPlayerSettings = { showAlaaPlayerSettings = true },
+            onDismissAlaaPlayerSettings = { showAlaaPlayerSettings = false },
+            isAlaaImmersiveMode = alaaPlayerImmersiveMode,
+            onToggleAlaaImmersiveMode = { alaaPlayerImmersiveMode = !alaaPlayerImmersiveMode },
+            alaaLockFocusRequester = alaaLockFocusRequester,
+            alaaSettingsFocusRequester = alaaSettingsFocusRequester,
             onOpenSplitScreen = { showSplitDialog = true },
             onEnterPictureInPicture = enterPictureInPicture,
             onToggleMute = viewModel::toggleMute,
@@ -1459,12 +1511,17 @@ private fun PlayerControlsOverlayHost(
     isMuted: Boolean,
     playbackSpeed: Float,
     mediaTitle: String?,
+    seriesTitle: String?,
+    episodeTitle: String?,
+    currentSeasonNumber: Int?,
+    currentEpisodeNumber: Int?,
     sleepTimerUiState: SleepTimerUiState,
     timeshiftUiState: PlayerTimeshiftUiState,
     playButtonFocusRequester: FocusRequester,
     quickActionsFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
     onClose: () -> Unit,
+    onNavigateBack: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeekForward: () -> Unit,
@@ -1486,6 +1543,15 @@ private fun PlayerControlsOverlayHost(
     audioVideoSyncEnabled: Boolean,
     showEpisodesAction: Boolean,
     onOpenEpisodes: () -> Unit,
+    isAlaaControlsLocked: Boolean,
+    onToggleAlaaControlsLock: () -> Unit,
+    showAlaaPlayerSettings: Boolean,
+    onOpenAlaaPlayerSettings: () -> Unit,
+    onDismissAlaaPlayerSettings: () -> Unit,
+    isAlaaImmersiveMode: Boolean,
+    onToggleAlaaImmersiveMode: () -> Unit,
+    alaaLockFocusRequester: FocusRequester,
+    alaaSettingsFocusRequester: FocusRequester,
     onOpenSplitScreen: () -> Unit,
     onEnterPictureInPicture: () -> Unit,
     onToggleMute: () -> Unit,
@@ -1509,8 +1575,53 @@ private fun PlayerControlsOverlayHost(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val isAlaaTheme = LocalIsAlaaTheme.current
 
-    if (isRedCinemaTheme) {
+    if (isAlaaTheme) {
+        AlaaPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            seasonNumber = currentSeasonNumber,
+            episodeNumber = currentEpisodeNumber,
+            isPlaying = isPlaying,
+            currentPosition = currentPosition,
+            duration = duration,
+            subtitleTrackCount = subtitleTrackCount,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            isLocked = isAlaaControlsLocked,
+            isImmersive = isAlaaImmersiveMode,
+            showEpisodesAction = showEpisodesAction,
+            showSettings = showAlaaPlayerSettings,
+            playButtonFocusRequester = playButtonFocusRequester,
+            lockButtonFocusRequester = alaaLockFocusRequester,
+            settingsCloseFocusRequester = alaaSettingsFocusRequester,
+            modifier = modifier,
+            onBack = onNavigateBack,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            seekPreview = seekPreview,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSettings = onOpenAlaaPlayerSettings,
+            onDismissSettings = onDismissAlaaPlayerSettings,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onToggleLock = onToggleAlaaControlsLock,
+            onToggleImmersive = onToggleAlaaImmersiveMode,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isRedCinemaTheme) {
         RedCinemaPlayerOverlay(
             visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
             isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
