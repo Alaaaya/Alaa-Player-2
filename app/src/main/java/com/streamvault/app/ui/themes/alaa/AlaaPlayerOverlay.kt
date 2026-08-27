@@ -415,7 +415,7 @@ private fun AlaaSettingsRow(title: String, detail: String, onClick: () -> Unit) 
             focusedContentColor = Color.White
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent), RoundedCornerShape(10.dp))
+            focusedBorder = Border(BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent), 10.dp)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = AlaaThemeFocus.FocusedScale)
     ) {
@@ -437,7 +437,8 @@ private fun AlaaControlSurface(
     compact: Boolean = false,
     selected: Boolean = false
 ) {
-    val shape = if (primary) CircleShape else RoundedCornerShape(if (compact) 12.dp else 18.dp)
+    val cornerRadius = if (primary) 50.dp else if (compact) 12.dp else 18.dp
+    val shape = if (primary) CircleShape else RoundedCornerShape(cornerRadius)
     TvClickableSurface(
         onClick = onClick,
         enabled = enabled,
@@ -453,8 +454,8 @@ private fun AlaaControlSurface(
             focusedContentColor = Color.White
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)), shape),
-            focusedBorder = Border(BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent), shape)
+            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)), cornerRadius),
+            focusedBorder = Border(BorderStroke(AlaaThemeDimensions.FocusBorder, AlaaThemeColors.Accent), cornerRadius)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = if (primary) 1.06f else AlaaThemeFocus.FocusedScale)
     ) {

@@ -188,7 +188,9 @@ private fun AlaaVodBrowseCard(
                 color = if (isLocked) AlaaThemeColors.AccentStrong else AlaaThemeColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp, bottom = 3.dp)
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .padding(bottom = 3.dp)
             )
         }
     }
