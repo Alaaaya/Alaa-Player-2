@@ -100,9 +100,14 @@ internal fun AlaaDashboard(
             .take(12)
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 16.dp),
+    Row(
+        modifier = Modifier.fillMaxSize().padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        AlaaSidebar(onNavigate = onNavigate)
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item(key = "alaa_hero") {
@@ -112,16 +117,6 @@ internal fun AlaaDashboard(
                     artworkUrl = uiState.feature.artworkUrl,
                     onWatchNow = { onNavigate(Routes.LIVE_TV) }
                 )
-            }
-            if (liveCategories.isNotEmpty()) {
-                item(key = "alaa_live_categories") {
-                    AlaaLiveCategories(
-                        title = stringResource(R.string.dashboard_live_shortcuts),
-                        categories = liveCategories,
-                        onCategoryClick = { category -> onNavigate(Routes.liveTv(category.id)) },
-                        onSeeAll = { onNavigate(Routes.LIVE_TV) }
-                    )
-                }
             }
             if (uiState.isLoading &&
                 uiState.favoriteChannels.isEmpty() &&
@@ -234,6 +229,135 @@ internal fun AlaaDashboard(
                     }
                 }
             }
+        }
+        AlaaHomeLibraryColumn(
+            uiState = uiState,
+            liveCategories = liveCategories,
+            onNavigate = onNavigate
+        )
+    }
+}
+
+@Composable
+private fun AlaaHomeLibraryColumn(
+    uiState: DashboardUiState,
+    liveCategories: List<Category>,
+    onNavigate: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(286.dp)
+            .fillMaxHeight()
+            .background(AlaaThemeColors.Surface.copy(alpha = 0.88f), RoundedCornerShape(20.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "المكتبة",
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = uiState.provider?.name ?: "لا يوجد مزود نشط",
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.62f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        AlaaHomeRouteAction(
+            icon = Icons.Default.Tv,
+            label = stringResource(R.string.nav_live_tv),
+            detail = "${uiState.stats.liveChannelCount} قناة",
+            onClick = { onNavigate(Routes.LIVE_TV) }
+        )
+        AlaaHomeRouteAction(
+            icon = Icons.Default.Movie,
+            label = stringResource(R.string.nav_movies),
+            detail = "${uiState.stats.movieLibraryCount} عنوان",
+            onClick = { onNavigate(Routes.MOVIES) }
+        )
+        AlaaHomeRouteAction(
+            icon = Icons.Default.VideoLibrary,
+            label = stringResource(R.string.nav_series),
+            detail = "${uiState.stats.seriesLibraryCount} مسلسل",
+            onClick = { onNavigate(Routes.SERIES) }
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "فئات البث",
+            style = MaterialTheme.typography.titleSmall,
+            color = AlaaAccent,
+            fontWeight = FontWeight.Bold
+        )
+        if (liveCategories.isEmpty()) {
+            Text(
+                text = "لا توجد فئات بث متاحة حالياً",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.58f)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                items(liveCategories, key = { it.id }) { category ->
+                    TvClickableSurface(
+                        onClick = { onNavigate(Routes.liveTv(category.id)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = AlaaThemeColors.BrowseRail,
+                            focusedContainerColor = AlaaAccent.copy(alpha = 0.48f),
+                            contentColor = Color.White,
+                            focusedContentColor = Color.White
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Category, contentDescription = null, tint = AlaaAccent, modifier = Modifier.size(16.dp))
+                            Text(category.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (category.count > 0) Text(category.count.toString(), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.62f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlaaHomeRouteAction(
+    icon: ImageVector,
+    label: String,
+    detail: String,
+    onClick: () -> Unit
+) {
+    TvClickableSurface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = AlaaThemeColors.BrowseRail,
+            focusedContainerColor = AlaaThemeColors.SurfaceFocused,
+            contentColor = Color.White,
+            focusedContentColor = Color.White
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = AlaaAccent, modifier = Modifier.size(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.60f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
