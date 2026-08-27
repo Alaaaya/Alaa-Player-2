@@ -34,6 +34,7 @@ import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -71,9 +72,10 @@ internal fun StreamingPlatformLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
     Row(
         modifier = modifier.fillMaxSize().background(StreamingCanvas).padding(24.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)
     ) {
         StreamingCategoryDrawer(
             sourceTitle = sourceTitle,
@@ -87,7 +89,7 @@ internal fun StreamingPlatformLiveTvLayout(
             onLongClick = onCategoryLongClick,
             onFocused = onCategoryFocused,
             onRequestChannels = onRequestChannelsFromCategory,
-            modifier = Modifier.width(272.dp).fillMaxHeight()
+            modifier = Modifier.width(columnMetrics.categoryWidth).fillMaxHeight()
         )
         StreamingChannelList(
             channels = channels,
@@ -99,7 +101,7 @@ internal fun StreamingPlatformLiveTvLayout(
             onLongClick = onChannelLongClick,
             onFocused = onChannelFocused,
             onRequestPreview = onRequestPreviewFromChannel,
-            modifier = Modifier.width(320.dp).fillMaxHeight()
+            modifier = Modifier.weight(columnMetrics.channelWeight).fillMaxHeight()
         )
         StreamingPreviewPane(
             channel = previewChannel,
@@ -107,7 +109,7 @@ internal fun StreamingPlatformLiveTvLayout(
             isLoading = isPreviewLoading,
             errorMessage = previewErrorMessage,
             onJumpToChannels = onRequestChannelsFromPreview,
-            modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
+            modifier = Modifier.weight(columnMetrics.previewWeight).fillMaxHeight().focusRequester(previewFocusRequester)
         )
     }
 }
