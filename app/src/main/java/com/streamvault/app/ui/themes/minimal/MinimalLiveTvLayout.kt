@@ -34,6 +34,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -74,6 +75,7 @@ internal fun MinimalLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
     Column(
         modifier = modifier.fillMaxSize().background(MinimalCanvas).padding(28.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -85,8 +87,8 @@ internal fun MinimalLiveTvLayout(
             }
             MinimalTextQuery(value = categorySearchQuery, placeholder = "filter categories", onValueChange = onCategorySearchChange, modifier = Modifier.width(230.dp))
         }
-        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            Column(modifier = Modifier.width(272.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)) {
+            Column(modifier = Modifier.width(columnMetrics.categoryWidth).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("CATEGORIES", style = MaterialTheme.typography.labelLarge, color = MinimalText, fontWeight = FontWeight.Bold)
                 LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     items(categories, key = { it.id }) { category ->
@@ -109,7 +111,7 @@ internal fun MinimalLiveTvLayout(
                     }
                 }
             }
-            Column(modifier = Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.weight(columnMetrics.channelWeight).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("CHANNEL LIST", style = MaterialTheme.typography.labelLarge, color = MinimalText, fontWeight = FontWeight.Bold)
                     Text("${channels.size} ITEMS", style = MaterialTheme.typography.labelSmall, color = MinimalMuted)
@@ -141,7 +143,7 @@ internal fun MinimalLiveTvLayout(
                 isLoading = isPreviewLoading,
                 errorMessage = previewErrorMessage,
                 onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
+                modifier = Modifier.weight(columnMetrics.previewWeight).fillMaxHeight().focusRequester(previewFocusRequester)
             )
         }
     }

@@ -36,6 +36,7 @@ import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -73,12 +74,13 @@ internal fun GlassmorphismLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
     Row(
         modifier = modifier.fillMaxSize().background(GlassCanvas).padding(26.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)
     ) {
             Surface(
-                modifier = Modifier.width(272.dp).fillMaxHeight(),
+                modifier = Modifier.width(columnMetrics.categoryWidth).fillMaxHeight(),
                 shape = RoundedCornerShape(24.dp),
                 colors = SurfaceDefaults.colors(containerColor = GlassPane),
                 border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(24.dp))
@@ -112,7 +114,7 @@ internal fun GlassmorphismLiveTvLayout(
                 }
             }
             Surface(
-                modifier = Modifier.width(320.dp).fillMaxHeight(),
+                modifier = Modifier.weight(columnMetrics.channelWeight).fillMaxHeight(),
                 shape = RoundedCornerShape(28.dp),
                 colors = SurfaceDefaults.colors(containerColor = GlassPane),
                 border = Border(border = BorderStroke(1.dp, GlassRule), shape = RoundedCornerShape(28.dp))
@@ -150,7 +152,7 @@ internal fun GlassmorphismLiveTvLayout(
                 isLoading = isPreviewLoading,
                 errorMessage = previewErrorMessage,
                 onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester)
+                modifier = Modifier.weight(columnMetrics.previewWeight).fillMaxHeight().focusRequester(previewFocusRequester)
             )
     }
 }

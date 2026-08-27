@@ -39,6 +39,7 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.interaction.TvClickableSurface
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -85,14 +86,15 @@ internal fun NeonFutureLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
     Column(
         modifier = modifier.fillMaxSize().background(NeonCanvas),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         NeonFutureHudHeader(sourceTitle = sourceTitle, categoryQuery = categorySearchQuery, onCategoryQueryChange = onCategorySearchChange)
-        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)) {
             Column(
-                modifier = Modifier.width(272.dp).fillMaxHeight(),
+                modifier = Modifier.width(columnMetrics.categoryWidth).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("CATEGORY BANDS", style = MaterialTheme.typography.labelLarge, color = NeonPink, fontWeight = FontWeight.Black)
@@ -119,7 +121,7 @@ internal fun NeonFutureLiveTvLayout(
                 }
             }
             Column(
-                modifier = Modifier.width(320.dp).fillMaxHeight(),
+                modifier = Modifier.weight(columnMetrics.channelWeight).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -154,7 +156,7 @@ internal fun NeonFutureLiveTvLayout(
                 errorMessage = previewErrorMessage,
                 focusRequester = previewFocusRequester,
                 onJumpToChannels = onRequestChannelsFromPreview,
-                modifier = Modifier.weight(1f).fillMaxHeight()
+                modifier = Modifier.weight(columnMetrics.previewWeight).fillMaxHeight()
             )
         }
     }

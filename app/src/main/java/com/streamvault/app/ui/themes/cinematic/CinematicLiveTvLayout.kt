@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -60,12 +61,13 @@ internal fun CinematicLiveTvLayout(
     onRequestChannelsFromPreview: () -> Boolean,
     modifier: Modifier = Modifier
 ) {
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
     Row(
         modifier = modifier.fillMaxSize().background(CinematicCanvas).padding(24.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp)
+        horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)
     ) {
         Column(
-            modifier = Modifier.width(272.dp).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
+            modifier = Modifier.width(columnMetrics.categoryWidth).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
@@ -100,7 +102,7 @@ internal fun CinematicLiveTvLayout(
             }
         }
         Column(
-            modifier = Modifier.width(320.dp).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
+            modifier = Modifier.weight(columnMetrics.channelWeight).fillMaxHeight().background(CinematicPanel, RoundedCornerShape(24.dp)).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -141,7 +143,7 @@ internal fun CinematicLiveTvLayout(
             }
         }
         Column(
-            modifier = Modifier.weight(1f).fillMaxHeight(),
+            modifier = Modifier.weight(columnMetrics.previewWeight).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(

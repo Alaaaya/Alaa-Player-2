@@ -38,6 +38,7 @@ import androidx.tv.material3.Text
 import com.streamvault.app.ui.components.PlayerRenderView
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.theme.LocalThemePresentation
+import com.streamvault.app.ui.theme.rememberReferenceLiveTvColumnMetrics
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.player.PlayerEngine
@@ -57,10 +58,11 @@ internal fun BlueOceanLiveTvLayout(
 ) {
     val p = LocalThemePresentation.current
     val s = p.surfaces
-    Row(modifier.fillMaxSize().background(s.canvas).padding(26.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        BlueOceanHarbourRail(sourceTitle, categories, selectedCategoryId, categorySearchQuery, isCategoryLocked, categoryFocusRequesters, onCategorySearchChange, onCategoryClick, onCategoryLongClick, onCategoryFocused, onRequestChannelsFromCategory, Modifier.width(272.dp).fillMaxHeight())
-        BlueOceanCurrentList(channels, channelSearchQuery, isChannelLocked, channelFocusRequesters, onChannelSearchChange, onChannelClick, onChannelLongClick, onChannelFocused, onRequestPreviewFromChannel, Modifier.width(320.dp).fillMaxHeight())
-        BlueOceanProgramDossier(previewChannel, previewPlayerEngine, isPreviewLoading, previewErrorMessage, onRequestChannelsFromPreview, Modifier.weight(1f).fillMaxHeight().focusRequester(previewFocusRequester))
+    val columnMetrics = rememberReferenceLiveTvColumnMetrics()
+    Row(modifier.fillMaxSize().background(s.canvas).padding(26.dp), horizontalArrangement = Arrangement.spacedBy(columnMetrics.columnSpacing)) {
+        BlueOceanHarbourRail(sourceTitle, categories, selectedCategoryId, categorySearchQuery, isCategoryLocked, categoryFocusRequesters, onCategorySearchChange, onCategoryClick, onCategoryLongClick, onCategoryFocused, onRequestChannelsFromCategory, Modifier.width(columnMetrics.categoryWidth).fillMaxHeight())
+        BlueOceanCurrentList(channels, channelSearchQuery, isChannelLocked, channelFocusRequesters, onChannelSearchChange, onChannelClick, onChannelLongClick, onChannelFocused, onRequestPreviewFromChannel, Modifier.weight(columnMetrics.channelWeight).fillMaxHeight())
+        BlueOceanProgramDossier(previewChannel, previewPlayerEngine, isPreviewLoading, previewErrorMessage, onRequestChannelsFromPreview, Modifier.weight(columnMetrics.previewWeight).fillMaxHeight().focusRequester(previewFocusRequester))
     }
 }
 
