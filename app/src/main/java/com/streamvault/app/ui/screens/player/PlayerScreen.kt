@@ -760,10 +760,14 @@ fun PlayerScreen(
                             if (contentType == "LIVE" && !isCatchUpPlayback && viewModel.hasPendingNumericChannelInput()) {
                                 viewModel.commitNumericChannelInput()
                                    true
+                            } else if (contentType == "LIVE" && !isCatchUpPlayback && isAlaaTheme) {
+                                if (showChannelListOverlay) viewModel.closeOverlays()
+                                else viewModel.openChannelListOverlay()
+                                true
                             } else if (contentType == "LIVE" && !isCatchUpPlayback) {
-                                    if (showChannelInfoOverlay) viewModel.closeChannelInfoOverlay()
-                                    else viewModel.openChannelInfoOverlay()
-                                   true
+                                if (showChannelInfoOverlay) viewModel.closeChannelInfoOverlay()
+                                else viewModel.openChannelInfoOverlay()
+                                true
                             } else if (showControls) {
                                 false
                             } else {
