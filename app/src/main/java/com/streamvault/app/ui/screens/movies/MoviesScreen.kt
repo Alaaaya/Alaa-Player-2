@@ -42,6 +42,7 @@ import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.components.CategoryRow
 import com.streamvault.app.ui.components.ContinueWatchingRow
+import com.streamvault.app.ui.components.AlaaMovieBrowseCard
 import com.streamvault.app.ui.components.MovieCard
 import com.streamvault.app.ui.components.SelectionChip
 import com.streamvault.app.ui.components.SelectionChipRow
@@ -1341,7 +1342,7 @@ private fun MoviesVodClassicContent(
             )
             LazyVerticalGrid(
                 state = classicGridState,
-                columns = GridCells.Adaptive(minSize = 100.dp),
+                columns = GridCells.Adaptive(minSize = if (isAlaaTheme) 156.dp else 100.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -1380,28 +1381,42 @@ private fun MoviesVodClassicContent(
                     gridItems(filteredGridMovies, key = { it.id }) { movie ->
                         val isLocked = isMovieLocked(movie)
                         val isDraggingThis = draggingMovie == movie
-                        MovieCard(
-                            movie = movie,
-                            isLocked = isLocked,
-                            isReorderMode = uiState.isReorderMode,
-                            isDragging = isDraggingThis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(2f / 3f)
-                                .then(if (!showSearchBar && movie.id == initialGridMovieId) Modifier.focusRequester(initialFocusRequester) else Modifier),
-                            onClick = {
-                                if (uiState.isReorderMode) {
-                                    draggingMovie = if (isDraggingThis) null else movie
-                                } else if (isLocked) {
-                                    onProtectedMovieClick(movie)
-                                } else {
-                                    onMovieClick(movie)
-                                }
-                            },
-                            onLongClick = {
-                                if (!uiState.isReorderMode) onShowDialog(movie)
+                        val cardModifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (!showSearchBar && movie.id == initialGridMovieId) Modifier.focusRequester(initialFocusRequester) else Modifier)
+                        val onMovieSelected = {
+                            if (uiState.isReorderMode) {
+                                draggingMovie = if (isDraggingThis) null else movie
+                            } else if (isLocked) {
+                                onProtectedMovieClick(movie)
+                            } else {
+                                onMovieClick(movie)
                             }
-                        )
+                        }
+                        val onMovieLongPressed = {
+                            if (!uiState.isReorderMode) onShowDialog(movie)
+                        }
+                        if (isAlaaTheme) {
+                            AlaaMovieBrowseCard(
+                                movie = movie,
+                                isLocked = isLocked,
+                                isReorderMode = uiState.isReorderMode,
+                                isDragging = isDraggingThis,
+                                modifier = cardModifier,
+                                onClick = onMovieSelected,
+                                onLongClick = onMovieLongPressed
+                            )
+                        } else {
+                            MovieCard(
+                                movie = movie,
+                                isLocked = isLocked,
+                                isReorderMode = uiState.isReorderMode,
+                                isDragging = isDraggingThis,
+                                modifier = cardModifier.aspectRatio(2f / 3f),
+                                onClick = onMovieSelected,
+                                onLongClick = onMovieLongPressed
+                            )
+                        }
                     }
                 }
                 if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&

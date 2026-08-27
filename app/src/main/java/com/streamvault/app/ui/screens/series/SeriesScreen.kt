@@ -44,6 +44,7 @@ import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.components.CategoryRow
 import com.streamvault.app.ui.components.ContinueWatchingRow
+import com.streamvault.app.ui.components.AlaaSeriesBrowseCard
 import com.streamvault.app.ui.components.SavedCategoryContextCard
 import com.streamvault.app.ui.components.SavedCategoryShortcut
 import com.streamvault.app.ui.components.SavedCategoryShortcutsRow
@@ -1334,7 +1335,7 @@ private fun SeriesVodClassicContent(
             )
             LazyVerticalGrid(
                 state = classicGridState,
-                columns = GridCells.Adaptive(minSize = 100.dp),
+                columns = GridCells.Adaptive(minSize = if (isAlaaTheme) 156.dp else 100.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -1373,28 +1374,42 @@ private fun SeriesVodClassicContent(
                     gridItems(filteredGridSeries, key = { it.id }) { series ->
                         val isLocked = isSeriesLocked(series)
                         val isDraggingThis = draggingSeries == series
-                        SeriesCard(
-                            series = series,
-                            isLocked = isLocked,
-                            isReorderMode = uiState.isReorderMode,
-                            isDragging = isDraggingThis,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(2f / 3f)
-                                .then(if (!showSearchBar && series.id == initialGridSeriesId) Modifier.focusRequester(initialFocusRequester) else Modifier),
-                            onClick = {
-                                if (uiState.isReorderMode) {
-                                    draggingSeries = if (isDraggingThis) null else series
-                                } else if (isLocked) {
-                                    onProtectedSeriesClick(series)
-                                } else {
-                                    onSeriesClick(series)
-                                }
-                            },
-                            onLongClick = {
-                                if (!uiState.isReorderMode) onShowDialog(series)
+                        val cardModifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (!showSearchBar && series.id == initialGridSeriesId) Modifier.focusRequester(initialFocusRequester) else Modifier)
+                        val onSeriesSelected = {
+                            if (uiState.isReorderMode) {
+                                draggingSeries = if (isDraggingThis) null else series
+                            } else if (isLocked) {
+                                onProtectedSeriesClick(series)
+                            } else {
+                                onSeriesClick(series)
                             }
-                        )
+                        }
+                        val onSeriesLongPressed = {
+                            if (!uiState.isReorderMode) onShowDialog(series)
+                        }
+                        if (isAlaaTheme) {
+                            AlaaSeriesBrowseCard(
+                                series = series,
+                                isLocked = isLocked,
+                                isReorderMode = uiState.isReorderMode,
+                                isDragging = isDraggingThis,
+                                modifier = cardModifier,
+                                onClick = onSeriesSelected,
+                                onLongClick = onSeriesLongPressed
+                            )
+                        } else {
+                            SeriesCard(
+                                series = series,
+                                isLocked = isLocked,
+                                isReorderMode = uiState.isReorderMode,
+                                isDragging = isDraggingThis,
+                                modifier = cardModifier.aspectRatio(2f / 3f),
+                                onClick = onSeriesSelected,
+                                onLongClick = onSeriesLongPressed
+                            )
+                        }
                     }
                 }
                 if (uiState.canLoadMoreSelectedCategory && !uiState.isLoadingSelectedCategory && !uiState.isLoadingMoreSelectedCategory &&
