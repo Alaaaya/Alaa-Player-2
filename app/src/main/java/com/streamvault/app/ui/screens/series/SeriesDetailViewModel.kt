@@ -120,14 +120,23 @@ class SeriesDetailViewModel @Inject constructor(
                     loadExternalRatings(result.data)
                     startUnwatchedCountCollection(providerId, result.data.id)
                     val selectedSeasonNumber = _uiState.value.selectedSeason?.seasonNumber
+                    val selectedEpisodeId = _uiState.value.selectedEpisode?.id
+                    val restoredSeason = result.data.seasons.firstOrNull { season ->
+                        season.seasonNumber == selectedSeasonNumber
+                    } ?: result.data.seasons.firstOrNull()
+                    val resumeEpisode = findResumeEpisode(result.data)
+                    val restoredEpisode = restoredSeason?.episodes?.firstOrNull { episode ->
+                        episode.id == selectedEpisodeId
+                    } ?: resumeEpisode?.takeIf { episode ->
+                        episode.seasonNumber == restoredSeason?.seasonNumber
+                    } ?: restoredSeason?.episodes?.firstOrNull()
                     _uiState.update {
                         it.copy(
                             isLoading = false,
                             series = result.data.copy(isFavorite = isFavoriteDeferred.await()),
-                            selectedSeason = result.data.seasons.firstOrNull { season ->
-                                season.seasonNumber == selectedSeasonNumber
-                            } ?: result.data.seasons.firstOrNull(),
-                            resumeEpisode = findResumeEpisode(result.data),
+                            selectedSeason = restoredSeason,
+                            selectedEpisode = restoredEpisode,
+                            resumeEpisode = resumeEpisode,
                             error = null
                         )
                     }
@@ -230,7 +239,18 @@ class SeriesDetailViewModel @Inject constructor(
     }
 
     fun selectSeason(season: Season) {
-        _uiState.update { it.copy(selectedSeason = season) }
+        _uiState.update {
+            it.copy(
+                selectedSeason = season,
+                selectedEpisode = season.episodes.firstOrNull()
+            )
+        }
+    }
+
+    fun selectEpisode(episode: Episode) {
+        _uiState.update { current ->
+            current.copy(selectedEpisode = episode)
+        }
     }
 
     fun downloadEpisode(context: Context, episode: Episode) {
@@ -383,6 +403,7 @@ data class SeriesDetailUiState(
     val isLoading: Boolean = false,
     val series: Series? = null,
     val selectedSeason: Season? = null,
+    val selectedEpisode: Episode? = null,
     val resumeEpisode: Episode? = null,
     val unwatchedEpisodeCount: Int = 0,
     val error: String? = null,
