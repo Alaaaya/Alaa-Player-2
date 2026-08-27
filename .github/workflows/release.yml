@@ -105,7 +105,7 @@ jobs:
       - name: Build signed release APK
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain :app:assembleRelease \
+          ./gradlew --console=plain --max-workers=1 :app:assembleRelease -PreleaseMinify=false \
             -PappVersionCode=${{ needs.metadata.outputs.version_code }} \
             -PappVersionName=${{ needs.metadata.outputs.version_name }} \
             -PdeviceControlApiBaseUrl='${{ inputs.device_control_api_base_url }}'
