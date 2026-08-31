@@ -165,22 +165,23 @@ internal fun AlaaPlayerOverlay(
                 modifier = Modifier.align(Alignment.Center)
             )
             
-            // 🔧 تم تعديل: صندوق التحكم السفلي بحجم منطقي
+            // 🔧 Fullscreen IPTV Player Overlay - صندوق التحكم في الأسفل بحجم مناسب
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth(0.85f)
-                    .padding(horizontal = 32.dp, vertical = 32.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 24.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth(0.90f)
+                        .align(Alignment.Center)
                         .background(
-                            Color.Black.copy(alpha = 0.88f),
-                            RoundedCornerShape(20.dp)
+                            Color.Black.copy(alpha = 0.85f),
+                            RoundedCornerShape(16.dp)
                         )
-                        .padding(horizontal = 24.dp, vertical = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     AlaaPlayerTimeline(
                         currentPosition = currentPosition,
@@ -316,13 +317,13 @@ private fun AlaaPlayerTimeline(
     
     val displayedProgress = if (isScrubbing) pendingProgress else progress
     
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(currentPosition), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
+            Text(formatDuration(currentPosition), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f))
             Text(
                 text = if (seekPreview.visible) formatDuration(seekPreview.positionMs) else formatDuration(safeDuration),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.8f)
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.75f)
             )
         }
         Slider(
@@ -375,20 +376,22 @@ private fun AlaaPlayerActionBar(
     onToggleImmersive: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(), 
-        horizontalArrangement = Arrangement.spacedBy(8.dp), 
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp), 
+        horizontalArrangement = Arrangement.spacedBy(6.dp), 
         verticalAlignment = Alignment.CenterVertically
     ) {
         AlaaControlSurface(
             label = if (isLocked) "🔓" else "🔒",
-            caption = if (isLocked) "فتح" else "قفل",
+            caption = "قفل",
             onClick = onToggleLock,
             modifier = Modifier.focusRequester(lockButtonFocusRequester),
             compact = true,
             selected = isLocked
         )
         AlaaControlSurface(label = "▤", caption = "ترجمة", onClick = onOpenSubtitleTracks, enabled = !isLocked, compact = true)
-        AlaaControlSurface(label = "◖", caption = "الصوت", onClick = onOpenAudioTracks, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = "◖", caption = "صوت", onClick = onOpenAudioTracks, enabled = !isLocked, compact = true)
         if (showEpisodesAction) AlaaControlSurface(label = "☷", caption = "حلقات", onClick = onOpenEpisodes, enabled = !isLocked, compact = true)
         AlaaControlSurface(label = "⚙", caption = "إعدادات", onClick = onOpenSettings, enabled = !isLocked, compact = true)
         AlaaControlSurface(label = "HD", caption = "جودة", onClick = onOpenVideoTracks, enabled = !isLocked, compact = true)
