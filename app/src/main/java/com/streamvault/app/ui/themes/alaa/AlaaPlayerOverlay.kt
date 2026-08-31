@@ -164,39 +164,53 @@ internal fun AlaaPlayerOverlay(
                 onSeekForward = onSeekForward,
                 modifier = Modifier.align(Alignment.Center)
             )
-            Column(
+            
+            // 🔧 تم تعديل: صندوق التحكم السفلي بحجم منطقي
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 62.dp, vertical = 22.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                    .fillMaxWidth(0.85f)
+                    .padding(horizontal = 32.dp, vertical = 32.dp)
             ) {
-                AlaaPlayerTimeline(
-                    currentPosition = currentPosition,
-                    duration = duration,
-                    seekPreview = seekPreview,
-                    enabled = !isLocked,
-                    onSeekToPosition = onSeekToPosition,
-                    onSetScrubbingMode = onSetScrubbingMode,
-                    onSeekPreviewPositionChanged = onSeekPreviewPositionChanged
-                )
-                AlaaPlayerActionBar(
-                    isLocked = isLocked,
-                    isImmersive = isImmersive,
-                    subtitleTrackCount = subtitleTrackCount,
-                    audioTrackCount = audioTrackCount,
-                    videoQualityCount = videoQualityCount,
-                    showEpisodesAction = showEpisodesAction,
-                    lockButtonFocusRequester = lockButtonFocusRequester,
-                    onToggleLock = onToggleLock,
-                    onOpenSubtitleTracks = onOpenSubtitleTracks,
-                    onOpenAudioTracks = onOpenAudioTracks,
-                    onOpenEpisodes = onOpenEpisodes,
-                    onOpenSettings = onOpenSettings,
-                    onOpenVideoTracks = onOpenVideoTracks,
-                    onToggleImmersive = onToggleImmersive
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Color.Black.copy(alpha = 0.88f),
+                            RoundedCornerShape(20.dp)
+                        )
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    AlaaPlayerTimeline(
+                        currentPosition = currentPosition,
+                        duration = duration,
+                        seekPreview = seekPreview,
+                        enabled = !isLocked,
+                        onSeekToPosition = onSeekToPosition,
+                        onSetScrubbingMode = onSetScrubbingMode,
+                        onSeekPreviewPositionChanged = onSeekPreviewPositionChanged
+                    )
+                    
+                    AlaaPlayerActionBar(
+                        isLocked = isLocked,
+                        isImmersive = isImmersive,
+                        subtitleTrackCount = subtitleTrackCount,
+                        audioTrackCount = audioTrackCount,
+                        videoQualityCount = videoQualityCount,
+                        showEpisodesAction = showEpisodesAction,
+                        lockButtonFocusRequester = lockButtonFocusRequester,
+                        onToggleLock = onToggleLock,
+                        onOpenSubtitleTracks = onOpenSubtitleTracks,
+                        onOpenAudioTracks = onOpenAudioTracks,
+                        onOpenEpisodes = onOpenEpisodes,
+                        onOpenSettings = onOpenSettings,
+                        onOpenVideoTracks = onOpenVideoTracks,
+                        onToggleImmersive = onToggleImmersive
+                    )
+                }
             }
+            
             if (isLocked) {
                 Text(
                     text = "تم قفل عناصر التحكم",
@@ -304,11 +318,11 @@ private fun AlaaPlayerTimeline(
     
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(currentPosition), style = MaterialTheme.typography.titleSmall, color = Color.White)
+            Text(formatDuration(currentPosition), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
             Text(
                 text = if (seekPreview.visible) formatDuration(seekPreview.positionMs) else formatDuration(safeDuration),
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.8f)
             )
         }
         Slider(
@@ -360,21 +374,25 @@ private fun AlaaPlayerActionBar(
     onOpenVideoTracks: () -> Unit,
     onToggleImmersive: () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.fillMaxWidth(), 
+        horizontalArrangement = Arrangement.spacedBy(8.dp), 
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         AlaaControlSurface(
             label = if (isLocked) "🔓" else "🔒",
-            caption = if (isLocked) "فتح القفل" else "قفل",
+            caption = if (isLocked) "فتح" else "قفل",
             onClick = onToggleLock,
             modifier = Modifier.focusRequester(lockButtonFocusRequester),
             compact = true,
             selected = isLocked
         )
-        AlaaControlSurface(label = "▤", caption = if (subtitleTrackCount > 0) "ترجمة" else "لا ترجمة", onClick = onOpenSubtitleTracks, enabled = !isLocked, compact = true)
-        AlaaControlSurface(label = "◖", caption = if (audioTrackCount > 1) "الصوت" else "صوت", onClick = onOpenAudioTracks, enabled = !isLocked, compact = true)
-        if (showEpisodesAction) AlaaControlSurface(label = "☷", caption = "الحلقات", onClick = onOpenEpisodes, enabled = !isLocked, compact = true)
-        AlaaControlSurface(label = "⚙", caption = "الإعدادات", onClick = onOpenSettings, enabled = !isLocked, compact = true)
-        AlaaControlSurface(label = "HD", caption = if (videoQualityCount > 0) "الجودة" else "تلقائي", onClick = onOpenVideoTracks, enabled = !isLocked, compact = true)
-        AlaaControlSurface(label = if (isImmersive) "⛶" else "▣", caption = if (isImmersive) "الخروج من الملء" else "ملء الشاشة", onClick = onToggleImmersive, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = "▤", caption = "ترجمة", onClick = onOpenSubtitleTracks, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = "◖", caption = "الصوت", onClick = onOpenAudioTracks, enabled = !isLocked, compact = true)
+        if (showEpisodesAction) AlaaControlSurface(label = "☷", caption = "حلقات", onClick = onOpenEpisodes, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = "⚙", caption = "إعدادات", onClick = onOpenSettings, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = "HD", caption = "جودة", onClick = onOpenVideoTracks, enabled = !isLocked, compact = true)
+        AlaaControlSurface(label = if (isImmersive) "⛶" else "▣", caption = "ملء", onClick = onToggleImmersive, enabled = !isLocked, compact = true)
     }
 }
 
