@@ -292,7 +292,16 @@ private fun AlaaPlayerTimeline(
     val progress = if (safeDuration > 0L) (currentPosition.toFloat() / safeDuration).coerceIn(0f, 1f) else 0f
     var pendingProgress by remember { mutableFloatStateOf(progress) }
     var isScrubbing by remember { mutableStateOf(false) }
+    
+    // تحديث pendingProgress عند تغيير progress من الخارج
+    LaunchedEffect(progress) {
+        if (!isScrubbing) {
+            pendingProgress = progress
+        }
+    }
+    
     val displayedProgress = if (isScrubbing) pendingProgress else progress
+    
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatDuration(currentPosition), style = MaterialTheme.typography.titleSmall, color = Color.White)
@@ -312,7 +321,10 @@ private fun AlaaPlayerTimeline(
                 onSeekPreviewPositionChanged((value * safeDuration).toLong())
             },
             onValueChangeFinished = {
-                if (safeDuration > 0L) onSeekToPosition((pendingProgress * safeDuration).toLong())
+                if (safeDuration > 0L) {
+                    val seekPosition = (pendingProgress * safeDuration).toLong()
+                    onSeekToPosition(seekPosition)
+                }
                 onSeekPreviewPositionChanged(null)
                 onSetScrubbingMode(false)
                 isScrubbing = false
