@@ -1551,8 +1551,22 @@ class SeriesRepositoryImpl @Inject constructor(
         val hydration = seriesCategoryHydrationDao.get(providerId, categoryId)
         if (provider.type == ProviderType.XTREAM_CODES) {
             if (localCount > 0) {
+                // Already loaded
             } else {
-                syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.SERIES, categoryId)
+                try {
+                    val xtreamProvider = createXtreamProvider(providerId)
+                    val result = xtreamProvider.getSeriesList(categoryId)
+                    if (result is com.streamvault.domain.model.Result.Success) {
+                        val entities = result.data.map { it.toEntity() }
+                        if (entities.isNotEmpty()) {
+                            seriesDao.upsertCategoryPage(providerId, entities)
+                            Log.d(TAG, "Directly hydrated ${entities.size} series for Xtream category $categoryId")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Direct Xtream hydration failed for category $categoryId, falling back to syncManager", e)
+                    syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.SERIES, categoryId)
+                }
             }
             return
         }
@@ -1592,6 +1606,22 @@ class SeriesRepositoryImpl @Inject constructor(
             if (!backgroundRefreshes.awaitAdd(key)) return@launch
             try {
                 if (provider.type == ProviderType.XTREAM_CODES) {
+                    val localCount = seriesDao.getCountByCategory(providerId, categoryId).first()
+                    if (localCount == 0) {
+                        try {
+                            val xtreamProvider = createXtreamProvider(providerId)
+                            val result = xtreamProvider.getSeriesList(categoryId)
+                            if (result is com.streamvault.domain.model.Result.Success) {
+                                val entities = result.data.map { it.toEntity() }
+                                if (entities.isNotEmpty()) {
+                                    seriesDao.upsertCategoryPage(providerId, entities)
+                                    Log.d(TAG, "Background hydrated ${entities.size} series for Xtream category $categoryId")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Background Xtream series hydration failed for category $categoryId", e)
+                        }
+                    }
                     return@launch
                 }
                 val localCount = seriesDao.getCountByCategory(providerId, categoryId).first()
@@ -1869,6 +1899,17 @@ class SeriesRepositoryImpl @Inject constructor(
 
     private fun seriesUpdatedScore(series: Series): Long =
         series.lastModified.takeIf { it > 0L } ?: 0L
+
+    private suspend fun createXtreamProvider(providerId: Long): com.streamvault.data.remote.xtream.XtreamProvider {
+        val snapshot = providerCapabilityResolver.snapshot(providerId)
+            ?: throw IllegalStateException("Provider $providerId has no typed configuration")
+        return when (val resolution = typedProviderClientFactory.xtream(snapshot)) {
+            is CapabilityResolution.Available -> resolution.capability
+            is CapabilityResolution.ConfigurationError -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Restricted -> throw IllegalStateException(resolution.reason)
+            is CapabilityResolution.Unsupported -> throw IllegalStateException(resolution.reason)
+        }
+    }
 
     private suspend fun createStalkerProvider(providerId: Long): StalkerProvider {
         val snapshot = providerCapabilityResolver.snapshot(providerId)
