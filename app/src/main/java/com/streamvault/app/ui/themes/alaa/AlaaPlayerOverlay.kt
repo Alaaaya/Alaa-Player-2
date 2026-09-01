@@ -1,16 +1,15 @@
 package com.streamvault.app.ui.themes.alaa
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,50 +19,115 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Border
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
-import com.streamvault.app.ui.interaction.TvClickableSurface
-import com.streamvault.app.ui.screens.player.SeekPreviewState
-import com.streamvault.app.ui.theme.AlaaThemeColors
-import com.streamvault.app.ui.theme.AlaaThemeDimensions
-import com.streamvault.app.ui.theme.AlaaThemeFocus
-import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
-/**
- * ALAA Player Overlay
- *
- * مهم:
- * - الـOverlay نفسه Fullscreen حتى يغطي المشغّل بالكامل.
- * - عناصر التحكم لا تستخدم fillMaxSize() داخلها.
- * - جميع الأزرار لها أحجام محددة حتى لا تتمدد على الشاشة.
- * - جميع العناصر قابلة للضغط وتستخدم TvClickableSurface.
+
+/*
+ * ============================================================
+ * ALAA IPTV PLAYER DESIGN SYSTEM
+ * ============================================================
  */
+
+private object AlaaPlayerTokens {
+
+    // Main cinematic orange
+    val Accent = Color(0xFFFF8A00)
+    val AccentLight = Color(0xFFFFA52F)
+    val AccentDark = Color(0xFFE86F00)
+
+    // Backgrounds
+    val Background = Color(0xFF050505)
+    val Surface = Color(0xFF0D0D0D)
+    val SurfaceElevated = Color(0xFF151515)
+    val SurfaceGlass = Color(0xD90D0D0D)
+    val SurfaceSoft = Color(0x99151515)
+
+    // Borders
+    val Border = Color.White.copy(alpha = 0.075f)
+    val BorderStrong = Color.White.copy(alpha = 0.13f)
+
+    // Text
+    val TextPrimary = Color.White
+    val TextSecondary = Color.White.copy(alpha = 0.68f)
+    val TextMuted = Color.White.copy(alpha = 0.44f)
+
+    // Focus
+    val FocusBackground = Color.White.copy(alpha = 0.11f)
+    val FocusBorder = Accent
+
+    // Sizes
+    val PrimaryButtonSize = 136.dp
+    val SecondaryButtonSize = 92.dp
+    val BottomPanelRadius = 26.dp
+    val ControlRadius = 18.dp
+    val SettingsWidth = 350.dp
+}
+
+
+/*
+ * ============================================================
+ * SEEK PREVIEW STATE
+ *
+ * إذا كان عندك SeekPreviewState معرف بملف آخر:
+ * احذف هذا التعريف من هنا.
+ * ============================================================
+ */
+
+internal data class SeekPreviewState(
+    val positionMillis: Long? = null
+)
+
+
+/*
+ * ============================================================
+ * MAIN PLAYER OVERLAY
+ * ============================================================
+ */
+
 @Composable
 internal fun AlaaPlayerOverlay(
     visible: Boolean,
@@ -81,7 +145,6 @@ internal fun AlaaPlayerOverlay(
     audioTrackCount: Int,
     videoQualityCount: Int,
     isLocked: Boolean,
-    isImmersive: Boolean,
     showEpisodesAction: Boolean,
     showSettings: Boolean,
     playButtonFocusRequester: FocusRequester,
@@ -105,995 +168,1585 @@ internal fun AlaaPlayerOverlay(
     onOpenPlaybackSpeed: () -> Unit,
     onToggleAspectRatio: () -> Unit,
     onToggleLock: () -> Unit,
-    onToggleImmersive: () -> Unit,
     onUserInteraction: () -> Unit
 ) {
-    val now by produceState(initialValue = Date()) {
-        while (true) {
-            value = Date()
-            delay(1_000)
-        }
+    if (!visible) return
+
+    val backgroundBrush = remember {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0.00f to Color.Black.copy(alpha = 0.86f),
+                0.12f to Color.Black.copy(alpha = 0.52f),
+                0.27f to Color.Black.copy(alpha = 0.16f),
+                0.43f to Color.Transparent,
+                0.60f to Color.Black.copy(alpha = 0.05f),
+                0.76f to Color.Black.copy(alpha = 0.47f),
+                0.88f to Color.Black.copy(alpha = 0.78f),
+                1.00f to Color.Black.copy(alpha = 0.96f)
+            )
+        )
     }
 
-    val topTitle = if (
-        contentType == "SERIES_EPISODE" &&
-        !seriesTitle.isNullOrBlank()
-    ) {
-        buildString {
-            append(seriesTitle)
-
-            seasonNumber?.let {
-                append(" · S$it")
-            }
-
-            episodeNumber?.let {
-                append(" E$it")
-            }
-        }
-    } else {
-        mediaTitle?.takeIf {
-            it.isNotBlank()
-        } ?: title
-    }
-
-    val subtitle = if (contentType == "SERIES_EPISODE") {
-        episodeTitle?.takeIf {
-            it.isNotBlank()
-        } ?: title.substringBeforeLast(" - S")
-    } else {
-        null
-    }
-
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(180)),
-        exit = fadeOut(tween(150)),
+    Box(
         modifier = modifier
+            .fillMaxSize()
+            .background(backgroundBrush)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.68f),
-                        0.35f to Color.Transparent,
-                        0.68f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.86f)
-                    )
-                )
-                .onPreviewKeyEvent { event ->
-                    if (
-                        event.nativeKeyEvent.action ==
-                            android.view.KeyEvent.ACTION_DOWN
-                    ) {
-                        onUserInteraction()
-                    }
 
-                    false
-                }
-        ) {
+        /*
+         * ========================================================
+         * TOP BAR
+         * ========================================================
+         */
 
-            // ============================================================
-            // TOP INFORMATION
-            // ============================================================
+        AlaaPlayerTopBar(
+            title = title,
+            contentType = contentType,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            onBack = {
+                onUserInteraction()
+                onBack()
+            }
+        )
 
-            AlaaPlayerTopInformation(
-                title = topTitle,
-                subtitle = subtitle,
-                now = now,
-                onBack = onBack,
+
+        /*
+         * ========================================================
+         * CENTER TRANSPORT CONTROLS
+         * ========================================================
+         */
+
+        if (!isLocked && !showSettings) {
+
+            Row(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = 34.dp,
-                        vertical = 28.dp
-                    )
-            )
-
-            // ============================================================
-            // CENTER TRANSPORT CONTROLS
-            // ============================================================
-
-            AlaaPlayerTransport(
-                isPlaying = isPlaying,
-                isLocked = isLocked,
-                playButtonFocusRequester = playButtonFocusRequester,
-                onSeekBackward = onSeekBackward,
-                onTogglePlayPause = onTogglePlayPause,
-                onSeekForward = onSeekForward,
-                modifier = Modifier.align(Alignment.Center)
-            )
-
-            // ============================================================
-            // BOTTOM PLAYER CONTROLS
-            // ============================================================
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(0.82f)
-                    .widthIn(
-                        min = 700.dp,
-                        max = 1250.dp
-                    )
-                    .padding(
-                        horizontal = 32.dp,
-                        vertical = 32.dp
-                    )
+                    .align(Alignment.Center)
+                    .padding(bottom = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(58.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Color.Black.copy(alpha = 0.88f),
-                            RoundedCornerShape(20.dp)
-                        )
-                        .padding(
-                            horizontal = 24.dp,
-                            vertical = 20.dp
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
 
-                    // Timeline
-                    AlaaPlayerTimeline(
-                        currentPosition = currentPosition,
-                        duration = duration,
-                        seekPreview = seekPreview,
-                        enabled = !isLocked,
-                        onSeekToPosition = onSeekToPosition,
-                        onSetScrubbingMode = onSetScrubbingMode,
-                        onSeekPreviewPositionChanged =
-                            onSeekPreviewPositionChanged
-                    )
+                AlaaTransportButton(
+                    icon = Icons.Default.Replay10,
+                    contentDescription = "Rewind 10 seconds",
+                    onClick = {
+                        onUserInteraction()
+                        onSeekBackward()
+                    }
+                )
 
-                    // Action buttons
-                    AlaaPlayerActionBar(
-                        isLocked = isLocked,
-                        isImmersive = isImmersive,
-                        subtitleTrackCount = subtitleTrackCount,
-                        audioTrackCount = audioTrackCount,
-                        videoQualityCount = videoQualityCount,
-                        showEpisodesAction = showEpisodesAction,
-                        lockButtonFocusRequester =
-                            lockButtonFocusRequester,
-                        onToggleLock = onToggleLock,
-                        onOpenSubtitleTracks =
-                            onOpenSubtitleTracks,
-                        onOpenAudioTracks =
-                            onOpenAudioTracks,
-                        onOpenEpisodes =
-                            onOpenEpisodes,
-                        onOpenSettings =
-                            onOpenSettings,
-                        onOpenVideoTracks =
-                            onOpenVideoTracks,
-                        onToggleImmersive =
-                            onToggleImmersive
-                    )
+                AlaaPrimaryPlayButton(
+                    isPlaying = isPlaying,
+                    focusRequester = playButtonFocusRequester,
+                    onClick = {
+                        onUserInteraction()
+                        onTogglePlayPause()
+                    }
+                )
+
+                AlaaTransportButton(
+                    icon = Icons.Default.Forward10,
+                    contentDescription = "Forward 10 seconds",
+                    onClick = {
+                        onUserInteraction()
+                        onSeekForward()
+                    }
+                )
+            }
+        }
+
+
+        /*
+         * ========================================================
+         * BOTTOM CONTROL PANEL
+         * ========================================================
+         */
+
+        if (!isLocked && !showSettings) {
+
+            AlaaPlayerBottomPanel(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                currentPosition = currentPosition,
+                duration = duration,
+                subtitleTrackCount = subtitleTrackCount,
+                audioTrackCount = audioTrackCount,
+                videoQualityCount = videoQualityCount,
+                showEpisodesAction = showEpisodesAction,
+                seekPreview = seekPreview,
+                lockButtonFocusRequester = lockButtonFocusRequester,
+
+                onSeekToPosition = onSeekToPosition,
+                onSetScrubbingMode = onSetScrubbingMode,
+                onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+
+                onOpenSubtitleTracks = {
+                    onUserInteraction()
+                    onOpenSubtitleTracks()
+                },
+
+                onOpenAudioTracks = {
+                    onUserInteraction()
+                    onOpenAudioTracks()
+                },
+
+                onOpenEpisodes = {
+                    onUserInteraction()
+                    onOpenEpisodes()
+                },
+
+                onOpenSettings = {
+                    onUserInteraction()
+                    onOpenSettings()
+                },
+
+                onOpenVideoTracks = {
+                    onUserInteraction()
+                    onOpenVideoTracks()
+                },
+
+                onToggleLock = {
+                    onUserInteraction()
+                    onToggleLock()
                 }
-            }
+            )
+        }
 
-            // ============================================================
-            // LOCK MESSAGE
-            // ============================================================
 
-            if (isLocked) {
-                Text(
-                    text = "تم قفل عناصر التحكم",
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 116.dp)
-                        .background(
-                            AlaaThemeColors.Accent.copy(alpha = 0.9f),
-                            RoundedCornerShape(999.dp)
-                        )
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical = 8.dp
-                        ),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White
-                )
-            }
+        /*
+         * ========================================================
+         * SETTINGS PANEL
+         * ========================================================
+         */
 
-            // ============================================================
-            // SETTINGS PANEL
-            // ============================================================
+        if (showSettings) {
 
-            if (showSettings) {
-                AlaaPlayerSettingsPanel(
-                    onDismiss = onDismissSettings,
-                    onOpenSubtitleTracks =
-                        onOpenSubtitleTracks,
-                    onOpenAudioTracks =
-                        onOpenAudioTracks,
-                    onOpenVideoTracks =
-                        onOpenVideoTracks,
-                    onOpenPlaybackSpeed =
-                        onOpenPlaybackSpeed,
-                    onToggleAspectRatio =
-                        onToggleAspectRatio,
-                    closeFocusRequester =
-                        settingsCloseFocusRequester,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(
-                            end = 58.dp,
-                            bottom = 128.dp
-                        )
-                )
-            }
+            AlaaPlayerSettingsPanel(
+                modifier = Modifier.align(Alignment.CenterEnd),
+
+                subtitleTrackCount = subtitleTrackCount,
+                audioTrackCount = audioTrackCount,
+                videoQualityCount = videoQualityCount,
+
+                closeFocusRequester = settingsCloseFocusRequester,
+
+                onDismiss = {
+                    onUserInteraction()
+                    onDismissSettings()
+                },
+
+                onOpenSubtitleTracks = {
+                    onUserInteraction()
+                    onOpenSubtitleTracks()
+                },
+
+                onOpenAudioTracks = {
+                    onUserInteraction()
+                    onOpenAudioTracks()
+                },
+
+                onOpenVideoTracks = {
+                    onUserInteraction()
+                    onOpenVideoTracks()
+                },
+
+                onOpenPlaybackSpeed = {
+                    onUserInteraction()
+                    onOpenPlaybackSpeed()
+                },
+
+                onToggleAspectRatio = {
+                    onUserInteraction()
+                    onToggleAspectRatio()
+                }
+            )
+        }
+
+
+        /*
+         * ========================================================
+         * LOCKED MESSAGE
+         * ========================================================
+         */
+
+        if (isLocked && !showSettings) {
+
+            AlaaLockedMessage(
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 }
 
-// ========================================================================
-// TOP INFORMATION
-// ========================================================================
+
+/*
+ * ============================================================
+ * TOP BAR
+ * ============================================================
+ */
 
 @Composable
-private fun AlaaPlayerTopInformation(
+private fun AlaaPlayerTopBar(
     title: String,
-    subtitle: String?,
-    now: Date,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    contentType: String,
+    mediaTitle: String?,
+    seriesTitle: String?,
+    episodeTitle: String?,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+    onBack: () -> Unit
 ) {
-    val timeText = remember(now) {
-        SimpleDateFormat(
-            "hh:mm a",
-            Locale.getDefault()
-        ).format(now)
-    }
-
-    val dateText = remember(now) {
-        SimpleDateFormat(
-            "EEEE، d MMMM yyyy",
-            Locale("ar")
-        ).format(now)
-    }
 
     Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = 30.dp,
+                end = 34.dp,
+                top = 25.dp
+            ),
+        verticalAlignment = Alignment.Top
     ) {
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.Top
+        AlaaBackButton(
+            onClick = onBack
+        )
+
+        Spacer(
+            modifier = Modifier.width(22.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(top = 4.dp)
         ) {
 
-            AlaaControlSurface(
-                label = "←",
-                caption = "رجوع",
-                onClick = onBack,
-                compact = true
+            val mainTitle = when {
+                !mediaTitle.isNullOrBlank() -> mediaTitle
+                !seriesTitle.isNullOrBlank() -> seriesTitle
+                title.isNotBlank() -> title
+                else -> "Player"
+            }
+
+            val secondaryTitle = when {
+
+                !episodeTitle.isNullOrBlank() -> buildString {
+
+                    append(episodeTitle)
+
+                    if (seasonNumber != null || episodeNumber != null) {
+
+                        append("  •  ")
+
+                        if (seasonNumber != null) {
+                            append("S$seasonNumber")
+                        }
+
+                        if (episodeNumber != null) {
+                            append(" E$episodeNumber")
+                        }
+                    }
+                }
+
+                contentType.isNotBlank() -> contentType
+
+                else -> null
+            }
+
+            Text(
+                text = mainTitle,
+                color = AlaaPlayerTokens.TextPrimary,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
 
-            Column(
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
+            if (!secondaryTitle.isNullOrBlank()) {
+
+                Spacer(
+                    modifier = Modifier.height(5.dp)
+                )
 
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    text = secondaryTitle,
+                    color = AlaaPlayerTokens.TextSecondary,
+                    fontSize = 15.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                subtitle?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = AlaaThemeColors.Accent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
         }
 
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+        AlaaClock()
+    }
+}
+
+
+/*
+ * ============================================================
+ * BACK BUTTON
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaBackButton(
+    onClick: () -> Unit
+) {
+
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(
+                width = 88.dp,
+                height = 70.dp
+            )
+            .clip(
+                RoundedCornerShape(
+                    AlaaPlayerTokens.ControlRadius
+                )
+            )
+            .background(
+                if (focused) {
+                    AlaaPlayerTokens.FocusBackground
+                } else {
+                    Color.Black.copy(alpha = 0.28f)
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) {
+                    AlaaPlayerTokens.FocusBorder
+                } else {
+                    AlaaPlayerTokens.Border
+                },
+                shape = RoundedCornerShape(
+                    AlaaPlayerTokens.ControlRadius
+                )
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Icon(
+            imageVector = Icons.Default.ArrowBack,
+            contentDescription = "Back",
+            tint = Color.White,
+            modifier = Modifier.size(30.dp)
+        )
+    }
+}
+
+
+/*
+ * ============================================================
+ * CLOCK
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaClock() {
+
+    val currentTime by produceState(
+        initialValue = Date()
+    ) {
+
+        while (true) {
+
+            value = Date()
+
+            delay(1000)
+        }
+    }
+
+    val timeFormatter = remember {
+        SimpleDateFormat(
+            "HH:mm",
+            Locale.getDefault()
+        )
+    }
+
+    val dateFormatter = remember {
+        SimpleDateFormat(
+            "EEE, dd MMM",
+            Locale.getDefault()
+        )
+    }
+
+    Column(
+        horizontalAlignment = Alignment.End
+    ) {
+
+        Text(
+            text = timeFormatter.format(currentTime),
+            color = Color.White,
+            fontSize = 27.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Spacer(
+            modifier = Modifier.height(3.dp)
+        )
+
+        Text(
+            text = dateFormatter.format(currentTime),
+            color = AlaaPlayerTokens.TextMuted,
+            fontSize = 13.sp
+        )
+    }
+}
+
+
+/*
+ * ============================================================
+ * TRANSPORT BUTTON
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaTransportButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(
+                AlaaPlayerTokens.SecondaryButtonSize
+            )
+            .shadow(
+                elevation = if (focused) 20.dp else 10.dp,
+                shape = CircleShape
+            )
+            .clip(CircleShape)
+            .background(
+                if (focused) {
+                    Color.White.copy(alpha = 0.12f)
+                } else {
+                    Color.Black.copy(alpha = 0.42f)
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) {
+                    AlaaPlayerTokens.FocusBorder
+                } else {
+                    AlaaPlayerTokens.Border
+                },
+                shape = CircleShape
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(42.dp)
+        )
+    }
+}
+
+
+/*
+ * ============================================================
+ * PRIMARY PLAY BUTTON
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaPrimaryPlayButton(
+    isPlaying: Boolean,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit
+) {
+
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(
+                AlaaPlayerTokens.PrimaryButtonSize
+            )
+            .shadow(
+                elevation = if (focused) 34.dp else 24.dp,
+                shape = CircleShape
+            )
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        AlaaPlayerTokens.AccentLight,
+                        AlaaPlayerTokens.Accent,
+                        AlaaPlayerTokens.AccentDark
+                    )
+                )
+            )
+            .border(
+                width = if (focused) 4.dp else 2.dp,
+                color = if (focused) {
+                    Color.White
+                } else {
+                    Color.White.copy(alpha = 0.18f)
+                },
+                shape = CircleShape
+            )
+            .focusRequester(focusRequester)
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Box(
+            modifier = Modifier
+                .size(114.dp)
+                .clip(CircleShape)
+                .background(
+                    Color.Black.copy(alpha = 0.09f)
+                ),
+            contentAlignment = Alignment.Center
         ) {
 
-            Text(
-                text = timeText,
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White
-            )
-
-            Text(
-                text = dateText,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = 0.8f)
+            Icon(
+                imageVector = if (isPlaying) {
+                    Icons.Default.Pause
+                } else {
+                    Icons.Default.PlayArrow
+                },
+                contentDescription = if (isPlaying) {
+                    "Pause"
+                } else {
+                    "Play"
+                },
+                tint = Color.White,
+                modifier = Modifier.size(62.dp)
             )
         }
     }
 }
 
-// ========================================================================
-// CENTER TRANSPORT
-// ========================================================================
+
+/*
+ * ============================================================
+ * BOTTOM PANEL
+ * ============================================================
+ */
 
 @Composable
-private fun AlaaPlayerTransport(
-    isPlaying: Boolean,
-    isLocked: Boolean,
-    playButtonFocusRequester: FocusRequester,
-    onSeekBackward: () -> Unit,
-    onTogglePlayPause: () -> Unit,
-    onSeekForward: () -> Unit,
-    modifier: Modifier = Modifier
+private fun AlaaPlayerBottomPanel(
+    modifier: Modifier = Modifier,
+    currentPosition: Long,
+    duration: Long,
+    subtitleTrackCount: Int,
+    audioTrackCount: Int,
+    videoQualityCount: Int,
+    showEpisodesAction: Boolean,
+    seekPreview: SeekPreviewState,
+    lockButtonFocusRequester: FocusRequester,
+
+    onSeekToPosition: (Long) -> Unit,
+    onSetScrubbingMode: (Boolean) -> Unit,
+    onSeekPreviewPositionChanged: (Long?) -> Unit,
+
+    onOpenSubtitleTracks: () -> Unit,
+    onOpenAudioTracks: () -> Unit,
+    onOpenEpisodes: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenVideoTracks: () -> Unit,
+    onToggleLock: () -> Unit
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(34.dp),
-        verticalAlignment = Alignment.CenterVertically
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth(0.78f)
+            .widthIn(
+                min = 900.dp,
+                max = 1180.dp
+            )
+            .padding(
+                horizontal = 16.dp,
+                vertical = 28.dp
+            )
+            .clip(
+                RoundedCornerShape(
+                    AlaaPlayerTokens.BottomPanelRadius
+                )
+            )
+            .background(
+                AlaaPlayerTokens.SurfaceGlass
+            )
+            .border(
+                width = 1.dp,
+                color = AlaaPlayerTokens.Border,
+                shape = RoundedCornerShape(
+                    AlaaPlayerTokens.BottomPanelRadius
+                )
+            )
+            .padding(
+                start = 30.dp,
+                end = 30.dp,
+                top = 19.dp,
+                bottom = 14.dp
+            )
     ) {
 
-        AlaaControlSurface(
-            label = "↶10",
-            caption = "رجوع",
-            onClick = onSeekBackward,
-            enabled = !isLocked
-        )
+        Column {
 
-        AlaaControlSurface(
-            label = if (isPlaying) "Ⅱ" else "▶",
-            caption = if (isPlaying) "إيقاف" else "تشغيل",
-            onClick = onTogglePlayPause,
-            enabled = !isLocked,
-            modifier = Modifier.focusRequester(
-                playButtonFocusRequester
-            ),
-            primary = true
-        )
+            AlaaTimeline(
+                currentPosition = currentPosition,
+                duration = duration,
+                seekPreview = seekPreview,
 
-        AlaaControlSurface(
-            label = "10↷",
-            caption = "تقدم",
-            onClick = onSeekForward,
-            enabled = !isLocked
-        )
+                onSeekToPosition = onSeekToPosition,
+                onSetScrubbingMode = onSetScrubbingMode,
+                onSeekPreviewPositionChanged = onSeekPreviewPositionChanged
+            )
+
+            Spacer(
+                modifier = Modifier.height(11.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(76.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                AlaaBottomAction(
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(
+                            lockButtonFocusRequester
+                        ),
+                    icon = Icons.Default.Lock,
+                    label = "قفل",
+                    onClick = onToggleLock
+                )
+
+                AlaaBottomAction(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.ClosedCaption,
+                    label = "ترجمة",
+                    detail = if (subtitleTrackCount > 0) {
+                        subtitleTrackCount.toString()
+                    } else {
+                        null
+                    },
+                    onClick = onOpenSubtitleTracks
+                )
+
+                AlaaBottomAction(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.VolumeUp,
+                    label = "الصوت",
+                    detail = if (audioTrackCount > 0) {
+                        audioTrackCount.toString()
+                    } else {
+                        null
+                    },
+                    onClick = onOpenAudioTracks
+                )
+
+                if (showEpisodesAction) {
+
+                    AlaaBottomAction(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.List,
+                        label = "حلقات",
+                        onClick = onOpenEpisodes
+                    )
+                }
+
+                AlaaBottomAction(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Settings,
+                    label = "إعدادات",
+                    onClick = onOpenSettings
+                )
+
+                AlaaBottomAction(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.HighQuality,
+                    label = "الجودة",
+                    detail = if (videoQualityCount > 0) {
+                        videoQualityCount.toString()
+                    } else {
+                        null
+                    },
+                    onClick = onOpenVideoTracks
+                )
+            }
+        }
     }
 }
 
-// ========================================================================
-// TIMELINE
-// ========================================================================
+
+/*
+ * ============================================================
+ * TIMELINE
+ * ============================================================
+ */
 
 @Composable
-private fun AlaaPlayerTimeline(
+private fun AlaaTimeline(
     currentPosition: Long,
     duration: Long,
     seekPreview: SeekPreviewState,
-    enabled: Boolean,
+
     onSeekToPosition: (Long) -> Unit,
     onSetScrubbingMode: (Boolean) -> Unit,
     onSeekPreviewPositionChanged: (Long?) -> Unit
 ) {
-    val safeDuration = duration.coerceAtLeast(0L)
 
-    val progress =
-        if (safeDuration > 0L) {
-            (
-                currentPosition.toFloat() /
-                    safeDuration
-                ).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+    val safeDuration = duration.coerceAtLeast(1L)
 
-    var pendingProgress by remember {
-        mutableFloatStateOf(progress)
+    val progress = (
+        currentPosition.toFloat() /
+            safeDuration.toFloat()
+        ).coerceIn(0f, 1f)
+
+    var sliderValue by remember {
+        mutableStateOf(progress)
     }
 
     var isScrubbing by remember {
         mutableStateOf(false)
     }
 
-    LaunchedEffect(progress) {
+
+    /*
+     * Keep slider synchronized with player
+     * when the user is not dragging.
+     */
+
+    LaunchedEffect(
+        progress,
+        isScrubbing
+    ) {
+
         if (!isScrubbing) {
-            pendingProgress = progress
+            sliderValue = progress
         }
     }
 
-    val displayedProgress =
-        if (isScrubbing) {
-            pendingProgress
-        } else {
-            progress
+
+    Column {
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+
+            Slider(
+                value = sliderValue,
+
+                onValueChange = { value ->
+
+                    isScrubbing = true
+
+                    sliderValue = value
+
+                    onSetScrubbingMode(true)
+
+                    val position = (
+                        value * safeDuration
+                    ).toLong()
+
+                    onSeekPreviewPositionChanged(
+                        position
+                    )
+                },
+
+                onValueChangeFinished = {
+
+                    val position = (
+                        sliderValue * safeDuration
+                    ).toLong()
+
+                    onSeekToPosition(
+                        position
+                    )
+
+                    isScrubbing = false
+
+                    onSetScrubbingMode(false)
+
+                    onSeekPreviewPositionChanged(
+                        null
+                    )
+                },
+
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusable(),
+
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = AlaaPlayerTokens.Accent,
+                    inactiveTrackColor = Color.White.copy(
+                        alpha = 0.18f
+                    )
+                ),
+
+                thumb = {
+
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = CircleShape
+                            )
+                            .clip(CircleShape)
+                            .background(Color.White)
+                    )
+                },
+
+                track = { sliderState ->
+
+                    val fraction = sliderState.value
+                        .coerceIn(0f, 1f)
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(
+                                RoundedCornerShape(50)
+                            )
+                            .background(
+                                Color.White.copy(
+                                    alpha = 0.17f
+                                )
+                            )
+                    ) {
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .background(
+                                    AlaaPlayerTokens.Accent
+                                )
+                        )
+                    }
+                }
+            )
+
+
+            /*
+             * SEEK PREVIEW
+             */
+
+            seekPreview.positionMillis?.let { position ->
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .clip(
+                            RoundedCornerShape(8.dp)
+                        )
+                        .background(
+                            Color.Black.copy(alpha = 0.90f)
+                        )
+                        .padding(
+                            horizontal = 10.dp,
+                            vertical = 5.dp
+                        )
+                ) {
+
+                    Text(
+                        text = formatDuration(position),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
 
-    Column(
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+
+        /*
+         * TIME LABELS
+         */
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
 
             Text(
-                text = formatDuration(currentPosition),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.8f)
+                text = formatDuration(
+                    currentPosition
+                ),
+                color = AlaaPlayerTokens.TextSecondary,
+                fontSize = 12.sp
             )
 
             Text(
-                text =
-                    if (seekPreview.visible) {
-                        formatDuration(
-                            seekPreview.positionMs
-                        )
-                    } else {
-                        formatDuration(safeDuration)
-                    },
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White.copy(alpha = 0.8f)
+                text = formatDuration(
+                    duration
+                ),
+                color = AlaaPlayerTokens.TextSecondary,
+                fontSize = 12.sp
             )
         }
-
-        Slider(
-            value = displayedProgress,
-
-            onValueChange = { value ->
-
-                if (safeDuration <= 0L) {
-                    return@Slider
-                }
-
-                isScrubbing = true
-                pendingProgress = value
-
-                onSetScrubbingMode(true)
-
-                onSeekPreviewPositionChanged(
-                    (value * safeDuration).toLong()
-                )
-            },
-
-            onValueChangeFinished = {
-
-                if (safeDuration > 0L) {
-
-                    val seekPosition =
-                        (
-                            pendingProgress *
-                                safeDuration
-                            ).toLong()
-
-                    onSeekToPosition(
-                        seekPosition
-                    )
-                }
-
-                onSeekPreviewPositionChanged(
-                    null
-                )
-
-                onSetScrubbingMode(false)
-
-                isScrubbing = false
-            },
-
-            enabled =
-                enabled &&
-                    safeDuration > 0L,
-
-            colors = SliderDefaults.colors(
-                thumbColor =
-                    AlaaThemeColors.Accent,
-
-                activeTrackColor =
-                    AlaaThemeColors.Accent,
-
-                inactiveTrackColor =
-                    Color.White.copy(alpha = 0.3f),
-
-                disabledThumbColor =
-                    Color.White.copy(alpha = 0.45f),
-
-                disabledActiveTrackColor =
-                    AlaaThemeColors.Accent.copy(
-                        alpha = 0.5f
-                    ),
-
-                disabledInactiveTrackColor =
-                    Color.White.copy(alpha = 0.15f)
-            ),
-
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 
-// ========================================================================
-// ACTION BAR
-// ========================================================================
+
+/*
+ * ============================================================
+ * BOTTOM ACTION
+ * ============================================================
+ */
 
 @Composable
-private fun AlaaPlayerActionBar(
-    isLocked: Boolean,
-    isImmersive: Boolean,
-    subtitleTrackCount: Int,
-    audioTrackCount: Int,
-    videoQualityCount: Int,
-    showEpisodesAction: Boolean,
-    lockButtonFocusRequester: FocusRequester,
-    onToggleLock: () -> Unit,
-    onOpenSubtitleTracks: () -> Unit,
-    onOpenAudioTracks: () -> Unit,
-    onOpenEpisodes: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenVideoTracks: () -> Unit,
-    onToggleImmersive: () -> Unit
+private fun AlaaBottomAction(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    label: String,
+    detail: String? = null,
+    onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth(),
 
-        horizontalArrangement =
-            Arrangement.spacedBy(8.dp),
+    var focused by remember {
+        mutableStateOf(false)
+    }
 
-        verticalAlignment =
-            Alignment.CenterVertically
+    Column(
+        modifier = modifier
+            .height(76.dp)
+            .clip(
+                RoundedCornerShape(
+                    AlaaPlayerTokens.ControlRadius
+                )
+            )
+            .background(
+                if (focused) {
+                    AlaaPlayerTokens.FocusBackground
+                } else {
+                    Color.Transparent
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) {
+                    AlaaPlayerTokens.FocusBorder
+                } else {
+                    Color.Transparent
+                },
+                shape = RoundedCornerShape(
+                    AlaaPlayerTokens.ControlRadius
+                )
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            )
+            .padding(
+                horizontal = 7.dp,
+                vertical = 6.dp
+            ),
+
+        horizontalAlignment = Alignment.CenterHorizontally,
+
+        verticalArrangement = Arrangement.Center
     ) {
 
-        AlaaControlSurface(
-            label = if (isLocked) "🔓" else "🔒",
-            caption = if (isLocked) "فتح" else "قفل",
-            onClick = onToggleLock,
-            modifier = Modifier.focusRequester(
-                lockButtonFocusRequester
-            ),
-            compact = true,
-            selected = isLocked
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (focused) {
+                Color.White
+            } else {
+                Color.White.copy(alpha = 0.91f)
+            },
+            modifier = Modifier.size(27.dp)
         )
 
-        AlaaControlSurface(
-            label = "▤",
-            caption = "ترجمة",
-            onClick = onOpenSubtitleTracks,
-            enabled = !isLocked,
-            compact = true
+        Spacer(
+            modifier = Modifier.height(4.dp)
         )
 
-        AlaaControlSurface(
-            label = "◖",
-            caption = "الصوت",
-            onClick = onOpenAudioTracks,
-            enabled = !isLocked,
-            compact = true
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
 
-        if (showEpisodesAction) {
-            AlaaControlSurface(
-                label = "☷",
-                caption = "حلقات",
-                onClick = onOpenEpisodes,
-                enabled = !isLocked,
-                compact = true
+            Text(
+                text = label,
+                color = Color.White.copy(
+                    alpha = if (focused) 1f else 0.84f
+                ),
+                fontSize = 12.sp,
+                fontWeight = if (focused) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Medium
+                },
+                maxLines = 1
             )
+
+            if (!detail.isNullOrBlank()) {
+
+                Spacer(
+                    modifier = Modifier.width(4.dp)
+                )
+
+                Text(
+                    text = "($detail)",
+                    color = Color.White.copy(
+                        alpha = 0.42f
+                    ),
+                    fontSize = 9.sp,
+                    maxLines = 1
+                )
+            }
         }
-
-        AlaaControlSurface(
-            label = "⚙",
-            caption = "إعدادات",
-            onClick = onOpenSettings,
-            enabled = !isLocked,
-            compact = true
-        )
-
-        AlaaControlSurface(
-            label = "HD",
-            caption = "جودة",
-            onClick = onOpenVideoTracks,
-            enabled = !isLocked,
-            compact = true
-        )
-
-        AlaaControlSurface(
-            label = if (isImmersive) "⛶" else "▣",
-            caption = "ملء",
-            onClick = onToggleImmersive,
-            enabled = !isLocked,
-            compact = true
-        )
     }
 }
 
-// ========================================================================
-// SETTINGS PANEL
-// ========================================================================
+
+/*
+ * ============================================================
+ * SETTINGS PANEL
+ * ============================================================
+ */
 
 @Composable
 private fun AlaaPlayerSettingsPanel(
+    modifier: Modifier = Modifier,
+    subtitleTrackCount: Int,
+    audioTrackCount: Int,
+    videoQualityCount: Int,
+    closeFocusRequester: FocusRequester,
+
     onDismiss: () -> Unit,
     onOpenSubtitleTracks: () -> Unit,
     onOpenAudioTracks: () -> Unit,
     onOpenVideoTracks: () -> Unit,
     onOpenPlaybackSpeed: () -> Unit,
-    onToggleAspectRatio: () -> Unit,
-    closeFocusRequester: FocusRequester,
-    modifier: Modifier = Modifier
+    onToggleAspectRatio: () -> Unit
 ) {
-    Column(
-        modifier = modifier
-            .width(280.dp)
-            .background(
-                Color.Black.copy(alpha = 0.92f),
-                RoundedCornerShape(18.dp)
-            )
-            .padding(14.dp),
 
-        verticalArrangement =
-            Arrangement.spacedBy(7.dp)
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
+        /*
+         * BACKDROP
+         */
 
-            horizontalArrangement =
-                Arrangement.SpaceBetween,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Color.Black.copy(alpha = 0.27f)
+                )
+                .clickable(
+                    onClick = onDismiss
+                )
+        )
 
-            verticalAlignment =
-                Alignment.CenterVertically
+
+        /*
+         * PANEL
+         */
+
+        Column(
+            modifier = modifier
+                .padding(
+                    end = 34.dp,
+                    top = 22.dp,
+                    bottom = 105.dp
+                )
+                .width(
+                    AlaaPlayerTokens.SettingsWidth
+                )
+                .clip(
+                    RoundedCornerShape(26.dp)
+                )
+                .background(
+                    Color(0xFF0C0C0C).copy(
+                        alpha = 0.97f
+                    )
+                )
+                .border(
+                    width = 1.dp,
+                    color = AlaaPlayerTokens.Border,
+                    shape = RoundedCornerShape(26.dp)
+                )
+                .padding(
+                    horizontal = 18.dp,
+                    vertical = 18.dp
+                )
         ) {
 
-            Text(
-                text = "إعدادات المشغّل",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
+            /*
+             * HEADER
+             */
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+
+                    Text(
+                        text = "إعدادات المشغل",
+                        color = Color.White,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(3.dp)
+                    )
+
+                    Text(
+                        text = "الصوت والصورة والتشغيل",
+                        color = AlaaPlayerTokens.TextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+
+                AlaaCloseButton(
+                    focusRequester = closeFocusRequester,
+                    onClick = onDismiss
+                )
+            }
+
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
             )
 
-            AlaaControlSurface(
-                label = "×",
-                caption = "إغلاق",
-                onClick = onDismiss,
-                modifier = Modifier.focusRequester(
-                    closeFocusRequester
-                ),
-                compact = true
+            AlaaSettingsDivider()
+
+
+            /*
+             * SETTINGS ITEMS
+             */
+
+            AlaaSettingsItem(
+                icon = Icons.Default.ClosedCaption,
+                title = "الترجمة",
+                detail = if (subtitleTrackCount > 0) {
+                    "$subtitleTrackCount مسارات متاحة"
+                } else {
+                    "لا توجد مسارات"
+                },
+                onClick = onOpenSubtitleTracks
             )
-        }
 
-        AlaaSettingsRow(
-            title = "الترجمة",
-            detail = "المسارات المتاحة"
-        ) {
-            onDismiss()
-            onOpenSubtitleTracks()
-        }
+            AlaaSettingsItem(
+                icon = Icons.Default.VolumeUp,
+                title = "الصوت",
+                detail = if (audioTrackCount > 0) {
+                    "$audioTrackCount مسارات متاحة"
+                } else {
+                    "لا توجد مسارات"
+                },
+                onClick = onOpenAudioTracks
+            )
 
-        AlaaSettingsRow(
-            title = "الصوت",
-            detail = "المسارات المتاحة"
-        ) {
-            onDismiss()
-            onOpenAudioTracks()
-        }
+            AlaaSettingsItem(
+                icon = Icons.Default.HighQuality,
+                title = "جودة الفيديو",
+                detail = if (videoQualityCount > 0) {
+                    "$videoQualityCount خيارات"
+                } else {
+                    "تلقائي"
+                },
+                onClick = onOpenVideoTracks
+            )
 
-        AlaaSettingsRow(
-            title = "الجودة",
-            detail = "المسارات المتاحة"
-        ) {
-            onDismiss()
-            onOpenVideoTracks()
-        }
+            AlaaSettingsItem(
+                icon = Icons.Default.Speed,
+                title = "سرعة التشغيل",
+                detail = "1.0×",
+                onClick = onOpenPlaybackSpeed
+            )
 
-        AlaaSettingsRow(
-            title = "سرعة التشغيل",
-            detail = "التحكم الفعلي"
-        ) {
-            onDismiss()
-            onOpenPlaybackSpeed()
-        }
-
-        AlaaSettingsRow(
-            title = "أبعاد الفيديو",
-            detail = "تغيير العرض"
-        ) {
-            onDismiss()
-            onToggleAspectRatio()
+            AlaaSettingsItem(
+                icon = Icons.Default.AspectRatio,
+                title = "نسبة العرض",
+                detail = "تلقائي",
+                onClick = onToggleAspectRatio
+            )
         }
     }
 }
 
-// ========================================================================
-// SETTINGS ROW
-// ========================================================================
+
+/*
+ * ============================================================
+ * CLOSE BUTTON
+ * ============================================================
+ */
 
 @Composable
-private fun AlaaSettingsRow(
+private fun AlaaCloseButton(
+    focusRequester: FocusRequester,
+    onClick: () -> Unit
+) {
+
+    var focused by remember {
+        mutableStateOf(false)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                if (focused) {
+                    Color.White.copy(alpha = 0.12f)
+                } else {
+                    Color.White.copy(alpha = 0.055f)
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) {
+                    AlaaPlayerTokens.FocusBorder
+                } else {
+                    Color.Transparent
+                },
+                shape = CircleShape
+            )
+            .focusRequester(
+                focusRequester
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = "Close",
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+
+/*
+ * ============================================================
+ * SETTINGS ITEM
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaSettingsItem(
+    icon: ImageVector,
     title: String,
     detail: String,
     onClick: () -> Unit
 ) {
-    TvClickableSurface(
-        onClick = onClick,
 
-        modifier = Modifier.fillMaxWidth(),
+    var focused by remember {
+        mutableStateOf(false)
+    }
 
-        shape = ClickableSurfaceDefaults.shape(
-            RoundedCornerShape(10.dp)
-        ),
-
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor =
-                AlaaThemeColors.BrowseRail,
-
-            focusedContainerColor =
-                AlaaThemeColors.SurfaceFocused,
-
-            contentColor = Color.White,
-
-            focusedContentColor = Color.White
-        ),
-
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                BorderStroke(
-                    AlaaThemeDimensions.FocusBorder,
-                    AlaaThemeColors.Accent
-                ),
-                10.dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(70.dp)
+            .clip(
+                RoundedCornerShape(16.dp)
             )
-        ),
-
-        scale = ClickableSurfaceDefaults.scale(
-            focusedScale =
-                AlaaThemeFocus.FocusedScale
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(
-                horizontal = 14.dp,
-                vertical = 10.dp
+            .background(
+                if (focused) {
+                    Color.White.copy(alpha = 0.09f)
+                } else {
+                    Color.Transparent
+                }
+            )
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) {
+                    AlaaPlayerTokens.FocusBorder
+                } else {
+                    Color.Transparent
+                },
+                shape = RoundedCornerShape(16.dp)
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+            }
+            .focusable()
+            .clickable(
+                onClick = onClick
+            )
+            .padding(
+                horizontal = 8.dp
             ),
 
-            verticalArrangement =
-                Arrangement.spacedBy(2.dp)
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        /*
+         * ICON CONTAINER
+         */
+
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .clip(
+                    RoundedCornerShape(14.dp)
+                )
+                .background(
+                    if (focused) {
+                        AlaaPlayerTokens.Accent.copy(
+                            alpha = 0.14f
+                        )
+                    } else {
+                        Color.White.copy(
+                            alpha = 0.055f
+                        )
+                    }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = if (focused) {
+                    AlaaPlayerTokens.AccentLight
+                } else {
+                    Color.White.copy(alpha = 0.92f)
+                },
+                modifier = Modifier.size(23.dp)
+            )
+        }
+
+
+        Spacer(
+            modifier = Modifier.width(13.dp)
+        )
+
+
+        /*
+         * TEXT
+         */
+
+        Column(
+            modifier = Modifier.weight(1f)
         ) {
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.labelLarge
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = if (focused) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Medium
+                }
+            )
+
+            Spacer(
+                modifier = Modifier.height(2.dp)
             )
 
             Text(
                 text = detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.65f)
-            )
-        }
-    }
-}
-
-// ========================================================================
-// CONTROL SURFACE
-// ========================================================================
-
-@Composable
-private fun AlaaControlSurface(
-    label: String,
-    caption: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    primary: Boolean = false,
-    compact: Boolean = false,
-    selected: Boolean = false
-) {
-    val cornerRadius =
-        when {
-            primary -> 50.dp
-            compact -> 12.dp
-            else -> 18.dp
-        }
-
-    val shape =
-        if (primary) {
-            CircleShape
-        } else {
-            RoundedCornerShape(cornerRadius)
-        }
-
-    /*
-     * مهم جدًا:
-     *
-     * لا نستخدم fillMaxSize() هنا.
-     *
-     * لأن هذا الـColumn موجود داخل TvClickableSurface
-     * وحجمه يجب أن يكون حسب محتواه، وليس حسب كامل الـOverlay.
-     */
-
-    val buttonModifier =
-        when {
-            primary -> {
-                Modifier.size(94.dp)
-            }
-
-            compact -> {
-                Modifier
-                    .width(82.dp)
-                    .height(64.dp)
-            }
-
-            else -> {
-                Modifier
-                    .width(110.dp)
-                    .height(78.dp)
-            }
-        }
-
-    TvClickableSurface(
-        onClick = onClick,
-        enabled = enabled,
-
-        modifier = modifier.then(
-            buttonModifier
-        ),
-
-        shape = ClickableSurfaceDefaults.shape(
-            shape
-        ),
-
-        colors = ClickableSurfaceDefaults.colors(
-
-            containerColor = when {
-                primary || selected ->
-                    AlaaThemeColors.Accent
-
-                else ->
-                    Color.Black.copy(alpha = 0.6f)
-            },
-
-            focusedContainerColor =
-                if (primary) {
-                    AlaaThemeColors.AccentStrong
-                } else {
-                    AlaaThemeColors.SurfaceFocused
-                },
-
-            contentColor = Color.White,
-
-            focusedContentColor = Color.White
-        ),
-
-        border = ClickableSurfaceDefaults.border(
-
-            border = Border(
-                BorderStroke(
-                    1.dp,
-                    Color.White.copy(alpha = 0.22f)
-                ),
-                cornerRadius
-            ),
-
-            focusedBorder = Border(
-                BorderStroke(
-                    AlaaThemeDimensions.FocusBorder,
-                    AlaaThemeColors.Accent
-                ),
-                cornerRadius
-            )
-        ),
-
-        scale = ClickableSurfaceDefaults.scale(
-            focusedScale =
-                if (primary) {
-                    1.06f
-                } else {
-                    AlaaThemeFocus.FocusedScale
-                }
-        )
-    ) {
-
-        /*
-         * مهم:
-         *
-         * لا يوجد fillMaxSize() هنا.
-         *
-         * وبالتالي الزر يحتفظ بالحجم المحدد
-         * في buttonModifier أعلاه.
-         */
-
-        Column(
-            modifier = Modifier.padding(
-                if (compact) {
-                    6.dp
-                } else {
-                    10.dp
-                }
-            ),
-
-            horizontalAlignment =
-                Alignment.CenterHorizontally,
-
-            verticalArrangement =
-                Arrangement.Center
-        ) {
-
-            Text(
-                text = label,
-
-                style =
-                    if (primary) {
-                        MaterialTheme.typography.displaySmall
-                    } else {
-                        MaterialTheme.typography.titleMedium
-                    },
-
-                color = Color.White,
-
-                textAlign = TextAlign.Center,
-
+                color = AlaaPlayerTokens.TextMuted,
+                fontSize = 11.sp,
                 maxLines = 1,
-
                 overflow = TextOverflow.Ellipsis
             )
+        }
 
-            if (!primary) {
 
-                Text(
-                    text = caption,
+        /*
+         * ARROW
+         */
 
-                    style =
-                        MaterialTheme.typography.labelSmall,
+        Icon(
+            imageVector = Icons.Default.ChevronLeft,
+            contentDescription = null,
+            tint = if (focused) {
+                AlaaPlayerTokens.Accent
+            } else {
+                Color.White.copy(alpha = 0.30f)
+            },
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
 
-                    color =
-                        Color.White.copy(alpha = 0.86f),
 
-                    textAlign =
-                        TextAlign.Center,
+/*
+ * ============================================================
+ * SETTINGS DIVIDER
+ * ============================================================
+ */
 
-                    maxLines = 1,
+@Composable
+private fun AlaaSettingsDivider() {
 
-                    overflow =
-                        TextOverflow.Ellipsis
-                )
-            }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Color.White.copy(alpha = 0.07f)
+            )
+    )
+}
+
+
+/*
+ * ============================================================
+ * LOCKED MESSAGE
+ * ============================================================
+ */
+
+@Composable
+private fun AlaaLockedMessage(
+    modifier: Modifier = Modifier
+) {
+
+    Box(
+        modifier = modifier
+            .padding(
+                bottom = 38.dp
+            )
+            .clip(
+                RoundedCornerShape(18.dp)
+            )
+            .background(
+                Color.Black.copy(alpha = 0.78f)
+            )
+            .border(
+                width = 1.dp,
+                color = AlaaPlayerTokens.Border,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .padding(
+                horizontal = 21.dp,
+                vertical = 11.dp
+            )
+    ) {
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+
+            Spacer(
+                modifier = Modifier.width(9.dp)
+            )
+
+            Text(
+                text = "الشاشة مقفلة",
+                color = Color.White.copy(alpha = 0.90f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
 
-// ========================================================================
-// DURATION FORMAT
-// ========================================================================
+
+/*
+ * ============================================================
+ * DURATION FORMAT
+ * ============================================================
+ */
 
 private fun formatDuration(
-    positionMs: Long
+    durationMillis: Long
 ): String {
-    val totalSeconds =
-        positionMs.coerceAtLeast(0L) / 1_000L
 
-    val hours =
-        totalSeconds / 3_600L
+    val totalSeconds = (
+        durationMillis / 1000L
+    ).coerceAtLeast(0L)
 
-    val minutes =
-        (totalSeconds % 3_600L) / 60L
+    val hours = totalSeconds / 3600L
 
-    val seconds =
+    val minutes = (
+        totalSeconds % 3600L
+    ) / 60L
+
+    val seconds = (
         totalSeconds % 60L
+    )
 
-    return if (hours > 0L) {
-        "%d:%02d:%02d".format(
+
+    return if (hours > 0) {
+
+        String.format(
+            Locale.getDefault(),
+            "%d:%02d:%02d",
             hours,
             minutes,
             seconds
         )
+
     } else {
-        "%d:%02d".format(
+
+        String.format(
+            Locale.getDefault(),
+            "%02d:%02d",
             minutes,
             seconds
         )
