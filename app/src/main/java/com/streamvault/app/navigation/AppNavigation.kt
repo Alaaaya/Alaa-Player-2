@@ -931,7 +931,6 @@ fun AppNavigation(mainActivity: MainActivity) {
                     seasonNumber = safePlayerRequest.seasonNumber,
                     episodeNumber = safePlayerRequest.episodeNumber,
                     episodeId = safePlayerRequest.episodeId,
-                    forceStartAtBeginning = safePlayerRequest.forceStartAtBeginning,
                     onBack = {
                         val route = safePlayerRequest.returnRoute
                         if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
