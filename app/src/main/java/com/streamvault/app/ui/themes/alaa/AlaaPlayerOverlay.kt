@@ -116,10 +116,7 @@ private object AlaaPlayerTokens {
  * احذف هذا التعريف من هنا.
  * ============================================================
  */
-
-internal data class SeekPreviewState(
-    val positionMillis: Long? = null
-)
+import com.streamvault.app.ui.screens.player.SeekPreviewState
 
 
 /*
