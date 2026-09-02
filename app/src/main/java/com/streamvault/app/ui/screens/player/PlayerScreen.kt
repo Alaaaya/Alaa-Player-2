@@ -615,18 +615,6 @@ fun PlayerScreen(
                     }
                 }
             }
-            // --- Key handler ownership ---
-            // onPreviewKeyEvent (top-down): DPAD_UP, DPAD_DOWN, CHANNEL_UP, CHANNEL_DOWN
-            //   for live-TV channel zapping when no overlay/dialog is open. Fires BEFORE
-            //   child composables see the event, so overlays that consume DPAD_UP/DOWN
-            //   internally get priority (early returns above).
-            // onKeyEvent (bottom-up): all other keys — DPAD_CENTER, BACK, MEDIA_*,
-            //   numeric digits, MUTE, GUIDE, INFO, MENU, and the CHANNEL_UP/DOWN
-            //   fallback for non-LIVE content types or when channelInfoSubPanelOpen.
-            // CHANNEL_UP/DOWN appear in BOTH handlers. onPreviewKeyEvent intercepts them
-            // first for live content with no sub-panel; onKeyEvent handles the remaining
-            // cases (non-LIVE content, sub-panel open). This is intentional — the preview
-            // handler returns false for those remaining cases, letting onKeyEvent run.
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
                     return@onPreviewKeyEvent false
@@ -671,7 +659,6 @@ fun PlayerScreen(
                 }
             }
             .onKeyEvent { event ->
-                // Only handle KeyDown to avoid double actions
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     viewModel.notifyUserActivity()
                     if (nextEpisodeCountdownVisible) {
@@ -694,88 +681,40 @@ fun PlayerScreen(
                             else -> true
                         }
                     }
-                    if (showTrackSelection != null || showVariantSelection || showSpeedSelection || showAudioVideoOffsetDialog || showStopPlaybackTimerDialog || showIdleStandbyTimerDialog) {
-                        if (showAudioVideoOffsetDialog) {
-                            return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
-                                KeyEvent.KEYCODE_BACK -> {
-                                    showAudioVideoOffsetDialog = false
-                                    viewModel.dismissAudioVideoOffsetPreview()
-                                    true
-                                }
-                                KeyEvent.KEYCODE_DPAD_UP,
-                                KeyEvent.KEYCODE_DPAD_DOWN,
-                                KeyEvent.KEYCODE_DPAD_LEFT,
-                                KeyEvent.KEYCODE_DPAD_RIGHT,
-                                KeyEvent.KEYCODE_DPAD_CENTER,
-                                KeyEvent.KEYCODE_ENTER,
-                                KeyEvent.KEYCODE_NUMPAD_ENTER -> false
-                                else -> true
-                            }
-                        }
-                        if (showSpeedSelection) {
-                            return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
-                                KeyEvent.KEYCODE_BACK -> {
-                                    showSpeedSelection = false
-                                    true
-                                }
-                                KeyEvent.KEYCODE_DPAD_UP,
-                                KeyEvent.KEYCODE_DPAD_DOWN,
-                                KeyEvent.KEYCODE_DPAD_LEFT,
-                                KeyEvent.KEYCODE_DPAD_RIGHT,
-                                KeyEvent.KEYCODE_DPAD_CENTER,
-                                KeyEvent.KEYCODE_ENTER,
-                                KeyEvent.KEYCODE_NUMPAD_ENTER -> false
-                                else -> true
-                            }
-                        }
-                        if (showVariantSelection) {
-                            return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
-                                KeyEvent.KEYCODE_BACK -> {
-                                    showVariantSelection = false
-                                    true
-                                }
-                                KeyEvent.KEYCODE_DPAD_UP,
-                                KeyEvent.KEYCODE_DPAD_DOWN,
-                                KeyEvent.KEYCODE_DPAD_LEFT,
-                                KeyEvent.KEYCODE_DPAD_RIGHT,
-                                KeyEvent.KEYCODE_DPAD_CENTER,
-                                KeyEvent.KEYCODE_ENTER,
-                                KeyEvent.KEYCODE_NUMPAD_ENTER -> false
-                                else -> true
-                            }
-                        }
-                        return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
-                            KeyEvent.KEYCODE_BACK -> {
-                                showStopPlaybackTimerDialog = false
-                                showIdleStandbyTimerDialog = false
-                                showTrackSelection = null
-                                true
-                            }
-                            KeyEvent.KEYCODE_DPAD_UP,
-                            KeyEvent.KEYCODE_DPAD_DOWN,
-                            KeyEvent.KEYCODE_DPAD_LEFT,
-                            KeyEvent.KEYCODE_DPAD_RIGHT,
-                            KeyEvent.KEYCODE_DPAD_CENTER,
-                            KeyEvent.KEYCODE_ENTER,
-                            KeyEvent.KEYCODE_NUMPAD_ENTER -> false
-                            else -> true
-                        }
-                    }
                     when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        KeyEvent.KEYCODE_DPAD_CENTER,
+                        KeyEvent.KEYCODE_ENTER -> {
                             if (showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
                                 viewModel.onLiveOverlayInteraction()
                             }
-                            if (contentType == "LIVE" && !isCatchUpPlayback && viewModel.hasPendingNumericChannelInput()) {
+
+                            if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback &&
+                                viewModel.hasPendingNumericChannelInput()
+                            ) {
                                 viewModel.commitNumericChannelInput()
-                                   true
-                            } else if (contentType == "LIVE" && !isCatchUpPlayback && isAlaaTheme) {
-                                if (showChannelListOverlay) viewModel.closeOverlays()
-                                else viewModel.openChannelListOverlay()
                                 true
-                            } else if (contentType == "LIVE" && !isCatchUpPlayback) {
-                                if (showChannelInfoOverlay) viewModel.closeChannelInfoOverlay()
-                                else viewModel.openChannelInfoOverlay()
+                            } else if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback &&
+                                isAlaaTheme
+                            ) {
+                                if (showChannelListOverlay) {
+                                    viewModel.closeOverlays()
+                                } else {
+                                    viewModel.openChannelListOverlay()
+                                }
+                                true
+                            } else if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback
+                            ) {
+                                if (showChannelInfoOverlay) {
+                                    viewModel.closeChannelInfoOverlay()
+                                } else {
+                                    viewModel.openChannelInfoOverlay()
+                                }
                                 true
                             } else if (showControls) {
                                 false
@@ -784,90 +723,236 @@ fun PlayerScreen(
                                 true
                             }
                         }
+
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
+                            if (
+                                showChannelListOverlay ||
+                                showCategoryListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
                                 viewModel.onLiveOverlayInteraction()
                             }
-                            if (showControls && (contentType != "LIVE" || isCatchUpPlayback)) return@onKeyEvent false
-                            if (showChannelListOverlay && contentType == "LIVE" && !isCatchUpPlayback) {
-                                // Second left press while channel list is open → open category list
+
+                            if (
+                                showControls &&
+                                (contentType != "LIVE" || isCatchUpPlayback)
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                showChannelListOverlay &&
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback
+                            ) {
+                                // Second left press while channel list is open
+                                // opens category list.
                                 viewModel.openCategoryListOverlay()
                                 true
-                            } else if (contentType == "LIVE" && !isCatchUpPlayback && !showChannelListOverlay && !showCategoryListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isRtl) viewModel.openEpgOverlay() else viewModel.openChannelListOverlay()
+                            } else if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback &&
+                                !showChannelListOverlay &&
+                                !showCategoryListOverlay &&
+                                !showEpgOverlay &&
+                                !showChannelInfoOverlay
+                            ) {
+                                if (isRtl) {
+                                    viewModel.openEpgOverlay()
+                                } else {
+                                    viewModel.openChannelListOverlay()
+                                }
                                 true
-                            } else if (!showChannelListOverlay && !showCategoryListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isAlaaTheme || !isRtl) viewModel.seekBackward() else viewModel.seekForward()
+                            } else if (
+                                !showChannelListOverlay &&
+                                !showCategoryListOverlay &&
+                                !showEpgOverlay &&
+                                !showChannelInfoOverlay
+                            ) {
+                                if (isAlaaTheme || !isRtl) {
+                                    viewModel.seekBackward()
+                                } else {
+                                    viewModel.seekForward()
+                                }
                                 true
                             } else {
                                 false
                             }
                         }
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            if (showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
-                                viewModel.onLiveOverlayInteraction()
-                            }
-                            if (showControls && (contentType != "LIVE" || isCatchUpPlayback)) return@onKeyEvent false
-                            if (contentType == "LIVE" && !isCatchUpPlayback && !showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isRtl) viewModel.openChannelListOverlay() else viewModel.openEpgOverlay()
-                                true
-                            } else if (!showChannelListOverlay && !showEpgOverlay && !showChannelInfoOverlay) {
-                                if (isAlaaTheme || !isRtl) viewModel.seekForward() else viewModel.seekBackward()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
-                                viewModel.onLiveOverlayInteraction()
-                            }
-                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) return@onKeyEvent false
-                            if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) return@onKeyEvent false
-                            if (showControls && (contentType != "LIVE" || isCatchUpPlayback)) return@onKeyEvent false
 
-                            if (contentType == "LIVE" && !isCatchUpPlayback) {
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (
+                                showChannelListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
+                                viewModel.onLiveOverlayInteraction()
+                            }
+
+                            if (
+                                showControls &&
+                                (contentType != "LIVE" || isCatchUpPlayback)
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback &&
+                                !showChannelListOverlay &&
+                                !showEpgOverlay &&
+                                !showChannelInfoOverlay
+                            ) {
+                                if (isRtl) {
+                                    viewModel.openChannelListOverlay()
+                                } else {
+                                    viewModel.openEpgOverlay()
+                                }
+                                true
+                            } else if (
+                                !showChannelListOverlay &&
+                                !showEpgOverlay &&
+                                !showChannelInfoOverlay
+                            ) {
+                                if (isAlaaTheme || !isRtl) {
+                                    viewModel.seekForward()
+                                } else {
+                                    viewModel.seekBackward()
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (
+                                showChannelListOverlay ||
+                                showCategoryListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
+                                viewModel.onLiveOverlayInteraction()
+                            }
+
+                            if (
+                                showChannelInfoOverlay &&
+                                channelInfoSubPanelOpen
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                showChannelListOverlay ||
+                                showCategoryListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                showControls &&
+                                (contentType != "LIVE" || isCatchUpPlayback)
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback
+                            ) {
                                 viewModel.playNext()
                             } else if (canOpenEpisodePicker) {
                                 showEpisodePicker = true
                             } else {
                                 viewModel.toggleControls()
                             }
+
                             true
                         }
+
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
+                            if (
+                                showChannelListOverlay ||
+                                showCategoryListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
                                 viewModel.onLiveOverlayInteraction()
                             }
-                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) return@onKeyEvent false
-                            if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showDiagnostics) return@onKeyEvent false
-                            if (showControls && (contentType != "LIVE" || isCatchUpPlayback)) return@onKeyEvent false
 
-                            if (contentType == "LIVE" && !isCatchUpPlayback) {
+                            if (
+                                showChannelInfoOverlay &&
+                                channelInfoSubPanelOpen
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                showChannelListOverlay ||
+                                showCategoryListOverlay ||
+                                showEpgOverlay ||
+                                showDiagnostics
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                showControls &&
+                                (contentType != "LIVE" || isCatchUpPlayback)
+                            ) {
+                                return@onKeyEvent false
+                            }
+
+                            if (
+                                contentType == "LIVE" &&
+                                !isCatchUpPlayback
+                            ) {
                                 viewModel.playPrevious()
                             } else {
                                 viewModel.toggleControls()
                             }
+
                             true
                         }
+
                         KeyEvent.KEYCODE_BACK -> {
                             handleBackPress()
                             true
                         }
+
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                            if (isPlaying) viewModel.pause() else viewModel.play()
+                            if (isPlaying) {
+                                viewModel.pause()
+                            } else {
+                                viewModel.play()
+                            }
                             true
                         }
-                        KeyEvent.KEYCODE_MUTE, KeyEvent.KEYCODE_VOLUME_MUTE -> {
-                            if (event.nativeKeyEvent.repeatCount == 0) {
+
+                        KeyEvent.KEYCODE_MUTE,
+                        KeyEvent.KEYCODE_VOLUME_MUTE -> {
+                            if (event.nativeEvent.repeatCount == 0) {
                                 viewModel.toggleMute()
                             }
                             true
                         }
-                        KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_DPAD_UP_RIGHT -> {
+
+                        KeyEvent.KEYCODE_CHANNEL_UP,
+                        KeyEvent.KEYCODE_DPAD_UP_RIGHT -> {
                             if (showDiagnostics) {
                                 true
-                            } else if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                            } else if (
+                                showChannelInfoOverlay &&
+                                channelInfoSubPanelOpen
+                            ) {
                                 true
                             } else if (contentType == "LIVE") {
                                 viewModel.playNext()
@@ -876,10 +961,15 @@ fun PlayerScreen(
                                 false
                             }
                         }
-                        KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_DPAD_DOWN_LEFT -> {
+
+                        KeyEvent.KEYCODE_CHANNEL_DOWN,
+                        KeyEvent.KEYCODE_DPAD_DOWN_LEFT -> {
                             if (showDiagnostics) {
                                 true
-                            } else if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                            } else if (
+                                showChannelInfoOverlay &&
+                                channelInfoSubPanelOpen
+                            ) {
                                 true
                             } else if (contentType == "LIVE") {
                                 viewModel.playPrevious()
@@ -888,17 +978,21 @@ fun PlayerScreen(
                                 false
                             }
                         }
+
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                            if (
+                                showChannelInfoOverlay &&
+                                channelInfoSubPanelOpen
+                            ) {
                                 true
-                            } else
-                            if (contentType == "LIVE") {
+                            } else if (contentType == "LIVE") {
                                 viewModel.zapToLastChannel()
                                 true
                             } else {
                                 false
                             }
                         }
+
                         KeyEvent.KEYCODE_GUIDE -> {
                             if (contentType == "LIVE") {
                                 viewModel.openEpgOverlay()
@@ -907,40 +1001,67 @@ fun PlayerScreen(
                                 false
                             }
                         }
+
                         KeyEvent.KEYCODE_INFO -> {
-                            if (showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
+                            if (
+                                showChannelListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
                                 viewModel.onLiveOverlayInteraction()
                             }
+
                             if (contentType == "LIVE") {
-                                if (showChannelInfoOverlay) viewModel.closeChannelInfoOverlay()
-                                else viewModel.openChannelInfoOverlay()
+                                if (showChannelInfoOverlay) {
+                                    viewModel.closeChannelInfoOverlay()
+                                } else {
+                                    viewModel.openChannelInfoOverlay()
+                                }
                             } else {
                                 viewModel.toggleControls()
                             }
+
                             true
                         }
+
                         KeyEvent.KEYCODE_MENU -> {
-                            if (showChannelListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
+                            if (
+                                showChannelListOverlay ||
+                                showEpgOverlay ||
+                                showChannelInfoOverlay ||
+                                showDiagnostics
+                            ) {
                                 viewModel.onLiveOverlayInteraction()
                             }
+
                             viewModel.toggleControls()
                             true
                         }
+
                         in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9,
                         in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> {
                             if (contentType == "LIVE") {
-                                val keyCode = event.nativeKeyEvent.keyCode
+                                val keyCode = event.nativeEvent.keyCode
+
                                 val digit = when (keyCode) {
-                                    in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> keyCode - KeyEvent.KEYCODE_0
-                                    in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> keyCode - KeyEvent.KEYCODE_NUMPAD_0
-                                    else -> return@onKeyEvent false
+                                    in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 ->
+                                        keyCode - KeyEvent.KEYCODE_0
+
+                                    in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 ->
+                                        keyCode - KeyEvent.KEYCODE_NUMPAD_0
+
+                                    else ->
+                                        return@onKeyEvent false
                                 }
+
                                 viewModel.inputNumericChannelDigit(digit)
                                 true
                             } else {
                                 false
                             }
                         }
+
                         else -> false
                     }
                 } else {
@@ -966,8 +1087,14 @@ fun PlayerScreen(
             ) {
                 Row(
                     modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .background(
+                            Color.Black.copy(alpha = 0.62f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .padding(
+                            horizontal = 16.dp,
+                            vertical = 10.dp
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -976,6 +1103,7 @@ fun PlayerScreen(
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(18.dp)
                     )
+
                     Text(
                         text = stringResource(R.string.player_buffering),
                         style = MaterialTheme.typography.bodyMedium,
@@ -986,7 +1114,11 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = playerNotice != null && !(playbackState == PlaybackState.BUFFERING && playerNotice?.isRetryNotice == false),
+            visible = playerNotice != null &&
+                !(
+                    playbackState == PlaybackState.BUFFERING &&
+                        playerNotice?.isRetryNotice == false
+                    ),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -1000,8 +1132,14 @@ fun PlayerScreen(
             )
         }
 
-        if (currentChannelRecording?.status == com.streamvault.domain.model.RecordingStatus.RECORDING) {
-            val recordingPulse = rememberInfiniteTransition(label = "recordingPulse")
+        if (
+            currentChannelRecording?.status ==
+            com.streamvault.domain.model.RecordingStatus.RECORDING
+        ) {
+            val recordingPulse = rememberInfiniteTransition(
+                label = "recordingPulse"
+            )
+
             val recordingAlpha by recordingPulse.animateFloat(
                 initialValue = 1f,
                 targetValue = 0.2f,
@@ -1011,22 +1149,40 @@ fun PlayerScreen(
                 ),
                 label = "recordingAlpha"
             )
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 18.dp, top = 18.dp)
-                    .background(Color.Black.copy(alpha = 0.58f), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                    .padding(
+                        start = 18.dp,
+                        top = 18.dp
+                    )
+                    .background(
+                        Color.Black.copy(alpha = 0.58f),
+                        RoundedCornerShape(999.dp)
+                    )
+                    .padding(
+                        horizontal = 12.dp,
+                        vertical = 7.dp
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(10.dp)
-                        .background(Color(0xFFFF4D4F).copy(alpha = recordingAlpha), RoundedCornerShape(999.dp))
+                        .background(
+                            Color(0xFFFF4D4F).copy(
+                                alpha = recordingAlpha
+                            ),
+                            RoundedCornerShape(999.dp)
+                        )
                 )
+
                 Text(
-                    text = stringResource(R.string.settings_recording_status_recording),
+                    text = stringResource(
+                        R.string.settings_recording_status_recording
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                     fontWeight = FontWeight.Bold
@@ -1036,30 +1192,48 @@ fun PlayerScreen(
 
         when (val resolutionState = playbackResolutionUiState) {
             PlaybackResolutionUiState.Resolving -> Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Color.Black.copy(alpha = 0.82f)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    CircularProgressIndicator(color = Primary)
-                    Text("Resolving playback…", color = Color.White)
+                    CircularProgressIndicator(
+                        color = Primary
+                    )
+
+                    Text(
+                        text = "Resolving playback…",
+                        color = Color.White
+                    )
                 }
             }
+
             is PlaybackResolutionUiState.Failure -> PlayerErrorOverlay(
-                playerError = PlayerError.SourceError(resolutionState.message),
+                playerError = PlayerError.SourceError(
+                    resolutionState.message
+                ),
                 contentType = contentType,
                 hasAlternateStream = false,
                 hasLastChannel = false,
                 onAction = handlePlayerNoticeAction,
                 onBack = onBack
             )
+
             PlaybackResolutionUiState.Idle -> Unit
         }
 
         // Engine error overlay
-        if (playbackResolutionUiState == PlaybackResolutionUiState.Idle && playbackState == PlaybackState.ERROR) {
+        if (
+            playbackResolutionUiState ==
+            PlaybackResolutionUiState.Idle &&
+            playbackState == PlaybackState.ERROR
+        ) {
             PlayerErrorOverlay(
                 playerError = playerError,
                 contentType = contentType,
@@ -1095,8 +1269,10 @@ fun PlayerScreen(
             mediaTitle = mediaTitle,
             seriesTitle = currentSeries?.name,
             episodeTitle = currentEpisode?.title,
-            currentSeasonNumber = currentEpisode?.seasonNumber ?: seasonNumber,
-            currentEpisodeNumber = currentEpisode?.episodeNumber ?: episodeNumber,
+            currentSeasonNumber =
+                currentEpisode?.seasonNumber ?: seasonNumber,
+            currentEpisodeNumber =
+                currentEpisode?.episodeNumber ?: episodeNumber,
             sleepTimerUiState = sleepTimerUiState,
             timeshiftUiState = timeshiftUiState,
             playButtonFocusRequester = playButtonFocusRequester,
@@ -1104,11 +1280,19 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
             onClose = viewModel::toggleControls,
             onNavigateBack = onBack,
-            onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
+            onTogglePlayPause = {
+                if (isPlaying) {
+                    viewModel.pause()
+                } else {
+                    viewModel.play()
+                }
+            },
             onSeekBackward = viewModel::seekBackward,
             onSeekForward = viewModel::seekForward,
             onRestartProgram = viewModel::restartCurrentProgram,
-            onOpenArchive = { showProgramHistory = true },
+            onOpenArchive = {
+                showProgramHistory = true
+            },
             onStartRecording = {
                 notificationPermissionGate.runRecordingAction {
                     viewModel.startManualRecording()
@@ -1131,40 +1315,73 @@ fun PlayerScreen(
                 }
             },
             onToggleAspectRatio = viewModel::toggleAspectRatio,
-            onOpenSubtitleTracks = { showTrackSelection = TrackType.TEXT },
-            onOpenAudioTracks = { showTrackSelection = TrackType.AUDIO },
-            onOpenVideoTracks = { showTrackSelection = TrackType.VIDEO },
-            onOpenPlaybackSpeed = { showSpeedSelection = true },
-            onOpenStopPlaybackTimer = { showStopPlaybackTimerDialog = true },
-            onOpenIdleStandbyTimer = { showIdleStandbyTimerDialog = true },
-            onOpenAudioVideoSync = { showAudioVideoOffsetDialog = true },
+            onOpenSubtitleTracks = {
+                showTrackSelection = TrackType.TEXT
+            },
+            onOpenAudioTracks = {
+                showTrackSelection = TrackType.AUDIO
+            },
+            onOpenVideoTracks = {
+                showTrackSelection = TrackType.VIDEO
+            },
+            onOpenPlaybackSpeed = {
+                showSpeedSelection = true
+            },
+            onOpenStopPlaybackTimer = {
+                showStopPlaybackTimerDialog = true
+            },
+            onOpenIdleStandbyTimer = {
+                showIdleStandbyTimerDialog = true
+            },
+            onOpenAudioVideoSync = {
+                showAudioVideoOffsetDialog = true
+            },
             audioVideoSyncEnabled = audioVideoSyncEnabled,
             showEpisodesAction = canOpenEpisodePicker,
-            onOpenEpisodes = { showEpisodePicker = true },
+            onOpenEpisodes = {
+                showEpisodePicker = true
+            },
             onOpenLiveChannels = viewModel::openChannelListOverlay,
             onToggleLiveFavorite = viewModel::toggleCurrentChannelFavorite,
             onRestartLiveProgram = viewModel::restartCurrentProgram,
             onOpenLiveGuide = viewModel::openFullGuideOverlay,
             isAlaaControlsLocked = alaaControlsLocked,
-            onToggleAlaaControlsLock = { alaaControlsLocked = !alaaControlsLocked },
+            onToggleAlaaControlsLock = {
+                alaaControlsLocked = !alaaControlsLocked
+            },
             showAlaaPlayerSettings = showAlaaPlayerSettings,
-            onOpenAlaaPlayerSettings = { showAlaaPlayerSettings = true },
-            onDismissAlaaPlayerSettings = { showAlaaPlayerSettings = false },
+            onOpenAlaaPlayerSettings = {
+                showAlaaPlayerSettings = true
+            },
+            onDismissAlaaPlayerSettings = {
+                showAlaaPlayerSettings = false
+            },
             isAlaaImmersiveMode = alaaPlayerImmersiveMode,
-            onToggleAlaaImmersiveMode = { alaaPlayerImmersiveMode = !alaaPlayerImmersiveMode },
+            onToggleAlaaImmersiveMode = {
+                alaaPlayerImmersiveMode =
+                    !alaaPlayerImmersiveMode
+            },
             alaaLockFocusRequester = alaaLockFocusRequester,
             alaaSettingsFocusRequester = alaaSettingsFocusRequester,
-            onOpenSplitScreen = { showSplitDialog = true },
+            onOpenSplitScreen = {
+                showSplitDialog = true
+            },
             onEnterPictureInPicture = enterPictureInPicture,
             onToggleMute = viewModel::toggleMute,
-            isCastConnected = castConnectionState == CastConnectionState.CONNECTED,
-            onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
+            isCastConnected =
+                castConnectionState == CastConnectionState.CONNECTED,
+            onCast = {
+                viewModel.castCurrentMedia {
+                    mainActivity?.openCastRouteChooser()
+                }
+            },
             onStopCasting = viewModel::stopCasting,
             onSeekToLiveEdge = viewModel::seekToLiveEdge,
             onSeekToPosition = viewModel::seekTo,
             onSetScrubbingMode = viewModel::setScrubbingMode,
             seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = viewModel::updateSeekPreview,
+            onSeekPreviewPositionChanged =
+                viewModel::updateSeekPreview,
             onUserInteraction = {
                 viewModel.notifyUserActivity()
                 viewModel.refreshControlsAutoHide()
@@ -1188,7 +1405,10 @@ fun PlayerScreen(
         )
 
         PlayerResolutionBadge(
-            visible = showResolution && !showControls && resolutionBadgeLabel != null,
+            visible =
+                showResolution &&
+                    !showControls &&
+                    resolutionBadgeLabel != null,
             resolutionLabel = resolutionBadgeLabel.orEmpty(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -1201,39 +1421,62 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 88.dp),
-                onExtendStopTimer = { viewModel.extendStopPlaybackTimer() },
-                onDisableStopTimer = viewModel::disableStopPlaybackTimer,
-                onExtendIdleTimer = { viewModel.extendIdleStandbyTimer() },
-                onDisableIdleTimer = viewModel::disableIdleStandbyTimer
+                onExtendStopTimer = {
+                    viewModel.extendStopPlaybackTimer()
+                },
+                onDisableStopTimer =
+                    viewModel::disableStopPlaybackTimer,
+                onExtendIdleTimer = {
+                    viewModel.extendIdleStandbyTimer()
+                },
+                onDisableIdleTimer =
+                    viewModel::disableIdleStandbyTimer
             )
         }
 
         // Auto-Play Next Episode countdown overlay
         val countdownState = autoPlayCountdown
-        if (!isInPictureInPictureMode && countdownState != null) {
+
+        if (
+            !isInPictureInPictureMode &&
+            countdownState != null
+        ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 32.dp, bottom = 32.dp)
+                    .padding(
+                        end = 32.dp,
+                        bottom = 32.dp
+                    )
             ) {
                 NextEpisodeCountdownOverlay(
                     nextEpisode = countdownState.episode,
-                    secondsRemaining = countdownState.secondsRemaining,
-                    onPlayNow = { viewModel.playNextEpisodeNow() },
-                    onCancel = { viewModel.cancelAutoPlay() }
+                    secondsRemaining =
+                        countdownState.secondsRemaining,
+                    onPlayNow = {
+                        viewModel.playNextEpisodeNow()
+                    },
+                    onCancel = {
+                        viewModel.cancelAutoPlay()
+                    }
                 )
             }
         }
-
+    }
+}
         // Resume Prompt Dialog
         if (!isInPictureInPictureMode && resumePrompt.show) {
             PlayerResumePrompt(
                 title = resumePrompt.title,
-                onStartOver = { viewModel.dismissResumePrompt(resume = false) },
-                onResume = { viewModel.dismissResumePrompt(resume = true) }
+                onStartOver = {
+                    viewModel.dismissResumePrompt(resume = false)
+                },
+                onResume = {
+                    viewModel.dismissResumePrompt(resume = true)
+                }
             )
         }
-        
+
         // Track Selection Dialog
         if (!isInPictureInPictureMode) {
             PlayerTrackSelectionDialog(
@@ -1243,7 +1486,9 @@ fun PlayerScreen(
                 videoTracks = availableVideoQualities,
                 liveTranslationAvailable = liveTranslationAvailable,
                 liveTranslationActive = liveTranslationActive,
-                onDismiss = { showTrackSelection = null },
+                onDismiss = {
+                    showTrackSelection = null
+                },
                 onSelectAudio = viewModel::selectAudioTrack,
                 onSelectVideo = viewModel::selectVideoQuality,
                 onSelectSubtitle = { trackId ->
@@ -1255,44 +1500,63 @@ fun PlayerScreen(
                     viewModel.activateLiveTranslation()
                 }
             )
+
             ChannelVariantSelectionDialog(
                 visible = showVariantSelection,
                 channel = currentChannel,
-                onDismiss = { showVariantSelection = false },
+                onDismiss = {
+                    showVariantSelection = false
+                },
                 onSelectVariant = viewModel::selectLiveVariant
             )
+
             PlayerSpeedSelectionDialog(
                 visible = showSpeedSelection,
                 selectedSpeed = playbackSpeed,
-                onDismiss = { showSpeedSelection = false },
+                onDismiss = {
+                    showSpeedSelection = false
+                },
                 onSelectSpeed = viewModel::setPlaybackSpeed
             )
+
             PlayerSleepTimerDialog(
                 visible = showStopPlaybackTimerDialog,
-                title = stringResource(R.string.player_stop_playback_after),
+                title = stringResource(
+                    R.string.player_stop_playback_after
+                ),
                 selectedMinutes = sleepTimerUiState.stopTimerMinutes,
-                onDismiss = { showStopPlaybackTimerDialog = false },
+                onDismiss = {
+                    showStopPlaybackTimerDialog = false
+                },
                 onSelectMinutes = { minutes ->
                     viewModel.notifyUserActivity()
                     viewModel.setStopPlaybackTimer(minutes)
                     showStopPlaybackTimerDialog = false
                 }
             )
+
             PlayerSleepTimerDialog(
                 visible = showIdleStandbyTimerDialog,
-                title = stringResource(R.string.player_idle_standby_after),
+                title = stringResource(
+                    R.string.player_idle_standby_after
+                ),
                 selectedMinutes = sleepTimerUiState.idleTimerMinutes,
-                onDismiss = { showIdleStandbyTimerDialog = false },
+                onDismiss = {
+                    showIdleStandbyTimerDialog = false
+                },
                 onSelectMinutes = { minutes ->
                     viewModel.notifyUserActivity()
                     viewModel.setIdleStandbyTimer(minutes)
                     showIdleStandbyTimerDialog = false
                 }
             )
+
             PlayerAudioVideoOffsetDialog(
-                visible = showAudioVideoOffsetDialog &&
-                    audioVideoSyncEnabled &&
-                    castConnectionState != CastConnectionState.CONNECTED,
+                visible =
+                    showAudioVideoOffsetDialog &&
+                        audioVideoSyncEnabled &&
+                        castConnectionState !=
+                            CastConnectionState.CONNECTED,
                 state = audioVideoOffsetState,
                 canSaveChannel = currentChannel != null,
                 onDismiss = {
@@ -1301,17 +1565,27 @@ fun PlayerScreen(
                 },
                 onAdjust = viewModel::adjustAudioVideoOffset,
                 onReset = viewModel::resetAudioVideoOffsetPreview,
-                onSaveForChannel = viewModel::saveAudioVideoOffsetForChannel,
-                onSaveAsGlobal = viewModel::saveAudioVideoOffsetAsGlobal,
-                onUseGlobal = viewModel::useGlobalAudioVideoOffset
+                onSaveForChannel =
+                    viewModel::saveAudioVideoOffsetForChannel,
+                onSaveAsGlobal =
+                    viewModel::saveAudioVideoOffsetAsGlobal,
+                onUseGlobal =
+                    viewModel::useGlobalAudioVideoOffset
             )
+
             PlayerEpisodeSelectionDialog(
                 visible = showEpisodePicker,
-                seriesTitle = currentSeries?.name ?: playbackTitle.ifBlank { title },
+                seriesTitle =
+                    currentSeries?.name
+                        ?: playbackTitle.ifBlank { title },
                 seasons = currentSeriesSeasons.orEmpty(),
-                currentEpisodeId = currentEpisode?.id ?: internalChannelId,
-                currentSeasonNumber = currentEpisode?.seasonNumber ?: seasonNumber,
-                onDismiss = { showEpisodePicker = false },
+                currentEpisodeId =
+                    currentEpisode?.id ?: internalChannelId,
+                currentSeasonNumber =
+                    currentEpisode?.seasonNumber ?: seasonNumber,
+                onDismiss = {
+                    showEpisodePicker = false
+                },
                 onSelectEpisode = { episode ->
                     showEpisodePicker = false
                     viewModel.playEpisode(episode)
@@ -1320,48 +1594,86 @@ fun PlayerScreen(
         }
 
         // --- Overlays ---
-        if (!isInPictureInPictureMode && contentType == "LIVE" && showFullGuideOverlay) {
+
+        if (
+            !isInPictureInPictureMode &&
+            contentType == "LIVE" &&
+            showFullGuideOverlay
+        ) {
             PlayerTransparentGuideOverlay(
                 uiState = playerGuideUiState,
-                currentPlayerChannelId = currentChannel?.id ?: internalChannelId,
-                onDismiss = viewModel::closeFullGuideOverlay,
-                onJumpToNow = playerGuideViewModel::jumpToNow,
-                onSelectCategory = { category -> playerGuideViewModel.selectCategory(category.id) },
-                onSearchQueryChange = playerGuideViewModel::updateProgramSearchQuery,
-                onClearSearch = playerGuideViewModel::clearProgramSearch,
+                currentPlayerChannelId =
+                    currentChannel?.id ?: internalChannelId,
+                onDismiss =
+                    viewModel::closeFullGuideOverlay,
+                onJumpToNow =
+                    playerGuideViewModel::jumpToNow,
+                onSelectCategory = { category ->
+                    playerGuideViewModel.selectCategory(
+                        category.id
+                    )
+                },
+                onSearchQueryChange =
+                    playerGuideViewModel::updateProgramSearchQuery,
+                onClearSearch =
+                    playerGuideViewModel::clearProgramSearch,
                 onWatchChannel = { channel ->
                     viewModel.playChannelFromGuideOverlay(
                         channel = channel,
-                        selectedGuideCategoryId = playerGuideUiState.selectedCategoryId,
-                        favoritesOnly = playerGuideUiState.showFavoritesOnly,
-                        combinedProfileId = playerGuideUiState.combinedProfileId
+                        selectedGuideCategoryId =
+                            playerGuideUiState.selectedCategoryId,
+                        favoritesOnly =
+                            playerGuideUiState.showFavoritesOnly,
+                        combinedProfileId =
+                            playerGuideUiState.combinedProfileId
                     )
                 },
                 onWatchArchive = { _, program ->
                     viewModel.closeFullGuideOverlay()
                     viewModel.playCatchUp(program)
                 },
-                onRequestMoreChannels = playerGuideViewModel::requestMoreChannels,
+                onRequestMoreChannels =
+                    playerGuideViewModel::requestMoreChannels,
                 modifier = Modifier.fillMaxSize()
             )
         }
 
-        if (!isInPictureInPictureMode && showDiagnostics) {
-            val playerStats by viewModel.playerStats.collectAsStateWithLifecycle()
+        if (
+            !isInPictureInPictureMode &&
+            showDiagnostics
+        ) {
+            val playerStats by
+                viewModel.playerStats.collectAsStateWithLifecycle()
+
             DiagnosticsOverlay(
                 stats = playerStats,
                 diagnostics = playerDiagnostics,
-                modifier = Modifier.align(Alignment.TopStart).padding(32.dp)
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(32.dp)
             )
         }
 
         if (contentType == "LIVE") {
             AnimatedVisibility(
                 visible = showChannelListOverlay,
-                enter = slideInHorizontally(initialOffsetX = { if (isRtl) it else -it }),
-                exit = slideOutHorizontally(targetOffsetX = { if (isRtl) it else -it }),
+                enter = slideInHorizontally(
+                    initialOffsetX = {
+                        if (isRtl) it else -it
+                    }
+                ),
+                exit = slideOutHorizontally(
+                    targetOffsetX = {
+                        if (isRtl) it else -it
+                    }
+                ),
                 modifier = Modifier
-                    .align(if (isRtl) Alignment.TopEnd else Alignment.TopStart)
+                    .align(
+                        if (isRtl)
+                            Alignment.TopEnd
+                        else
+                            Alignment.TopStart
+                    )
                     .fillMaxHeight()
                     .width(sideOverlayWidth)
                     .focusGroup()
@@ -1369,23 +1681,48 @@ fun PlayerScreen(
                 ChannelListOverlay(
                     channels = currentChannelList,
                     recentChannels = recentChannels,
-                    currentChannelId = currentChannel?.id ?: internalChannelId,
-                    overlayFocusRequester = channelListFocusRequester,
-                    lastVisitedCategoryName = lastVisitedCategory?.name,
-                    onOpenLastGroup = { viewModel.openLastVisitedCategory() },
-                    onSelectChannel = { channelId -> viewModel.zapToChannel(channelId) },
-                    onOpenCategories = { viewModel.openCategoryListOverlay() },
-                    onDismiss = { viewModel.closeOverlays() },
-                    onOverlayInteracted = viewModel::onLiveOverlayInteraction
+                    currentChannelId =
+                        currentChannel?.id ?: internalChannelId,
+                    overlayFocusRequester =
+                        channelListFocusRequester,
+                    lastVisitedCategoryName =
+                        lastVisitedCategory?.name,
+                    onOpenLastGroup = {
+                        viewModel.openLastVisitedCategory()
+                    },
+                    onSelectChannel = { channelId ->
+                        viewModel.zapToChannel(channelId)
+                    },
+                    onOpenCategories = {
+                        viewModel.openCategoryListOverlay()
+                    },
+                    onDismiss = {
+                        viewModel.closeOverlays()
+                    },
+                    onOverlayInteracted =
+                        viewModel::onLiveOverlayInteraction
                 )
             }
 
             AnimatedVisibility(
                 visible = showCategoryListOverlay,
-                enter = slideInHorizontally(initialOffsetX = { if (isRtl) it else -it }),
-                exit = slideOutHorizontally(targetOffsetX = { if (isRtl) it else -it }),
+                enter = slideInHorizontally(
+                    initialOffsetX = {
+                        if (isRtl) it else -it
+                    }
+                ),
+                exit = slideOutHorizontally(
+                    targetOffsetX = {
+                        if (isRtl) it else -it
+                    }
+                ),
                 modifier = Modifier
-                    .align(if (isRtl) Alignment.TopEnd else Alignment.TopStart)
+                    .align(
+                        if (isRtl)
+                            Alignment.TopEnd
+                        else
+                            Alignment.TopStart
+                    )
                     .fillMaxHeight()
                     .width(sideOverlayWidth)
                     .focusGroup()
@@ -1393,47 +1730,80 @@ fun PlayerScreen(
                 CategoryListOverlay(
                     categories = availableCategories,
                     currentCategoryId = activeCategoryId,
-                    overlayFocusRequester = categoryListFocusRequester,
+                    overlayFocusRequester =
+                        categoryListFocusRequester,
                     isCategoryLocked = { category ->
-                        parentalControlLevel in 1..2 && (category.isAdult || category.isUserProtected)
+                        parentalControlLevel in 1..2 &&
+                            (
+                                category.isAdult ||
+                                    category.isUserProtected
+                                )
                     },
                     onSelectCategory = { category ->
-                        viewModel.selectCategoryFromOverlay(category)
+                        viewModel.selectCategoryFromOverlay(
+                            category
+                        )
                     },
-                    onDismiss = { viewModel.closeOverlays() },
-                    onOverlayInteracted = viewModel::onLiveOverlayInteraction
+                    onDismiss = {
+                        viewModel.closeOverlays()
+                    },
+                    onOverlayInteracted =
+                        viewModel::onLiveOverlayInteraction
                 )
             }
 
             AnimatedVisibility(
                 visible = showEpgOverlay,
-                enter = slideInHorizontally(initialOffsetX = { if (isRtl) -it else it }),
-                exit = slideOutHorizontally(targetOffsetX = { if (isRtl) -it else it }),
+                enter = slideInHorizontally(
+                    initialOffsetX = {
+                        if (isRtl) -it else it
+                    }
+                ),
+                exit = slideOutHorizontally(
+                    targetOffsetX = {
+                        if (isRtl) -it else it
+                    }
+                ),
                 modifier = Modifier
-                    .align(if (isRtl) Alignment.TopStart else Alignment.TopEnd)
+                    .align(
+                        if (isRtl)
+                            Alignment.TopStart
+                        else
+                            Alignment.TopEnd
+                    )
                     .fillMaxHeight()
                     .width(epgOverlayWidth)
                     .focusGroup()
             ) {
                 EpgOverlay(
                     currentChannel = currentChannel,
-                    displayChannelNumber = displayChannelNumber,
+                    displayChannelNumber =
+                        displayChannelNumber,
                     currentProgram = currentProgram,
                     nextProgram = nextProgram,
                     upcomingPrograms = upcomingPrograms,
-                    onDismiss = { viewModel.closeOverlays() },
+                    onDismiss = {
+                        viewModel.closeOverlays()
+                    },
                     onOpenArchiveBrowser = {
                         showProgramHistory = true
                         viewModel.closeOverlays()
                     },
-                    onOverlayInteracted = viewModel::onLiveOverlayInteraction
+                    onOverlayInteracted =
+                        viewModel::onLiveOverlayInteraction
                 )
             }
 
             AnimatedVisibility(
                 visible = showChannelInfoOverlay,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                enter =
+                    slideInVertically(
+                        initialOffsetY = { it }
+                    ) + fadeIn(),
+                exit =
+                    slideOutVertically(
+                        targetOffsetY = { it }
+                    ) + fadeOut(),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -1441,13 +1811,19 @@ fun PlayerScreen(
             ) {
                 ChannelInfoOverlay(
                     currentChannel = currentChannel,
-                    displayChannelNumber = displayChannelNumber,
+                    displayChannelNumber =
+                        displayChannelNumber,
                     currentProgram = currentProgram,
                     nextProgram = nextProgram,
-                    focusRequester = channelInfoFocusRequester,
-                    lastVisitedCategoryName = lastVisitedCategory?.name,
-                    onDismiss = { viewModel.closeChannelInfoOverlay() },
-                    onOverlayInteracted = viewModel::onLiveOverlayInteraction,
+                    focusRequester =
+                        channelInfoFocusRequester,
+                    lastVisitedCategoryName =
+                        lastVisitedCategory?.name,
+                    onDismiss = {
+                        viewModel.closeChannelInfoOverlay()
+                    },
+                    onOverlayInteracted =
+                        viewModel::onLiveOverlayInteraction,
                     onOpenFullEpg = {
                         viewModel.closeChannelInfoOverlay()
                         viewModel.openEpgOverlay()
@@ -1456,13 +1832,15 @@ fun PlayerScreen(
                         viewModel.closeChannelInfoOverlay()
                         viewModel.openLastVisitedCategory()
                     },
-                    currentRecordingStatus = currentChannelRecording?.status,
+                    currentRecordingStatus =
+                        currentChannelRecording?.status,
                     onStartRecording = {
                         notificationPermissionGate.runRecordingAction {
                             viewModel.startManualRecording()
                         }
                     },
-                    onStopRecording = viewModel::stopCurrentRecording,
+                    onStopRecording =
+                        viewModel::stopCurrentRecording,
                     onScheduleRecording = {
                         notificationPermissionGate.runRecordingAction {
                             viewModel.scheduleRecording()
@@ -1478,44 +1856,99 @@ fun PlayerScreen(
                             viewModel.scheduleWeeklyRecording()
                         }
                     },
-                    onRestartProgram = { viewModel.restartCurrentProgram() },
-                    onOpenArchive = { showProgramHistory = true },
-                    onToggleAspectRatio = { viewModel.toggleAspectRatio() },
-                    onToggleDiagnostics = { viewModel.toggleDiagnostics() },
-                    onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
-                    onSeekBackward = viewModel::seekBackward,
-                    onSeekForward = viewModel::seekForward,
-                    onSeekToLiveEdge = viewModel::seekToLiveEdge,
+                    onRestartProgram = {
+                        viewModel.restartCurrentProgram()
+                    },
+                    onOpenArchive = {
+                        showProgramHistory = true
+                    },
+                    onToggleAspectRatio = {
+                        viewModel.toggleAspectRatio()
+                    },
+                    onToggleDiagnostics = {
+                        viewModel.toggleDiagnostics()
+                    },
+                    onTogglePlayPause = {
+                        if (isPlaying) {
+                            viewModel.pause()
+                        } else {
+                            viewModel.play()
+                        }
+                    },
+                    onSeekBackward =
+                        viewModel::seekBackward,
+                    onSeekForward =
+                        viewModel::seekForward,
+                    onSeekToLiveEdge =
+                        viewModel::seekToLiveEdge,
                     isPlaying = isPlaying,
-                    currentAspectRatio = aspectRatio.modeName,
-                    isDiagnosticsEnabled = showDiagnostics,
-                    onOpenSplitScreen = { showSplitDialog = true },
-                    subtitleTrackCount = availableSubtitleTracks.size,
-                    liveTranslationAvailable = liveTranslationAvailable,
-                    audioTrackCount = availableAudioTracks.size,
-                    videoQualityCount = availableVideoQualities.size,
-                    channelVariantCount = currentChannel?.variants?.size ?: 0,
+                    currentAspectRatio =
+                        aspectRatio.modeName,
+                    isDiagnosticsEnabled =
+                        showDiagnostics,
+                    onOpenSplitScreen = {
+                        showSplitDialog = true
+                    },
+                    subtitleTrackCount =
+                        availableSubtitleTracks.size,
+                    liveTranslationAvailable =
+                        liveTranslationAvailable,
+                    audioTrackCount =
+                        availableAudioTracks.size,
+                    videoQualityCount =
+                        availableVideoQualities.size,
+                    channelVariantCount =
+                        currentChannel?.variants?.size ?: 0,
                     isMuted = isMuted,
-                    onToggleMute = viewModel::toggleMute,
-                    onOpenSubtitleTracks = { showTrackSelection = TrackType.TEXT },
-                    onOpenAudioTracks = { showTrackSelection = TrackType.AUDIO },
-                    onOpenVideoTracks = { showTrackSelection = TrackType.VIDEO },
-                    onOpenVariants = { showVariantSelection = true },
-                    onOpenAudioVideoSync = { showAudioVideoOffsetDialog = true },
-                    audioVideoSyncEnabled = audioVideoSyncEnabled,
-                    onEnterPictureInPicture = enterPictureInPicture,
-                    isCastConnected = castConnectionState == CastConnectionState.CONNECTED,
-                    onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
-                    onStopCasting = viewModel::stopCasting,
-                    timeshiftUiState = timeshiftUiState,
-                    onTransientPanelVisibilityChanged = { channelInfoSubPanelOpen = it },
-                    resolutionLabel = videoFormat.resolutionLabel.takeIf { it.isNotBlank() && !videoFormat.isEmpty }
+                    onToggleMute =
+                        viewModel::toggleMute,
+                    onOpenSubtitleTracks = {
+                        showTrackSelection =
+                            TrackType.TEXT
+                    },
+                    onOpenAudioTracks = {
+                        showTrackSelection =
+                            TrackType.AUDIO
+                    },
+                    onOpenVideoTracks = {
+                        showTrackSelection =
+                            TrackType.VIDEO
+                    },
+                    onOpenVariants = {
+                        showVariantSelection = true
+                    },
+                    onOpenAudioVideoSync = {
+                        showAudioVideoOffsetDialog = true
+                    },
+                    audioVideoSyncEnabled =
+                        audioVideoSyncEnabled,
+                    onEnterPictureInPicture =
+                        enterPictureInPicture,
+                    isCastConnected =
+                        castConnectionState ==
+                            CastConnectionState.CONNECTED,
+                    onCast = {
+                        viewModel.castCurrentMedia {
+                            mainActivity?.openCastRouteChooser()
+                        }
+                    },
+                    onStopCasting =
+                        viewModel::stopCasting,
+                    timeshiftUiState =
+                        timeshiftUiState,
+                    onTransientPanelVisibilityChanged = {
+                        channelInfoSubPanelOpen = it
+                    },
+                    resolutionLabel =
+                        videoFormat.resolutionLabel.takeIf {
+                            it.isNotBlank() &&
+                                !videoFormat.isEmpty
+                        }
                 )
             }
         }
     }
 }
-
 private fun AspectRatio.toPlayerSurfaceResizeMode(): PlayerSurfaceResizeMode = when (this) {
     AspectRatio.FIT -> PlayerSurfaceResizeMode.FIT
     AspectRatio.FILL -> PlayerSurfaceResizeMode.FILL
@@ -1528,8 +1961,13 @@ private fun buildResolutionBadgeLabel(
     autoResolutionLabel: String
 ): String? {
     if (videoFormat.isEmpty) return null
+
     val selectedTrack = videoTracks.firstOrNull(PlayerTrack::isSelected)
-    return if (selectedTrack == null || selectedTrack.id == PLAYER_TRACK_AUTO_ID) {
+
+    return if (
+        selectedTrack == null ||
+        selectedTrack.id == PLAYER_TRACK_AUTO_ID
+    ) {
         autoResolutionLabel
     } else {
         selectedTrack.name
@@ -1618,17 +2056,38 @@ private fun PlayerControlsOverlayHost(
     onSeekPreviewPositionChanged: (Long?) -> Unit,
     onUserInteraction: () -> Unit
 ) {
-    val currentPosition by playerEngine.currentPosition.collectAsStateWithLifecycle()
-    val duration by playerEngine.duration.collectAsStateWithLifecycle()
-    val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
-    val isNeonFutureTheme = LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
-    val isMinimalTheme = LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
-    val isGlassTheme = LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
-    val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
-    val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
-    val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
-    val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
-    val isAlaaTheme = LocalIsAlaaTheme.current
+    val currentPosition by playerEngine.currentPosition
+        .collectAsStateWithLifecycle()
+
+    val duration by playerEngine.duration
+        .collectAsStateWithLifecycle()
+
+    val isCinematicTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC
+
+    val isNeonFutureTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.NEON_FUTURE
+
+    val isMinimalTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.MINIMAL
+
+    val isGlassTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.GLASSMORPHISM
+
+    val isStreamingPlatformTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
+
+    val isPremiumBlackTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
+
+    val isBlueOceanTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+
+    val isRedCinemaTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+
+    val isAlaaTheme =
+        LocalIsAlaaTheme.current
 
     if (isAlaaTheme && contentType == "LIVE") {
         AlaaLivePlayerOverlay(
@@ -1641,12 +2100,24 @@ private fun PlayerControlsOverlayHost(
             resolutionBadgeLabel = resolutionBadgeLabel,
             isPlaying = isPlaying,
             isFavorite = currentChannel?.isFavorite == true,
-            replayAvailable = (currentChannel != null && currentProgram != null && currentChannel.isArchivePlayable(currentProgram)) || timeshiftUiState.available,
+            replayAvailable =
+                (
+                    currentChannel != null &&
+                        currentProgram != null &&
+                        currentChannel.isArchivePlayable(
+                            currentProgram
+                        )
+                    ) || timeshiftUiState.available,
             isMuted = isMuted,
             showSettings = showAlaaPlayerSettings,
             actionBarFocusRequester = quickActionsFocusRequester,
             settingsCloseFocusRequester = alaaSettingsFocusRequester,
             modifier = modifier,
+
+            // FIX:
+            // Back is now explicitly passed to the ALAA Live overlay.
+            onBack = onNavigateBack,
+
             onOpenChannels = onOpenLiveChannels,
             onToggleFavorite = onToggleLiveFavorite,
             onRestartProgram = onRestartLiveProgram,
@@ -1677,7 +2148,11 @@ private fun PlayerControlsOverlayHost(
             audioTrackCount = audioTrackCount,
             videoQualityCount = videoQualityCount,
             isLocked = isAlaaControlsLocked,
-            isImmersive = isAlaaImmersiveMode,
+
+            // FIX:
+            // isImmersive removed because AlaaPlayerOverlay
+            // no longer receives this parameter.
+
             showEpisodesAction = showEpisodesAction,
             showSettings = showAlaaPlayerSettings,
             playButtonFocusRequester = playButtonFocusRequester,
@@ -1690,7 +2165,8 @@ private fun PlayerControlsOverlayHost(
             onSeekForward = onSeekForward,
             onSeekToPosition = onSeekToPosition,
             onSetScrubbingMode = onSetScrubbingMode,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
             seekPreview = seekPreview,
             onOpenSubtitleTracks = onOpenSubtitleTracks,
             onOpenAudioTracks = onOpenAudioTracks,
@@ -1701,146 +2177,15 @@ private fun PlayerControlsOverlayHost(
             onOpenPlaybackSpeed = onOpenPlaybackSpeed,
             onToggleAspectRatio = onToggleAspectRatio,
             onToggleLock = onToggleAlaaControlsLock,
-            onToggleImmersive = onToggleAlaaImmersiveMode,
+
+            // FIX:
+            // onToggleImmersive removed because the new
+            // AlaaPlayerOverlay does not expose this callback.
+
             onUserInteraction = onUserInteraction
         )
     } else if (isRedCinemaTheme) {
         RedCinemaPlayerOverlay(
-            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
-            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
-            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
-            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
-            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
-            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
-            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
-            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
-            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
-            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
-            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
-            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
-            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
-            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
-            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
-            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
-            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
-            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
-            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
-            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
-        )
-    } else if (isBlueOceanTheme) {
-        BlueOceanPlayerOverlay(
-            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
-            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
-            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
-            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
-            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
-            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
-            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
-            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
-            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
-            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
-            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
-            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
-            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
-            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
-            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
-            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
-            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
-            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
-            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
-            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
-        )
-    } else if (isPremiumBlackTheme) {
-        PremiumBlackPlayerOverlay(
-            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
-            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
-            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
-            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
-            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
-            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
-            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
-            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
-            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
-            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
-            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
-            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
-            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
-            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
-            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
-            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
-            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
-            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
-            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
-            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
-        )
-    } else if (isStreamingPlatformTheme) {
-        StreamingPlatformPlayerOverlay(
-            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
-            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
-            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
-            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
-            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
-            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
-            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
-            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
-            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
-            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
-            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
-            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
-            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
-            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
-            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
-            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
-            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
-            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
-            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
-            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
-        )
-    } else if (isGlassTheme) {
-        GlassmorphismPlayerOverlay(
-            visible = visible, title = title, contentType = contentType, isCatchUpPlayback = isCatchUpPlayback,
-            isPlaying = isPlaying, currentProgram = currentProgram, currentChannel = currentChannel,
-            currentChannelName = currentChannelName, displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition, duration = duration, aspectRatioLabel = aspectRatioLabel,
-            subtitleTrackCount = subtitleTrackCount, liveTranslationAvailable = liveTranslationAvailable,
-            audioTrackCount = audioTrackCount, videoQualityCount = videoQualityCount,
-            currentRecordingStatus = currentRecordingStatus, isMuted = isMuted, playbackSpeed = playbackSpeed,
-            mediaTitle = mediaTitle, sleepTimerUiState = sleepTimerUiState, timeshiftUiState = timeshiftUiState,
-            playButtonFocusRequester = playButtonFocusRequester, quickActionsFocusRequester = quickActionsFocusRequester,
-            modifier = modifier, onClose = onClose, onTogglePlayPause = onTogglePlayPause,
-            onSeekBackward = onSeekBackward, onSeekForward = onSeekForward, onRestartProgram = onRestartProgram,
-            onOpenArchive = onOpenArchive, onStartRecording = onStartRecording, onStopRecording = onStopRecording,
-            onScheduleRecording = onScheduleRecording, onScheduleDailyRecording = onScheduleDailyRecording,
-            onScheduleWeeklyRecording = onScheduleWeeklyRecording, onToggleAspectRatio = onToggleAspectRatio,
-            onOpenSubtitleTracks = onOpenSubtitleTracks, onOpenAudioTracks = onOpenAudioTracks,
-            onOpenVideoTracks = onOpenVideoTracks, onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer, onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-            onOpenAudioVideoSync = onOpenAudioVideoSync, audioVideoSyncEnabled = audioVideoSyncEnabled,
-            showEpisodesAction = showEpisodesAction, onOpenEpisodes = onOpenEpisodes, onOpenSplitScreen = onOpenSplitScreen,
-            onEnterPictureInPicture = onEnterPictureInPicture, onToggleMute = onToggleMute,
-            isCastConnected = isCastConnected, onCast = onCast, onStopCasting = onStopCasting,
-            onSeekToLiveEdge = onSeekToLiveEdge, onSeekToPosition = onSeekToPosition,
-            onSetScrubbingMode = onSetScrubbingMode, seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged, onUserInteraction = onUserInteraction
-        )
-    } else if (isCinematicTheme) {
-        CinematicPlayerOverlay(
             visible = visible,
             title = title,
             contentType = contentType,
@@ -1898,7 +2243,342 @@ private fun PlayerControlsOverlayHost(
             onSeekToPosition = onSeekToPosition,
             onSetScrubbingMode = onSetScrubbingMode,
             seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isBlueOceanTheme) {
+        BlueOceanPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    }
+    } else if (isPremiumBlackTheme) {
+        PremiumBlackPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isStreamingPlatformTheme) {
+        StreamingPlatformPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isGlassTheme) {
+        GlassmorphismPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isCinematicTheme) {
+        CinematicPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
             onUserInteraction = onUserInteraction
         )
     } else if (isNeonFutureTheme) {
@@ -1909,6 +2589,7 @@ private fun PlayerControlsOverlayHost(
             isCatchUpPlayback = isCatchUpPlayback,
             isPlaying = isPlaying,
             currentProgram = currentProgram,
+            nextProgram = nextProgram,
             currentChannel = currentChannel,
             currentChannelName = currentChannelName,
             displayChannelNumber = displayChannelNumber,
@@ -1919,10 +2600,15 @@ private fun PlayerControlsOverlayHost(
             liveTranslationAvailable = liveTranslationAvailable,
             audioTrackCount = audioTrackCount,
             videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
             currentRecordingStatus = currentRecordingStatus,
             isMuted = isMuted,
             playbackSpeed = playbackSpeed,
             mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
             sleepTimerUiState = sleepTimerUiState,
             timeshiftUiState = timeshiftUiState,
             playButtonFocusRequester = playButtonFocusRequester,
@@ -1960,7 +2646,8 @@ private fun PlayerControlsOverlayHost(
             onSeekToPosition = onSeekToPosition,
             onSetScrubbingMode = onSetScrubbingMode,
             seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
             onUserInteraction = onUserInteraction
         )
     } else if (isMinimalTheme) {
@@ -1971,6 +2658,7 @@ private fun PlayerControlsOverlayHost(
             isCatchUpPlayback = isCatchUpPlayback,
             isPlaying = isPlaying,
             currentProgram = currentProgram,
+            nextProgram = nextProgram,
             currentChannel = currentChannel,
             currentChannelName = currentChannelName,
             displayChannelNumber = displayChannelNumber,
@@ -1981,10 +2669,15 @@ private fun PlayerControlsOverlayHost(
             liveTranslationAvailable = liveTranslationAvailable,
             audioTrackCount = audioTrackCount,
             videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
             currentRecordingStatus = currentRecordingStatus,
             isMuted = isMuted,
             playbackSpeed = playbackSpeed,
             mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
             sleepTimerUiState = sleepTimerUiState,
             timeshiftUiState = timeshiftUiState,
             playButtonFocusRequester = playButtonFocusRequester,
@@ -2001,6 +2694,7 @@ private fun PlayerControlsOverlayHost(
             onScheduleRecording = onScheduleRecording,
             onScheduleDailyRecording = onScheduleDailyRecording,
             onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
             onOpenSubtitleTracks = onOpenSubtitleTracks,
             onOpenAudioTracks = onOpenAudioTracks,
             onOpenVideoTracks = onOpenVideoTracks,
@@ -2013,7 +2707,6 @@ private fun PlayerControlsOverlayHost(
             onOpenEpisodes = onOpenEpisodes,
             onOpenSplitScreen = onOpenSplitScreen,
             onEnterPictureInPicture = onEnterPictureInPicture,
-            onToggleAspectRatio = onToggleAspectRatio,
             onToggleMute = onToggleMute,
             isCastConnected = isCastConnected,
             onCast = onCast,
@@ -2022,76 +2715,92 @@ private fun PlayerControlsOverlayHost(
             onSeekToPosition = onSeekToPosition,
             onSetScrubbingMode = onSetScrubbingMode,
             seekPreview = seekPreview,
-            onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
             onUserInteraction = onUserInteraction
         )
     } else {
         PlayerControlsOverlay(
-        visible = visible,
-        title = title,
-        contentType = contentType,
-        isCatchUpPlayback = isCatchUpPlayback,
-        isPlaying = isPlaying,
-        currentProgram = currentProgram,
-        currentChannel = currentChannel,
-        currentChannelName = currentChannelName,
-        displayChannelNumber = displayChannelNumber,
-        currentPosition = currentPosition,
-        duration = duration,
-        aspectRatioLabel = aspectRatioLabel,
-        subtitleTrackCount = subtitleTrackCount,
-        liveTranslationAvailable = liveTranslationAvailable,
-        audioTrackCount = audioTrackCount,
-        videoQualityCount = videoQualityCount,
-        currentRecordingStatus = currentRecordingStatus,
-        isMuted = isMuted,
-        playbackSpeed = playbackSpeed,
-        mediaTitle = mediaTitle,
-        sleepTimerUiState = sleepTimerUiState,
-        timeshiftUiState = timeshiftUiState,
-        playButtonFocusRequester = playButtonFocusRequester,
-        quickActionsFocusRequester = quickActionsFocusRequester,
-        modifier = modifier,
-        onClose = onClose,
-        onTogglePlayPause = onTogglePlayPause,
-        onSeekBackward = onSeekBackward,
-        onSeekForward = onSeekForward,
-        onRestartProgram = onRestartProgram,
-        onOpenArchive = onOpenArchive,
-        onStartRecording = onStartRecording,
-        onStopRecording = onStopRecording,
-        onScheduleRecording = onScheduleRecording,
-        onScheduleDailyRecording = onScheduleDailyRecording,
-        onScheduleWeeklyRecording = onScheduleWeeklyRecording,
-        onToggleAspectRatio = onToggleAspectRatio,
-        onOpenSubtitleTracks = onOpenSubtitleTracks,
-        onOpenAudioTracks = onOpenAudioTracks,
-        onOpenVideoTracks = onOpenVideoTracks,
-        onOpenPlaybackSpeed = onOpenPlaybackSpeed,
-        onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
-        onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
-        onOpenAudioVideoSync = onOpenAudioVideoSync,
-        audioVideoSyncEnabled = audioVideoSyncEnabled,
-        showEpisodesAction = showEpisodesAction,
-        onOpenEpisodes = onOpenEpisodes,
-        onOpenSplitScreen = onOpenSplitScreen,
-        onEnterPictureInPicture = onEnterPictureInPicture,
-        onToggleMute = onToggleMute,
-        isCastConnected = isCastConnected,
-        onCast = onCast,
-        onStopCasting = onStopCasting,
-        onSeekToLiveEdge = onSeekToLiveEdge,
-        onSeekToPosition = onSeekToPosition,
-        onSetScrubbingMode = onSetScrubbingMode,
-        seekPreview = seekPreview,
-        onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
-        onUserInteraction = onUserInteraction
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram,
+            upcomingPrograms = upcomingPrograms,
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            seriesTitle = seriesTitle,
+            episodeTitle = episodeTitle,
+            currentSeasonNumber = currentSeasonNumber,
+            currentEpisodeNumber = currentEpisodeNumber,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenLiveChannels = onOpenLiveChannels,
+            onToggleLiveFavorite = onToggleLiveFavorite,
+            onRestartLiveProgram = onRestartLiveProgram,
+            onOpenLiveGuide = onOpenLiveGuide,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
         )
     }
 }
 
-private tailrec fun android.content.Context.findMainActivity(): MainActivity? = when (this) {
-    is MainActivity -> this
-    is android.content.ContextWrapper -> baseContext.findMainActivity()
-    else -> null
-}
+private tailrec fun android.content.Context.findMainActivity(): MainActivity? =
+    when (this) {
+        is MainActivity -> this
+        is android.content.ContextWrapper ->
+            baseContext.findMainActivity()
+
+        else -> null
+    }
