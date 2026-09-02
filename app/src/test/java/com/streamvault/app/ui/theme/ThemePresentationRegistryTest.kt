@@ -55,7 +55,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.MINIMAL,
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
-                AppHomeTheme.PREMIUM_BLACK
+                AppHomeTheme.PREMIUM_BLACK,
+                AppHomeTheme.RED_CINEMA
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -104,7 +105,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.MINIMAL,
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
-                AppHomeTheme.PREMIUM_BLACK
+                AppHomeTheme.PREMIUM_BLACK,
+                AppHomeTheme.RED_CINEMA
             )
             .inOrder()
     }

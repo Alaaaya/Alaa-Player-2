@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.streamvault.app.ui.screens.player.SeekPreviewState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -116,9 +118,6 @@ private object AlaaPlayerTokens {
  * احذف هذا التعريف من هنا.
  * ============================================================
  */
-import com.streamvault.app.ui.screens.player.SeekPreviewState
-
-
 /*
  * ============================================================
  * MAIN PLAYER OVERLAY
@@ -917,6 +916,7 @@ private fun AlaaPlayerBottomPanel(
  * ============================================================
  */
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlaaTimeline(
     currentPosition: Long,
@@ -1069,25 +1069,16 @@ private fun AlaaTimeline(
              * SEEK PREVIEW
              */
 
-            seekPreview.positionMillis?.let { position ->
-
+            if (seekPreview.visible) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .clip(
-                            RoundedCornerShape(8.dp)
-                        )
-                        .background(
-                            Color.Black.copy(alpha = 0.90f)
-                        )
-                        .padding(
-                            horizontal = 10.dp,
-                            vertical = 5.dp
-                        )
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.90f))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
                 ) {
-
                     Text(
-                        text = formatDuration(position),
+                        text = formatDuration(seekPreview.positionMs),
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium

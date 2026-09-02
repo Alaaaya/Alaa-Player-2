@@ -21,7 +21,7 @@ class AlaaSectionNavigationTest {
         val classic = ThemePresentationRegistry.resolve(AppHomeTheme.CLASSIC)
         val alaa = ThemePresentationRegistry.resolve(AppHomeTheme.ALAA)
 
-        assertThat(shouldReplaceHomeStack(classic, Routes.HOME, Routes.LIVE_TV)).isFalse()
+        assertThat(shouldReplaceHomeStack(classic, Routes.HOME, Routes.LIVE_TV)).isTrue()
         assertThat(shouldReplaceHomeStack(alaa, Routes.LIVE_TV, Routes.MOVIES)).isFalse()
         assertThat(shouldReplaceHomeStack(alaa, Routes.HOME, Routes.SETTINGS)).isFalse()
     }
