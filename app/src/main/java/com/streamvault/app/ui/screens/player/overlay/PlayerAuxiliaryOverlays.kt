@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.screens.player.overlay
 
+import androidx.compose.foundation.border
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -2560,41 +2561,17 @@ fun DiagnosticsOverlay(
                 }
             }
 
-            AnimatedVisibility(
-                visible =
-                    canScrollUp,
-                enter =
-                    fadeIn(),
-                exit =
-                    fadeOut(),
-                modifier =
-                    Modifier.align(
-                        Alignment.TopCenter
-                    )
-            ) {
+            if (canScrollUp) {
+    DiagnosticsScrollCue(
+        label = "↑"
+    )
+}
 
-                DiagnosticsScrollCue(
-                    label = "↑"
-                )
-            }
-
-            AnimatedVisibility(
-                visible =
-                    canScrollDown,
-                enter =
-                    fadeIn(),
-                exit =
-                    fadeOut(),
-                modifier =
-                    Modifier.align(
-                        Alignment.BottomCenter
-                    )
-            ) {
-
-                DiagnosticsScrollCue(
-                    label = "↓"
-                )
-            }
+if (canScrollDown) {
+    DiagnosticsScrollCue(
+        label = "↓"
+    )
+}
         }
     }
 }
