@@ -66,20 +66,17 @@ import kotlinx.coroutines.delay
  * ALAA LIVE PLAYER
  * PREMIUM CINEMATIC LIVE TV DESIGN
  *
- * Existing functionality preserved.
+ * LIVE ONLY
  *
- * NO NEW FEATURES.
+ * NO EPG
+ * NO PLAY / PAUSE
+ * NO SEEK
+ * NO TIMELINE
+ * NO REWIND
+ * NO FORWARD
+ * NO FULLSCREEN
  *
- * Existing controls:
- * - Channels
- * - Favorite
- * - Audio
- * - Aspect Ratio
- * - Settings
- * - Quality
- * - Subtitles
- *
- * Visual redesign only.
+ * ONE MAIN GLASS BOX
  * ============================================================
  */
 
@@ -92,31 +89,30 @@ import kotlinx.coroutines.delay
 
 private object AlaaLiveTokens {
 
-    val Accent = Color(0xFFFF7A00)
-    val AccentLight = Color(0xFFFFA13A)
-    val AccentDark = Color(0xFFE76400)
+    val Accent = Color(0xFFFF8A00)
+    val AccentLight = Color(0xFFFFA52F)
+    val AccentDark = Color(0xFFE86F00)
 
     val Background = Color(0xFF050505)
 
-    val Glass = Color(0xE80A0A0A)
-    val GlassTop = Color(0xF0141414)
-    val GlassBottom = Color(0xE8070707)
+    val Glass = Color(0xE60B0B0B)
+    val GlassSoft = Color(0xB80D0D0D)
 
     val Surface = Color(0xFF121212)
     val SurfaceElevated = Color(0xFF181818)
 
     val Border = Color.White.copy(alpha = 0.10f)
-    val BorderStrong = Color.White.copy(alpha = 0.18f)
+    val BorderStrong = Color.White.copy(alpha = 0.17f)
 
     val TextPrimary = Color.White
-    val TextSecondary = Color.White.copy(alpha = 0.72f)
-    val TextMuted = Color.White.copy(alpha = 0.46f)
+    val TextSecondary = Color.White.copy(alpha = 0.70f)
+    val TextMuted = Color.White.copy(alpha = 0.45f)
 
-    val FocusBackground = Color(0x24FF7A00)
+    val FocusBackground = Color.White.copy(alpha = 0.095f)
     val FocusBorder = Accent
 
     val MainBoxRadius = 28.dp
-    val ActionRadius = 15.dp
+    val ActionRadius = 17.dp
 }
 
 
@@ -134,7 +130,7 @@ internal fun AlaaLivePlayerOverlay(
 
     /*
      * Kept for compatibility with the existing caller.
-     * Intentionally not rendered as a new EPG interface.
+     * They are intentionally NOT rendered.
      */
     currentProgram: Any? = null,
     nextProgram: Any? = null,
@@ -149,7 +145,7 @@ internal fun AlaaLivePlayerOverlay(
 
     /*
      * Kept for compatibility.
-     * No new replay controls are introduced.
+     * Replay controls are intentionally NOT rendered.
      */
     replayAvailable: Boolean = false,
 
@@ -197,12 +193,12 @@ internal fun AlaaLivePlayerOverlay(
             .background(
                 Brush.verticalGradient(
                     colorStops = arrayOf(
-                        0.00f to Color.Black.copy(alpha = 0.48f),
-                        0.15f to Color.Black.copy(alpha = 0.12f),
-                        0.50f to Color.Transparent,
-                        0.70f to Color.Transparent,
-                        0.84f to Color.Black.copy(alpha = 0.16f),
-                        1.00f to Color.Black.copy(alpha = 0.82f)
+                        0.00f to Color.Black.copy(alpha = 0.66f),
+                        0.16f to Color.Black.copy(alpha = 0.28f),
+                        0.42f to Color.Transparent,
+                        0.66f to Color.Transparent,
+                        0.82f to Color.Black.copy(alpha = 0.25f),
+                        1.00f to Color.Black.copy(alpha = 0.88f)
                     )
                 )
             )
@@ -221,7 +217,7 @@ internal fun AlaaLivePlayerOverlay(
 
         /*
          * ========================================================
-         * BACK
+         * BACK BUTTON
          * ========================================================
          */
 
@@ -257,7 +253,10 @@ internal fun AlaaLivePlayerOverlay(
 
         /*
          * ========================================================
-         * MAIN GLASS PANEL
+         * ONE MAIN GLASS BOX
+         *
+         * Channel information + actions
+         * are inside the SAME box.
          * ========================================================
          */
 
@@ -270,14 +269,11 @@ internal fun AlaaLivePlayerOverlay(
             resolutionBadgeLabel =
                 resolutionBadgeLabel,
 
-            isPlaying =
-                isPlaying,
+            isPlaying = isPlaying,
 
-            isFavorite =
-                isFavorite,
+            isFavorite = isFavorite,
 
-            isMuted =
-                isMuted,
+            isMuted = isMuted,
 
             actionBarFocusRequester =
                 actionBarFocusRequester,
@@ -320,9 +316,9 @@ internal fun AlaaLivePlayerOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(
-                    start = 44.dp,
-                    end = 44.dp,
-                    bottom = 32.dp
+                    start = 48.dp,
+                    end = 48.dp,
+                    bottom = 34.dp
                 )
         )
 
@@ -427,10 +423,10 @@ private fun AlaaLiveMainPanel(
 
     Box(
         modifier = modifier
-            .fillMaxWidth(0.91f)
+            .fillMaxWidth(0.86f)
             .widthIn(
-                min = 960.dp,
-                max = 1400.dp
+                min = 900.dp,
+                max = 1320.dp
             )
             .clip(
                 RoundedCornerShape(
@@ -438,30 +434,31 @@ private fun AlaaLiveMainPanel(
                 )
             )
             .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        AlaaLiveTokens.GlassTop,
-                        AlaaLiveTokens.GlassBottom
-                    )
-                )
+                AlaaLiveTokens.Glass
             )
             .border(
                 width = 1.dp,
-                color = AlaaLiveTokens.BorderStrong,
-                shape = RoundedCornerShape(
-                    AlaaLiveTokens.MainBoxRadius
-                )
+
+                color =
+                    AlaaLiveTokens.BorderStrong,
+
+                shape =
+                    RoundedCornerShape(
+                        AlaaLiveTokens.MainBoxRadius
+                    )
             )
             .shadow(
-                elevation = 28.dp,
-                shape = RoundedCornerShape(
-                    AlaaLiveTokens.MainBoxRadius
-                )
+                elevation = 24.dp,
+
+                shape =
+                    RoundedCornerShape(
+                        AlaaLiveTokens.MainBoxRadius
+                    )
             )
             .padding(
-                start = 26.dp,
-                end = 26.dp,
-                top = 20.dp,
+                start = 28.dp,
+                end = 28.dp,
+                top = 24.dp,
                 bottom = 18.dp
             )
     ) {
@@ -469,6 +466,7 @@ private fun AlaaLiveMainPanel(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
+
 
             /*
              * ====================================================
@@ -479,11 +477,12 @@ private fun AlaaLiveMainPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(104.dp),
+                    .height(108.dp),
 
                 verticalAlignment =
                     Alignment.CenterVertically
             ) {
+
 
                 /*
                  * CHANNEL LOGO
@@ -497,15 +496,19 @@ private fun AlaaLiveMainPanel(
                         )
                         .background(
                             Color.Black.copy(
-                                alpha = 0.58f
+                                alpha = 0.56f
                             )
                         )
                         .border(
                             width = 1.dp,
-                            color = Color.White.copy(
-                                alpha = 0.14f
-                            ),
-                            shape = RoundedCornerShape(16.dp)
+
+                            color =
+                                Color.White.copy(
+                                    alpha = 0.13f
+                                ),
+
+                            shape =
+                                RoundedCornerShape(16.dp)
                         )
                         .padding(8.dp)
                 ) {
@@ -536,7 +539,7 @@ private fun AlaaLiveMainPanel(
 
 
                 /*
-                 * CHANNEL INFORMATION
+                 * CHANNEL DETAILS
                  */
 
                 Column(
@@ -547,157 +550,67 @@ private fun AlaaLiveMainPanel(
                         Arrangement.Center
                 ) {
 
-                    Row(
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
 
-                        /*
-                         * CHANNEL NUMBER BADGE
-                         */
+                    /*
+                     * NUMBER
+                     */
 
-                        channelNumber?.let { number ->
-
-                            Box(
-                                modifier = Modifier
-                                    .clip(
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .background(
-                                        AlaaLiveTokens.Accent.copy(
-                                            alpha = 0.08f
-                                        )
-                                    )
-                                    .border(
-                                        width = 1.5.dp,
-                                        color =
-                                            AlaaLiveTokens.Accent.copy(
-                                                alpha = 0.88f
-                                            ),
-                                        shape =
-                                            RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(
-                                        horizontal = 12.dp,
-                                        vertical = 6.dp
-                                    )
-                            ) {
-
-                                Text(
-                                    text =
-                                        "CH " +
-                                            number
-                                                .toString()
-                                                .padStart(
-                                                    2,
-                                                    '0'
-                                                ),
-
-                                    color =
-                                        AlaaLiveTokens.AccentLight,
-
-                                    fontSize = 15.sp,
-
-                                    fontWeight =
-                                        FontWeight.Bold
-                                )
-                            }
-
-
-                            Spacer(
-                                modifier =
-                                    Modifier.width(14.dp)
-                            )
-                        }
-
-
-                        /*
-                         * CHANNEL NAME
-                         */
+                    channelNumber?.let { number ->
 
                         Text(
-                            text =
-                                channel?.name
-                                    ?.takeIf {
-                                        it.isNotBlank()
-                                    }
-                                    ?: "قناة مباشرة",
+                            text = number
+                                .toString()
+                                .padStart(
+                                    3,
+                                    '0'
+                                ),
 
                             color =
-                                AlaaLiveTokens.TextPrimary,
+                                AlaaLiveTokens.TextSecondary,
 
-                            fontSize = 26.sp,
+                            fontSize = 17.sp,
 
                             fontWeight =
-                                FontWeight.Bold,
-
-                            maxLines = 1,
-
-                            overflow =
-                                TextOverflow.Ellipsis
+                                FontWeight.Medium
                         )
 
-
-                        /*
-                         * QUALITY BADGE
-                         */
-
-                        resolutionBadgeLabel
-                            ?.takeIf {
-                                it.isNotBlank()
-                            }
-                            ?.let { quality ->
-
-                                Spacer(
-                                    modifier =
-                                        Modifier.width(16.dp)
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .clip(
-                                            RoundedCornerShape(7.dp)
-                                        )
-                                        .background(
-                                            Color.Transparent
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color =
-                                                AlaaLiveTokens.Accent.copy(
-                                                    alpha = 0.75f
-                                                ),
-                                            shape =
-                                                RoundedCornerShape(7.dp)
-                                        )
-                                        .padding(
-                                            horizontal = 9.dp,
-                                            vertical = 5.dp
-                                        )
-                                ) {
-
-                                    Text(
-                                        text =
-                                            quality.uppercase(
-                                                Locale.getDefault()
-                                            ),
-
-                                        color =
-                                            AlaaLiveTokens.AccentLight,
-
-                                        fontSize = 12.sp,
-
-                                        fontWeight =
-                                            FontWeight.Bold
-                                    )
-                                }
-                            }
+                        Spacer(
+                            modifier =
+                                Modifier.height(3.dp)
+                        )
                     }
+
+
+                    /*
+                     * CHANNEL NAME
+                     */
+
+                    Text(
+                        text =
+                            channel?.name
+                                ?.takeIf {
+                                    it.isNotBlank()
+                                }
+                                ?: "قناة مباشرة",
+
+                        color =
+                            AlaaLiveTokens.TextPrimary,
+
+                        fontSize = 25.sp,
+
+                        fontWeight =
+                            FontWeight.Bold,
+
+                        maxLines = 1,
+
+                        overflow =
+                            TextOverflow.Ellipsis
+                    )
 
 
                     Spacer(
                         modifier =
-                            Modifier.height(8.dp)
+                            Modifier.height(6.dp)
                     )
 
 
@@ -716,21 +629,19 @@ private fun AlaaLiveMainPanel(
                                 .clip(CircleShape)
                                 .background(
                                     if (isPlaying) {
-                                        Color(0xFFFF3131)
+                                        AlaaLiveTokens.Accent
                                     } else {
                                         Color.White.copy(
-                                            alpha = 0.30f
+                                            alpha = 0.38f
                                         )
                                     }
                                 )
                         )
 
-
                         Spacer(
                             modifier =
                                 Modifier.width(7.dp)
                         )
-
 
                         Text(
                             text =
@@ -742,7 +653,7 @@ private fun AlaaLiveMainPanel(
 
                             color =
                                 if (isPlaying) {
-                                    Color(0xFFFF6262)
+                                    AlaaLiveTokens.AccentLight
                                 } else {
                                     AlaaLiveTokens.TextMuted
                                 },
@@ -755,42 +666,62 @@ private fun AlaaLiveMainPanel(
 
 
                         /*
-                         * SUBTLE SEPARATOR
+                         * QUALITY BADGE
                          */
 
-                        Box(
-                            modifier = Modifier
-                                .padding(
-                                    horizontal = 11.dp
+                        resolutionBadgeLabel
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.let { quality ->
+
+                                Spacer(
+                                    modifier =
+                                        Modifier.width(14.dp)
                                 )
-                                .width(1.dp)
-                                .height(14.dp)
-                                .background(
-                                    Color.White.copy(
-                                        alpha = 0.18f
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(
+                                            RoundedCornerShape(7.dp)
+                                        )
+                                        .background(
+                                            Color.White.copy(
+                                                alpha = 0.07f
+                                            )
+                                        )
+                                        .border(
+                                            width = 1.dp,
+
+                                            color =
+                                                Color.White.copy(
+                                                    alpha = 0.09f
+                                                ),
+
+                                            shape =
+                                                RoundedCornerShape(7.dp)
+                                        )
+                                        .padding(
+                                            horizontal = 7.dp,
+                                            vertical = 3.dp
+                                        )
+                                ) {
+
+                                    Text(
+                                        text = quality,
+
+                                        color =
+                                            Color.White.copy(
+                                                alpha = 0.76f
+                                            ),
+
+                                        fontSize = 10.sp,
+
+                                        fontWeight =
+                                            FontWeight.Medium
                                     )
-                                )
-                        )
-
-
-                        Text(
-                            text =
-                                if (isMuted) {
-                                    "الصوت مكتوم"
-                                } else {
-                                    "البث المباشر"
-                                },
-
-                            color =
-                                AlaaLiveTokens.TextMuted,
-
-                            fontSize = 12.sp,
-
-                            maxLines = 1,
-
-                            overflow =
-                                TextOverflow.Ellipsis
-                        )
+                                }
+                            }
                     }
                 }
             }
@@ -808,7 +739,7 @@ private fun AlaaLiveMainPanel(
                     .height(1.dp)
                     .background(
                         Color.White.copy(
-                            alpha = 0.10f
+                            alpha = 0.085f
                         )
                     )
             )
@@ -816,7 +747,7 @@ private fun AlaaLiveMainPanel(
 
             Spacer(
                 modifier =
-                    Modifier.height(16.dp)
+                    Modifier.height(15.dp)
             )
 
 
@@ -829,14 +760,15 @@ private fun AlaaLiveMainPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(82.dp),
+                    .height(76.dp),
 
                 horizontalArrangement =
-                    Arrangement.spacedBy(9.dp),
+                    Arrangement.spacedBy(8.dp),
 
                 verticalAlignment =
                     Alignment.CenterVertically
             ) {
+
 
                 /*
                  * CHANNELS
@@ -899,7 +831,7 @@ private fun AlaaLiveMainPanel(
 
                     label =
                         if (isMuted) {
-                            "الصوت مكتوم"
+                            "الصوت متوقف"
                         } else {
                             "الصوت"
                         },
@@ -911,6 +843,8 @@ private fun AlaaLiveMainPanel(
 
                 /*
                  * ASPECT RATIO
+                 *
+                 * This is NOT fullscreen.
                  */
 
                 AlaaLiveAction(
@@ -1015,7 +949,7 @@ private fun AlaaLiveAction(
 
     Column(
         modifier = modifier
-            .height(82.dp)
+            .height(76.dp)
 
             .clip(
                 RoundedCornerShape(
@@ -1031,13 +965,11 @@ private fun AlaaLiveAction(
 
                     selected ->
                         AlaaLiveTokens.Accent.copy(
-                            alpha = 0.12f
+                            alpha = 0.16f
                         )
 
                     else ->
-                        Color.White.copy(
-                            alpha = 0.025f
-                        )
+                        Color.Transparent
                 }
             )
 
@@ -1057,12 +989,12 @@ private fun AlaaLiveAction(
 
                         selected ->
                             AlaaLiveTokens.Accent.copy(
-                                alpha = 0.48f
+                                alpha = 0.45f
                             )
 
                         else ->
                             Color.White.copy(
-                                alpha = 0.09f
+                                alpha = 0.08f
                             )
                     },
 
@@ -1083,7 +1015,7 @@ private fun AlaaLiveAction(
             )
 
             .padding(
-                horizontal = 5.dp,
+                horizontal = 6.dp,
                 vertical = 7.dp
             ),
 
@@ -1093,6 +1025,7 @@ private fun AlaaLiveAction(
         verticalArrangement =
             Arrangement.Center
     ) {
+
 
         /*
          * ICON
@@ -1106,13 +1039,7 @@ private fun AlaaLiveAction(
                 label,
 
             tint =
-                if (focused) {
-                    AlaaLiveTokens.AccentLight
-                } else {
-                    Color.White.copy(
-                        alpha = 0.92f
-                    )
-                },
+                Color.White,
 
             modifier =
                 Modifier.size(27.dp)
@@ -1121,7 +1048,7 @@ private fun AlaaLiveAction(
 
         Spacer(
             modifier =
-                Modifier.height(6.dp)
+                Modifier.height(5.dp)
         )
 
 
@@ -1146,7 +1073,7 @@ private fun AlaaLiveAction(
 
             fontWeight =
                 if (focused) {
-                    FontWeight.Bold
+                    FontWeight.SemiBold
                 } else {
                     FontWeight.Medium
                 },
@@ -1181,12 +1108,12 @@ private fun AlaaLiveBackButton(
     Box(
         modifier = modifier
             .size(
-                width = 72.dp,
-                height = 60.dp
+                width = 82.dp,
+                height = 64.dp
             )
 
             .clip(
-                RoundedCornerShape(18.dp)
+                RoundedCornerShape(17.dp)
             )
 
             .background(
@@ -1194,7 +1121,7 @@ private fun AlaaLiveBackButton(
                     AlaaLiveTokens.FocusBackground
                 } else {
                     Color.Black.copy(
-                        alpha = 0.34f
+                        alpha = 0.32f
                     )
                 }
             )
@@ -1215,7 +1142,7 @@ private fun AlaaLiveBackButton(
                     },
 
                 shape =
-                    RoundedCornerShape(18.dp)
+                    RoundedCornerShape(17.dp)
             )
 
             .onFocusChanged {
@@ -1243,7 +1170,7 @@ private fun AlaaLiveBackButton(
                 Color.White,
 
             modifier =
-                Modifier.size(29.dp)
+                Modifier.size(30.dp)
         )
     }
 }
@@ -1380,6 +1307,7 @@ private fun AlaaLiveSettingsPanel(
             }
     ) {
 
+
         /*
          * ========================================================
          * BACKDROP
@@ -1391,7 +1319,7 @@ private fun AlaaLiveSettingsPanel(
                 .fillMaxSize()
                 .background(
                     Color.Black.copy(
-                        alpha = 0.34f
+                        alpha = 0.30f
                     )
                 )
                 .clickable(
@@ -1408,22 +1336,15 @@ private fun AlaaLiveSettingsPanel(
 
         Column(
             modifier = modifier
-                .width(360.dp)
+                .width(350.dp)
 
                 .clip(
                     RoundedCornerShape(26.dp)
                 )
 
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF171717).copy(
-                                alpha = 0.98f
-                            ),
-                            Color(0xFF090909).copy(
-                                alpha = 0.98f
-                            )
-                        )
+                    Color(0xFF0C0C0C).copy(
+                        alpha = 0.97f
                     )
                 )
 
@@ -1438,7 +1359,7 @@ private fun AlaaLiveSettingsPanel(
                 )
 
                 .shadow(
-                    elevation = 28.dp,
+                    elevation = 26.dp,
 
                     shape =
                         RoundedCornerShape(26.dp)
@@ -1449,6 +1370,7 @@ private fun AlaaLiveSettingsPanel(
                     vertical = 18.dp
                 )
         ) {
+
 
             /*
              * ====================================================
@@ -1519,7 +1441,9 @@ private fun AlaaLiveSettingsPanel(
 
 
             /*
+             * ====================================================
              * DIVIDER
+             * ====================================================
              */
 
             Box(
@@ -1528,14 +1452,16 @@ private fun AlaaLiveSettingsPanel(
                     .height(1.dp)
                     .background(
                         Color.White.copy(
-                            alpha = 0.08f
+                            alpha = 0.07f
                         )
                     )
             )
 
 
             /*
+             * ====================================================
              * SETTINGS
+             * ====================================================
              */
 
             AlaaLiveSettingItem(
@@ -1691,6 +1617,7 @@ private fun AlaaLiveSettingItem(
         verticalAlignment =
             Alignment.CenterVertically
     ) {
+
 
         /*
          * ICON BOX
