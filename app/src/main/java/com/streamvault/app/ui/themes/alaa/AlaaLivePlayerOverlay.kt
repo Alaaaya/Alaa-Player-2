@@ -111,8 +111,8 @@ private object AlaaLiveTokens {
     val FocusBackground = Color.White.copy(alpha = 0.095f)
     val FocusBorder = Accent
 
-    val MainBoxRadius = 28.dp
-    val ActionRadius = 17.dp
+    val MainBoxRadius = 24.dp
+    val ActionRadius = 16.dp
 }
 
 
@@ -456,10 +456,10 @@ private fun AlaaLiveMainPanel(
                     )
             )
             .padding(
-                start = 28.dp,
-                end = 28.dp,
+                start = 24.dp,
+                end = 24.dp,
                 top = 24.dp,
-                bottom = 18.dp
+                bottom = 24.dp
             )
     ) {
 
@@ -490,7 +490,7 @@ private fun AlaaLiveMainPanel(
 
                 Box(
                     modifier = Modifier
-                        .size(88.dp)
+                        .size(80.dp)
                         .clip(
                             RoundedCornerShape(16.dp)
                         )
@@ -596,7 +596,7 @@ private fun AlaaLiveMainPanel(
                         color =
                             AlaaLiveTokens.TextPrimary,
 
-                        fontSize = 25.sp,
+                        fontSize = 24.sp,
 
                         fontWeight =
                             FontWeight.Bold,
@@ -760,7 +760,7 @@ private fun AlaaLiveMainPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(76.dp),
+                    .height(56.dp),
 
                 horizontalArrangement =
                     Arrangement.spacedBy(8.dp),
@@ -949,7 +949,7 @@ private fun AlaaLiveAction(
 
     Column(
         modifier = modifier
-            .height(76.dp)
+            .height(56.dp)
 
             .clip(
                 RoundedCornerShape(
