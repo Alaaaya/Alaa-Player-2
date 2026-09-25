@@ -101,8 +101,8 @@ private object AlaaPlayerTokens {
     val FocusBorder = Accent
 
     // Sizes
-    val PrimaryButtonSize = 136.dp
-    val SecondaryButtonSize = 92.dp
+    val PrimaryButtonSize = 64.dp
+    val SecondaryButtonSize = 48.dp
     val BottomPanelRadius = 26.dp
     val ControlRadius = 18.dp
     val SettingsWidth = 350.dp
@@ -628,7 +628,7 @@ private fun AlaaTransportButton(
                 AlaaPlayerTokens.SecondaryButtonSize
             )
             .shadow(
-                elevation = if (focused) 20.dp else 10.dp,
+                elevation = if (focused) 10.dp else 6.dp,
                 shape = CircleShape
             )
             .clip(CircleShape)
@@ -662,7 +662,7 @@ private fun AlaaTransportButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(42.dp)
+            modifier = Modifier.size(22.dp)
         )
     }
 }
@@ -691,7 +691,7 @@ private fun AlaaPrimaryPlayButton(
                 AlaaPlayerTokens.PrimaryButtonSize
             )
             .shadow(
-                elevation = if (focused) 34.dp else 24.dp,
+                elevation = if (focused) 16.dp else 12.dp,
                 shape = CircleShape
             )
             .clip(CircleShape)
@@ -726,7 +726,7 @@ private fun AlaaPrimaryPlayButton(
 
         Box(
             modifier = Modifier
-                .size(114.dp)
+                .size(50.dp)
                 .clip(CircleShape)
                 .background(
                     Color.Black.copy(alpha = 0.09f)
@@ -746,7 +746,7 @@ private fun AlaaPrimaryPlayButton(
                     "Play"
                 },
                 tint = Color.White,
-                modifier = Modifier.size(62.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
     }
@@ -810,10 +810,10 @@ private fun AlaaPlayerBottomPanel(
                 )
             )
             .padding(
-                start = 30.dp,
-                end = 30.dp,
-                top = 19.dp,
-                bottom = 14.dp
+                start = 24.dp,
+                end = 24.dp,
+                top = 24.dp,
+                bottom = 24.dp
             )
     ) {
 
@@ -836,7 +836,7 @@ private fun AlaaPlayerBottomPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(76.dp),
+                    .height(56.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
@@ -1040,7 +1040,7 @@ private fun AlaaTimeline(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(5.dp)
+                            .height(4.dp)
                             .clip(
                                 RoundedCornerShape(50)
                             )
@@ -1147,7 +1147,7 @@ private fun AlaaBottomAction(
 
     Column(
         modifier = modifier
-            .height(76.dp)
+            .height(56.dp)
             .clip(
                 RoundedCornerShape(
                     AlaaPlayerTokens.ControlRadius

@@ -102,7 +102,7 @@ internal fun AlaaDashboard(
 
     Row(
         modifier = Modifier.fillMaxSize().padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(18.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         AlaaSidebar(onNavigate = onNavigate)
         LazyColumn(
@@ -372,7 +372,7 @@ private fun AlaaSidebar(onNavigate: (String) -> Unit) {
 
     Column(
         modifier = Modifier
-            .width(248.dp)
+            .width(220.dp)
             .fillMaxHeight()
             .background(AlaaSidebarBg)
             .padding(vertical = 24.dp, horizontal = 16.dp),
@@ -477,7 +477,7 @@ private fun SidebarItem(
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -509,8 +509,8 @@ private fun AlaaHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp)
-            .clip(RoundedCornerShape(AlaaThemeDimensions.CornerLarge))
+            .height(280.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(Brush.linearGradient(listOf(AlaaThemeColors.CanvasRaised, AlaaThemeColors.SurfaceElevated)))
     ) {
         if (!artworkUrl.isNullOrBlank()) {
@@ -625,7 +625,7 @@ private fun AlaaLiveCategories(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(categories, key = { it.id }) { category ->
                 val color = AlaaThemeColors.CategoryPalette[
                     (kotlin.math.abs(category.id % AlaaThemeColors.CategoryPalette.size.toLong())).toInt()
@@ -633,8 +633,8 @@ private fun AlaaLiveCategories(
                 TvClickableSurface(
                     onClick = { onCategoryClick(category) },
                     modifier = Modifier
-                        .width(168.dp)
-                        .height(104.dp),
+                        .width(160.dp)
+                        .height(110.dp),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = color.copy(alpha = 0.22f),
@@ -654,7 +654,7 @@ private fun AlaaLiveCategories(
                             imageVector = Icons.Default.Category,
                             contentDescription = null,
                             tint = color,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(36.dp)
                         )
                         Column {
                             Text(

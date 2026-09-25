@@ -369,7 +369,7 @@ private fun AlaaPoster(imageUrl: String?, title: String, status: String) {
     val shape = RoundedCornerShape(AlaaThemeDimensions.CornerLarge)
     Box(
         modifier = Modifier
-            .width(220.dp)
+            .width(140.dp)
             .aspectRatio(2f / 3f)
             .clip(shape)
             .background(AlaaThemeColors.Surface)
@@ -554,7 +554,7 @@ private fun rememberAlaaWatchLaterState(contentType: String, contentId: Long): A
 
 @Composable
 private fun AlaaSeasonChip(season: Season, isSelected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(AlaaThemeDimensions.CornerMedium)
+    val shape = RoundedCornerShape(10.dp)
     TvClickableSurface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -578,7 +578,7 @@ private fun AlaaSeasonChip(season: Season, isSelected: Boolean, onClick: () -> U
     ) {
         Text(
             text = season.name,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -588,7 +588,7 @@ private fun AlaaSeasonChip(season: Season, isSelected: Boolean, onClick: () -> U
 
 @Composable
 private fun AlaaEpisodeRow(episode: Episode, isSelected: Boolean, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(AlaaThemeDimensions.CornerMedium)
+    val shape = RoundedCornerShape(8.dp)
     TvClickableSurface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
