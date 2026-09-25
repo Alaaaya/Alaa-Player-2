@@ -62,6 +62,7 @@ import com.streamvault.app.ui.themes.premium.PremiumMuted
 import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
 import com.streamvault.app.ui.themes.premium.PremiumText
+import com.streamvault.app.ui.themes.blueocean.BlueOceanSettingsNavigationRail
 import com.streamvault.domain.model.AppHomeTheme
 
 private data class SettingsNavEntry(
@@ -154,6 +155,16 @@ internal fun SettingsNavigationRail(
     if (LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK) {
         PremiumBlackSettingsNavigationRail(
             entries = entries,
+            selectedCategory = selectedCategory,
+            focusRequester = focusRequester,
+            onCategorySelected = onCategorySelected
+        )
+        return
+    }
+
+    if (LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN) {
+        BlueOceanSettingsNavigationRail(
+            entries = entries.map { it.label to it.icon },
             selectedCategory = selectedCategory,
             focusRequester = focusRequester,
             onCategorySelected = onCategorySelected
