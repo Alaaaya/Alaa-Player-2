@@ -1,5 +1,8 @@
 package com.streamvault.app.ui.themes.blueocean
 
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -72,14 +75,17 @@ internal fun BlueOceanShellRail(
             BlueOceanNavEntry(Routes.MOVIES, "FILM TIDES", "F"),
             BlueOceanNavEntry(Routes.SERIES, "SERIES FLOW", "S"),
             BlueOceanNavEntry(Routes.SEARCH, "DEPTHS", "D"),
-            BlueOceanNavEntry(Routes.liveTv(categoryId = VirtualCategoryIds.FAVORITES), "HARBOUR", "B"),
+            BlueOceanNavEntry(Routes.FAVORITES, "HARBOUR", "B"),
             BlueOceanNavEntry(Routes.SETTINGS, "OPERATIONS", "O")
         )
     }
 
+    val requesters = remember { entries.associate { it.route to FocusRequester() } }
+    val selectedRoute = entries.firstOrNull { currentRoute == it.route || currentRoute.startsWith(it.route + "?") }?.route
     Column(
         modifier = modifier
             .width(224.dp)
+            .focusProperties { onEnter = { requesters[selectedRoute] ?: FocusRequester.Default } }
             .fillMaxHeight()
             .background(BlueOceanSurfaceBrush)
             .padding(horizontal = 14.dp, vertical = 20.dp),
@@ -106,7 +112,8 @@ internal fun BlueOceanShellRail(
             items(entries, key = { it.route }) { entry ->
                 BlueOceanRailItem(
                     entry = entry,
-                    isSelected = currentRoute == entry.route,
+                    isSelected = entry.route == selectedRoute,
+                    modifier = Modifier.focusRequester(requesters.getValue(entry.route)),
                     onClick = { onNavigate(entry.route) }
                 )
             }
@@ -118,6 +125,7 @@ internal fun BlueOceanShellRail(
 private fun BlueOceanRailItem(
     entry: BlueOceanNavEntry,
     isSelected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var isFocused by remember(entry.route) { mutableStateOf(false) }
@@ -125,7 +133,7 @@ private fun BlueOceanRailItem(
 
     TvClickableSurface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -164,39 +172,3 @@ private fun BlueOceanRailItem(
         }
     }
 }
-
-/**
- * Wave gradient background for the shell container.
- * Paints a subtle horizontal tide sweep behind all Blue Ocean content.
- */
-@Composable
-internal fun BlueOceanShellBackground(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(BlueOceanWaveBrush)
-    )
-}
-
-/**
- * D-pad focus configuration for the Blue Ocean shell.
- * The shell uses a 1.025f focus scale and 190ms motion duration,
- * matching the ThemeFocusSpec registered in ThemePresentation.
- */
-internal object BlueOceanShellFocus {
-    const val FocusedScale: Float = 1.025f
-    const val MotionDurationMs: Int = 190
-    val FocusBorderColor: Color = BlueOceanAccent
-    val FocusBorderWidth: androidx.compose.ui.unit.Dp = 2.dp
-}
-
-/**
- * Content padding for screens rendered inside the Blue Ocean shell.
- * Provides consistent tide-gutter spacing.
- */
-internal val BlueOceanShellPadding = PaddingValues(
-    start = 24.dp,
-    top = 24.dp,
-    end = 30.dp,
-    bottom = 24.dp
-)
