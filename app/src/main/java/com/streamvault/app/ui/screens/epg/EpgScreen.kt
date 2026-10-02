@@ -425,7 +425,77 @@ fun FullEpgScreen(
                 }
 
                 else -> {
-                    if (isBlueOceanTheme) {
+                    val bespokeEpgUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+                    if (bespokeEpgUi != null) {
+                        bespokeEpgUi.Epg(com.streamvault.app.ui.themes.bespoke.EpgParams(
+                            selectedCategoryName = uiState.categories
+                                .firstOrNull { it.id == uiState.selectedCategoryId }
+                                ?.name
+                                ?: stringResource(R.string.epg_filter_short),
+                            previewPlayerEngine = uiState.previewPlayerEngine,
+                            isPreviewLoading = uiState.isPreviewLoading,
+                            focusedChannel = focusedChannel,
+                            focusedProgram = focusedProgram,
+                            isRefreshing = uiState.isRefreshing,
+                            channels = uiState.channels,
+                            favoriteChannelIds = uiState.favoriteChannelIds,
+                            programsByChannel = uiState.programsByChannel,
+                            guideWindowStart = uiState.guideWindowStart,
+                            guideWindowEnd = uiState.guideWindowEnd,
+                            density = uiState.selectedDensity,
+                            onOpenCategoryPicker = { showCategoryPicker = true },
+                            onJumpToNow = viewModel::jumpToNow,
+                            onOpenSearch = { showSearchOverlay = true },
+                            onOpenOptions = { showGuideOptions = true },
+                            onGuideInteract = { topNavVisible = true },
+                            onChannelClick = { channel ->
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                                } else if (uiState.previewChannelId == channel.id) {
+                                    viewModel.handoffOrClearForFullscreen(channel)
+                                    onPlayChannel(channel, playerCategoryId, playerIsVirtualCategory, uiState.combinedProfileId, returnRoute)
+                                } else {
+                                    viewModel.previewChannel(channel)
+                                }
+                            },
+                            onChannelLongClick = { channel, currentProgram ->
+                                topNavVisible = false
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                                } else {
+                                    val program = currentProgram ?: Program(
+                                        channelId = channel.id.toString(),
+                                        title = channel.name,
+                                        startTime = System.currentTimeMillis(),
+                                        endTime = System.currentTimeMillis() + 60L * 60L * 1000L
+                                    )
+                                    scope.launch {
+                                        kotlinx.coroutines.delay(350)
+                                        selectedProgram = channel to program
+                                    }
+                                }
+                            },
+                            onProgramClick = { channel, program ->
+                                topNavVisible = false
+                                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                    requestLockedGuideAction(LockedGuideAction.OpenProgram(channel, program))
+                                } else {
+                                    selectedProgram = channel to program
+                                }
+                            },
+                            onChannelFocused = { channel, currentProgram, isFirstRow ->
+                                topNavVisible = isFirstRow
+                                focusedChannel = channel
+                                focusedProgram = currentProgram
+                            },
+                            onProgramFocused = { channel, program, isFirstRow ->
+                                topNavVisible = isFirstRow
+                                focusedChannel = channel
+                                focusedProgram = program
+                            },
+                            onRequestMoreChannels = viewModel::requestMoreChannels
+                        ), Modifier.weight(1f))
+                    } else if (isBlueOceanTheme) {
                         BlueOceanEpgSurface(
                             selectedCategoryName = uiState.categories
                                 .firstOrNull { it.id == uiState.selectedCategoryId }

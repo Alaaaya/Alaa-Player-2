@@ -469,7 +469,19 @@ fun SettingsScreen(
                 )
             }
         ) {
-            if (isBlueOceanTheme) {
+            val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+            if (bespokeUi != null) {
+                bespokeUi.SettingsFrame(
+                    navigation = {
+                        SettingsNavigationRail(
+                            selectedCategory = dialogState.selectedCategory,
+                            focusRequester = settingsNavFocusRequester,
+                            onCategorySelected = { dialogState.selectedCategory = it }
+                        )
+                    },
+                    content = { SettingsContent(Modifier.fillMaxSize()) }
+                )
+            } else if (isBlueOceanTheme) {
                 BlueOceanSettingsSurface(
                     navigation = {
                         SettingsNavigationRail(
