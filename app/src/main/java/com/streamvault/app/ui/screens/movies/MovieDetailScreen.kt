@@ -115,6 +115,7 @@ fun MovieDetailScreen(
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val isAlaaTheme = LocalIsAlaaTheme.current
+    val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
 
     LaunchedEffect(viewModel, context, mainActivity) {
         viewModel.castEvents.collect { event ->
@@ -164,7 +165,17 @@ fun MovieDetailScreen(
         }
 
         else -> {
-            if (isAlaaTheme) {
+            if (bespokeUi != null) {
+                bespokeUi.MovieDetail(com.streamvault.app.ui.themes.bespoke.MovieDetailParams(
+                    movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay, onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                ))
+            } else if (isAlaaTheme) {
                 AlaaMovieDetail(
                     movie = movie,
                     hasResume = uiState.hasResume,

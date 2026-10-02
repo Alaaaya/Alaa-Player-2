@@ -162,6 +162,19 @@ internal fun SettingsNavigationRail(
         return
     }
 
+    val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+    if (bespokeUi != null) {
+        bespokeUi.SettingsNav(
+            com.streamvault.app.ui.themes.bespoke.SettingsNavParams(
+                entries = entries.map { it.label to it.icon },
+                selectedCategory = selectedCategory,
+                focusRequester = focusRequester,
+                onCategorySelected = onCategorySelected
+            )
+        )
+        return
+    }
+
     if (LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN) {
         BlueOceanSettingsNavigationRail(
             entries = entries.map { it.label to it.icon },

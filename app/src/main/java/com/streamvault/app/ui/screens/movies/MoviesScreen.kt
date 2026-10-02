@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.navigation.Routes
+import com.streamvault.app.ui.themes.bespoke.toLibraryState
 import com.streamvault.app.ui.components.CategoryRow
 import com.streamvault.app.ui.components.ContinueWatchingRow
 import com.streamvault.app.ui.components.AlaaMovieBrowseCard
@@ -124,6 +125,7 @@ fun MoviesScreen(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -231,7 +233,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || bespokeUi != null) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -260,7 +262,17 @@ fun MoviesScreen(
                     showPinDialog = true
                 } else onMovieClick(movie)
             }
-            if (isRedCinemaTheme) {
+            if (bespokeUi != null) {
+                bespokeUi.Movies(com.streamvault.app.ui.themes.bespoke.LibraryParams(
+                    uiState = uiState.toLibraryState(), initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isItemLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onItemClick = onThemedMovieClick, onItemLongClick = { item -> viewModel.onShowDialog(item) },
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                ))
+            } else if (isRedCinemaTheme) {
                 RedCinemaScreeningLedger(
                     uiState = uiState, initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,

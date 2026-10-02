@@ -166,6 +166,17 @@ fun AppScreenScaffold(
     contentPadding: PaddingValues = PaddingValues(),
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val bespokeShell = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+    if (bespokeShell != null) {
+        bespokeShell.Shell(
+            com.streamvault.app.ui.themes.bespoke.ShellParams(
+                currentRoute = currentRoute, onNavigate = onNavigate, title = title, subtitle = subtitle,
+                topBarVisible = topBarVisible, showScreenHeader = showScreenHeader, header = header,
+                topBarActions = topBarActions, contentPadding = contentPadding, modifier = modifier, content = content
+            )
+        )
+        return
+    }
     val spacing = LocalAppSpacing.current
     val isAlaaTheme = LocalIsAlaaTheme.current
     val isCinematicTheme = LocalAppHomeTheme.current == AppHomeTheme.CINEMATIC

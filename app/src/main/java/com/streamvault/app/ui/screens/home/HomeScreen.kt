@@ -203,8 +203,10 @@ fun HomeScreen(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
+    val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+    val isBespokeTheme = bespokeUi != null
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -732,7 +734,7 @@ fun HomeScreen(
                         }
                     }
                 ) {
-                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) && !isReorderMode) {
+                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme) && !isReorderMode) {
                     val onThemedCategoryClick: (Category) -> Unit = { category ->
                         if (isCategoryLocked(category)) {
                             pendingUnlockCategory = category
@@ -778,7 +780,25 @@ fun HomeScreen(
                         focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.ChannelTarget(channel)
                         if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
                     }
-                    if (isRedCinemaTheme) {
+                    if (bespokeUi != null) {
+                        bespokeUi.LiveTv(com.streamvault.app.ui.themes.bespoke.LiveTvParams(
+                            sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                            categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
+                            categorySearchQuery = uiState.categorySearchQuery, channelSearchQuery = uiState.channelSearchQuery,
+                            channels = uiState.filteredChannels, previewChannel = previewChannel,
+                            previewPlayerEngine = uiState.previewPlayerEngine, isPreviewLoading = uiState.isPreviewLoading,
+                            previewErrorMessage = uiState.previewErrorMessage, isCategoryLocked = isCategoryLocked,
+                            isChannelLocked = isChannelLocked, categoryFocusRequesters = categoryFocusRequesters,
+                            channelFocusRequesters = channelFocusRequesters, previewFocusRequester = previewFocusRequester,
+                            onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                            onChannelSearchChange = viewModel::updateChannelSearchQuery, onCategoryClick = onThemedCategoryClick,
+                            onCategoryLongClick = onThemedCategoryLongClick, onChannelClick = onThemedChannelClick,
+                            onChannelLongClick = onThemedChannelLongClick, onCategoryFocused = onThemedCategoryFocused,
+                            onChannelFocused = onThemedChannelFocused, onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                            onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                        ))
+                    } else if (isRedCinemaTheme) {
                         RedCinemaLiveTvLayout(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
                             categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,

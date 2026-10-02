@@ -179,6 +179,36 @@ fun DashboardScreen(
                 return@AppScreenScaffold
             }
 
+            val bespokeDashboardUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(uiState.homeTheme)
+            if (bespokeDashboardUi != null) {
+                val onBespokeContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else null
+                    if (presentedSeries != null) onSeriesClick(presentedSeries) else onPlaybackHistoryClick(history)
+                }
+                bespokeDashboardUi.Dashboard(
+                    com.streamvault.app.ui.themes.bespoke.DashboardParams(
+                        uiState = uiState,
+                        recordingChannelIds = recordingChannelIds,
+                        scheduledChannelIds = scheduledChannelIds,
+                        onNavigate = onNavigate,
+                        onRecentChannelClick = onRecentChannelClick,
+                        onFavoriteChannelClick = onFavoriteChannelClick,
+                        onMovieClick = onMovieClick,
+                        onSeriesClick = onSeriesClick,
+                        onContinueWatchingItemClick = onBespokeContinueWatchingItemClick
+                    )
+                )
+                return@AppScreenScaffold
+            }
+
             if (uiState.homeTheme == AppHomeTheme.BLUE_OCEAN) {
                 val onBlueOceanContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
                     val rawSeriesId = history.seriesId ?: history.contentId
