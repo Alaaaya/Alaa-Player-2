@@ -37,4 +37,5 @@ object PurpleGalaxyUi : BespokeThemeUi {
     @Composable override fun PlayerOverlay(p: PlayerOverlayParams) = PurpleGalaxyPlayerOverlay(p)
     @Composable override fun LiveChannelList(p: LiveChannelListParams) = PurpleGalaxyLiveChannelList(p)
     @Composable override fun LiveChannelInfo(p: LiveChannelInfoParams) = PurpleGalaxyLiveChannelInfo(p)
+    @Composable override fun ChannelOptions(p: com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams) = PurpleGalaxyChannelOptions(p)
 }

@@ -15,6 +15,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -1656,9 +1658,42 @@ fun PlayerScreen(
 
         val bespokeLiveUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
         if (contentType == "LIVE" && bespokeLiveUi != null && showChannelListOverlay) {
-            Box(Modifier.fillMaxSize().focusGroup()) {
+            var optionsChannel by remember { mutableStateOf<com.streamvault.domain.model.Channel?>(null) }
+            var movingId by remember { mutableStateOf<Long?>(null) }
+            var workingOrder by remember { mutableStateOf<List<com.streamvault.domain.model.Channel>?>(null) }
+            val optionsFocus = remember { FocusRequester() }
+            val listChannels = workingOrder ?: currentChannelList
+            Box(Modifier.fillMaxSize().focusGroup().onPreviewKeyEvent { event ->
+                val id = movingId ?: return@onPreviewKeyEvent false
+                viewModel.onLiveOverlayInteraction()
+                val list = workingOrder ?: return@onPreviewKeyEvent false
+                when (event.key) {
+                    androidx.compose.ui.input.key.Key.DirectionUp, androidx.compose.ui.input.key.Key.DirectionDown -> {
+                        if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                            val i = list.indexOfFirst { it.id == id }
+                            val j = if (event.key == androidx.compose.ui.input.key.Key.DirectionUp) i - 1 else i + 1
+                            if (i >= 0 && j in list.indices) workingOrder = list.toMutableList().apply { add(j, removeAt(i)) }
+                        }
+                        true
+                    }
+                    androidx.compose.ui.input.key.Key.DirectionCenter, androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter -> {
+                        if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                            viewModel.saveChannelOrder(list.map { it.id }); movingId = null; workingOrder = null
+                        }
+                        true
+                    }
+                    androidx.compose.ui.input.key.Key.Back, androidx.compose.ui.input.key.Key.Escape -> {
+                        if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) { movingId = null; workingOrder = null }
+                        true
+                    }
+                    androidx.compose.ui.input.key.Key.DirectionLeft, androidx.compose.ui.input.key.Key.DirectionRight -> true
+                    else -> false
+                }
+            }) {
                 bespokeLiveUi.LiveChannelList(com.streamvault.app.ui.themes.bespoke.LiveChannelListParams(
-                    channels = currentChannelList,
+                    channels = listChannels,
+                    onChannelLongPress = { ch -> if (movingId == null) { optionsChannel = ch; viewModel.onLiveOverlayInteraction() } },
+                    movingChannelId = movingId,
                     recentChannels = emptyList(), // Alaa: no recents section in the OK list
                     currentChannelId = currentChannel?.id ?: internalChannelId,
                     focusRequester = channelListFocusRequester,
@@ -1670,6 +1705,24 @@ fun PlayerScreen(
                     onDismiss = { viewModel.closeOverlays() },
                     onInteracted = viewModel::onLiveOverlayInteraction
                 ))
+                val opt = optionsChannel
+                val movingChannel = movingId?.let { id -> listChannels.firstOrNull { it.id == id } }
+                if (opt != null) {
+                    BackHandler { optionsChannel = null }
+                    val live = currentChannelList.firstOrNull { it.id == opt.id } ?: opt
+                    bespokeLiveUi.ChannelOptions(com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams(
+                        channel = live, moving = false, focusRequester = optionsFocus,
+                        onToggleFavorite = { viewModel.toggleChannelFavorite(live); optionsChannel = null },
+                        onStartMove = { optionsChannel = null; workingOrder = currentChannelList; movingId = live.id },
+                        onDismiss = { optionsChannel = null }
+                    ))
+                    LaunchedEffect(opt.id) { runCatching { optionsFocus.requestFocus() } }
+                } else if (movingChannel != null) {
+                    bespokeLiveUi.ChannelOptions(com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams(
+                        channel = movingChannel, moving = true, focusRequester = optionsFocus,
+                        onToggleFavorite = {}, onStartMove = {}, onDismiss = { movingId = null; workingOrder = null }
+                    ))
+                }
             }
         }
         if (contentType == "LIVE" && bespokeLiveUi != null && showChannelInfoOverlay) {

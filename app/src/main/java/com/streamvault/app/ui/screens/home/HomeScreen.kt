@@ -205,6 +205,9 @@ fun HomeScreen(
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
     val isBespokeTheme = bespokeUi != null
+    // Bespoke long-press channel options (favorite / move) and the channel being moved.
+    var bespokeOptionsChannel by remember { mutableStateOf<Channel?>(null) }
+    var bespokeMovingId by remember { mutableStateOf<Long?>(null) }
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
     val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
@@ -395,7 +398,7 @@ fun HomeScreen(
             compactHeader = true,
             showScreenHeader = false
         ) {
-            if (isReorderMode) {
+            if (isReorderMode && !isBespokeTheme) {
                 ReorderTopBar(
                     categoryName = uiState.reorderCategory?.name ?: uiState.selectedCategory?.name ?: "Channels",
                     onSave = { viewModel.saveChannelReorder() },
@@ -734,7 +737,7 @@ fun HomeScreen(
                         }
                     }
                 ) {
-                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme) && !isReorderMode) {
+                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme) && (!isReorderMode || isBespokeTheme)) {
                     val onThemedCategoryClick: (Category) -> Unit = { category ->
                         if (isCategoryLocked(category)) {
                             pendingUnlockCategory = category
@@ -769,7 +772,11 @@ fun HomeScreen(
                     }
                     val onThemedChannelLongClick: (Channel) -> Unit = { channel ->
                         preferredRestoreTarget = FocusRestoreTarget.CHANNEL.name
-                        viewModel.onShowDialog(channel)
+                        if (bespokeUi != null) {
+                            if (!isReorderMode) bespokeOptionsChannel = channel
+                        } else {
+                            viewModel.onShowDialog(channel)
+                        }
                     }
                     val onThemedCategoryFocused: (Category) -> Unit = { category ->
                         lastFocusedCategoryId = category.id
@@ -781,6 +788,30 @@ fun HomeScreen(
                         if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
                     }
                     if (bespokeUi != null) {
+                        val movingId = if (isReorderMode) bespokeMovingId else null
+                        val optionsFocus = remember { FocusRequester() }
+                        Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                            val id = movingId ?: return@onPreviewKeyEvent false
+                            val moving = uiState.filteredChannels.firstOrNull { it.id == id }
+                            when (event.key) {
+                                Key.DirectionUp, Key.DirectionDown -> {
+                                    if (event.type == KeyEventType.KeyDown && moving != null) {
+                                        if (event.key == Key.DirectionUp) viewModel.moveChannelUp(moving) else viewModel.moveChannelDown(moving)
+                                    }
+                                    true
+                                }
+                                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                                    if (event.type == KeyEventType.KeyUp) { viewModel.saveChannelReorder(); bespokeMovingId = null }
+                                    true
+                                }
+                                Key.Back, Key.Escape -> {
+                                    if (event.type == KeyEventType.KeyUp) { viewModel.exitChannelReorderMode(); bespokeMovingId = null }
+                                    true
+                                }
+                                Key.DirectionLeft, Key.DirectionRight -> true
+                                else -> false
+                            }
+                        }) {
                         bespokeUi.LiveTv(com.streamvault.app.ui.themes.bespoke.LiveTvParams(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
                             categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
@@ -796,8 +827,38 @@ fun HomeScreen(
                             onChannelLongClick = onThemedChannelLongClick, onCategoryFocused = onThemedCategoryFocused,
                             onChannelFocused = onThemedChannelFocused, onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
                             onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
-                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) },
+                            movingChannelId = movingId
                         ))
+                        val optionsChannel = bespokeOptionsChannel
+                        val movingChannel = movingId?.let { id -> uiState.filteredChannels.firstOrNull { it.id == id } }
+                        if (optionsChannel != null) {
+                            BackHandler { bespokeOptionsChannel = null; requestChannelFocus(optionsChannel.id) }
+                            bespokeUi.ChannelOptions(com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams(
+                                channel = uiState.filteredChannels.firstOrNull { it.id == optionsChannel.id } ?: optionsChannel,
+                                moving = false, focusRequester = optionsFocus,
+                                onToggleFavorite = {
+                                    val ch = uiState.filteredChannels.firstOrNull { it.id == optionsChannel.id } ?: optionsChannel
+                                    if (ch.isFavorite) viewModel.removeFavorite(ch) else viewModel.addFavorite(ch)
+                                    bespokeOptionsChannel = null
+                                    requestChannelFocus(ch.id)
+                                },
+                                onStartMove = {
+                                    bespokeOptionsChannel = null
+                                    bespokeMovingId = optionsChannel.id
+                                    viewModel.enterChannelReorderModeForChannel(optionsChannel)
+                                    requestChannelFocus(optionsChannel.id)
+                                },
+                                onDismiss = { bespokeOptionsChannel = null; requestChannelFocus(optionsChannel.id) }
+                            ))
+                            LaunchedEffect(optionsChannel.id) { runCatching { optionsFocus.requestFocus() } }
+                        } else if (movingChannel != null) {
+                            bespokeUi.ChannelOptions(com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams(
+                                channel = movingChannel, moving = true, focusRequester = optionsFocus,
+                                onToggleFavorite = {}, onStartMove = {}, onDismiss = { viewModel.exitChannelReorderMode(); bespokeMovingId = null }
+                            ))
+                        }
+                        }
                     } else if (isRedCinemaTheme) {
                         RedCinemaLiveTvLayout(
                             sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },

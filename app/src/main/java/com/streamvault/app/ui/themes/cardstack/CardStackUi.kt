@@ -24,4 +24,5 @@ object CardStackUi : BespokeThemeUi {
     @Composable override fun PlayerOverlay(p: PlayerOverlayParams) = CardStackPlayerOverlay(p)
     @Composable override fun LiveChannelList(p: LiveChannelListParams) = CardStackLiveChannelList(p)
     @Composable override fun LiveChannelInfo(p: LiveChannelInfoParams) = CardStackLiveChannelInfo(p)
+    @Composable override fun ChannelOptions(p: com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams) = CardStackChannelOptions(p)
 }

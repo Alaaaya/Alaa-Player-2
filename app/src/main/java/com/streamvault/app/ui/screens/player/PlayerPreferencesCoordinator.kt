@@ -22,6 +22,8 @@ class PlayerPreferencesCoordinator @Inject constructor(
     internal val defaultIdleStandbyTimerMinutes get() = preferencesRepository.defaultIdleStandbyTimerMinutes
     internal val defaultStopPlaybackTimerMinutes get() = preferencesRepository.defaultStopPlaybackTimerMinutes
     internal val liveChannelNumberingMode get() = preferencesRepository.liveChannelNumberingMode
+    internal fun channelOrder(scope: String) = preferencesRepository.getChannelOrder(scope)
+    internal suspend fun setChannelOrder(scope: String, ids: List<Long>) = preferencesRepository.setChannelOrder(scope, ids)
     internal val liveVariantObservations get() = preferencesRepository.liveVariantObservations
     internal val parentalControlLevel get() = preferencesRepository.parentalControlLevel
     internal val playerAudioDecoderMode get() = preferencesRepository.playerAudioDecoderMode

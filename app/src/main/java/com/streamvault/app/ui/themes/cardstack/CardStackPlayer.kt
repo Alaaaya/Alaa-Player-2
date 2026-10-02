@@ -288,14 +288,14 @@ internal fun CardStackLiveChannelList(p: LiveChannelListParams) {
                     val cur = c.id == p.currentChannelId
                     val isF = focused?.id == c.id
                     CsCard(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, container = if (cur) Color(0xFF4A2A48) else CS.Raised,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, container = if (cur) Color(0xFF4A2A48) else CS.Raised,
                         modifier = Modifier.fillMaxWidth().height(62.dp).offset(x = if (isF) (-14).dp else 0.dp)
                             .then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
                         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("${p.numberOf(c)}", color = CS.Amber, fontSize = 15.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(38.dp))
                             CsLogo(c.name, c.logoUrl, 38.dp)
-                            Text(c.name, color = CS.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = CS.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (cur) CsBadge(tr("Now", "الآن"), CS.Amber, filled = true)
                             c.qualityBadge()?.let { CsBadge(it, CS.Blue) }
                             if (c.catchUpSupported) CsBadge("⟲", CS.Blue)

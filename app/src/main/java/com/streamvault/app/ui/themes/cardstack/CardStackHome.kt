@@ -305,7 +305,7 @@ internal fun CardStackLiveTv(p: LiveTvParams) {
                             }
                             CsLogo(c.name, if (locked) null else c.logoUrl, 44.dp)
                             Column(Modifier.weight(1f)) {
-                                Text(c.name, color = CS.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = CS.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(if (locked) tr("Locked", "مقفل") else c.currentProgram?.title ?: tr("No guide data", "لا يوجد دليل"), color = CS.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             if (!locked) c.qualityBadge()?.let { CsBadge(it, CS.Blue) }

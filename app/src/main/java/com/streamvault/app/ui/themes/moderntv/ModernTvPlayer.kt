@@ -275,14 +275,14 @@ internal fun ModernTvLiveChannelList(p: LiveChannelListParams) {
                 items(p.channels, key = { it.id }) { c ->
                     val cur = c.id == p.currentChannelId
                     MtCard(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, zoom = 1.03f, container = if (cur) MT.Amber.copy(alpha = 0.2f) else MT.Raised.copy(alpha = 0.7f), focusedContainer = MT.Card,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, zoom = 1.03f, container = if (cur) MT.Amber.copy(alpha = 0.2f) else MT.Raised.copy(alpha = 0.7f), focusedContainer = MT.Card,
                         modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("${p.numberOf(c)}", color = if (cur) MT.Amber else MT.Faint, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp))
                             MtLogo(c.name, c.logoUrl, 40.dp)
                             Column(Modifier.weight(1f)) {
-                                Text(c.name, color = MT.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = MT.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 c.currentProgram?.let { Text(it.title, color = MT.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
                             if (cur) MtBadge(tr("Now", "الآن"), MT.Amber, filled = true)

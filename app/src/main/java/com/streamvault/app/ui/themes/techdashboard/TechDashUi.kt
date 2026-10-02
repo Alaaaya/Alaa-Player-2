@@ -37,4 +37,5 @@ object TechDashUi : BespokeThemeUi {
     @Composable override fun PlayerOverlay(p: PlayerOverlayParams) = TechDashPlayerOverlay(p)
     @Composable override fun LiveChannelList(p: LiveChannelListParams) = TechDashLiveChannelList(p)
     @Composable override fun LiveChannelInfo(p: LiveChannelInfoParams) = TechDashLiveChannelInfo(p)
+    @Composable override fun ChannelOptions(p: com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams) = TechDashChannelOptions(p)
 }

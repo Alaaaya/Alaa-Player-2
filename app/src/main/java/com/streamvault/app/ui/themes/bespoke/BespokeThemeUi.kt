@@ -97,7 +97,9 @@ class LiveTvParams(
     val onChannelFocused: (Channel) -> Unit,
     val onRequestChannelsFromCategory: () -> Boolean,
     val onRequestPreviewFromChannel: () -> Boolean,
-    val onRequestChannelsFromPreview: () -> Boolean
+    val onRequestChannelsFromPreview: () -> Boolean,
+    /** Channel currently being moved (long-press > Move); themes highlight it. UP/DOWN/OK/BACK handled by host. */
+    val movingChannelId: Long? = null
 ) {
     /** Focus requester for a category, registered with the host so its focus routing keeps working. */
     fun categoryRequester(id: Long): FocusRequester = categoryFocusRequesters.getOrPut(id) { FocusRequester() }
@@ -315,7 +317,10 @@ class LiveChannelListParams(
     val onOpenGuide: () -> Unit,
     val onSelectChannel: (Long) -> Unit,
     val onDismiss: () -> Unit,
-    val onInteracted: () -> Unit
+    val onInteracted: () -> Unit,
+    /** Long-press OK on a row opens the theme's channel options menu. */
+    val onChannelLongPress: (Channel) -> Unit = {},
+    val movingChannelId: Long? = null
 ) {
     fun numberOf(channel: Channel): Int =
         channel.number.takeIf { it > 0 } ?: (channels.indexOfFirst { it.id == channel.id } + 1)
@@ -385,7 +390,23 @@ interface BespokeThemeUi {
     @Composable fun PlayerOverlay(p: PlayerOverlayParams)
     @Composable fun LiveChannelList(p: LiveChannelListParams)
     @Composable fun LiveChannelInfo(p: LiveChannelInfoParams)
+    /** Long-press menu (favorite + move) or, when [ChannelOptionsParams.moving], the move-mode hint. */
+    @Composable fun ChannelOptions(p: ChannelOptionsParams)
 }
+
+/**
+ * Channel options from long-press OK. Menu: toggle favorite, start move. While moving the host
+ * handles UP/DOWN (shift), OK (save, persisted per category) and BACK (cancel); the theme only
+ * draws the hint. Rendered by the host over the live column or the fullscreen channel list.
+ */
+class ChannelOptionsParams(
+    val channel: Channel,
+    val moving: Boolean,
+    val focusRequester: FocusRequester,
+    val onToggleFavorite: () -> Unit,
+    val onStartMove: () -> Unit,
+    val onDismiss: () -> Unit
+)
 
 private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
     mapOf(

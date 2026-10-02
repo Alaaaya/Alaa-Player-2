@@ -24,4 +24,5 @@ object ModernTvUi : BespokeThemeUi {
     @Composable override fun PlayerOverlay(p: PlayerOverlayParams) = ModernTvPlayerOverlay(p)
     @Composable override fun LiveChannelList(p: LiveChannelListParams) = ModernTvLiveChannelList(p)
     @Composable override fun LiveChannelInfo(p: LiveChannelInfoParams) = ModernTvLiveChannelInfo(p)
+    @Composable override fun ChannelOptions(p: com.streamvault.app.ui.themes.bespoke.ChannelOptionsParams) = ModernTvChannelOptions(p)
 }
