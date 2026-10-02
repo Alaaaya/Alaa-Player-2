@@ -56,6 +56,7 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
+                AppHomeTheme.BLUE_OCEAN,
                 AppHomeTheme.RED_CINEMA
             )
             .inOrder()
@@ -106,6 +107,7 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
+                AppHomeTheme.BLUE_OCEAN,
                 AppHomeTheme.RED_CINEMA
             )
             .inOrder()
