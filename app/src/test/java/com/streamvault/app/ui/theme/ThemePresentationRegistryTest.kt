@@ -57,7 +57,19 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
                 AppHomeTheme.BLUE_OCEAN,
-                AppHomeTheme.RED_CINEMA
+                AppHomeTheme.RED_CINEMA,
+                AppHomeTheme.PURPLE_GALAXY,
+                AppHomeTheme.TECH_DASHBOARD,
+                AppHomeTheme.MODERN_TV,
+                AppHomeTheme.CARD_STACK,
+                AppHomeTheme.MEDIA_CENTER,
+                AppHomeTheme.FUTURISTIC_HUD,
+                AppHomeTheme.SOFT_MODERN,
+                AppHomeTheme.SPORTS_TV,
+                AppHomeTheme.DARK_GLASS,
+                AppHomeTheme.MAGAZINE_MEDIA,
+                AppHomeTheme.NEXT_GEN_TV,
+                AppHomeTheme.AURORA_LOUNGE
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -108,8 +120,28 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
                 AppHomeTheme.BLUE_OCEAN,
-                AppHomeTheme.RED_CINEMA
+                AppHomeTheme.RED_CINEMA,
+                AppHomeTheme.PURPLE_GALAXY,
+                AppHomeTheme.TECH_DASHBOARD,
+                AppHomeTheme.MODERN_TV,
+                AppHomeTheme.CARD_STACK,
+                AppHomeTheme.MEDIA_CENTER,
+                AppHomeTheme.FUTURISTIC_HUD,
+                AppHomeTheme.SOFT_MODERN,
+                AppHomeTheme.SPORTS_TV,
+                AppHomeTheme.DARK_GLASS,
+                AppHomeTheme.MAGAZINE_MEDIA,
+                AppHomeTheme.NEXT_GEN_TV,
+                AppHomeTheme.AURORA_LOUNGE
             )
             .inOrder()
+    }
+
+    @Test
+    fun `every declared theme is selectable and resolves to its own presentation`() {
+        AppHomeTheme.entries.forEach { theme ->
+            assertThat(ThemePresentationRegistry.isSelectable(theme)).isTrue()
+            assertThat(ThemePresentationRegistry.resolve(theme).id).isEqualTo(theme)
+        }
     }
 }
