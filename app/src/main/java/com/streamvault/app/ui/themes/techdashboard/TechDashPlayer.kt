@@ -68,59 +68,53 @@ internal fun TechDashBadge(text: String, color: Color = TD.Comet, filled: Boolea
     )
 }
 
-/** Channel number set inside a thin orbit ring: the Purple Galaxy way of showing numbers. */
+/** Channel number as a bracketed mono register. */
 @Composable
 internal fun TechDashNumber(number: Int, size: Int = 40) {
-    Box(Modifier.size(size.dp).border(1.5.dp, Brush.sweepGradient(listOf(TD.Comet, TD.Plasma, TD.Flare, TD.Comet)), CircleShape), contentAlignment = Alignment.Center) {
-        Text(if (number > 0) "$number" else "–", color = TD.Star, fontSize = (size / 3).sp, fontWeight = FontWeight.Bold, maxLines = 1)
-    }
+    Text(if (number > 0) "[%03d]".format(number) else "[---]", color = TD.Plasma, fontSize = (size / 2.6f).sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, maxLines = 1)
 }
 
 @Composable
 private fun ClockBlock() {
     val locale = Locale.getDefault()
-    Column(horizontalAlignment = Alignment.End) {
-        Text(formatClock(System.currentTimeMillis()), color = TD.Star, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text(remember { SimpleDateFormat("EEEE, d MMMM", locale).format(Date()) }, color = TD.Dust, fontSize = 12.sp)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(remember { SimpleDateFormat("yyyy-MM-dd", locale).format(Date()) }, color = TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
+        Text(formatClock(System.currentTimeMillis()), color = TD.Plasma, fontSize = 18.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold)
     }
 }
 
-/** Now / next telescope card with progress and remaining time; used by the live HUD, zap banner and channel list. */
+/** Now / next as a two-row schedule table with a segmented meter on the NOW row. */
 @Composable
 internal fun NowNextCard(now: Program?, next: Program?, modifier: Modifier = Modifier) {
-    Row(
-        modifier.clip(TD.Panel).background(Brush.horizontalGradient(listOf(TD.Deep.copy(alpha = 0.92f), TD.Nebula.copy(alpha = 0.88f))))
-            .border(1.dp, TD.Plasma.copy(alpha = 0.3f), TD.Panel).padding(horizontal = 22.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier.clip(TD.Panel).background(TD.Void.copy(alpha = 0.88f)).border(1.dp, TD.Plasma.copy(alpha = 0.3f), TD.Panel).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            TechDashBadge(tr("NOW", "الآن"), TD.Flare, filled = true)
-            Text(now?.title ?: tr("No guide data", "لا توجد بيانات دليل"), color = TD.Star, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (now != null) {
-                Text("${formatClock(now.startTime)} – ${formatClock(now.endTime)}", color = TD.Dust, fontSize = 12.sp)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TechDashProgress(now.progressAt(), Modifier.weight(1f), 4.dp)
-                    Text(tr("Left ", "متبقي ") + formatDuration((now.endTime - System.currentTimeMillis()).coerceAtLeast(0)), color = TD.Muted, fontSize = 11.sp)
-                }
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(tr("NOW ", "الآن"), color = TD.Void, fontSize = 10.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, modifier = Modifier.background(TD.Plasma).padding(horizontal = 5.dp, vertical = 2.dp))
+            Text(now?.let { "${formatClock(it.startTime)}-${formatClock(it.endTime)}" } ?: "--:--", color = TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
+            Text(now?.title ?: tr("No guide data", "لا توجد بيانات دليل"), color = TD.Star, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (now != null) Text("-" + formatDuration((now.endTime - System.currentTimeMillis()).coerceAtLeast(0)), color = TD.Flare, fontSize = 11.sp, fontFamily = TD.Mono)
         }
-        Box(Modifier.width(1.dp).height(64.dp).background(TD.Plasma.copy(alpha = 0.3f)))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(tr("NEXT", "التالي"), color = TD.Comet, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text(next?.title ?: "—", color = TD.Star, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            next?.let { Text("${formatClock(it.startTime)} – ${formatClock(it.endTime)}", color = TD.Dust, fontSize = 12.sp) }
+        if (now != null) TechDashProgress(now.progressAt(), Modifier.fillMaxWidth(), 4.dp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(tr("NEXT", "التالي"), color = TD.Plasma, fontSize = 10.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, modifier = Modifier.border(1.dp, TD.Plasma).padding(horizontal = 5.dp, vertical = 2.dp))
+            Text(next?.let { "${formatClock(it.startTime)}-${formatClock(it.endTime)}" } ?: "--:--", color = TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
+            Text(next?.title ?: "--", color = TD.Dust, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
     }
 }
 
-/** Full-width console tile: glyph, upper-case title and a small sub label (V sport style control bar). */
+/** Command cell: flat bordered mono key, label with value underneath. */
 @Composable
 private fun ConsoleTile(glyph: String, title: String, sub: String, onClick: () -> Unit, modifier: Modifier = Modifier, active: Boolean = false) {
-    TechDashSurface(onClick = onClick, shape = TD.Card, container = if (active) TD.Plasma.copy(alpha = 0.35f) else TD.Deep.copy(alpha = 0.7f), scale = 1.08f, modifier = modifier.width(108.dp)) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(glyph, color = if (active) TD.Flare else TD.Star, fontSize = 20.sp)
-            Text(title.uppercase(), color = TD.Star, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(sub, color = TD.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    TechDashSurface(onClick = onClick, shape = TD.Pill, container = if (active) TD.Plasma else Color.Transparent, scale = 1.04f, modifier = modifier.border(1.dp, TD.Plasma.copy(alpha = 0.35f), TD.Pill)) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(glyph, color = if (active) TD.Void else TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono)
+            Column {
+                Text(title.uppercase(), color = if (active) TD.Void else TD.Star, fontSize = 11.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(sub, color = if (active) TD.Void else TD.Muted, fontSize = 9.sp, fontFamily = TD.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
@@ -129,7 +123,7 @@ private class Tile(val glyph: String, val title: String, val sub: String, val ac
 
 @Composable
 private fun ConsoleBar(tiles: List<Tile>, modifier: Modifier = Modifier, firstFocus: FocusRequester? = null) {
-    LazyRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)) {
+    LazyRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)) {
         items(tiles.size) { i ->
             val t = tiles[i]
             ConsoleTile(t.glyph, t.title, t.sub, t.onClick, if (i == 0 && firstFocus != null) Modifier.focusRequester(firstFocus) else Modifier, t.active)
@@ -137,21 +131,18 @@ private fun ConsoleBar(tiles: List<Tile>, modifier: Modifier = Modifier, firstFo
     }
 }
 
-/** Channel identity row: planet logo, orbit number, name, quality/LIVE/archive badges. */
+/** Channel identity as a telemetry line: register number, name, status flags. */
 @Composable
 private fun ChannelIdentity(channel: Channel?, name: String?, number: Int, resolution: String?, isTimeshifted: Boolean = false, trailing: @Composable () -> Unit = {}) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        TechDashLogo(channel?.name ?: name.orEmpty(), channel?.logoUrl, 64.dp)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         TechDashNumber(number, 44)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(channel?.name ?: name.orEmpty(), color = TD.Star, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TechDashBadge(if (isTimeshifted) tr("TIMESHIFT", "مؤجل") else tr("● LIVE", "● مباشر"), TD.Live)
-                (resolution ?: channel?.qualityBadge())?.let { TechDashBadge(it, TD.Comet) }
-                if (channel?.catchUpSupported == true) TechDashBadge("⟲ " + tr("Catch-up", "أرشيف"), TD.Flare)
-                if (channel?.isFavorite == true) Text("★", color = TD.Flare, fontSize = 16.sp)
-            }
-        }
+        TechDashLogo(channel?.name ?: name.orEmpty(), channel?.logoUrl, 40.dp)
+        Text(channel?.name ?: name.orEmpty(), color = TD.Star, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        TechDashBadge(if (isTimeshifted) "TSHIFT" else "LIVE", TD.Live, filled = true)
+        (resolution ?: channel?.qualityBadge())?.let { TechDashBadge(it, TD.Comet) }
+        if (channel?.catchUpSupported == true) TechDashBadge("ARCHIVE", TD.Flare)
+        if (channel?.isFavorite == true) TechDashBadge("★ FAV", TD.Flare)
+        Spacer(Modifier.weight(1f))
         trailing()
     }
 }
@@ -198,24 +189,16 @@ private fun LiveHud(p: PlayerOverlayParams) {
         add(Tile("✕", tr("Close", "إغلاق"), tr("Hide", "إخفاء")) { p.onClose() })
     }
     Box(p.modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(TD.Void.copy(alpha = 0.55f), Color.Transparent, Color.Transparent, TD.Void.copy(alpha = 0.95f)))))
-        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(32.dp), verticalAlignment = Alignment.Top) {
-            Spacer(Modifier.weight(1f))
-            ClockBlock()
-        }
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp)
-                .clip(TD.Panel).background(TD.Void.copy(alpha = 0.72f)).border(1.dp, Brush.horizontalGradient(listOf(TD.Comet.copy(alpha = 0.5f), TD.Plasma.copy(alpha = 0.3f), TD.Flare.copy(alpha = 0.5f))), TD.Panel)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        Row(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TD.Void.copy(alpha = 0.85f)).border(1.dp, TD.Plasma.copy(alpha = 0.25f)).padding(horizontal = 28.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) {
-                    ChannelIdentity(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0)
-                }
-                NowNextCard(p.currentProgram, p.nextProgram, Modifier.weight(1.2f))
+            Box(Modifier.weight(1f)) {
+                ChannelIdentity(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0) { ClockBlock() }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(TD.Plasma.copy(alpha = 0.2f)))
+        }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(TD.Void.copy(alpha = 0.9f)).padding(horizontal = 28.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            NowNextCard(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth(0.6f))
             ConsoleBar(tiles, Modifier.focusRequester(p.quickActionsFocusRequester), firstFocus = p.playButtonFocusRequester)
         }
     }
@@ -237,12 +220,9 @@ private fun VodHud(p: PlayerOverlayParams) {
         p.onSeekToPosition(target)
     }
     Box(p.modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(TD.Void.copy(alpha = 0.85f), Color.Transparent, Color.Transparent, TD.Void.copy(alpha = 0.95f)))))
         // top strip
-        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TechDashSurface(onClick = { p.onNavigateBack() }, shape = CircleShape, container = TD.Glass, modifier = Modifier.size(48.dp)) {
-                Text("←", color = TD.Star, fontSize = 22.sp, modifier = Modifier.align(Alignment.Center))
-            }
+        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().background(TD.Void.copy(alpha = 0.85f)).padding(horizontal = 28.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            ConsoleTile("<-", tr("exit", "خروج"), "BACK", { p.onNavigateBack() })
             Column(Modifier.weight(1f)) {
                 TechDashLabel(if (p.isCatchUpPlayback) tr("Archive replay", "إعادة من الأرشيف") else tr("Now playing", "قيد المشاهدة"))
                 TechDashTitle(p.displayTitle, size = 28)
@@ -252,20 +232,17 @@ private fun VodHud(p: PlayerOverlayParams) {
             if (p.playbackSpeed != 1f) TechDashBadge("${p.playbackSpeed}×", TD.Flare)
             ClockBlock()
         }
-        // centre transport: three planets in a row
-        if (panel == VodPanel.NONE) Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(40.dp), verticalAlignment = Alignment.CenterVertically) {
-            TechDashButton("↺", "10", 72) { seekBy(-SEEK_STEP_MS) }
-            TechDashButton(if (p.isPlaying) "❚❚" else "▶", null, 104, Modifier.focusRequester(p.playButtonFocusRequester), primary = true) { p.onUserInteraction(); p.onTogglePlayPause() }
-            TechDashButton("↻", "10", 72) { seekBy(SEEK_STEP_MS) }
-        }
         // bottom deck
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (panel == VodPanel.SETTINGS) 0.66f else 1f).padding(horizontal = 40.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (p.seekPreview.visible) Text("⟶ ${formatDuration(p.seekPreview.positionMs)}", color = TD.Flare, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(formatDuration(p.currentPosition), color = TD.Star, fontSize = 13.sp)
-                SeekTrack(p, Modifier.weight(1f).focusRequester(seekFocus), ::seekBy)
-                Text(formatDuration(p.duration), color = TD.Dust, fontSize = 13.sp)
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (panel == VodPanel.SETTINGS) 0.66f else 1f).background(TD.Void.copy(alpha = 0.88f)).padding(horizontal = 28.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(formatDuration(if (p.seekPreview.visible) p.seekPreview.positionMs else p.currentPosition), color = if (p.seekPreview.visible) TD.Flare else TD.Plasma, fontSize = 40.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold)
+                Text("/ " + formatDuration(p.duration), color = TD.Muted, fontSize = 16.sp, fontFamily = TD.Mono, modifier = Modifier.padding(bottom = 6.dp))
+                Spacer(Modifier.weight(1f))
+                ConsoleTile("<<", "-10s", tr("back", "رجوع"), { seekBy(-SEEK_STEP_MS) })
+                ConsoleTile(if (p.isPlaying) "||" else ">", if (p.isPlaying) tr("pause", "إيقاف") else tr("play", "تشغيل"), "OK", { p.onUserInteraction(); p.onTogglePlayPause() }, Modifier.focusRequester(p.playButtonFocusRequester), active = true)
+                ConsoleTile(">>", "+10s", tr("fwd", "تقديم"), { seekBy(SEEK_STEP_MS) })
             }
+            SeekTrack(p, Modifier.fillMaxWidth().focusRequester(seekFocus), ::seekBy)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.focusRequester(p.quickActionsFocusRequester)) {
                 item { DeckPill("🎧", tr("Audio", "الصوت"), p.onOpenAudioTracks) }
                 item { DeckPill("CC", tr("Subtitles", "الترجمات"), p.onOpenSubtitleTracks) }
@@ -291,14 +268,7 @@ private fun TechDashButton(glyph: String, caption: String?, size: Int, modifier:
 }
 
 @Composable
-private fun DeckPill(glyph: String, label: String, onClick: () -> Unit, active: Boolean = false) {
-    TechDashSurface(onClick = onClick, shape = TD.Pill, container = if (active) TD.Plasma.copy(alpha = 0.45f) else TD.Glass, scale = 1.08f) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(glyph, color = TD.Star, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(label, color = TD.Dust, fontSize = 13.sp, maxLines = 1)
-        }
-    }
-}
+private fun DeckPill(glyph: String, label: String, onClick: () -> Unit, active: Boolean = false) = ConsoleTile(glyph, label, if (active) "ON" else "--", onClick, active = active)
 
 @Composable
 private fun DeckPill(glyph: String, label: String, active: Boolean = false, onClick: () -> Unit) = DeckPill(glyph, label, onClick, active)
@@ -344,21 +314,21 @@ private fun BoxScope.SettingsDrawer(p: PlayerOverlayParams, focus: FocusRequeste
         add(Triple(tr("Cast", "البث"), if (p.isCastConnected) tr("Connected", "متصل") else "", if (p.isCastConnected) p.onStopCasting else p.onCast))
     }
     Column(
-        Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(380.dp).background(Brush.horizontalGradient(listOf(TD.Deep.copy(alpha = 0.9f), TD.Void.copy(alpha = 0.97f))))
-            .padding(24.dp),
+        Modifier.align(Alignment.BottomEnd).padding(16.dp).fillMaxHeight(0.86f).width(400.dp).background(TD.Void.copy(alpha = 0.95f)).border(1.dp, TD.Plasma.copy(alpha = 0.4f))
+            .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TechDashTitle(tr("Settings", "الإعدادات"), Modifier.weight(1f), size = 24)
-            TechDashSurface(onClick = onDismiss, shape = CircleShape, modifier = Modifier.size(40.dp)) { Text("✕", color = TD.Star, modifier = Modifier.align(Alignment.Center)) }
+            Text("~/playback.cfg", color = TD.Plasma, fontSize = 14.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            ConsoleTile("x", tr("close", "إغلاق"), "ESC", onDismiss)
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(rows.size) { i ->
                 val (label, value, action) = rows[i]
-                TechDashSurface(onClick = action, shape = TD.Card, container = Color.Transparent, scale = 1.03f, modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(focus) else Modifier)) {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, color = TD.Star, fontSize = 15.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text(value.ifBlank { "›" }, color = TD.Comet, fontSize = 13.sp, maxLines = 1)
+                TechDashSurface(onClick = action, shape = TD.Pill, container = Color.Transparent, scale = 1.02f, modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(focus) else Modifier)) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(label.lowercase().replace(' ', '_'), color = TD.Star, fontSize = 13.sp, fontFamily = TD.Mono, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text("= " + value.ifBlank { "open" }, color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono, maxLines = 1)
                     }
                 }
             }
@@ -374,36 +344,27 @@ internal fun TechDashLiveChannelList(p: LiveChannelListParams) {
     val listState = rememberLazyListState(currentIndex)
     var focused by remember(p.currentChannelId) { mutableStateOf(p.channels.getOrNull(currentIndex)) }
     LaunchedEffect(Unit) { runCatching { p.focusRequester.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(TD.Void.copy(alpha = 0.85f), TD.Void.copy(alpha = 0.35f), Color.Transparent)))) {
+    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Transparent, TD.Void.copy(alpha = 0.4f), TD.Void.copy(alpha = 0.9f))))) {
         Column(
-            Modifier.align(Alignment.TopStart).fillMaxHeight().width(560.dp).padding(24.dp).clip(TD.Panel)
-                .background(TD.Deep.copy(alpha = 0.88f)).border(1.dp, TD.Plasma.copy(alpha = 0.35f), TD.Panel).padding(18.dp),
+            Modifier.align(Alignment.TopEnd).fillMaxHeight().width(600.dp)
+                .background(TD.Void.copy(alpha = 0.94f)).border(1.dp, TD.Plasma.copy(alpha = 0.35f)).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("▣", color = TD.Flare, fontSize = 24.sp)
                 Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(tr("Channels", "القنوات"), color = TD.Star, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text("  (${p.channels.size})", color = TD.Flare, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Text("CHANNELS // ${p.channels.size}", color = TD.Plasma, fontSize = 16.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold)
                     Text(p.lastVisitedCategoryName ?: tr("Press OK to select a channel", "اضغط OK لاختيار القناة"), color = TD.Muted, fontSize = 12.sp, maxLines = 1)
                 }
-                TechDashSurface(onClick = p.onDismiss, shape = CircleShape, modifier = Modifier.size(40.dp)) { Text("✕", color = TD.Star, modifier = Modifier.align(Alignment.Center)) }
+                ConsoleTile("x", tr("close", "إغلاق"), "BACK", p.onDismiss)
             }
             if (p.recentChannels.isNotEmpty()) {
-                Text("◷ " + tr("Recent", "الأخيرة"), color = TD.Comet, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("> " + tr("recent", "الأخيرة"), color = TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(p.recentChannels, key = { "r${it.id}" }) { c ->
-                        TechDashSurface(onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, shape = TD.Pill, container = TD.Glass, scale = 1.08f,
+                        TechDashSurface(onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, shape = TD.Pill, container = Color.Transparent, scale = 1.05f,
                             modifier = Modifier.onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }) {
-                            Row(Modifier.padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TechDashLogo(c.name, c.logoUrl, 30.dp)
-                                Column {
-                                    Text(c.name, color = TD.Star, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(110.dp))
-                                    Text("%03d".format(p.numberOf(c)), color = TD.Muted, fontSize = 10.sp)
-                                }
-                            }
+                            Text("%03d ".format(p.numberOf(c)) + c.name, color = TD.Star, fontSize = 11.sp, fontFamily = TD.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.border(1.dp, TD.Plasma.copy(alpha = 0.3f), TD.Pill).padding(horizontal = 8.dp, vertical = 6.dp).width(130.dp))
                         }
                     }
                 }
@@ -422,22 +383,22 @@ internal fun TechDashLiveChannelList(p: LiveChannelListParams) {
                         modifier = Modifier.fillMaxWidth().then(if (isCurrent) Modifier.focusRequester(p.focusRequester) else Modifier)
                             .onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
-                        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            TechDashLogo(c.name, c.logoUrl, 40.dp)
-                            Text("%02d".format(p.numberOf(c)), color = TD.Flare, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
-                            Text(c.name, color = TD.Star, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (isCurrent) TechDashBadge("• " + tr("Now", "الآن"), TD.Flare)
-                            c.qualityBadge()?.let { TechDashBadge(it, TD.Comet) }
-                            if (c.catchUpSupported) Text("⟲ " + tr("Archive", "أرشيف"), color = TD.Flare, fontSize = 11.sp)
-                            if (c.isFavorite) Text("★", color = TD.Flare, fontSize = 14.sp)
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(if (isCurrent) ">" else " ", color = TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono)
+                            Text("%03d".format(p.numberOf(c)), color = TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono, modifier = Modifier.width(36.dp))
+                            TechDashLogo(c.name, c.logoUrl, 28.dp)
+                            Text(c.name, color = TD.Star, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(c.qualityBadge() ?: "--", color = TD.Comet, fontSize = 10.sp, fontFamily = TD.Mono, modifier = Modifier.width(34.dp))
+                            Text(if (c.catchUpSupported) "ARC" else "---", color = if (c.catchUpSupported) TD.Flare else TD.Muted, fontSize = 10.sp, fontFamily = TD.Mono)
+                            Text(if (c.isFavorite) "★" else "·", color = TD.Flare, fontSize = 13.sp)
                         }
                     }
                 }
             }
-            Text("OK " + tr("select", "اختيار") + "   ·   BACK " + tr("close", "إغلاق"), color = TD.Muted, fontSize = 11.sp)
+            Text("[OK] " + tr("select", "اختيار") + "  [BACK] " + tr("close", "إغلاق"), color = TD.Muted, fontSize = 10.sp, fontFamily = TD.Mono)
         }
         focused?.let { c ->
-            NowNextCard(c.currentProgram, c.nextProgram, Modifier.align(Alignment.BottomEnd).padding(28.dp).width(620.dp))
+            NowNextCard(c.currentProgram, c.nextProgram, Modifier.align(Alignment.BottomStart).padding(24.dp).width(560.dp))
         }
     }
 }
@@ -472,16 +433,12 @@ internal fun TechDashLiveChannelInfo(p: LiveChannelInfoParams) {
     }
     Box(Modifier.fillMaxSize()) {
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp)
-                .clip(TD.Panel).background(TD.Void.copy(alpha = 0.8f)).border(1.dp, Brush.horizontalGradient(listOf(TD.Comet.copy(alpha = 0.5f), TD.Flare.copy(alpha = 0.5f))), TD.Panel)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TD.Void.copy(alpha = 0.9f)).border(1.dp, TD.Plasma.copy(alpha = 0.3f))
+                .padding(horizontal = 28.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { ChannelIdentity(p.channel, null, p.displayChannelNumber, p.resolutionLabel) { ClockBlock() } }
-                NowNextCard(p.currentProgram, p.nextProgram, Modifier.weight(1.2f))
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(TD.Plasma.copy(alpha = 0.2f)))
+            ChannelIdentity(p.channel, null, p.displayChannelNumber, p.resolutionLabel) { ClockBlock() }
+            NowNextCard(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth())
             ConsoleBar(tiles, firstFocus = first)
         }
     }
