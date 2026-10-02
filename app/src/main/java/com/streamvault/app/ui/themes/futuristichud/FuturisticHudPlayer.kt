@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,53 +38,70 @@ private const val STEP = 10_000L
 
 private class FhAct(val glyph: String, val label: String, val active: Boolean = false, val onClick: () -> Unit)
 
-/** Circular icon with caption under it: FuturisticHud's player control. */
+/** HUD command cell: square cut-corner key with index code, glyph and label stacked (no round buttons in this theme). */
 @Composable
-private fun FhCtl(a: FhAct, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 52.dp) {
-    Column(modifier.width(size + 22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FhRound(a.glyph, a.onClick, size = size, active = a.active)
-        Text(a.label.uppercase(), color = FH.Sub, fontFamily = FH.Mono, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun NowNext(now: Program?, next: Program?, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (now != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FhBadge(tr("NOW", "الآن"), FH.Amber, filled = true)
-                Text(now.title, color = FH.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(fhClock(now.startTime), color = FH.Sub, fontSize = 12.sp)
-                FhProgress(now.progressAt(), Modifier.weight(1f))
-                Text(fhClock(now.endTime), color = FH.Sub, fontSize = 12.sp)
-            }
-        } else Text(tr("No programme information", "لا توجد معلومات عن البرنامج"), color = FH.Faint, fontSize = 14.sp)
-        next?.let { Text(tr("Next", "التالي") + "  ${fhClock(it.startTime)}  ·  ${it.title}", color = FH.Faint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-    }
-}
-
-@Composable
-private fun ChannelHead(channel: Channel?, name: String?, number: Int, resolution: String?, timeshift: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        FhLogo(channel?.name ?: name.orEmpty(), channel?.logoUrl, 64.dp)
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (number > 0) Text("$number", color = FH.Amber, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                Text(channel?.name ?: name.orEmpty(), color = FH.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                if (channel?.isFavorite == true) Text("♥", color = FH.Amber, fontSize = 16.sp)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FhBadge(if (timeshift) tr("PAUSED LIVE", "مباشر مؤجل") else "● LIVE", FH.Live, filled = !timeshift)
-                (resolution ?: channel?.qualityBadge())?.let { FhBadge(it, FH.Text) }
-                if (channel?.catchUpSupported == true) FhBadge(tr("CATCH-UP", "أرشيف"), FH.Blue)
-            }
+private fun FhKey(a: FhAct, code: String, modifier: Modifier = Modifier, wide: Boolean = false) {
+    FhCard(onClick = a.onClick, shape = FH.RSmall, zoom = 1.0f, container = if (a.active) FH.Amber.copy(alpha = 0.22f) else FH.Card.copy(alpha = 0.85f), focusedContainer = FH.Amber.copy(alpha = 0.4f),
+        modifier = modifier.then(if (wide) Modifier.fillMaxWidth() else Modifier.width(92.dp)).height(58.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row { Text(code, color = FH.Faint, fontSize = 8.sp, fontFamily = FH.Mono, modifier = Modifier.weight(1f)); Text(a.glyph, color = if (a.active) FH.Amber else FH.Text, fontSize = 13.sp) }
+            Text(a.label.uppercase(), color = FH.Text, fontSize = 9.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
+/** Telemetry line: [T+clock] ── channel id ── status flags. */
+@Composable
+private fun TopStrip(left: String, flags: List<Pair<String, Color>>) {
+    Row(Modifier.fillMaxWidth().background(FH.Bg.copy(alpha = 0.85f)).border(1.dp, FH.Line).padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("◢ " + left.uppercase(), color = FH.Amber, fontSize = 12.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        flags.forEach { (t, c) -> FhBadge(t, c) }
+        Text("T+" + fhClock(System.currentTimeMillis()), color = FH.Text, fontSize = 13.sp, fontFamily = FH.Mono)
+    }
+}
 
+/** NOW/NEXT as a two-line telemetry readout with 24-segment progress. */
+@Composable
+private fun Readout(now: Program?, next: Program?, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (now != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("NOW>", color = FH.Amber, fontSize = 11.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black)
+                Text(now.title, color = FH.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(fhClock(now.startTime), color = FH.Sub, fontSize = 10.sp, fontFamily = FH.Mono)
+                FhProgress(now.progressAt(), Modifier.weight(1f), 6.dp)
+                Text(fhClock(now.endTime), color = FH.Sub, fontSize = 10.sp, fontFamily = FH.Mono)
+                Text("${(now.progressAt() * 100).toInt()}%", color = FH.Amber, fontSize = 10.sp, fontFamily = FH.Mono)
+            }
+        } else Text("NOW> " + tr("NO GUIDE DATA", "لا يوجد دليل"), color = FH.Faint, fontSize = 12.sp, fontFamily = FH.Mono)
+        next?.let { Text("NXT> ${fhClock(it.startTime)}  ${it.title}", color = FH.Faint, fontSize = 11.sp, fontFamily = FH.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    }
+}
+
+/** ID block: big mono channel number in a bracket box with logo + name + flags under it. */
+@Composable
+private fun IdBlock(channel: Channel?, name: String?, number: Int, resolution: String?, timeshift: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(76.dp).border(1.dp, FH.Line).fhBrackets(FH.Amber, 14.dp, 2.dp), contentAlignment = Alignment.Center) {
+            Text(if (number > 0) "%03d".format(number) else "---", color = FH.Amber, fontSize = 24.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FhLogo(channel?.name ?: name.orEmpty(), channel?.logoUrl, 34.dp)
+                Text((channel?.name ?: name.orEmpty()).uppercase(), color = FH.Text, fontSize = 18.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 320.dp))
+                if (channel?.isFavorite == true) Text("★", color = FH.Warn, fontSize = 14.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FhBadge(if (timeshift) tr("DELAYED", "مؤجل") else "● LIVE", FH.Live, filled = !timeshift)
+                (resolution ?: channel?.qualityBadge())?.let { FhBadge(it, FH.Text) }
+                if (channel?.catchUpSupported == true) FhBadge(tr("ARCHIVE", "أرشيف"), FH.Blue)
+                channel?.let { FhSignal(it.fhSignalLevel()) }
+            }
+        }
+    }
+}
 
 @Composable
 internal fun FuturisticHudPlayerOverlay(p: PlayerOverlayParams) {
@@ -90,7 +109,8 @@ internal fun FuturisticHudPlayerOverlay(p: PlayerOverlayParams) {
     if (p.isLive && !p.isCatchUpPlayback) FhLive(p) else FhVod(p)
 }
 
-/** Live: soft bottom gradient, channel head + now/next on the start, clock on the end, one row of round controls. */
+/** Live: cockpit frame. Top telemetry strip; END-side command bank (3-column key grid, scrolls);
+ *  bottom-START target panel with ID block + readout. Video stays clear in the centre. */
 @Composable
 private fun FhLive(p: PlayerOverlayParams) {
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
@@ -123,26 +143,30 @@ private fun FhLive(p: PlayerOverlayParams) {
         add(FhAct("⎚", if (p.isCastConnected) tr("Stop cast", "إيقاف البث") else tr("Cast", "بث"), p.isCastConnected) { if (p.isCastConnected) p.onStopCasting() else p.onCast() })
         add(FhAct("✕", tr("Close", "إغلاق")) { p.onClose() })
     }
-    Box(p.modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.92f))))) {
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 36.dp, vertical = 24.dp).background(FH.Bg.copy(alpha = 0.85f), FH.R).border(1.dp, FH.Line, FH.R).fhBrackets(FH.Amber, 22.dp).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ChannelHead(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0)
-                    NowNext(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth(0.7f))
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("T+" + fhClock(System.currentTimeMillis()), color = FH.Amber, fontFamily = FH.Mono, fontSize = 30.sp)
-                    if (rec) FhBadge("● REC", FH.Live, filled = true)
-                }
+    Box(p.modifier.fillMaxSize()) {
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(24.dp)) {
+            TopStrip("CH ${p.displayChannelNumber} // ${p.currentChannel?.name ?: p.currentChannelName.orEmpty()}", buildList {
+                if (rec) add("● REC" to FH.Live)
+                if (p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0) add("-" + fhDuration(p.timeshiftUiState.bufferedBehindLiveMs) to FH.Warn)
+                if (p.isMuted) add("MUTE" to FH.Warn)
+            })
+        }
+        Column(Modifier.align(Alignment.CenterEnd).padding(end = 24.dp, top = 70.dp, bottom = 24.dp).width(304.dp).fillMaxHeight().background(FH.Bg.copy(alpha = 0.88f)).border(1.dp, FH.Line).fhBrackets(FH.Amber, 18.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FhLabel(tr("Command bank", "الأوامر") + " [${acts.size}]")
+            LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(acts.size) { i -> FhKey(acts[i], "K%02d".format(i + 1), if (i == 0) Modifier.focusRequester(p.playButtonFocusRequester) else Modifier, wide = true) }
             }
-            LazyRow(Modifier.fillMaxWidth().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(acts.size) { i -> FhCtl(acts[i], if (i == 0) Modifier.focusRequester(p.playButtonFocusRequester) else Modifier) }
-            }
+        }
+        Column(Modifier.align(Alignment.BottomStart).padding(24.dp).width(620.dp).background(FH.Bg.copy(alpha = 0.88f)).border(1.dp, FH.Line).fhBrackets(FH.Amber, 22.dp, 3.dp).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FhLabel(tr("Target", "الهدف"))
+            IdBlock(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0)
+            Readout(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth())
         }
     }
 }
 
-/** VOD: title top-left over a gradient, giant centered transport (-10 / play / +10), thin amber scrubber, pill row + side sheet. */
+/** VOD: reticle in the centre (play inside a bracket box, ±10 as chevron keys beside it), tick-ruler scrubber
+ *  with large mono timecodes at the bottom, vertical command column at START, options as numbered system table END. */
 @Composable
 private fun FhVod(p: PlayerOverlayParams) {
     var sheet by remember { mutableStateOf(false) }
@@ -150,47 +174,64 @@ private fun FhVod(p: PlayerOverlayParams) {
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
     fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
-    Box(p.modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.9f))))) {
-        Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 48.dp, vertical = 32.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            FhRound("←", { p.onNavigateBack() }, size = 44.dp)
-            Column(Modifier.weight(1f)) {
-                if (p.isCatchUpPlayback) Text(tr("Catch-up", "من الأرشيف"), color = FH.Amber, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(p.displayTitle, color = FH.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                p.episodeLine?.let { Text(it, color = FH.Sub, fontSize = 15.sp, maxLines = 1) }
+    Box(p.modifier.fillMaxSize().background(FH.Bg.copy(alpha = 0.35f))) {
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            TopStrip((if (p.isCatchUpPlayback) "ARCHIVE // " else "VOD // ") + p.displayTitle, buildList {
+                if (p.currentRecordingStatus == RecordingStatus.RECORDING) add("● REC" to FH.Live)
+                if (p.playbackSpeed != 1f) add("${p.playbackSpeed}×" to FH.Amber)
+            })
+            p.episodeLine?.let { Text("  › " + it.uppercase(), color = FH.Sub, fontSize = 12.sp, fontFamily = FH.Mono, maxLines = 1) }
+        }
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 24.dp).width(200.dp).background(FH.Bg.copy(alpha = 0.85f)).border(1.dp, FH.Line).padding(8.dp).focusRequester(p.quickActionsFocusRequester), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            FhLabel(tr("Commands", "الأوامر"))
+            val cmds = buildList {
+                add(FhAct("♪", tr("Audio", "الصوت") + " ${p.audioTrackCount}") { p.onOpenAudioTracks() })
+                add(FhAct("CC", tr("Subtitles", "الترجمة") + " ${p.subtitleTrackCount}") { p.onOpenSubtitleTracks() })
+                add(FhAct("HD", p.resolutionBadgeLabel ?: tr("Quality", "الجودة")) { p.onOpenVideoTracks() })
+                if (p.showEpisodesAction) add(FhAct("≣", tr("Episodes", "الحلقات")) { p.onOpenEpisodes() })
+                add(FhAct("⏮", tr("Start over", "من البداية")) { p.onSeekToPosition(0L) })
+                add(FhAct("⚙", tr("Systems", "المزيد"), sheet) { sheet = !sheet })
+                add(FhAct("◂", tr("Back", "رجوع")) { p.onNavigateBack() })
+                add(FhAct("✕", tr("Close", "إغلاق")) { p.onClose() })
             }
-            if (p.currentRecordingStatus == RecordingStatus.RECORDING) FhBadge("● REC", FH.Live, filled = true)
-            if (p.playbackSpeed != 1f) FhBadge("${p.playbackSpeed}×", FH.Amber)
-            Text(fhClock(System.currentTimeMillis()), color = FH.Sub, fontSize = 20.sp)
+            cmds.forEachIndexed { i, a -> FhKey(a, "F%d".format(i + 1), wide = true) }
         }
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-            FhCtl(FhAct("↺", "10s") { seekBy(-STEP) }, size = 64.dp)
-            FhCtl(FhAct(if (p.isPlaying) "❚❚" else "▶", if (p.isPlaying) tr("Pause", "إيقاف") else tr("Play", "تشغيل"), true) { p.onUserInteraction(); p.onTogglePlayPause() }, Modifier.focusRequester(p.playButtonFocusRequester), size = 92.dp)
-            FhCtl(FhAct("↻", "10s") { seekBy(STEP) }, size = 64.dp)
-        }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth(if (sheet) 0.64f else 1f).align(if (sheet) Alignment.BottomEnd else Alignment.BottomStart).padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Scrubber(p, ::seekBy)
-            LazyRow(Modifier.focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { FhButton(tr("Audio", "الصوت") + " · ${p.audioTrackCount}", p.onOpenAudioTracks, icon = "♪") }
-                item { FhButton(tr("Subtitles", "الترجمة") + " · ${p.subtitleTrackCount}", p.onOpenSubtitleTracks, icon = "CC") }
-                item { FhButton(p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks, icon = "HD") }
-                if (p.showEpisodesAction) item { FhButton(tr("Episodes", "الحلقات"), p.onOpenEpisodes, icon = "≣") }
-                item { FhButton(tr("Start over", "من البداية"), { p.onSeekToPosition(0L) }, icon = "⏮") }
-                item { FhButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") }
-                item { FhButton(tr("Close", "إغلاق"), p.onClose, icon = "✕") }
+        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            FhCard(onClick = { seekBy(-STEP) }, shape = FH.RSmall, zoom = 1.0f, container = FH.Bg.copy(alpha = 0.7f), focusedContainer = FH.Amber.copy(alpha = 0.35f), modifier = Modifier.size(84.dp, 64.dp)) {
+                Text("«10", color = FH.Text, fontSize = 20.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
+            }
+            FhCard(onClick = { p.onUserInteraction(); p.onTogglePlayPause() }, shape = FH.R, zoom = 1.0f, container = FH.Bg.copy(alpha = 0.75f), focusedContainer = FH.Amber.copy(alpha = 0.35f),
+                modifier = Modifier.size(128.dp).fhBrackets(FH.Amber, 26.dp, 3.dp).focusRequester(p.playButtonFocusRequester)) {
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (p.isPlaying) "❚❚" else "▶", color = FH.Amber, fontSize = 40.sp)
+                    Text(if (p.isPlaying) "HOLD" else "ENGAGE", color = FH.Sub, fontSize = 10.sp, fontFamily = FH.Mono)
+                }
+            }
+            FhCard(onClick = { seekBy(STEP) }, shape = FH.RSmall, zoom = 1.0f, container = FH.Bg.copy(alpha = 0.7f), focusedContainer = FH.Amber.copy(alpha = 0.35f), modifier = Modifier.size(84.dp, 64.dp)) {
+                Text("10»", color = FH.Text, fontSize = 20.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
             }
         }
-        if (sheet) SideSheet(p, sheetFocus) { sheet = false }
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 240.dp, end = if (sheet) 440.dp else 24.dp, bottom = 24.dp)) { Ruler(p, ::seekBy) }
+        if (sheet) SystemsTable(p, sheetFocus) { sheet = false }
     }
 }
 
+/** Tick ruler: major/minor ticks over the track, cyan fill to the head, timecodes as big mono numerals. */
 @Composable
-private fun Scrubber(p: PlayerOverlayParams, seekBy: (Long) -> Unit) {
+private fun Ruler(p: PlayerOverlayParams, seekBy: (Long) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val pos = if (p.seekPreview.visible) p.seekPreview.positionMs else p.currentPosition
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val frac = if (p.duration > 0) (pos.toFloat() / p.duration).coerceIn(0f, 1f) else 0f
+    Column(Modifier.background(FH.Bg.copy(alpha = 0.85f)).border(1.dp, if (focused) FH.Amber else FH.Line).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(fhDuration(pos), color = if (p.seekPreview.visible) FH.Warn else FH.Amber, fontSize = 30.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black)
+            Text("  / " + fhDuration(p.duration), color = FH.Sub, fontSize = 14.sp, fontFamily = FH.Mono)
+            Spacer(Modifier.weight(1f))
+            Text("REM -" + fhDuration((p.duration - pos).coerceAtLeast(0)), color = FH.Sub, fontSize = 13.sp, fontFamily = FH.Mono)
+        }
         FhCard(
-            onClick = { p.onUserInteraction(); p.onTogglePlayPause() }, shape = FH.Pill, container = Color.Transparent, focusedContainer = Color.White.copy(alpha = 0.08f), zoom = 1f,
-            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused; p.onSetScrubbingMode(it.isFocused) }.onPreviewKeyEvent { e ->
+            onClick = { p.onUserInteraction(); p.onTogglePlayPause() }, shape = FH.RSmall, container = Color.Transparent, focusedContainer = FH.Amber.copy(alpha = 0.08f), zoom = 1f,
+            modifier = Modifier.fillMaxWidth().height(30.dp).onFocusChanged { focused = it.isFocused; p.onSetScrubbingMode(it.isFocused) }.onPreviewKeyEvent { e ->
                 val n = e.nativeKeyEvent
                 if (n.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 when (n.keyCode) {
@@ -200,20 +241,16 @@ private fun Scrubber(p: PlayerOverlayParams, seekBy: (Long) -> Unit) {
                 }
             }
         ) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
-                FhProgress(if (p.duration > 0) (pos.toFloat() / p.duration).coerceIn(0f, 1f) else 0f, Modifier.fillMaxWidth(), if (focused) 8.dp else 4.dp)
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                repeat(41) { i -> Box(Modifier.width(1.dp).fillMaxHeight(if (i % 10 == 0) 0.9f else if (i % 5 == 0) 0.6f else 0.35f).background(if (i / 40f <= frac) FH.Amber else FH.Line)) }
             }
-        }
-        Row {
-            Text(fhDuration(pos), color = if (p.seekPreview.visible) FH.Amber else FH.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.weight(1f))
-            Text("-" + fhDuration((p.duration - pos).coerceAtLeast(0)), color = FH.Sub, fontSize = 14.sp)
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(frac).height(3.dp).background(FH.Amber))
         }
     }
 }
 
 @Composable
-private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, onDismiss: () -> Unit) {
+private fun BoxScope.SystemsTable(p: PlayerOverlayParams, focus: FocusRequester, onDismiss: () -> Unit) {
     val rows = buildList<Triple<String, String, () -> Unit>> {
         add(Triple(tr("Video quality", "جودة الفيديو"), p.resolutionBadgeLabel ?: "${p.videoQualityCount}", p.onOpenVideoTracks))
         add(Triple(tr("Audio track", "مسار الصوت"), "${p.audioTrackCount}", p.onOpenAudioTracks))
@@ -229,21 +266,24 @@ private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, on
         add(Triple(tr("Cast", "البث"), if (p.isCastConnected) tr("Connected", "متصل") else "", if (p.isCastConnected) p.onStopCasting else p.onCast))
     }
     Column(
-        Modifier.align(Alignment.CenterStart).padding(24.dp).fillMaxHeight(0.9f).width(380.dp).clip(FH.R).background(FH.Bg.copy(alpha = 0.97f)).border(1.dp, FH.Amber.copy(alpha = 0.5f), FH.R).padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        Modifier.align(Alignment.CenterEnd).padding(24.dp).fillMaxHeight(0.86f).width(400.dp).background(FH.Bg.copy(alpha = 0.97f)).border(1.dp, FH.Line).fhBrackets(FH.Amber, 20.dp, 3.dp).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(tr("Playback options", "خيارات التشغيل"), color = FH.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            FhRound("✕", onDismiss, size = 36.dp)
+            Text("// " + tr("SYSTEMS", "خيارات التشغيل"), color = FH.Amber, fontSize = 16.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+            FhKey(FhAct("✕", tr("Close", "إغلاق"), onClick = onDismiss), "ESC", Modifier.width(80.dp))
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            Text("ID", color = FH.Faint, fontSize = 9.sp, fontFamily = FH.Mono, modifier = Modifier.width(34.dp)); Text("PARAM", color = FH.Faint, fontSize = 9.sp, fontFamily = FH.Mono, modifier = Modifier.weight(1f)); Text("VALUE", color = FH.Faint, fontSize = 9.sp, fontFamily = FH.Mono)
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             items(rows.size) { i ->
                 val (label, value, action) = rows[i]
-                FhCard(onClick = action, shape = FH.RSmall, container = Color.Transparent, focusedContainer = FH.Card, zoom = 1.02f, modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(focus) else Modifier)) {
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, color = FH.Text, fontSize = 15.sp, modifier = Modifier.weight(1f), maxLines = 1)
-                        Text(value, color = FH.Amber, fontSize = 14.sp, maxLines = 1)
-                        Text("  ›", color = FH.Faint, fontSize = 16.sp)
+                FhCard(onClick = action, shape = FH.RSmall, container = Color.Transparent, focusedContainer = FH.Amber.copy(alpha = 0.25f), zoom = 1.0f, modifier = Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(focus) else Modifier)) {
+                    Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("%02d".format(i + 1), color = FH.Faint, fontSize = 11.sp, fontFamily = FH.Mono, modifier = Modifier.width(34.dp))
+                        Text(label.uppercase(), color = FH.Text, fontSize = 12.sp, fontFamily = FH.Mono, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text(value.ifBlank { "—" }, color = FH.Amber, fontSize = 12.sp, fontFamily = FH.Mono, maxLines = 1)
                     }
                 }
             }
@@ -251,65 +291,69 @@ private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, on
     }
 }
 
-/** Channel list: start-side translucent sheet with recents as round logo bubbles and big rounded channel rows. */
+/** Channel list: END-docked radar column. Target-lock card for the focused channel sits at the TOP;
+ *  below it a dense numbered target log (index bar, code, name, meter, flags). Category commands at the bottom. */
 @Composable
 internal fun FuturisticHudLiveChannelList(p: LiveChannelListParams) {
     val idx = remember(p.channels, p.currentChannelId) { p.channels.indexOfFirst { it.id == p.currentChannelId }.coerceAtLeast(0) }
     val state = rememberLazyListState(idx)
     var focused by remember(p.currentChannelId) { mutableStateOf(p.channels.getOrNull(idx)) }
     LaunchedEffect(Unit) { runCatching { p.focusRequester.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Transparent, FH.Bg.copy(alpha = 0.6f), FH.Bg.copy(alpha = 0.95f))))) {
-        Column(Modifier.align(Alignment.TopEnd).fillMaxHeight().width(540.dp).padding(end = 36.dp, top = 28.dp, bottom = 24.dp, start = 12.dp).border(1.dp, FH.Line).fhBrackets(FH.Amber, 22.dp, 3.dp).padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent, FH.Bg.copy(alpha = 0.8f))))) {
+        Column(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(560.dp).padding(top = 20.dp, bottom = 20.dp, end = 20.dp).background(FH.Bg.copy(alpha = 0.94f)).border(1.dp, FH.Line).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("// " + (p.lastVisitedCategoryName ?: tr("All channels", "كل القنوات")).uppercase(), color = FH.Amber, fontFamily = FH.Mono, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("[${p.channels.size}] " + tr("SIGNALS", "قناة"), color = FH.Faint, fontFamily = FH.Mono, fontSize = 12.sp)
+                Text("◢ " + (p.lastVisitedCategoryName ?: tr("All channels", "كل القنوات")).uppercase(), color = FH.Amber, fontSize = 15.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text("[%03d] ".format(p.channels.size) + tr("SIGNALS", "قناة"), color = FH.Sub, fontSize = 11.sp, fontFamily = FH.Mono)
+            }
+            focused?.let { c ->
+                Column(Modifier.fillMaxWidth().border(1.dp, FH.Amber.copy(alpha = 0.6f)).fhBrackets(FH.Amber, 16.dp, 2.dp).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("LOCK", color = FH.Live, fontSize = 10.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black)
+                        FhLogo(c.name, c.logoUrl, 30.dp)
+                        Text(c.name.uppercase(), color = FH.Text, fontSize = 13.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
+                    Readout(c.currentProgram, c.nextProgram, Modifier.fillMaxWidth())
                 }
-                FhRound("✕", p.onDismiss, size = 40.dp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FhTab(tr("Categories", "الفئات"), false, p.onOpenCategories)
-                if (p.lastVisitedCategoryName != null) FhTab(tr("Last group", "آخر مجموعة"), false, p.onOpenLastGroup)
-                FhTab(tr("Guide", "الدليل"), false, p.onOpenGuide)
-            }
-            LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f), contentPadding = PaddingValues(4.dp)) {
+            LazyColumn(state = state, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                 items(p.channels, key = { it.id }) { c ->
                     val cur = c.id == p.currentChannelId
+                    var f by remember { mutableStateOf(false) }
                     FhCard(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, zoom = 1.03f, container = if (cur) FH.Amber.copy(alpha = 0.2f) else FH.Raised.copy(alpha = 0.7f), focusedContainer = FH.Card,
-                        modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, zoom = 1.0f, shape = FH.RSmall,
+                        container = if (cur) FH.Amber.copy(alpha = 0.16f) else Color.Transparent, focusedContainer = FH.Amber.copy(alpha = 0.3f),
+                        modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { f = it.isFocused; if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
-                        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("${p.numberOf(c)}", color = if (cur) FH.Amber else FH.Faint, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp))
-                            FhLogo(c.name, c.logoUrl, 40.dp)
-                            Column(Modifier.weight(1f)) {
-                                Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = FH.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                c.currentProgram?.let { Text(it.title, color = FH.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            }
-                            if (cur) FhBadge(tr("Now", "الآن"), FH.Amber, filled = true)
+                        Row(Modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(Modifier.width(3.dp).fillMaxHeight().background(if (f || cur) FH.Amber else FH.Line))
+                            Text("%03d".format(p.numberOf(c)), color = if (cur) FH.Amber else FH.Faint, fontSize = 12.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold)
+                            FhLogo(c.name, c.logoUrl, 28.dp)
+                            Text(if (c.id == p.movingChannelId) "⇅ ${c.name.uppercase()}" else c.name.uppercase(), color = FH.Text, fontSize = 12.sp, fontFamily = FH.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            if (cur) FhBadge(tr("NOW", "الآن"), FH.Live, filled = true)
                             c.qualityBadge()?.let { FhBadge(it, FH.Text) }
-                            if (c.catchUpSupported) FhBadge("⟲ " + tr("Archive", "أرشيف"), FH.Blue)
-                            Text(if (c.isFavorite) "♥" else "", color = FH.Amber, fontSize = 14.sp)
+                            if (c.catchUpSupported) FhBadge("⟲", FH.Blue)
+                            FhSignal(c.fhSignalLevel())
+                            Text(if (c.isFavorite) "★" else " ", color = FH.Warn, fontSize = 12.sp, modifier = Modifier.padding(end = 6.dp))
                         }
                     }
                 }
             }
-        }
-        focused?.let { c ->
-            Column(Modifier.align(Alignment.BottomStart).padding(40.dp).width(480.dp).clip(FH.R).background(FH.Bg.copy(alpha = 0.88f)).border(1.dp, FH.Amber.copy(alpha = 0.6f), FH.R).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(c.name, color = FH.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                NowNext(c.currentProgram, c.nextProgram)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FhKey(FhAct("▤", tr("Groups", "الفئات"), onClick = p.onOpenCategories), "G1", Modifier.weight(1f), wide = true)
+                if (p.lastVisitedCategoryName != null) FhKey(FhAct("↩", tr("Last group", "آخر مجموعة"), onClick = p.onOpenLastGroup), "G2", Modifier.weight(1f), wide = true)
+                FhKey(FhAct("▦", tr("Guide", "الدليل"), onClick = p.onOpenGuide), "G3", Modifier.weight(1f), wide = true)
+                FhKey(FhAct("✕", tr("Close", "إغلاق"), onClick = p.onDismiss), "ESC", Modifier.weight(1f), wide = true)
             }
         }
     }
 }
 
-/** Zap banner: floating rounded card at the bottom with channel head, now/next and a compact round-control row. */
+/** Zap banner: full-width bottom console split into three bays (ID block | readout | clock+flags),
+ *  then a row of F-key cells: Alaa's 8 first (F1..F8), extras after. */
 @Composable
 internal fun FuturisticHudLiveChannelInfo(p: LiveChannelInfoParams) {
     LaunchedEffect(Unit) { runCatching { p.focusRequester.requestFocus() } }
     val rec = p.currentRecordingStatus == RecordingStatus.RECORDING
-    // Alaa's required order first: Channels, Favorites, Audio, Aspect, Settings, Quality, Subs, Guide.
     val acts = buildList {
         add(FhAct("☰", tr("Channels", "القنوات"), true) { p.onInteracted(); p.onOpenChannelList() })
         add(FhAct(if (p.channel?.isFavorite == true) "♥" else "♡", tr("Favorites", "المفضلة"), p.channel?.isFavorite == true) { p.onInteracted(); p.onToggleFavorite() })
@@ -334,17 +378,20 @@ internal fun FuturisticHudLiveChannelInfo(p: LiveChannelInfoParams) {
         add(FhAct("⎚", if (p.isCastConnected) tr("Stop cast", "إيقاف البث") else tr("Cast", "بث"), p.isCastConnected) { if (p.isCastConnected) p.onStopCasting() else p.onCast() })
     }
     Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.align(Alignment.BottomCenter).padding(28.dp).fillMaxWidth().clip(FH.R).background(FH.Bg.copy(alpha = 0.92f)).border(1.dp, FH.Line, FH.R).fhBrackets(FH.Amber, 24.dp, 3.dp).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                ChannelHead(p.channel, null, p.displayChannelNumber, p.resolutionLabel, false)
-                NowNext(p.currentProgram, p.nextProgram, Modifier.weight(1f))
-                Text("T+" + fhClock(System.currentTimeMillis()), color = FH.Amber, fontFamily = FH.Mono, fontSize = 24.sp)
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(20.dp).background(FH.Bg.copy(alpha = 0.93f)).border(1.dp, FH.Line).fhBrackets(FH.Amber, 24.dp, 3.dp).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                IdBlock(p.channel, null, p.displayChannelNumber, p.resolutionLabel, false)
+                Box(Modifier.padding(horizontal = 16.dp).width(1.dp).fillMaxHeight().background(FH.Line))
+                Readout(p.currentProgram, p.nextProgram, Modifier.weight(1f))
+                Box(Modifier.padding(horizontal = 16.dp).width(1.dp).fillMaxHeight().background(FH.Line))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(fhClock(System.currentTimeMillis()), color = FH.Amber, fontSize = 28.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Black)
+                    if (rec) FhBadge("● REC", FH.Live, filled = true)
+                    if (p.isMuted) FhBadge("MUTE", FH.Warn)
+                }
             }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(acts.size) { i -> FhCtl(acts[i], if (i == 0) Modifier.focusRequester(p.focusRequester) else Modifier, size = 44.dp) }
+                items(acts.size) { i -> FhKey(acts[i], if (i < 8) "F${i + 1}" else "X${i - 7}", if (i == 0) Modifier.focusRequester(p.focusRequester) else Modifier) }
             }
         }
     }
