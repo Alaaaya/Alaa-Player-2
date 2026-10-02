@@ -264,6 +264,8 @@ fun PlayerScreen(
     val layoutDirection = LocalLayoutDirection.current
     val isRtl = layoutDirection == LayoutDirection.Rtl
     val isAlaaTheme = LocalIsAlaaTheme.current
+    // Bespoke themes share Alaa's live rule: OK in fullscreen live opens the channel list side panel.
+    val isBespokeLiveTheme = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current) != null
     val currentPictureInPictureMode by rememberUpdatedState(isInPictureInPictureMode)
     val enterPictureInPicture = remember(mainActivity) {
         {
@@ -698,7 +700,7 @@ fun PlayerScreen(
                             } else if (
                                 contentType == "LIVE" &&
                                 !isCatchUpPlayback &&
-                                isAlaaTheme
+                                (isAlaaTheme || isBespokeLiveTheme)
                             ) {
                                 if (showChannelListOverlay) {
                                     viewModel.closeOverlays()
@@ -1657,7 +1659,7 @@ fun PlayerScreen(
             Box(Modifier.fillMaxSize().focusGroup()) {
                 bespokeLiveUi.LiveChannelList(com.streamvault.app.ui.themes.bespoke.LiveChannelListParams(
                     channels = currentChannelList,
-                    recentChannels = recentChannels,
+                    recentChannels = emptyList(), // Alaa: no recents section in the OK list
                     currentChannelId = currentChannel?.id ?: internalChannelId,
                     focusRequester = channelListFocusRequester,
                     lastVisitedCategoryName = lastVisitedCategory?.name,
@@ -1712,7 +1714,9 @@ fun PlayerScreen(
                     onEnterPictureInPicture = enterPictureInPicture,
                     onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
                     onStopCasting = viewModel::stopCasting,
-                    onOpenAudioVideoSync = { showAudioVideoOffsetDialog = true }
+                    onOpenAudioVideoSync = { showAudioVideoOffsetDialog = true },
+                    onToggleFavorite = viewModel::toggleCurrentChannelFavorite,
+                    onOpenSettings = { viewModel.closeChannelInfoOverlay(); if (!showControls) viewModel.toggleControls() }
                 ))
             }
         }
