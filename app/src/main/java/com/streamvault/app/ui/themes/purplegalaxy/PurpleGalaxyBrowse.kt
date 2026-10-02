@@ -1,5 +1,8 @@
 package com.streamvault.app.ui.themes.purplegalaxy
 
+import androidx.compose.foundation.border
+import com.streamvault.app.ui.themes.bespoke.qualityBadge
+import com.streamvault.app.ui.themes.bespoke.tr
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -246,7 +249,9 @@ internal fun PurpleGalaxyLiveTv(p: LiveTvParams) {
                                 Text(if (p.isChannelLocked(c)) "Locked" else now?.title ?: "No signal data", color = PG.Dust, fontSize = 12.sp, maxLines = 1)
                                 if (progress != null && !p.isChannelLocked(c)) OrbitProgress(progress, height = 2.dp)
                             }
-                            if (c.isFavorite) Text("★", color = PG.Flare)
+                            if (!p.isChannelLocked(c)) c.qualityBadge()?.let { GalaxyBadge(it, PG.Comet) }
+                            if (c.catchUpSupported) GalaxyBadge("⟲", PG.Flare)
+                            Text(if (c.isFavorite) "★" else "☆", color = if (c.isFavorite) PG.Flare else PG.Muted.copy(alpha = 0.5f))
                         }
                     }
                 }
@@ -313,30 +318,42 @@ internal fun <T> PurpleGalaxyLibrary(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(LibraryFilterType.entries) { f -> GalaxyChip(filterLabels[f] ?: f.name, f == s.selectedFilter, { p.onFilterChange(f) }) }
         }
-        Spacer(Modifier.height(10.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(s.categoryNames) { name ->
-                val cat = s.categoryFor(name)
-                val locked = cat?.let(p.isCategoryLocked) == true
-                GalaxySurface(
-                    onClick = { cat?.let(p.onCategoryClick) }, onLongClick = { cat?.let(p.onCategoryLongClick) }, shape = PG.Pill,
-                    container = if (name == s.selectedCategory) PG.Flare.copy(alpha = 0.4f) else PG.Glass, scale = 1.08f
-                ) {
-                    Text((if (locked) "🔒 " else "✦ ") + name + (s.categoryCounts[name]?.let { "  $it" } ?: ""), color = PG.Star, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), maxLines = 1)
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            // genre constellation column
+            Column(Modifier.width(250.dp).fillMaxHeight().clip(PG.Panel).background(PG.Deep.copy(alpha = 0.7f)).border(1.dp, PG.Plasma.copy(alpha = 0.25f), PG.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tr("Genres", "التصنيفات"), color = PG.Comet, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(s.categoryNames) { name ->
+                        val cat = s.categoryFor(name)
+                        val locked = cat?.let(p.isCategoryLocked) == true
+                        val selected = name == s.selectedCategory
+                        GalaxySurface(
+                            onClick = { cat?.let(p.onCategoryClick) }, onLongClick = { cat?.let(p.onCategoryLongClick) }, shape = PG.Pill,
+                            container = if (selected) PG.Flare.copy(alpha = 0.35f) else Color.Transparent, scale = 1.04f, modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (locked) "🔒" else if (selected) "✦" else "·", color = PG.Flare, fontSize = 13.sp, modifier = Modifier.width(22.dp))
+                                Text(name, color = PG.Star, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                s.categoryCounts[name]?.let { Text("$it", color = PG.Muted, fontSize = 11.sp) }
+                            }
+                        }
+                    }
                 }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        val items = s.visibleItems
-        if (items.isEmpty() && !s.isLoadingSelectedCategory) GalaxyEmpty("No objects in this sector")
-        LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-            itemsGrid(items, key) { index, item ->
-                if (index >= items.size - 12) LaunchedEffect(items.size) {
-                    if (s.selectedCategory != null && s.canLoadMoreSelectedCategory) p.onLoadMoreSelected()
-                    else if (s.selectedCategory == null && s.hasMorePreviewRows) p.onLoadMorePreview()
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                val items = s.visibleItems
+                if (items.isEmpty() && !s.isLoadingSelectedCategory) GalaxyEmpty(tr("No objects in this sector", "لا يوجد محتوى هنا"))
+                LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp, top = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                    itemsGrid(items, key) { index, item ->
+                        if (index >= items.size - 12) LaunchedEffect(items.size) {
+                            if (s.selectedCategory != null && s.canLoadMoreSelectedCategory) p.onLoadMoreSelected()
+                            else if (s.selectedCategory == null && s.hasMorePreviewRows) p.onLoadMorePreview()
+                        }
+                        val locked = p.isItemLocked(item)
+                        ArchPoster(title(item), if (locked) null else image(item), caption(item), { p.onItemClick(item) }, locked = locked, onLongClick = { p.onItemLongClick(item) })
+                    }
                 }
-                val locked = p.isItemLocked(item)
-                ArchPoster(title(item), if (locked) null else image(item), caption(item), { p.onItemClick(item) }, locked = locked, onLongClick = { p.onItemLongClick(item) })
             }
         }
     }
