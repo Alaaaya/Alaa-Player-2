@@ -385,7 +385,8 @@ interface BespokeThemeUi {
 
 private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
     mapOf(
-        AppHomeTheme.PURPLE_GALAXY to com.streamvault.app.ui.themes.purplegalaxy.PurpleGalaxyUi
+        AppHomeTheme.PURPLE_GALAXY to com.streamvault.app.ui.themes.purplegalaxy.PurpleGalaxyUi,
+        AppHomeTheme.TECH_DASHBOARD to com.streamvault.app.ui.themes.techdashboard.TechDashUi
     )
 }
 
