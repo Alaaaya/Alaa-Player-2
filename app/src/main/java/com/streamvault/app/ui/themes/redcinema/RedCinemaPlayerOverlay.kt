@@ -56,17 +56,34 @@ internal fun RedCinemaPlayerOverlay(
 ) {
     val surfaces = LocalThemePresentation.current.surfaces
     val showTitle = currentProgram?.title?.takeIf { contentType == "LIVE" } ?: mediaTitle?.takeIf { it.isNotBlank() } ?: title
+    val isVod = contentType != "LIVE" || isCatchUpPlayback
     val actions = buildList {
+        if (timeshiftUiState.available) add(RedCinemaAction("LIVE", "return to live", onSeekToLiveEdge))
         add(RedCinemaAction("GUIDE", "programme", onOpenArchive))
         add(RedCinemaAction("AUDIO", "$audioTrackCount track(s)", onOpenAudioTracks))
         add(RedCinemaAction("SUBTITLES", if (subtitleTrackCount > 0 || liveTranslationAvailable) "available" else "none", onOpenSubtitleTracks))
         add(RedCinemaAction("FRAME", aspectRatioLabel, onToggleAspectRatio))
         add(RedCinemaAction(if (isMuted) "UNMUTE" else "MUTE", "sound", onToggleMute))
         if (videoQualityCount > 0) add(RedCinemaAction("QUALITY", "$videoQualityCount prints", onOpenVideoTracks))
-        if (contentType == "LIVE") add(RedCinemaAction(if (currentRecordingStatus == RecordingStatus.RECORDING) "STOP RECORD" else "RECORD", "screening", if (currentRecordingStatus == RecordingStatus.RECORDING) onStopRecording else onStartRecording))
+        if (isVod) add(RedCinemaAction("SPEED", "${playbackSpeed}×", onOpenPlaybackSpeed))
         if (showEpisodesAction) add(RedCinemaAction("EPISODES", "serial", onOpenEpisodes))
+        if (contentType == "LIVE" && currentProgram != null) add(RedCinemaAction("RESTART", "from the top", onRestartProgram))
+        if (currentRecordingStatus == RecordingStatus.RECORDING) {
+            add(RedCinemaAction("STOP RECORD", "screening", onStopRecording))
+        } else if (contentType == "LIVE") {
+            add(RedCinemaAction("RECORD", "screening", onStartRecording))
+            add(RedCinemaAction("SCHEDULE", "once", onScheduleRecording))
+            add(RedCinemaAction("DAILY REC", "every day", onScheduleDailyRecording))
+            add(RedCinemaAction("WEEKLY REC", "every week", onScheduleWeeklyRecording))
+        }
+        add(RedCinemaAction("STOP TIMER", if (sleepTimerUiState.stopTimerActive) "active" else "sleep", onOpenStopPlaybackTimer))
+        add(RedCinemaAction("IDLE TIMER", if (sleepTimerUiState.idleTimerActive) "active" else "standby", onOpenIdleStandbyTimer))
+        if (audioVideoSyncEnabled && !isCastConnected) add(RedCinemaAction("A/V SYNC", "lip sync", onOpenAudioVideoSync))
+        add(RedCinemaAction("MULTIVIEW", "split screen", onOpenSplitScreen))
+        add(RedCinemaAction("PIP", "picture in picture", onEnterPictureInPicture))
         add(RedCinemaAction("EXIT", "curtain", onClose))
     }
+
     AnimatedVisibility(visible, enter = fadeIn(tween(180)), exit = fadeOut(tween(160)), modifier = modifier) {
         Box(Modifier.fillMaxSize().background(surfaces.canvas.copy(alpha = .8f)).onPreviewKeyEvent { event -> if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) onUserInteraction(); false }) {
             RedCinemaMarquee(showTitle, currentChannelName ?: currentChannel?.name.orEmpty(), displayChannelNumber, Modifier.align(Alignment.TopCenter).padding(top = 30.dp))
