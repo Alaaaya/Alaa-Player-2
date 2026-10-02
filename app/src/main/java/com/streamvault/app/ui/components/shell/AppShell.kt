@@ -96,6 +96,8 @@ import com.streamvault.app.ui.theme.AlaaThemeColors
 import com.streamvault.app.ui.theme.AlaaThemeDimensions
 import com.streamvault.app.ui.theme.AlaaThemeFocus
 import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.app.ui.themes.blueocean.BlueOceanShellRail
+import com.streamvault.app.ui.themes.blueocean.BlueOceanWaveBrush
 import com.streamvault.app.ui.theme.LocalIsAlaaTheme
 import com.streamvault.app.ui.theme.LocalThemePresentation
 import com.streamvault.app.ui.theme.ThemeNavigationLayout
@@ -174,11 +176,17 @@ fun AppScreenScaffold(
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
     val blueOceanPresentation = LocalThemePresentation.current
+    // Red Cinema and the palette-driven themes reuse the shared shell, styled entirely from
+    // their presentation tokens (navigation layout, surfaces, radii, focus).
+    val isPresentationShellTheme = LocalAppHomeTheme.current in PresentationShellThemes
+    val isTokenPaddedTheme = isBlueOceanTheme || isPresentationShellTheme
     // Minimal يفرض فهرس أوامر عمودياً خاصاً به. الثيمات الأخرى تبقى ملتزمة
     // بالـ chrome الذي طلبته الشاشة حتى لا تتغير مساراتها أو هويتها.
     val resolvedNavigationChrome = when {
         isBlueOceanTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.SIDE_RAIL -> AppNavigationChrome.Rail
         isBlueOceanTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.TOP_BAR -> AppNavigationChrome.TopBar
+        isPresentationShellTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.SIDE_RAIL -> AppNavigationChrome.Rail
+        isPresentationShellTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.TOP_BAR -> AppNavigationChrome.TopBar
         isStreamingPlatformTheme -> AppNavigationChrome.TopBar
         isMinimalTheme || isGlassTheme || isPremiumBlackTheme -> AppNavigationChrome.Rail
         else -> navigationChrome
@@ -198,13 +206,9 @@ fun AppScreenScaffold(
     } else if (isPremiumBlackTheme) {
         Brush.verticalGradient(listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
     } else if (isBlueOceanTheme) {
-        Brush.linearGradient(
-            listOf(
-                blueOceanPresentation.surfaces.canvas,
-                blueOceanPresentation.surfaces.browseContent,
-                blueOceanPresentation.surfaces.canvas
-            )
-        )
+        BlueOceanWaveBrush
+    } else if (isPresentationShellTheme) {
+        presentationCanvasBrush(blueOceanPresentation)
     } else {
         Brush.linearGradient(listOf(AppColors.Canvas, AppColors.CanvasElevated, AppColors.Surface))
     }
@@ -240,6 +244,12 @@ fun AppScreenScaffold(
                             .fillMaxHeight()
                             .width(106.dp)
                     )
+                } else if (isBlueOceanTheme) {
+                    BlueOceanShellRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier.fillMaxHeight()
+                    )
                 } else {
                     DestinationRail(
                         currentRoute = currentRoute,
@@ -264,10 +274,10 @@ fun AppScreenScaffold(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isBlueOceanTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 30.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {
@@ -1051,6 +1061,8 @@ private fun DestinationRail(
     isNeonFutureTheme: Boolean = false
 ) {
     val spacing = LocalAppSpacing.current
+    val tokenShell = LocalAppHomeTheme.current in PresentationShellThemes
+    val tokens = LocalThemePresentation.current
     val items = rememberDestinationItems()
     val focusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val favoritesFocusRequester = remember { FocusRequester() }
@@ -1066,7 +1078,7 @@ private fun DestinationRail(
                 top = if (isAlaaTheme || isCinematicTheme || isNeonFutureTheme) 0.dp else spacing.safeTop,
                 bottom = if (isAlaaTheme || isCinematicTheme || isNeonFutureTheme) 0.dp else spacing.safeBottom
             )
-            .clip(if (isAlaaTheme) RoundedCornerShape(0.dp) else if (isCinematicTheme) RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp) else if (isNeonFutureTheme) RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp) else RoundedCornerShape(28.dp))
+            .clip(if (isAlaaTheme) RoundedCornerShape(0.dp) else if (isCinematicTheme) RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp) else if (isNeonFutureTheme) RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp) else RoundedCornerShape(if (tokenShell) tokens.surfaces.cornerLarge.coerceAtMost(40.dp) else 28.dp))
             .background(
                 if (isAlaaTheme) {
                     Brush.verticalGradient(listOf(AlaaThemeColors.Sidebar, AlaaThemeColors.Sidebar))
@@ -1187,11 +1199,13 @@ private fun RailButton(
     isCinematicTheme: Boolean = false,
     isNeonFutureTheme: Boolean = false
 ) {
+    val tokenShell = LocalAppHomeTheme.current in PresentationShellThemes
+    val tokens = LocalThemePresentation.current
     var isFocused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
-            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else if (isCinematicTheme) 1.025f else if (isNeonFutureTheme) 1.018f else FocusSpec.FocusedScale
+            if (isAlaaTheme) AlaaThemeFocus.FocusedScale else if (isCinematicTheme) 1.025f else if (isNeonFutureTheme) 1.018f else if (tokenShell) tokens.focus.focusedScale else FocusSpec.FocusedScale
         } else {
             1f
         },
@@ -1214,7 +1228,7 @@ private fun RailButton(
             }
             .onFocusChanged { isFocused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(
-            RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else if (isNeonFutureTheme) 8.dp else 18.dp)
+            RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else if (isNeonFutureTheme) 8.dp else if (tokenShell) tokens.surfaces.cornerMedium.coerceAtMost(24.dp) else 18.dp)
         ),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = when {
@@ -1229,10 +1243,10 @@ private fun RailButton(
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(
-                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else if (isCinematicTheme) 2.dp else if (isNeonFutureTheme) 2.dp else FocusSpec.BorderWidth,
+                    if (isAlaaTheme) AlaaThemeDimensions.FocusBorder else if (isCinematicTheme) 2.dp else if (isNeonFutureTheme) 2.dp else if (tokenShell) tokens.surfaces.focusBorderWidth else FocusSpec.BorderWidth,
                     if (isAlaaTheme) AlaaThemeColors.Accent else if (isCinematicTheme) CinematicGold else if (isNeonFutureTheme) NeonCyan else AppColors.Focus
                 ),
-                shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else if (isNeonFutureTheme) 8.dp else 18.dp)
+                shape = RoundedCornerShape(if (isAlaaTheme) AlaaThemeDimensions.CornerMedium else if (isCinematicTheme) 14.dp else if (isNeonFutureTheme) 8.dp else if (tokenShell) tokens.surfaces.cornerMedium.coerceAtMost(24.dp) else 18.dp)
             )
         )
     ) {
