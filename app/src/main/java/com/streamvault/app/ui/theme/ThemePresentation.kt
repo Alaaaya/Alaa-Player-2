@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.theme
 
+import com.streamvault.app.ui.components.shell.PresentationShellThemes
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -398,6 +399,11 @@ object ThemePresentationRegistry {
         registerAdditional(premiumBlackPresentation)
         registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.RED_CINEMA })
         registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.BLUE_OCEAN })
+        // Palette-driven themes: rendered by the shared screens, player and shell from their
+        // tokens (AppColors/Material scheme, shapes, canvas, navigation layout, focus).
+        expansionPresentations
+            .filter { it.id in PresentationShellThemes && it.id != AppHomeTheme.RED_CINEMA }
+            .forEach(::registerAdditional)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =
