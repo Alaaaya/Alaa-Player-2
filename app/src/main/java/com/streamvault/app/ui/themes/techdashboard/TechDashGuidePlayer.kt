@@ -1,11 +1,13 @@
 package com.streamvault.app.ui.themes.techdashboard
 
+import com.streamvault.app.ui.themes.bespoke.tr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,47 +37,57 @@ import com.streamvault.player.PlayerSurfaceResizeMode
 /** Star map guide: telescope viewport and program log on top, transparent grid over the starfield. */
 @Composable
 internal fun TechDashEpg(p: EpgParams, modifier: Modifier) {
-    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth().height(170.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Box(Modifier.width(300.dp).fillMaxSize().clip(TD.Panel).background(TD.Deep)) {
-                val engine = p.previewPlayerEngine
-                if (engine != null) PlayerRenderView(engine, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
-                if (p.isPreviewLoading) Text("Aligning…", color = TD.Dust, modifier = Modifier.align(Alignment.Center))
+    Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("EPG://" + p.selectedCategoryName.uppercase(), color = TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (p.isRefreshing) Text("SYNC…", color = TD.Flare, fontSize = 11.sp, fontFamily = TD.Mono)
+            Text("${formatClock(p.guideWindowStart)}–${formatClock(p.guideWindowEnd)}", color = TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
+            TechDashChip(tr("group", "المجموعة"), false, { p.onGuideInteract(); p.onOpenCategoryPicker() })
+            TechDashChip(tr("now", "الآن"), true, { p.onGuideInteract(); p.onJumpToNow() })
+            TechDashChip(tr("find", "بحث"), false, { p.onGuideInteract(); p.onOpenSearch() })
+            TechDashChip(tr("opts", "خيارات"), false, { p.onGuideInteract(); p.onOpenOptions() })
+        }
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TdModule(tr("Schedule", "جدول البرامج"), Modifier.weight(1f).fillMaxHeight(), meta = "${p.channels.size} ch") {
+                EpgGrid(
+                    modifier = Modifier.fillMaxSize(),
+                    channels = p.channels,
+                    favoriteChannelIds = p.favoriteChannelIds,
+                    programsByChannel = p.programsByChannel,
+                    guideWindowStart = p.guideWindowStart,
+                    guideWindowEnd = p.guideWindowEnd,
+                    density = p.density,
+                    transparentOverlay = true,
+                    onChannelClick = p.onChannelClick,
+                    onChannelLongClick = p.onChannelLongClick,
+                    onProgramClick = p.onProgramClick,
+                    onChannelFocused = p.onChannelFocused,
+                    onProgramFocused = p.onProgramFocused,
+                    onRequestMoreChannels = p.onRequestMoreChannels
+                )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                TechDashLabel("Star map · ${p.selectedCategoryName}")
-                val prog = p.focusedProgram
-                TechDashTitle(prog?.title ?: p.focusedChannel?.name ?: "Navigate grid", size = 24)
-                prog?.let {
-                    Text("${p.focusedChannel?.name.orEmpty()}  ·  ${formatClock(it.startTime)} – ${formatClock(it.endTime)}", color = TD.Comet, fontSize = 13.sp)
-                    Text(it.description, color = TD.Dust, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TdModule(tr("Monitor", "معاينة"), Modifier.fillMaxWidth().height(200.dp)) {
+                    Box(Modifier.fillMaxSize().background(TD.Void)) {
+                        val engine = p.previewPlayerEngine
+                        if (engine != null) PlayerRenderView(engine, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
+                        if (p.isPreviewLoading) Text("BUFFER…", color = TD.Plasma, fontFamily = TD.Mono, fontSize = 12.sp, modifier = Modifier.align(Alignment.Center))
+                    }
                 }
-                if (p.isRefreshing) Text("Refreshing star data…", color = TD.Muted, fontSize = 12.sp)
+                TdModule(tr("Selected", "المحدد"), Modifier.fillMaxWidth().weight(1f)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(p.focusedChannel?.name ?: "--", color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono, maxLines = 1)
+                        val prog = p.focusedProgram
+                        Text(prog?.title ?: tr("Move through the grid", "تنقل في الجدول"), color = TD.Star, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                        prog?.let {
+                            Text("${formatClock(it.startTime)} → ${formatClock(it.endTime)}", color = TD.Comet, fontSize = 12.sp, fontFamily = TD.Mono)
+                            val now = System.currentTimeMillis()
+                            if (now in it.startTime..it.endTime && it.endTime > it.startTime) TechDashProgress((now - it.startTime).toFloat() / (it.endTime - it.startTime), height = 3.dp)
+                            Text(it.description, color = TD.Dust, fontSize = 12.sp, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
-        }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { TechDashChip("✦ ${p.selectedCategoryName}", true, { p.onGuideInteract(); p.onOpenCategoryPicker() }) }
-            item { TechDashChip("Now", false, { p.onGuideInteract(); p.onJumpToNow() }) }
-            item { TechDashChip("Query", false, { p.onGuideInteract(); p.onOpenSearch() }) }
-            item { TechDashChip("Options", false, { p.onGuideInteract(); p.onOpenOptions() }) }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth().clip(TD.Panel).background(TD.Deep.copy(alpha = 0.55f))) {
-            EpgGrid(
-                modifier = Modifier.fillMaxSize(),
-                channels = p.channels,
-                favoriteChannelIds = p.favoriteChannelIds,
-                programsByChannel = p.programsByChannel,
-                guideWindowStart = p.guideWindowStart,
-                guideWindowEnd = p.guideWindowEnd,
-                density = p.density,
-                transparentOverlay = true,
-                onChannelClick = p.onChannelClick,
-                onChannelLongClick = p.onChannelLongClick,
-                onProgramClick = p.onProgramClick,
-                onChannelFocused = p.onChannelFocused,
-                onProgramFocused = p.onProgramFocused,
-                onRequestMoreChannels = p.onRequestMoreChannels
-            )
         }
     }
 }
