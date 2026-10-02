@@ -135,6 +135,7 @@ object Routes {
     const val PLUGINS = "plugins"
     const val PLAYER = "player"
     const val SEARCH = "search"
+    const val FAVORITES = "favorites"
     const val SEARCH_DESTINATION = "search?query={query}"
     const val MOVIE_DETAIL = "movie_detail/{movieId}?returnRoute={returnRoute}"
     const val SERIES_DETAIL = "series_detail/{seriesId}?returnRoute={returnRoute}"
@@ -891,6 +892,70 @@ fun AppNavigation(mainActivity: MainActivity) {
                 },
                 onNavigate = { route -> tabNavigate(route) },
                 currentRoute = Routes.SEARCH
+            )
+        }
+
+        composable(Routes.FAVORITES) {
+            com.streamvault.app.ui.screens.favorites.FavoritesScreen(
+                onItemClick = { item ->
+                    val route = when (item.favorite.contentType) {
+                        com.streamvault.domain.model.ContentType.LIVE -> Routes.player(
+                            streamUrl = item.streamUrl,
+                            title = item.title,
+                            channelId = item.epgChannelId,
+                            internalId = item.favorite.contentId,
+                            categoryId = item.launchCategoryId,
+                            providerId = item.providerId,
+                            isVirtual = item.launchIsVirtual,
+                            contentType = item.favorite.contentType.name,
+                            returnRoute = Routes.FAVORITES
+                        )
+                        com.streamvault.domain.model.ContentType.MOVIE,
+                        com.streamvault.domain.model.ContentType.VOD -> Routes.player(
+                            streamUrl = item.streamUrl,
+                            title = item.title,
+                            internalId = item.favorite.contentId,
+                            categoryId = item.categoryId,
+                            providerId = item.providerId,
+                            contentType = item.favorite.contentType.name,
+                            returnRoute = Routes.FAVORITES
+                        )
+                        else -> Routes.seriesDetail(item.favorite.contentId, Routes.FAVORITES)
+                    }
+                    if (route is PlayerNavigationRequest) {
+                        navController.navigateToPlayer(route)
+                    } else {
+                        navController.navigateIfResumed(route as String) { launchSingleTop = true }
+                    }
+                },
+                onHistoryClick = { item ->
+                    val history = item.history
+                    val route = when (history.contentType) {
+                        com.streamvault.domain.model.ContentType.SERIES ->
+                            Routes.seriesDetail(history.seriesId ?: history.contentId, Routes.FAVORITES)
+                        else -> Routes.player(
+                            streamUrl = history.streamUrl,
+                            title = item.title,
+                            channelId = item.epgChannelId.takeIf { history.contentType == com.streamvault.domain.model.ContentType.LIVE },
+                            internalId = history.contentId,
+                            categoryId = item.categoryId.takeIf { history.contentType == com.streamvault.domain.model.ContentType.LIVE },
+                            providerId = item.providerId,
+                            isVirtual = item.launchIsVirtual && history.contentType == com.streamvault.domain.model.ContentType.LIVE,
+                            contentType = history.contentType.name,
+                            returnRoute = Routes.FAVORITES,
+                            seriesId = history.seriesId,
+                            seasonNumber = history.seasonNumber,
+                            episodeNumber = history.episodeNumber
+                        )
+                    }
+                    if (route is PlayerNavigationRequest) {
+                        navController.navigateToPlayer(route)
+                    } else {
+                        navController.navigateIfResumed(route as String) { launchSingleTop = true }
+                    }
+                },
+                onNavigate = { route -> tabNavigate(route) },
+                currentRoute = Routes.FAVORITES
             )
         }
 
