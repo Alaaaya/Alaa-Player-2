@@ -239,7 +239,7 @@ private fun MtChannelTile(c: Channel, recording: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Live TV: wide preview hero across the top (video + now/next), then category column and a 2-up card grid of channels. */
+/** Live TV: wide preview hero across the top (video + now/next), then a categories column beside a single channels column (no grid). */
 @Composable
 internal fun ModernTvLiveTv(p: LiveTvParams) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -313,15 +313,15 @@ internal fun ModernTvLiveTv(p: LiveTvParams) {
                     MtSearchField(p.channelSearchQuery, p.onChannelSearchChange, tr("Find a channel", "ابحث عن قناة"), Modifier.width(280.dp))
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp, horizontal = 4.dp)) {
-                    items(p.channels.chunked(2), key = { row -> row.first().id }) { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            row.forEach { c ->
+                    items(p.channels, key = { it.id }) { c ->
+                        run {
+                            run {
                                 val locked = p.isChannelLocked(c)
                                 MtCard(
                                     onClick = { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) }, zoom = 1.03f,
                                     container = if (c.id == p.previewChannel?.id) MT.Card else MT.Raised,
-                                    modifier = Modifier.weight(1f).focusRequester(p.channelRequester(c.id)).onFocusChanged { if (it.isFocused) p.onChannelFocused(c) }
-                                        .mtRight { if (row.last() == c) p.onRequestPreviewFromChannel() else false }
+                                    modifier = Modifier.fillMaxWidth().focusRequester(p.channelRequester(c.id)).onFocusChanged { if (it.isFocused) p.onChannelFocused(c) }
+                                        .mtRight { p.onRequestPreviewFromChannel() }
                                 ) {
                                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Text(if (c.number > 0) "${c.number}" else "", color = MT.Faint, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(34.dp))
@@ -339,7 +339,6 @@ internal fun ModernTvLiveTv(p: LiveTvParams) {
                                     }
                                 }
                             }
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
