@@ -240,7 +240,11 @@ internal fun PlayerViewModel.loadPlaylist(
             playerPlaylistCoordinator.getChannelsByNumber(providerId, categoryId)
         }
 
-        combine(flows, playerPreferencesCoordinator.liveChannelNumberingMode) { channels, numberingMode ->
+        val orderScope = playerChannelOrderScope(categoryId)
+        val orderedFlows = combine(flows, playerPreferencesCoordinator.channelOrder(orderScope)) { channels, order ->
+            if (categoryId == VirtualCategoryIds.RECENT) channels else channels.withPlayerStoredOrder(order)
+        }
+        combine(orderedFlows, playerPreferencesCoordinator.liveChannelNumberingMode) { channels, numberingMode ->
             val displayedChannels = when (numberingMode) {
                 ChannelNumberingMode.GROUP -> channels.mapIndexed { index, channel ->
                     channel.copy(number = index + 1)

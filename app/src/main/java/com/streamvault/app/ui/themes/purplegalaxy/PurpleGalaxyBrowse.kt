@@ -245,7 +245,7 @@ internal fun PurpleGalaxyLiveTv(p: LiveTvParams) {
                             Text(if (c.number > 0) "${c.number}" else "", color = PG.Muted, fontSize = 13.sp, modifier = Modifier.width(34.dp))
                             PlanetLogo(c.name, if (p.isChannelLocked(c)) null else c.logoUrl, 46.dp)
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(c.name, color = PG.Star, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = PG.Star, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 Text(if (p.isChannelLocked(c)) "Locked" else now?.title ?: "No signal data", color = PG.Dust, fontSize = 12.sp, maxLines = 1)
                                 if (progress != null && !p.isChannelLocked(c)) OrbitProgress(progress, height = 2.dp)
                             }

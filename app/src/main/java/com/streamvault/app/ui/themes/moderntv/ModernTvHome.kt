@@ -327,7 +327,7 @@ internal fun ModernTvLiveTv(p: LiveTvParams) {
                                         Text(if (c.number > 0) "${c.number}" else "", color = MT.Faint, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(34.dp))
                                         MtLogo(c.name, if (locked) null else c.logoUrl, 46.dp)
                                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(c.name, color = MT.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = MT.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(if (locked) tr("Locked", "مقفل") else c.currentProgram?.title ?: tr("No guide data", "لا يوجد دليل"), color = MT.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             if (!locked) c.currentProgram?.let { MtProgress((System.currentTimeMillis() - it.startTime).toFloat() / (it.endTime - it.startTime).coerceAtLeast(1), height = 3.dp) }
                                         }

@@ -400,7 +400,7 @@ internal fun PurpleGalaxyLiveChannelList(p: LiveChannelListParams) {
                 items(p.channels, key = { it.id }) { c ->
                     val isCurrent = c.id == p.currentChannelId
                     GalaxySurface(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, shape = PG.Pill, scale = 1.02f,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = PG.Pill, scale = 1.02f,
                         container = if (isCurrent) PG.Plasma.copy(alpha = 0.3f) else Color.Transparent,
                         modifier = Modifier.fillMaxWidth().then(if (isCurrent) Modifier.focusRequester(p.focusRequester) else Modifier)
                             .onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
@@ -408,7 +408,7 @@ internal fun PurpleGalaxyLiveChannelList(p: LiveChannelListParams) {
                         Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             PlanetLogo(c.name, c.logoUrl, 40.dp)
                             Text("%02d".format(p.numberOf(c)), color = PG.Flare, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
-                            Text(c.name, color = PG.Star, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = PG.Star, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (isCurrent) GalaxyBadge("• " + tr("Now", "الآن"), PG.Flare)
                             c.qualityBadge()?.let { GalaxyBadge(it, PG.Comet) }
                             if (c.catchUpSupported) Text("⟲ " + tr("Archive", "أرشيف"), color = PG.Flare, fontSize = 11.sp)

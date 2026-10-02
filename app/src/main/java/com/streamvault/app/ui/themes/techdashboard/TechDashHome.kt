@@ -76,7 +76,7 @@ private fun KpiTile(value: String, label: String, accent: Color, onClick: () -> 
 
 /** Channel table row: CH | logo | name / now | meter | badges. Shared by home and live. */
 @Composable
-internal fun TdChannelRow(c: Channel, locked: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false, recording: Boolean = false) {
+internal fun TdChannelRow(c: Channel, locked: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, highlighted: Boolean = false, recording: Boolean = false, moving: Boolean = false) {
     val now = c.currentProgram
     val progress = now?.let { ((System.currentTimeMillis() - it.startTime).toFloat() / (it.endTime - it.startTime).coerceAtLeast(1)) }
     TechDashSurface(onClick = onClick, onLongClick = onLongClick, shape = TD.Pill, container = if (highlighted) TD.GlassStrong else Color.Transparent, modifier = modifier.fillMaxWidth()) {
@@ -84,7 +84,7 @@ internal fun TdChannelRow(c: Channel, locked: Boolean, onClick: () -> Unit, modi
             Text(if (c.number > 0) "%03d".format(c.number) else "---", color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono, modifier = Modifier.width(36.dp))
             TechDashLogo(c.name, if (locked) null else c.logoUrl, 34.dp)
             Column(Modifier.weight(1f)) {
-                Text(c.name, color = TD.Star, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (moving) "⇅  ${c.name}" else c.name, color = TD.Star, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (locked) tr("Locked", "مقفل") else now?.title ?: "EPG: n/a", color = TD.Dust, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (progress != null && !locked) Box(Modifier.width(90.dp)) { TechDashProgress(progress, height = 3.dp) }
@@ -234,7 +234,7 @@ internal fun TechDashLiveTv(p: LiveTvParams) {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(p.channels, key = { it.id }) { c ->
                             TdChannelRow(
-                                c, p.isChannelLocked(c), { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) }, highlighted = c.id == p.previewChannel?.id,
+                                c, p.isChannelLocked(c), { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) }, moving = c.id == p.movingChannelId, highlighted = c.id == p.previewChannel?.id,
                                 modifier = Modifier.focusRequester(p.channelRequester(c.id)).onFocusChanged { if (it.isFocused) p.onChannelFocused(c) }.onRight { p.onRequestPreviewFromChannel() }
                             )
                         }

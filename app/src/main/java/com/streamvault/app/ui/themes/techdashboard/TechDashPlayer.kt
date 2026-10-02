@@ -366,7 +366,7 @@ internal fun TechDashLiveChannelList(p: LiveChannelListParams) {
                 items(p.channels, key = { it.id }) { c ->
                     val isCurrent = c.id == p.currentChannelId
                     TechDashSurface(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, shape = TD.Pill, scale = 1.02f,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = TD.Pill, scale = 1.02f,
                         container = if (isCurrent) TD.Plasma.copy(alpha = 0.3f) else Color.Transparent,
                         modifier = Modifier.fillMaxWidth().then(if (isCurrent) Modifier.focusRequester(p.focusRequester) else Modifier)
                             .onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
@@ -375,7 +375,7 @@ internal fun TechDashLiveChannelList(p: LiveChannelListParams) {
                             Text(if (isCurrent) ">" else " ", color = TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono)
                             Text("%03d".format(p.numberOf(c)), color = TD.Plasma, fontSize = 13.sp, fontFamily = TD.Mono, modifier = Modifier.width(36.dp))
                             TechDashLogo(c.name, c.logoUrl, 28.dp)
-                            Text(c.name, color = TD.Star, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = TD.Star, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             Text(c.qualityBadge() ?: "--", color = TD.Comet, fontSize = 10.sp, fontFamily = TD.Mono, modifier = Modifier.width(34.dp))
                             if (isCurrent) Text("[NOW]", color = TD.Plasma, fontSize = 10.sp, fontFamily = TD.Mono)
                             Text(if (c.catchUpSupported) "ARC" else "---", color = if (c.catchUpSupported) TD.Flare else TD.Muted, fontSize = 10.sp, fontFamily = TD.Mono)
