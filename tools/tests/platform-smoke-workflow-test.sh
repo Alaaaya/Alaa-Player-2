@@ -10,9 +10,11 @@ release_workflow="$repo_root/.github/workflows/release.yml"
 [ -f "$smoke_workflow" ]
 grep -F 'workflow_call:' "$smoke_workflow" >/dev/null
 grep -F 'workflow_dispatch:' "$smoke_workflow" >/dev/null
-grep -F 'push:' "$smoke_workflow" >/dev/null
-grep -F -- '- develop' "$smoke_workflow" >/dev/null
-grep -F 'uses: ./.github/workflows/platform-smoke.yml' "$release_workflow" >/dev/null
+# The full compatibility matrix is scheduled independently; releases run a TV smoke.
+grep -F 'schedule:' "$smoke_workflow" >/dev/null
+grep -F "cron: '15 2 * * *'" "$smoke_workflow" >/dev/null
+grep -F 'name: Android TV release smoke' "$release_workflow" >/dev/null
+grep -F './tools/run-platform-smoke.sh "35" "x86_64"' "$release_workflow" >/dev/null
 grep -F 'for test_script in tools/tests/*-test.sh' "$release_workflow" >/dev/null
 
 if grep -F 'Precompile platform smoke APKs' "$smoke_workflow" "$release_workflow" >/dev/null; then
