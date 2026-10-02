@@ -391,23 +391,6 @@ internal fun PurpleGalaxyLiveChannelList(p: LiveChannelListParams) {
                 }
                 GalaxySurface(onClick = p.onDismiss, shape = CircleShape, modifier = Modifier.size(40.dp)) { Text("✕", color = PG.Star, modifier = Modifier.align(Alignment.Center)) }
             }
-            if (p.recentChannels.isNotEmpty()) {
-                Text("◷ " + tr("Recent", "الأخيرة"), color = PG.Comet, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(p.recentChannels, key = { "r${it.id}" }) { c ->
-                        GalaxySurface(onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, shape = PG.Pill, container = PG.Glass, scale = 1.08f,
-                            modifier = Modifier.onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }) {
-                            Row(Modifier.padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                PlanetLogo(c.name, c.logoUrl, 30.dp)
-                                Column {
-                                    Text(c.name, color = PG.Star, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(110.dp))
-                                    Text("%03d".format(p.numberOf(c)), color = PG.Muted, fontSize = 10.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GalaxyChip(tr("Categories", "الفئات"), false, p.onOpenCategories)
                 if (p.lastVisitedCategoryName != null) GalaxyChip(tr("Last group", "آخر مجموعة"), false, p.onOpenLastGroup)
@@ -449,23 +432,26 @@ internal fun PurpleGalaxyLiveChannelInfo(p: LiveChannelInfoParams) {
     val first = p.focusRequester
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val recording = p.currentRecordingStatus == RecordingStatus.RECORDING
+    // Alaa's required order first: Channels, Favorites, Audio, Aspect, Settings, Quality, Subs, Guide.
     val tiles = buildList {
         add(Tile("☰", tr("Channels", "القنوات"), tr("List", "القائمة"), true) { p.onInteracted(); p.onOpenChannelList() })
+        add(Tile(if (p.channel?.isFavorite == true) "★" else "☆", tr("Favorites", "المفضلة"), if (p.channel?.isFavorite == true) tr("Saved", "محفوظة") else tr("Add", "إضافة"), p.channel?.isFavorite == true) { p.onInteracted(); p.onToggleFavorite() })
+        add(Tile("🎧", tr("Audio", "الصوت"), "${p.audioTrackCount}") { p.onInteracted(); p.onOpenAudioTracks() })
+        add(Tile("▭", tr("Aspect", "نسبة العرض"), p.aspectRatioLabel) { p.onInteracted(); p.onToggleAspectRatio() })
+        add(Tile("⚙", tr("Settings", "الإعدادات"), tr("Player", "المشغل")) { p.onInteracted(); p.onOpenSettings() })
+        add(Tile("HD", tr("Quality", "الجودة"), p.resolutionLabel ?: "${p.videoQualityCount}") { p.onInteracted(); p.onOpenVideoTracks() })
+        add(Tile("💬", tr("Subs", "الترجمة"), "${p.subtitleTrackCount}") { p.onInteracted(); p.onOpenSubtitleTracks() })
+        add(Tile("▦", tr("Guide", "الدليل"), "EPG") { p.onInteracted(); p.onOpenFullEpg() })
         add(Tile(if (p.isPlaying) "❚❚" else "▶", tr("Playback", "تشغيل"), if (p.isPlaying) tr("Pause", "إيقاف مؤقت") else tr("Play", "تشغيل")) { p.onInteracted(); p.onTogglePlayPause() })
         add(Tile(if (p.isMuted) "🔇" else "🔊", tr("Mute", "كتم"), if (p.isMuted) tr("On", "مفعل") else tr("Off", "معطل"), p.isMuted) { p.onInteracted(); p.onToggleMute() })
-        add(Tile("💬", tr("Subs", "الترجمة"), "${p.subtitleTrackCount}") { p.onInteracted(); p.onOpenSubtitleTracks() })
-        add(Tile("🎧", tr("Audio", "الصوت"), "${p.audioTrackCount}") { p.onInteracted(); p.onOpenAudioTracks() })
-        add(Tile("▦", tr("Guide", "الدليل"), "EPG") { p.onInteracted(); p.onOpenFullEpg() })
         add(Tile("◫", tr("Split", "تقسيم"), "Multiview") { p.onInteracted(); p.onOpenSplitScreen() })
         add(Tile("∿", tr("Diagnostics", "التشخيص"), tr("Stats", "إحصاءات"), p.isDiagnosticsEnabled) { p.onInteracted(); p.onToggleDiagnostics() })
-        add(Tile("HD", tr("Quality", "الجودة"), p.resolutionLabel ?: "${p.videoQualityCount}") { p.onInteracted(); p.onOpenVideoTracks() })
         if (p.variantCount > 1) add(Tile("⇋", tr("Source", "المصدر"), "${p.variantCount}") { p.onInteracted(); p.onOpenVariants() })
         add(Tile(if (recording) "■" else "●", tr("Record", "تسجيل"), if (recording) tr("Stop", "إيقاف") else tr("Start", "بدء"), recording) { p.onInteracted(); if (recording) p.onStopRecording() else p.onStartRecording() })
         add(Tile("◷", tr("Schedule", "جدولة"), tr("Once", "مرة")) { p.onInteracted(); p.onScheduleRecording() })
         add(Tile("⟲", tr("Catch-up", "الأرشيف"), tr("Archive", "أرشيف")) { p.onInteracted(); p.onOpenArchive() })
         add(Tile("⏮", tr("Restart", "من البداية"), tr("Program", "البرنامج")) { p.onInteracted(); p.onRestartProgram() })
         if (p.canSeekToLive) add(Tile("⇥", tr("Live", "مباشر"), tr("Jump", "انتقال")) { p.onInteracted(); p.onSeekToLiveEdge() })
-        add(Tile("▭", tr("Aspect", "نسبة العرض"), p.aspectRatioLabel) { p.onInteracted(); p.onToggleAspectRatio() })
         add(Tile("⇄", "A/V", tr("Sync", "مزامنة")) { p.onInteracted(); p.onOpenAudioVideoSync() })
         add(Tile("⧉", "PiP", tr("Window", "نافذة")) { p.onEnterPictureInPicture() })
         add(Tile("⎚", tr("Cast", "بث"), if (p.isCastConnected) tr("Stop", "إيقاف") else tr("Connect", "اتصال"), p.isCastConnected) { if (p.isCastConnected) p.onStopCasting() else p.onCast() })

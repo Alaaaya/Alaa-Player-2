@@ -335,7 +335,11 @@ class LiveChannelInfoParams(
     val onStartRecording: () -> Unit, val onStopRecording: () -> Unit, val onScheduleRecording: () -> Unit,
     val onRestartProgram: () -> Unit, val onOpenArchive: () -> Unit, val onSeekToLiveEdge: () -> Unit,
     val onEnterPictureInPicture: () -> Unit, val onCast: () -> Unit, val onStopCasting: () -> Unit,
-    val onOpenAudioVideoSync: () -> Unit
+    val onOpenAudioVideoSync: () -> Unit,
+    /** Toggle favorite for the playing channel. */
+    val onToggleFavorite: () -> Unit = {},
+    /** Open the theme's full player settings (controls overlay). */
+    val onOpenSettings: () -> Unit = {}
 )
 
 /** Short quality badge (4K / FHD / HD / SD) derived from declared quality options or the channel name. */
@@ -386,7 +390,8 @@ interface BespokeThemeUi {
 private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
     mapOf(
         AppHomeTheme.PURPLE_GALAXY to com.streamvault.app.ui.themes.purplegalaxy.PurpleGalaxyUi,
-        AppHomeTheme.TECH_DASHBOARD to com.streamvault.app.ui.themes.techdashboard.TechDashUi
+        AppHomeTheme.TECH_DASHBOARD to com.streamvault.app.ui.themes.techdashboard.TechDashUi,
+        AppHomeTheme.MODERN_TV to com.streamvault.app.ui.themes.moderntv.ModernTvUi
     )
 }
 
