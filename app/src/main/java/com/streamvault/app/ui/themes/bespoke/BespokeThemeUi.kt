@@ -415,7 +415,8 @@ private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
         AppHomeTheme.MODERN_TV to com.streamvault.app.ui.themes.moderntv.ModernTvUi,
         AppHomeTheme.CARD_STACK to com.streamvault.app.ui.themes.cardstack.CardStackUi,
         AppHomeTheme.MEDIA_CENTER to com.streamvault.app.ui.themes.mediacenter.MediaCenterUi,
-        AppHomeTheme.FUTURISTIC_HUD to com.streamvault.app.ui.themes.futuristichud.FuturisticHudUi
+        AppHomeTheme.FUTURISTIC_HUD to com.streamvault.app.ui.themes.futuristichud.FuturisticHudUi,
+        AppHomeTheme.SOFT_MODERN to com.streamvault.app.ui.themes.softmodern.SoftModernUi
     )
 }
 
