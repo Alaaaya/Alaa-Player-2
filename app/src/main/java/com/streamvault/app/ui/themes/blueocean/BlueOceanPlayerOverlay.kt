@@ -58,17 +58,34 @@ internal fun BlueOceanPlayerOverlay(
     val p = LocalThemePresentation.current
     val s = p.surfaces
     val displayTitle = currentProgram?.title?.takeIf { contentType == "LIVE" } ?: mediaTitle?.takeIf { it.isNotBlank() } ?: title
+    val isVod = contentType != "LIVE" || isCatchUpPlayback
     val actions = buildList {
+        if (timeshiftUiState.available) add(BlueOceanAction("LIVE", "return to live", onSeekToLiveEdge))
         add(BlueOceanAction("GUIDE", "programme tide", onOpenArchive))
         add(BlueOceanAction("AUDIO", if (audioTrackCount > 0) "$audioTrackCount tracks" else "default track", onOpenAudioTracks))
         add(BlueOceanAction("CAPTIONS", if (subtitleTrackCount > 0 || liveTranslationAvailable) "available" else "none", onOpenSubtitleTracks))
         add(BlueOceanAction("VIEW", aspectRatioLabel, onToggleAspectRatio))
         add(BlueOceanAction(if (isMuted) "UNMUTE" else "MUTE", "sound", onToggleMute))
         if (videoQualityCount > 0) add(BlueOceanAction("QUALITY", "$videoQualityCount levels", onOpenVideoTracks))
-        if (contentType == "LIVE") add(BlueOceanAction(if (currentRecordingStatus == RecordingStatus.RECORDING) "STOP RECORD" else "RECORD", "session", if (currentRecordingStatus == RecordingStatus.RECORDING) onStopRecording else onStartRecording))
+        if (isVod) add(BlueOceanAction("SPEED", "${playbackSpeed}×", onOpenPlaybackSpeed))
         if (showEpisodesAction) add(BlueOceanAction("EPISODES", "next wave", onOpenEpisodes))
+        if (contentType == "LIVE" && currentProgram != null) add(BlueOceanAction("RESTART", "from the top", onRestartProgram))
+        if (currentRecordingStatus == RecordingStatus.RECORDING) {
+            add(BlueOceanAction("STOP RECORD", "session", onStopRecording))
+        } else if (contentType == "LIVE") {
+            add(BlueOceanAction("RECORD", "session", onStartRecording))
+            add(BlueOceanAction("SCHEDULE", "once", onScheduleRecording))
+            add(BlueOceanAction("DAILY REC", "every day", onScheduleDailyRecording))
+            add(BlueOceanAction("WEEKLY REC", "every week", onScheduleWeeklyRecording))
+        }
+        add(BlueOceanAction("STOP TIMER", if (sleepTimerUiState.stopTimerActive) "active" else "sleep", onOpenStopPlaybackTimer))
+        add(BlueOceanAction("IDLE TIMER", if (sleepTimerUiState.idleTimerActive) "active" else "standby", onOpenIdleStandbyTimer))
+        if (audioVideoSyncEnabled && !isCastConnected) add(BlueOceanAction("A/V SYNC", "lip sync", onOpenAudioVideoSync))
+        add(BlueOceanAction("MULTIVIEW", "split screen", onOpenSplitScreen))
+        add(BlueOceanAction("PIP", "picture in picture", onEnterPictureInPicture))
         add(BlueOceanAction("EXIT", "return", onClose))
     }
+
     AnimatedVisibility(visible, enter = fadeIn(tween(210)), exit = fadeOut(tween(170)), modifier = modifier) { Box(Modifier.fillMaxSize().background(s.canvas.copy(alpha = .73f)).onPreviewKeyEvent { event -> if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) onUserInteraction(); false }) {
         BlueOceanDossierHeader(displayTitle, currentChannelName ?: currentChannel?.name.orEmpty(), displayChannelNumber, Modifier.align(Alignment.TopEnd).padding(34.dp))
         BlueOceanTransportDock(isPlaying, onSeekBackward, onTogglePlayPause, onSeekForward, playButtonFocusRequester, Modifier.align(Alignment.CenterStart).padding(start = 34.dp))
