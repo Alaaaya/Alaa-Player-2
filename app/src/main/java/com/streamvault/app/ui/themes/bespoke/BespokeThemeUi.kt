@@ -292,12 +292,77 @@ class PlayerOverlayParams(
     val onEnterPictureInPicture: () -> Unit, val onToggleMute: () -> Unit, val isCastConnected: Boolean,
     val onCast: () -> Unit, val onStopCasting: () -> Unit, val onSeekToLiveEdge: () -> Unit,
     val onSeekToPosition: (Long) -> Unit, val onSetScrubbingMode: (Boolean) -> Unit, val seekPreview: SeekPreviewState,
-    val onSeekPreviewPositionChanged: (Long?) -> Unit, val onUserInteraction: () -> Unit
+    val onSeekPreviewPositionChanged: (Long?) -> Unit, val onUserInteraction: () -> Unit,
+    val nextProgram: Program? = null, val resolutionBadgeLabel: String? = null, val episodeLine: String? = null,
+    val onOpenLiveChannels: () -> Unit = {}, val onToggleLiveFavorite: () -> Unit = {}, val onOpenLiveGuide: () -> Unit = {},
+    val onNavigateBack: () -> Unit = {}
 ) {
     val isLive: Boolean get() = contentType == "LIVE"
     val isVod: Boolean get() = contentType != "LIVE" || isCatchUpPlayback
     val displayTitle: String
         get() = currentProgram?.title?.takeIf { isLive } ?: mediaTitle?.takeIf { it.isNotBlank() } ?: title
+}
+
+/** In-player channel list (zap list) with recents and a now/next card for the focused channel. */
+class LiveChannelListParams(
+    val channels: List<Channel>,
+    val recentChannels: List<Channel>,
+    val currentChannelId: Long,
+    val focusRequester: FocusRequester,
+    val lastVisitedCategoryName: String?,
+    val onOpenLastGroup: () -> Unit,
+    val onOpenCategories: () -> Unit,
+    val onOpenGuide: () -> Unit,
+    val onSelectChannel: (Long) -> Unit,
+    val onDismiss: () -> Unit,
+    val onInteracted: () -> Unit
+) {
+    fun numberOf(channel: Channel): Int =
+        channel.number.takeIf { it > 0 } ?: (channels.indexOfFirst { it.id == channel.id } + 1)
+}
+
+/** Live zap banner shown on OK: channel identity, now/next with progress and the live action bar. */
+class LiveChannelInfoParams(
+    val channel: Channel?, val displayChannelNumber: Int, val currentProgram: Program?, val nextProgram: Program?,
+    val focusRequester: FocusRequester, val isPlaying: Boolean, val isMuted: Boolean, val resolutionLabel: String?,
+    val currentRecordingStatus: RecordingStatus?, val aspectRatioLabel: String, val isDiagnosticsEnabled: Boolean,
+    val subtitleTrackCount: Int, val audioTrackCount: Int, val videoQualityCount: Int, val variantCount: Int,
+    val isCastConnected: Boolean, val canSeekToLive: Boolean,
+    val onDismiss: () -> Unit, val onInteracted: () -> Unit, val onOpenFullEpg: () -> Unit, val onOpenChannelList: () -> Unit,
+    val onTogglePlayPause: () -> Unit, val onToggleMute: () -> Unit, val onOpenSubtitleTracks: () -> Unit,
+    val onOpenAudioTracks: () -> Unit, val onOpenVideoTracks: () -> Unit, val onOpenVariants: () -> Unit,
+    val onToggleAspectRatio: () -> Unit, val onToggleDiagnostics: () -> Unit, val onOpenSplitScreen: () -> Unit,
+    val onStartRecording: () -> Unit, val onStopRecording: () -> Unit, val onScheduleRecording: () -> Unit,
+    val onRestartProgram: () -> Unit, val onOpenArchive: () -> Unit, val onSeekToLiveEdge: () -> Unit,
+    val onEnterPictureInPicture: () -> Unit, val onCast: () -> Unit, val onStopCasting: () -> Unit,
+    val onOpenAudioVideoSync: () -> Unit
+)
+
+/** Short quality badge (4K / FHD / HD / SD) derived from declared quality options or the channel name. */
+fun Channel.qualityBadge(): String? {
+    val h = (qualityOptions.mapNotNull { it.height } + listOfNotNull(variants.maxOfOrNull { it.attributes.declaredHeight ?: 0 })).maxOrNull() ?: 0
+    if (h >= 2160) return "4K"
+    if (h >= 1080) return "FHD"
+    if (h >= 720) return "HD"
+    val n = name.uppercase()
+    return when {
+        "4K" in n || "UHD" in n -> "4K"
+        "FHD" in n || "1080" in n -> "FHD"
+        Regex("\\bHD\\b").containsMatchIn(n) -> "HD"
+        "SD" in n.split(' ') -> "SD"
+        else -> null
+    }
+}
+
+/** Fraction of a program already aired, clamped to 0..1. */
+fun Program.progressAt(now: Long = System.currentTimeMillis()): Float =
+    ((now - startTime).toFloat() / (endTime - startTime).coerceAtLeast(1)).coerceIn(0f, 1f)
+
+/** Picks the Arabic label when the UI runs in Arabic/RTL, otherwise English. */
+@Composable
+fun tr(en: String, ar: String): String {
+    val lang = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]?.language
+    return if (lang == "ar" || androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) ar else en
 }
 
 interface BespokeThemeUi {
@@ -314,6 +379,8 @@ interface BespokeThemeUi {
     @Composable fun SettingsNav(p: SettingsNavParams)
     @Composable fun SettingsFrame(navigation: @Composable () -> Unit, content: @Composable () -> Unit)
     @Composable fun PlayerOverlay(p: PlayerOverlayParams)
+    @Composable fun LiveChannelList(p: LiveChannelListParams)
+    @Composable fun LiveChannelInfo(p: LiveChannelInfoParams)
 }
 
 private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {

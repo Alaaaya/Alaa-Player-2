@@ -1652,9 +1652,74 @@ fun PlayerScreen(
             )
         }
 
+        val bespokeLiveUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+        if (contentType == "LIVE" && bespokeLiveUi != null && showChannelListOverlay) {
+            Box(Modifier.fillMaxSize().focusGroup()) {
+                bespokeLiveUi.LiveChannelList(com.streamvault.app.ui.themes.bespoke.LiveChannelListParams(
+                    channels = currentChannelList,
+                    recentChannels = recentChannels,
+                    currentChannelId = currentChannel?.id ?: internalChannelId,
+                    focusRequester = channelListFocusRequester,
+                    lastVisitedCategoryName = lastVisitedCategory?.name,
+                    onOpenLastGroup = { viewModel.openLastVisitedCategory() },
+                    onOpenCategories = { viewModel.openCategoryListOverlay() },
+                    onOpenGuide = { viewModel.closeOverlays(); viewModel.openEpgOverlay() },
+                    onSelectChannel = { channelId -> viewModel.zapToChannel(channelId) },
+                    onDismiss = { viewModel.closeOverlays() },
+                    onInteracted = viewModel::onLiveOverlayInteraction
+                ))
+            }
+        }
+        if (contentType == "LIVE" && bespokeLiveUi != null && showChannelInfoOverlay) {
+            Box(Modifier.fillMaxSize().focusGroup()) {
+                bespokeLiveUi.LiveChannelInfo(com.streamvault.app.ui.themes.bespoke.LiveChannelInfoParams(
+                    channel = currentChannel,
+                    displayChannelNumber = displayChannelNumber,
+                    currentProgram = currentProgram,
+                    nextProgram = nextProgram,
+                    focusRequester = channelInfoFocusRequester,
+                    isPlaying = isPlaying,
+                    isMuted = isMuted,
+                    resolutionLabel = videoFormat.resolutionLabel.takeIf { it.isNotBlank() && !videoFormat.isEmpty },
+                    currentRecordingStatus = currentChannelRecording?.status,
+                    aspectRatioLabel = aspectRatio.modeName,
+                    isDiagnosticsEnabled = showDiagnostics,
+                    subtitleTrackCount = availableSubtitleTracks.size,
+                    audioTrackCount = availableAudioTracks.size,
+                    videoQualityCount = availableVideoQualities.size,
+                    variantCount = currentChannel?.variants?.size ?: 0,
+                    isCastConnected = castConnectionState == CastConnectionState.CONNECTED,
+                    canSeekToLive = timeshiftUiState.canSeekToLive,
+                    onDismiss = { viewModel.closeChannelInfoOverlay() },
+                    onInteracted = viewModel::onLiveOverlayInteraction,
+                    onOpenFullEpg = { viewModel.closeChannelInfoOverlay(); viewModel.openEpgOverlay() },
+                    onOpenChannelList = { viewModel.closeChannelInfoOverlay(); viewModel.openChannelListOverlay() },
+                    onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
+                    onToggleMute = viewModel::toggleMute,
+                    onOpenSubtitleTracks = { showTrackSelection = TrackType.TEXT },
+                    onOpenAudioTracks = { showTrackSelection = TrackType.AUDIO },
+                    onOpenVideoTracks = { showTrackSelection = TrackType.VIDEO },
+                    onOpenVariants = { showVariantSelection = true },
+                    onToggleAspectRatio = { viewModel.toggleAspectRatio() },
+                    onToggleDiagnostics = { viewModel.toggleDiagnostics() },
+                    onOpenSplitScreen = { showSplitDialog = true },
+                    onStartRecording = { notificationPermissionGate.runRecordingAction { viewModel.startManualRecording() } },
+                    onStopRecording = viewModel::stopCurrentRecording,
+                    onScheduleRecording = { notificationPermissionGate.runRecordingAction { viewModel.scheduleRecording() } },
+                    onRestartProgram = { viewModel.restartCurrentProgram() },
+                    onOpenArchive = { showProgramHistory = true },
+                    onSeekToLiveEdge = viewModel::seekToLiveEdge,
+                    onEnterPictureInPicture = enterPictureInPicture,
+                    onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
+                    onStopCasting = viewModel::stopCasting,
+                    onOpenAudioVideoSync = { showAudioVideoOffsetDialog = true }
+                ))
+            }
+        }
+
         if (contentType == "LIVE") {
             AnimatedVisibility(
-                visible = showChannelListOverlay,
+                visible = showChannelListOverlay && bespokeLiveUi == null,
                 enter = slideInHorizontally(
                     initialOffsetX = {
                         if (isRtl) it else -it
@@ -1793,7 +1858,7 @@ fun PlayerScreen(
             }
 
             AnimatedVisibility(
-                visible = showChannelInfoOverlay,
+                visible = showChannelInfoOverlay && bespokeLiveUi == null,
                 enter =
                     slideInVertically(
                         initialOffsetY = { it }
@@ -2149,7 +2214,18 @@ private fun PlayerControlsOverlayHost(
             seekPreview = seekPreview,
             onSeekPreviewPositionChanged =
                 onSeekPreviewPositionChanged,
-            onUserInteraction = onUserInteraction
+            onUserInteraction = onUserInteraction,
+            nextProgram = nextProgram,
+            resolutionBadgeLabel = resolutionBadgeLabel,
+            episodeLine = listOfNotNull(
+                seriesTitle,
+                if (currentSeasonNumber != null && currentEpisodeNumber != null) "S$currentSeasonNumber · E$currentEpisodeNumber" else null,
+                episodeTitle
+            ).takeIf { it.isNotEmpty() }?.joinToString(" — "),
+            onOpenLiveChannels = onOpenLiveChannels,
+            onToggleLiveFavorite = onToggleLiveFavorite,
+            onOpenLiveGuide = onOpenLiveGuide,
+            onNavigateBack = onNavigateBack
         ))
     } else if (isAlaaTheme && contentType == "LIVE") {
         AlaaLivePlayerOverlay(

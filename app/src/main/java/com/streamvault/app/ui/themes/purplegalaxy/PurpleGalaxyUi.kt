@@ -8,6 +8,8 @@ import com.streamvault.app.ui.themes.bespoke.EpgParams
 import com.streamvault.app.ui.themes.bespoke.FavoritesParams
 import com.streamvault.app.ui.themes.bespoke.LibraryParams
 import com.streamvault.app.ui.themes.bespoke.LiveTvParams
+import com.streamvault.app.ui.themes.bespoke.LiveChannelInfoParams
+import com.streamvault.app.ui.themes.bespoke.LiveChannelListParams
 import com.streamvault.app.ui.themes.bespoke.MovieDetailParams
 import com.streamvault.app.ui.themes.bespoke.PlayerOverlayParams
 import com.streamvault.app.ui.themes.bespoke.SearchParams
@@ -33,4 +35,6 @@ object PurpleGalaxyUi : BespokeThemeUi {
     @Composable override fun SettingsNav(p: SettingsNavParams) = PurpleGalaxySettingsNav(p)
     @Composable override fun SettingsFrame(navigation: @Composable () -> Unit, content: @Composable () -> Unit) = PurpleGalaxySettingsFrame(navigation, content)
     @Composable override fun PlayerOverlay(p: PlayerOverlayParams) = PurpleGalaxyPlayerOverlay(p)
+    @Composable override fun LiveChannelList(p: LiveChannelListParams) = PurpleGalaxyLiveChannelList(p)
+    @Composable override fun LiveChannelInfo(p: LiveChannelInfoParams) = PurpleGalaxyLiveChannelInfo(p)
 }
