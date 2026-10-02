@@ -201,29 +201,30 @@ internal fun TechDashDashboard(p: DashboardParams) {
 /** Live TV as a channel table: group tabs on top, dense table left, monitor + EPG read-out stacked on the right. */
 @Composable
 internal fun TechDashLiveTv(p: LiveTvParams) {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("GRP>", color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono)
-            SearchInput(p.categorySearchQuery, p.onCategorySearchChange, tr("filter groups", "فلترة"), Modifier.width(200.dp))
-            LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(p.categories, key = { it.id }) { c ->
-                    val selected = c.id == p.selectedCategoryId
-                    TechDashSurface(
-                        onClick = { p.onCategoryClick(c) }, onLongClick = { p.onCategoryLongClick(c) }, shape = TD.Pill,
-                        container = if (selected) TD.Plasma else TD.Glass,
-                        modifier = Modifier.focusRequester(p.categoryRequester(c.id)).onFocusChanged { if (it.isFocused) p.onCategoryFocused(c) }
-                            .onDown { p.onRequestChannelsFromCategory() }
-                    ) {
-                        Text(
-                            (if (p.isCategoryLocked(c)) "🔒 " else "") + c.name + if (c.count > 0) " [${c.count}]" else "",
-                            color = if (selected) TD.Void else TD.Star, fontSize = 12.sp, fontFamily = TD.Mono, maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                        )
+    // Alaa rule: categories column + channels column side by side (no tabs, no grid), monitor/now-next beside them.
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        TdModule(tr("Groups", "الفئات"), Modifier.width(280.dp).fillMaxHeight(), meta = "${p.categories.size}") {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SearchInput(p.categorySearchQuery, p.onCategorySearchChange, tr("filter groups", "فلترة"), Modifier.fillMaxWidth())
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    items(p.categories, key = { it.id }) { c ->
+                        val selected = c.id == p.selectedCategoryId
+                        TechDashSurface(
+                            onClick = { p.onCategoryClick(c) }, onLongClick = { p.onCategoryLongClick(c) },
+                            container = if (selected) TD.Plasma else TD.Glass,
+                            modifier = Modifier.fillMaxWidth().focusRequester(p.categoryRequester(c.id)).onFocusChanged { if (it.isFocused) p.onCategoryFocused(c) }
+                                .onRight { p.onRequestChannelsFromCategory() }
+                        ) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text((if (selected) "> " else "  ") + (if (p.isCategoryLocked(c)) "🔒 " else "") + c.name, color = if (selected) TD.Void else TD.Star,
+                                    fontSize = 12.sp, fontFamily = TD.Mono, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                if (c.count > 0) Text("${c.count}", color = if (selected) TD.Void else TD.Muted, fontSize = 11.sp, fontFamily = TD.Mono)
+                            }
+                        }
                     }
                 }
             }
         }
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             TdModule(p.sourceTitle.ifBlank { tr("Channel index", "القنوات") }, Modifier.weight(1f).fillMaxHeight(), meta = "${p.channels.size} online") {
                 Column {
                     Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -273,5 +274,4 @@ internal fun TechDashLiveTv(p: LiveTvParams) {
                 }
             }
         }
-    }
 }
