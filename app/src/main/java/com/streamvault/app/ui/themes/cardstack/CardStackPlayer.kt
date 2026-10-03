@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.cardstack
 
+import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -157,6 +158,7 @@ private fun CsLive(p: PlayerOverlayParams) {
 private fun CsVod(p: PlayerOverlayParams) {
     var sheet by remember { mutableStateOf(false) }
     val sheetFocus = remember { FocusRequester() }
+    val moreFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
     fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
@@ -185,11 +187,11 @@ private fun CsVod(p: PlayerOverlayParams) {
                 item { CsButton(p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks, icon = "HD") }
                 if (p.showEpisodesAction) item { CsButton(tr("Episodes", "الحلقات"), p.onOpenEpisodes, icon = "≣") }
                 item { CsButton(tr("Start over", "من البداية"), { p.onSeekToPosition(0L) }, icon = "⏮") }
-                item { CsButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") }
+                item { androidx.compose.foundation.layout.Box(Modifier.focusRequester(moreFocus)) { CsButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") } }
                 item { CsButton(tr("Close", "إغلاق"), p.onClose, icon = "✕") }
             }
         }
-        if (sheet) SideSheet(p, sheetFocus) { sheet = false }
+        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = moreFocus) { SideSheet(p, sheetFocus) { sheet = false; runCatching { moreFocus.requestFocus() } } }
     }
 }
 

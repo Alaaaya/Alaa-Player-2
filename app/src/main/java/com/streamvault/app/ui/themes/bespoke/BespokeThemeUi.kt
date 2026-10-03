@@ -395,6 +395,21 @@ fun Modifier.onDpadToward(end: Boolean, handler: () -> Boolean): Modifier = this
     }
 )
 
+/**
+ * Wraps an inner player panel (VOD More/settings). BACK closes the panel first (consumed here, before the
+ * shared PlayerScreen handler hides the whole overlay) and then focus returns to [opener].
+ */
+@Composable
+fun InnerPanelBackScope(onClose: () -> Unit, opener: androidx.compose.ui.focus.FocusRequester, content: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.Box(Modifier.onPreviewKeyEvent { e ->
+        if (e.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_BACK) return@onPreviewKeyEvent false
+        if (e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_UP) {
+            onClose(); runCatching { opener.requestFocus() }
+        }
+        true
+    }) { content() }
+}
+
 /** Picks the Arabic label only when the UI language is Arabic (other RTL locales get English, not Arabic). */
 @Composable
 fun tr(en: String, ar: String): String {

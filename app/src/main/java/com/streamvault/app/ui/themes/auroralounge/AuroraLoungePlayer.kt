@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.auroralounge
 
+import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -186,6 +187,7 @@ private fun AlLive(p: PlayerOverlayParams) {
 private fun AlVod(p: PlayerOverlayParams) {
     var sheet by remember { mutableStateOf(false) }
     val sheetFocus = remember { FocusRequester() }
+    val moreFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
     fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
@@ -218,11 +220,11 @@ private fun AlVod(p: PlayerOverlayParams) {
                 item { AlButton(p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks, icon = "HD") }
                 if (p.showEpisodesAction) item { AlButton(tr("Episodes", "الحلقات"), p.onOpenEpisodes, icon = "≣") }
                 item { AlButton(tr("Start over", "من البداية"), { p.onSeekToPosition(0L) }, icon = "⏮") }
-                item { AlButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") }
+                item { androidx.compose.foundation.layout.Box(Modifier.focusRequester(moreFocus)) { AlButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") } }
                 item { AlButton(tr("Close", "إغلاق"), p.onClose, icon = "✕") }
             }
         }
-        if (sheet) SideSheet(p, sheetFocus) { sheet = false }
+        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = moreFocus) { SideSheet(p, sheetFocus) { sheet = false; runCatching { moreFocus.requestFocus() } } }
     }
 }
 

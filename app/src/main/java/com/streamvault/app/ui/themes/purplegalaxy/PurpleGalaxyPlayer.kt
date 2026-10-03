@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.purplegalaxy
 
+import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -229,6 +230,7 @@ private fun VodHud(p: PlayerOverlayParams) {
     var panel by remember { mutableStateOf(VodPanel.NONE) }
     val seekFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
+    val moreFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(panel) { if (panel == VodPanel.SETTINGS) runCatching { panelFocus.requestFocus() } }
     fun seekBy(delta: Long) {
@@ -272,11 +274,11 @@ private fun VodHud(p: PlayerOverlayParams) {
                 item { DeckPill("HD", p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks) }
                 if (p.showEpisodesAction) item { DeckPill("≣", tr("Episodes", "الحلقات"), p.onOpenEpisodes) }
                 item { DeckPill("⏮", tr("Start over", "من البداية")) { p.onSeekToPosition(0L) } }
-                item { DeckPill("⚙", tr("Settings", "الإعدادات"), active = panel == VodPanel.SETTINGS) { panel = if (panel == VodPanel.SETTINGS) VodPanel.NONE else VodPanel.SETTINGS } }
+                item { androidx.compose.foundation.layout.Box(Modifier.focusRequester(moreFocus)) { DeckPill("⚙", tr("Settings", "الإعدادات"), active = panel == VodPanel.SETTINGS) { panel = if (panel == VodPanel.SETTINGS) VodPanel.NONE else VodPanel.SETTINGS } } }
                 item { DeckPill("✕", tr("Close", "إغلاق"), p.onClose) }
             }
         }
-        if (panel == VodPanel.SETTINGS) SettingsDrawer(p, panelFocus) { panel = VodPanel.NONE }
+        if (panel == VodPanel.SETTINGS) InnerPanelBackScope(onClose = { panel = VodPanel.NONE }, opener = moreFocus) { SettingsDrawer(p, panelFocus) { panel = VodPanel.NONE; runCatching { moreFocus.requestFocus() } } }
     }
 }
 
