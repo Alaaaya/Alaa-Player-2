@@ -10,7 +10,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @Singleton
@@ -26,7 +25,11 @@ class SeekThumbnailProvider @Inject constructor(
          * stream can block a [kotlinx.coroutines.Dispatchers.IO] thread indefinitely.
          */
         private const val RETRIEVER_TIMEOUT_MS = 8_000L
+        /** Wedged native extractions tolerated before thumbnails are skipped until one returns. */
+        internal const val MAX_STUCK_WORKERS = 2
     }
+
+    private val stuckWorkers = java.util.concurrent.atomic.AtomicInteger(0)
 
     private val bitmapCache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024L / 24L).toInt()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
@@ -52,30 +55,45 @@ class SeekThumbnailProvider @Inject constructor(
         val cacheKey = "$streamUrl#$bucketPosition"
         bitmapCache.get(cacheKey)?.let { return@withContext it }
 
-        // withTimeoutOrNull guards against MediaMetadataRetriever.setDataSource() hanging
-        // indefinitely on a remote HTTP URL (e.g. a live stream with no file extension).
-        withTimeoutOrNull(RETRIEVER_TIMEOUT_MS) {
-            val retriever = MediaMetadataRetriever()
+        // MediaMetadataRetriever calls are native and ignore coroutine cancellation, so a timeout around them
+        // does not free the thread. Run each extraction on its own daemon worker, wait with a real deadline,
+        // release() the retriever on timeout (unblocks the native socket on most builds) and refuse new work
+        // while MAX_STUCK_WORKERS are still wedged, so a stalled server can never exhaust a shared pool.
+        if (stuckWorkers.get() >= MAX_STUCK_WORKERS) return@withContext null
+        val retriever = MediaMetadataRetriever()
+        val result = java.util.concurrent.FutureTask<Bitmap?> {
             try {
                 val uri = Uri.parse(streamUrl)
                 when (uri.scheme?.lowercase()) {
                     "content", "file" -> retriever.setDataSource(context, uri)
                     else -> retriever.setDataSource(streamUrl, emptyMap())
                 }
-
                 val rawBitmap = retriever.getFrameAtTime(bucketPosition * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                     ?: retriever.getFrameAtTime(bucketPosition * 1000L)
-                    ?: return@withTimeoutOrNull null
-
-                val scaledBitmap = rawBitmap.scaleDown(MAX_PREVIEW_WIDTH)
-                bitmapCache.put(cacheKey, scaledBitmap)
-                scaledBitmap
+                rawBitmap?.scaleDown(MAX_PREVIEW_WIDTH)
             } catch (_: Exception) {
                 null
             } finally {
                 runCatching { retriever.release() }
             }
         }
+        val worker = Thread(result, "seek-thumbnail").apply { isDaemon = true }
+        worker.start()
+        val bitmap = try {
+            result.get(RETRIEVER_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.TimeoutException) {
+            result.cancel(true)
+            runCatching { retriever.release() }
+            if (worker.isAlive) {
+                stuckWorkers.incrementAndGet()
+                Thread({ runCatching { worker.join() }; stuckWorkers.decrementAndGet() }, "seek-thumbnail-reaper")
+                    .apply { isDaemon = true }.start()
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+        bitmap?.also { bitmapCache.put(cacheKey, it) }
     }
 
     fun clearCache() {

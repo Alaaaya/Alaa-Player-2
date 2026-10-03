@@ -218,6 +218,7 @@ class Media3PlayerEngine @Inject constructor(
     private var retryAttempt = 0
     private var lastRetryCategory: PlaybackErrorCategory? = null
     private var retryJob: Job? = null
+    private var retryInterruptedByPause = false
     private var retryGeneration = 0L
     private var currentBufferIsLive: Boolean? = null
     private var currentBufferPolicyLabel: String? = null
@@ -418,6 +419,7 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun prepare(streamInfo: StreamInfo) {
         if (ensureNotDisposed("prepare")) return
+        retryInterruptedByPause = false
         prepareInternal(streamInfo = streamInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
     }
 
@@ -462,18 +464,34 @@ class Media3PlayerEngine @Inject constructor(
 
     override fun play() {
         if (audioFocusController.requestAudioFocusIfNeeded()) {
+            val interruptedRetry = retryInterruptedByPause
+            retryInterruptedByPause = false
+            val info = lastStreamInfo
+            if (interruptedRetry && info != null) {
+                // pause() cancelled a scheduled recovery; without re-preparing, play() would just sit on
+                // the failed/idle player. Resume recovery from the last known position.
+                prepareInternal(
+                    info,
+                    preserveRetryState = true,
+                    seekPositionMs = exoPlayer?.currentPosition?.takeIf { it > 0L },
+                    autoPlay = true
+                )
+                return
+            }
             exoPlayer?.playWhenReady = true
             syncTimeshiftState()
         }
     }
 
     override fun pause() {
+        if (retryJob?.isActive == true) retryInterruptedByPause = true
         retryJob?.cancel()
         exoPlayer?.playWhenReady = false
         audioFocusController.onPauseOrStop()
     }
 
     override fun stop() {
+        retryInterruptedByPause = false
         retryJob?.cancel()
         exoPlayer?.stop()
         _playbackState.value = PlaybackState.IDLE

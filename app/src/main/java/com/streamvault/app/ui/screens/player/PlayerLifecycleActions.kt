@@ -43,7 +43,15 @@ internal fun PlayerViewModel.queueContentSwitchProgressFlush(): Job? {
  */
 internal fun PlayerViewModel.queueForcedProgressFlush(): Job? {
     if (currentContentType == ContentType.LIVE) return null
-    return viewModelScope.launch {
+    // ATOMIC + NonCancellable: the final resume write must survive the screen/ViewModel being torn down
+    // (onCleared cancels viewModelScope right after this is queued on exit).
+    return viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.ATOMIC) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { flushProgressNow() }
+    }
+}
+
+private suspend fun PlayerViewModel.flushProgressNow() {
+    run {
         persistPlaybackProgress()
         logRepositoryFailure(
             operation = "Flush pending playback progress at lifecycle boundary",
@@ -114,10 +122,12 @@ internal fun PlayerViewModel.startTokenRenewalMonitoring(expirationTime: Long?) 
 fun PlayerViewModel.onAppBackgrounded(): Job? {
     if (!isAppInForeground) return null
     isAppInForeground = false
-    shouldResumeAfterForeground = playerEngine.isPlaying.value
-    if (shouldResumeAfterForeground) {
-        playerEngine.pause()
-    }
+    // Playback *intent*, not just isPlaying: a stream that is buffering or waiting on a retry would
+    // otherwise keep going and start audio behind the launcher. pause() also cancels pending retries.
+    shouldResumeAfterForeground = playerEngine.isPlaying.value ||
+        playerEngine.playbackState.value == com.streamvault.player.PlaybackState.BUFFERING ||
+        playerEngine.retryStatus.value != null
+    playerEngine.pause()
     return queueForcedProgressFlush()
 }
 
