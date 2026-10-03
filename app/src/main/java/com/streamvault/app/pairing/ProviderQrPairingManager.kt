@@ -82,7 +82,10 @@ class ProviderQrPairingManager @Inject constructor(
             return
         }
 
-        val socket = runCatching { ServerSocket(0, 8) }.getOrElse { error ->
+        val socket = runCatching {
+            // Bind only the LAN address shown in the QR, not every interface.
+            ServerSocket(0, 8, java.net.InetAddress.getByName(host))
+        }.getOrElse { error ->
             _state.value = ProviderQrPairingState(
                 status = ProviderQrPairingStatus.ERROR,
                 message = "Could not start pairing server: ${error.message ?: "unknown error"}"
@@ -125,6 +128,9 @@ class ProviderQrPairingManager @Inject constructor(
         timeoutJob = null
         runCatching { serverSocket?.close() }
         serverSocket = null
+        // Accepted clients are not closed by closing the listener; drop them so nothing outlives the session.
+        activeClients.forEach { runCatching { it.close() } }
+        activeClients.clear()
         activeToken = null
         activeExpiresAtMs = 0L
         if (oldAcceptJob != null && oldAcceptJob !== kotlinx.coroutines.currentCoroutineContext()[Job]) {
@@ -139,9 +145,17 @@ class ProviderQrPairingManager @Inject constructor(
         )
     }
 
+    private val activeClients: MutableSet<Socket> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     private suspend fun acceptLoop(socket: ServerSocket) {
         while (!socket.isClosed) {
             val client = runCatching { socket.accept() }.getOrNull() ?: break
+            if (!admitPairingClient(activeClients.size)) {
+                runCatching { client.close() }
+                continue
+            }
+            runCatching { client.soTimeout = CLIENT_READ_TIMEOUT_MS }
+            activeClients += client
             scope.launch {
                 runCatching {
                     handleClient(client)
@@ -149,6 +163,7 @@ class ProviderQrPairingManager @Inject constructor(
                     Log.w(TAG, "Pairing client request failed without stopping the app", error)
                     runCatching { client.close() }
                 }
+                activeClients -= client
             }
         }
     }
@@ -156,7 +171,7 @@ class ProviderQrPairingManager @Inject constructor(
     private suspend fun handleClient(socket: Socket) {
         socket.use { client ->
             val reader = BufferedReader(InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8))
-            val firstLine = reader.readLine() ?: return
+            val firstLine = reader.readBoundedLine(MAX_HEADER_LINE_CHARS) ?: return
             val parts = firstLine.split(' ')
             if (parts.size < 2) {
                 writeResponse(client.getOutputStream(), 400, "text/plain", "Bad request")
@@ -165,9 +180,14 @@ class ProviderQrPairingManager @Inject constructor(
             val method = parts[0].uppercase(Locale.US)
             val pathAndQuery = parts[1]
             val headers = mutableMapOf<String, String>()
+            var headerCount = 0
             while (true) {
-                val line = reader.readLine() ?: break
+                val line = reader.readBoundedLine(MAX_HEADER_LINE_CHARS) ?: break
                 if (line.isEmpty()) break
+                if (++headerCount > MAX_HEADER_COUNT) {
+                    writeResponse(client.getOutputStream(), 431, "text/plain", "Too many headers")
+                    return
+                }
                 val key = line.substringBefore(':', "").trim().lowercase(Locale.US)
                 val value = line.substringAfter(':', "").trim()
                 if (key.isNotBlank()) headers[key] = value
@@ -519,4 +539,24 @@ enum class ProviderQrPairingStatus {
 private sealed interface ProviderPairingSubmitResult {
     data class Success(val providerName: String) : ProviderPairingSubmitResult
     data class Error(val message: String) : ProviderPairingSubmitResult
+}
+
+internal const val MAX_PAIRING_CLIENTS = 4
+internal const val CLIENT_READ_TIMEOUT_MS = 10_000
+internal const val MAX_HEADER_LINE_CHARS = 4_096
+internal const val MAX_HEADER_COUNT = 40
+
+/** Caps concurrent pairing connections so a LAN peer cannot hold the TV with idle sockets. */
+internal fun admitPairingClient(activeCount: Int): Boolean = activeCount < MAX_PAIRING_CLIENTS
+
+/** readLine() with a hard length cap; throws once the line exceeds [maxChars] so oversized headers abort early. */
+internal fun java.io.BufferedReader.readBoundedLine(maxChars: Int): String? {
+    val sb = StringBuilder()
+    while (true) {
+        val c = read()
+        if (c == -1) return if (sb.isEmpty()) null else sb.toString()
+        if (c == '\n'.code) return sb.toString().removeSuffix("\r")
+        sb.append(c.toChar())
+        if (sb.length > maxChars) throw java.io.IOException("Pairing request line too long")
+    }
 }
