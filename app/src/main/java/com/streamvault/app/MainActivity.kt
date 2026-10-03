@@ -465,8 +465,15 @@ class MainActivity : ComponentActivity() {
             else -> null
         } ?: return null
         if (!isBackupJsonCandidate(targetUri)) return null
-        return BackupFileBridge.copyToImportInbox(this@MainActivity, targetUri)?.toString()
-            ?: targetUri.toString()
+        // Copy off the main thread with a hard deadline so a slow/stalled provider cannot ANR startup;
+        // on timeout we fall back to the original URI (still readable through the intent grant).
+        val appContext = applicationContext
+        val copy = java.util.concurrent.FutureTask { BackupFileBridge.copyToImportInbox(appContext, targetUri) }
+        Thread(copy, "backup-import-copy").apply { isDaemon = true }.start()
+        val copied = runCatching { copy.get(BACKUP_IMPORT_COPY_DEADLINE_MS, java.util.concurrent.TimeUnit.MILLISECONDS) }
+            .onFailure { copy.cancel(true) }
+            .getOrNull()
+        return copied?.toString() ?: targetUri.toString()
     }
 
     @Suppress("DEPRECATION")
@@ -557,3 +564,5 @@ private fun DatabaseStartupScreen(
         }
     }
 }
+
+private const val BACKUP_IMPORT_COPY_DEADLINE_MS = 2_500L
