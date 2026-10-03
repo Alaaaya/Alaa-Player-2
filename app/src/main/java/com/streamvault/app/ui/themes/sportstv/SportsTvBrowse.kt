@@ -114,7 +114,7 @@ internal fun <T> SportsTvLibrary(
                     Text(tr("TITLES", "عدد"), color = ST.Sub, fontSize = 11.sp, fontWeight = FontWeight.Black)
                 }
                 StCard(
-                    onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@StCard) }, shape = ST.Pill, zoom = 1.02f,
+                    onClick = { p.onShowAll() }, shape = ST.Pill, zoom = 1.02f,
                     container = if (s.selectedCategory == null) ST.Raised else Color.Transparent, focusedContainer = ST.Line, modifier = Modifier.fillMaxWidth().padding(6.dp)
                 ) { Text(tr("ALL GENRES", "كل التصنيفات"), color = if (s.selectedCategory == null) ST.Amber else ST.Sub, fontSize = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(start = 6.dp, end = 6.dp, bottom = 40.dp)) {

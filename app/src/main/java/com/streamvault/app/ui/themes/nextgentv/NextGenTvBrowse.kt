@@ -109,7 +109,7 @@ internal fun <T> NextGenTvLibrary(
             Text(tr(kindEn, kindAr), color = NG.Text, fontSize = 24.sp, fontWeight = FontWeight.Black)
             Text("${s.libraryCount} " + tr("titles", "عنوان"), color = NG.Faint, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
             NgCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@NgCard) }, shape = NG.RSmall, zoom = 1.03f,
+                onClick = { p.onShowAll() }, shape = NG.RSmall, zoom = 1.03f,
                 container = if (s.selectedCategory == null) Color.White.copy(alpha = 0.1f) else Color.Transparent, modifier = Modifier.fillMaxWidth()
             ) { Text(tr("Browse all genres", "كل التصنيفات"), color = if (s.selectedCategory == null) NG.Amber else NG.Sub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 40.dp)) {

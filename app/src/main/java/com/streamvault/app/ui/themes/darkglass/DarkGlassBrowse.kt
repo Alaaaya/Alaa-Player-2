@@ -77,7 +77,7 @@ internal fun <T> DarkGlassLibrary(
             Text(tr(kindEn, kindAr), color = DG.Text, fontSize = 26.sp, fontWeight = FontWeight.Thin)
             Text("${s.libraryCount} " + tr("titles", "عنوان"), color = DG.Amber, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
             DgCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@DgCard) }, shape = DG.Pill, zoom = 1.03f,
+                onClick = { p.onShowAll() }, shape = DG.Pill, zoom = 1.03f,
                 container = if (s.selectedCategory == null) Color(0x33B69CFF) else Color.Transparent, modifier = Modifier.fillMaxWidth()
             ) { Text("◇ " + tr("All genres", "كل التصنيفات"), color = DG.Text, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 30.dp)) {

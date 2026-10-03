@@ -148,7 +148,9 @@ class LibraryParams<T>(
     val onFilterChange: (LibraryFilterType) -> Unit,
     val onSortChange: (LibrarySortBy) -> Unit,
     val onLoadMoreSelected: () -> Unit,
-    val onLoadMorePreview: () -> Unit
+    val onLoadMorePreview: () -> Unit,
+    /** Return to the all-genres overview (selectedCategory = null). Never select a real category for "All". */
+    val onShowAll: () -> Unit = {}
 )
 
 /** The subset of Movies/Series ui state the bespoke libraries need, unified across both. */
@@ -170,6 +172,9 @@ class LibraryState<T>(
     val continueWatching: List<PlaybackHistory>
 ) {
     fun categoryFor(name: String): Category? = categories.firstOrNull { it.name == name }
+
+    /** True when the overview ("All") is showing, i.e. no genre is selected. */
+    val isShowingAll: Boolean get() = selectedCategory == null
 
     /** What the browse surface should currently show as a flat list. */
     val visibleItems: List<T>
@@ -367,11 +372,11 @@ fun Channel.qualityBadge(): String? {
 fun Program.progressAt(now: Long = System.currentTimeMillis()): Float =
     ((now - startTime).toFloat() / (endTime - startTime).coerceAtLeast(1)).coerceIn(0f, 1f)
 
-/** Picks the Arabic label when the UI runs in Arabic/RTL, otherwise English. */
+/** Picks the Arabic label only when the UI language is Arabic (other RTL locales get English, not Arabic). */
 @Composable
 fun tr(en: String, ar: String): String {
     val lang = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]?.language
-    return if (lang == "ar" || androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) ar else en
+    return if (lang == "ar") ar else en
 }
 
 interface BespokeThemeUi {

@@ -118,7 +118,7 @@ internal fun <T> MediaCenterLibrary(
             Box(Modifier.fillMaxWidth().height(1.dp).background(MC.Line))
             LazyColumn(contentPadding = PaddingValues(vertical = 6.dp, horizontal = 6.dp)) {
                 item {
-                    McCard(onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@McCard) }, shape = MC.RSmall,
+                    McCard(onClick = { p.onShowAll() }, shape = MC.RSmall,
                         container = if (s.selectedCategory == null) Color(0xFF33281A) else Color.Transparent, modifier = Modifier.fillMaxWidth()) {
                         Text(tr("All", "الكل"), color = if (s.selectedCategory == null) MC.Amber else MC.Sub, fontSize = 15.sp, fontFamily = MC.Serif, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
                     }

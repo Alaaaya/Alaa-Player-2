@@ -77,7 +77,7 @@ internal fun <T> MagazineMediaLibrary(
             Text("${s.libraryCount} " + tr("titles in this issue", "عنوان"), color = MZ.Faint, fontSize = 12.sp, fontFamily = MZ.Serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
             MzRule(Modifier.padding(vertical = 6.dp), thick = 2.dp)
             MzCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@MzCard) }, zoom = 1.0f,
+                onClick = { p.onShowAll() }, zoom = 1.0f,
                 container = Color.Transparent, focusedContainer = MZ.Raised, modifier = Modifier.fillMaxWidth()
             ) { Text(tr("All sections", "كل التصنيفات"), color = if (s.selectedCategory == null) MZ.Amber else MZ.Text, fontSize = 15.sp, fontFamily = MZ.Serif, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp)) }
             LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
