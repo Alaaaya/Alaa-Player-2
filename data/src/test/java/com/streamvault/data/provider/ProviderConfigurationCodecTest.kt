@@ -55,9 +55,11 @@ class ProviderConfigurationCodecTest {
             httpHeaders = "Authorization: Bearer abc"
         )
         val encoded = codec.encode(config)
-        assertThat(encoded).doesNotContain("s3cret")
-        assertThat(encoded).doesNotContain("Bearer abc")
-        assertThat(encoded).contains("https://iptv.test/epg.xml")
+        val stored = Gson().fromJson(encoded, M3uConfig::class.java)
+        // Fake crypto marks ciphertext with "enc:test:"; real crypto replaces the value entirely.
+        assertThat(stored.playlistUrl).startsWith("enc:test:")
+        assertThat(stored.httpHeaders).startsWith("enc:test:")
+        assertThat(stored.epgUrl).isEqualTo("https://iptv.test/epg.xml")
         assertThat(codec.decode(ProviderType.M3U, encoded)).isEqualTo(config)
     }
 
