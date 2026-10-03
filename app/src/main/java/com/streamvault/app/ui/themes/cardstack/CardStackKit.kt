@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.cardstack
 
+import com.streamvault.app.ui.themes.bespoke.onDpadToward
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -227,5 +228,5 @@ internal fun csDuration(ms: Long): String {
 internal fun Modifier.csKey(code: Int, handler: () -> Boolean): Modifier = this.then(
     Modifier.onPreviewKeyEvent { e -> e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && e.nativeKeyEvent.keyCode == code && handler() }
 )
-internal fun Modifier.csRight(h: () -> Boolean) = csKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, h)
-internal fun Modifier.csLeft(h: () -> Boolean) = csKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, h)
+internal fun Modifier.csRight(h: () -> Boolean): Modifier = onDpadToward(end = true, h)
+internal fun Modifier.csLeft(h: () -> Boolean): Modifier = onDpadToward(end = false, h)

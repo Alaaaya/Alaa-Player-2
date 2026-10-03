@@ -8,6 +8,8 @@ package com.streamvault.app.ui.themes.bespoke
  * `null` from [bespokeThemeFor] falls back to the existing per-theme branches.
  */
 
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.composed
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
@@ -371,6 +373,27 @@ fun Channel.qualityBadge(): String? {
 /** Fraction of a program already aired, clamped to 0..1. */
 fun Program.progressAt(now: Long = System.currentTimeMillis()): Float =
     ((now - startTime).toFloat() / (endTime - startTime).coerceAtLeast(1)).coerceIn(0f, 1f)
+
+/**
+ * Physical D-pad key that moves toward the layout END (next column). In RTL rows the END column is
+ * on the visible left, so physical LEFT must advance there. Pure for unit testing.
+ */
+fun dpadKeyTowardEnd(rtl: Boolean): Int =
+    if (rtl) android.view.KeyEvent.KEYCODE_DPAD_LEFT else android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+
+fun dpadKeyTowardStart(rtl: Boolean): Int =
+    if (rtl) android.view.KeyEvent.KEYCODE_DPAD_RIGHT else android.view.KeyEvent.KEYCODE_DPAD_LEFT
+
+/** Layout-aware column hook: runs [handler] when the key toward END (or START) is pressed; consumes only if it returns true. */
+fun Modifier.onDpadToward(end: Boolean, handler: () -> Boolean): Modifier = this.then(
+    Modifier.composed {
+        val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+        val code = if (end) dpadKeyTowardEnd(rtl) else dpadKeyTowardStart(rtl)
+        Modifier.onPreviewKeyEvent { e ->
+            e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && e.nativeKeyEvent.keyCode == code && handler()
+        }
+    }
+)
 
 /** Picks the Arabic label only when the UI language is Arabic (other RTL locales get English, not Arabic). */
 @Composable

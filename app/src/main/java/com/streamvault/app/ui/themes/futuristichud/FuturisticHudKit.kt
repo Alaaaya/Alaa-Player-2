@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.futuristichud
 
+import com.streamvault.app.ui.themes.bespoke.onDpadToward
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.drawBehind
@@ -256,5 +257,5 @@ internal fun fhDuration(ms: Long): String {
 internal fun Modifier.fhKey(code: Int, handler: () -> Boolean): Modifier = this.then(
     Modifier.onPreviewKeyEvent { e -> e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && e.nativeKeyEvent.keyCode == code && handler() }
 )
-internal fun Modifier.fhRight(h: () -> Boolean) = fhKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, h)
-internal fun Modifier.fhLeft(h: () -> Boolean) = fhKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, h)
+internal fun Modifier.fhRight(h: () -> Boolean): Modifier = onDpadToward(end = true, h)
+internal fun Modifier.fhLeft(h: () -> Boolean): Modifier = onDpadToward(end = false, h)

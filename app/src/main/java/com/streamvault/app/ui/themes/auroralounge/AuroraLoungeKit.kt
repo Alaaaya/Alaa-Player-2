@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.auroralounge
 
+import com.streamvault.app.ui.themes.bespoke.onDpadToward
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.width
@@ -233,5 +234,5 @@ internal fun alDuration(ms: Long): String {
 internal fun Modifier.alKey(code: Int, handler: () -> Boolean): Modifier = this.then(
     Modifier.onPreviewKeyEvent { e -> e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && e.nativeKeyEvent.keyCode == code && handler() }
 )
-internal fun Modifier.alRight(h: () -> Boolean) = alKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, h)
-internal fun Modifier.alLeft(h: () -> Boolean) = alKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, h)
+internal fun Modifier.alRight(h: () -> Boolean): Modifier = onDpadToward(end = true, h)
+internal fun Modifier.alLeft(h: () -> Boolean): Modifier = onDpadToward(end = false, h)
