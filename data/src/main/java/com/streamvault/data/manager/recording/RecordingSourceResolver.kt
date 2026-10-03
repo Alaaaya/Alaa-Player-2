@@ -114,14 +114,19 @@ class RecordingSourceResolver @Inject constructor(
         val request = buildRequest(resolved, isHead = false)
 
         val bodyPrefix = try {
-            okHttpClient.newCall(request).useCancellableResponse { response ->
+            okHttpClient.newCall(request).apply {
+                // Total deadline for the whole probe (connect + headers + prefix), independent of read timeouts.
+                timeout().timeout(PROBE_DEADLINE_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            }.useCancellableResponse { response ->
                 if (!response.isSuccessful) return@useCancellableResponse ""
                 val contentType = response.header("Content-Type").orEmpty().lowercase(Locale.ROOT)
                 when {
                     "application/vnd.apple.mpegurl" in contentType || "application/x-mpegurl" in contentType -> return RecordingSourceType.HLS
                     "application/dash+xml" in contentType -> return RecordingSourceType.DASH
                 }
-                response.body?.string().orEmpty().take(1024)
+                // Read at most PROBE_PREFIX_BYTES: an extensionless live TS URL never ends, so string() would
+                // buffer the stream forever. Closing the response (use block) drops the connection.
+                response.body?.let { readBoundedPrefix(it.source(), PROBE_PREFIX_BYTES) }.orEmpty()
             }
         } catch (e: CancellationException) {
             throw e
@@ -153,4 +158,17 @@ class RecordingSourceResolver @Inject constructor(
             }
             .build()
     }
+}
+
+internal const val PROBE_PREFIX_BYTES = 1024L
+internal const val PROBE_DEADLINE_MS = 10_000L
+
+/** Reads up to [maxBytes] from [source] without waiting for EOF. */
+internal fun readBoundedPrefix(source: okio.BufferedSource, maxBytes: Long): String {
+    val buffer = okio.Buffer()
+    while (buffer.size < maxBytes) {
+        val read = source.read(buffer, maxBytes - buffer.size)
+        if (read == -1L) break
+    }
+    return buffer.readUtf8()
 }

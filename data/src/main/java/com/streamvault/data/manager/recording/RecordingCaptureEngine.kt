@@ -189,15 +189,20 @@ class HlsLiveCaptureEngine @Inject constructor(
                         // Cache key bytes by URI so rotated keys are fetched once each
                         val keyCache = mutableMapOf<String, ByteArray>()
                         var newSegmentsThisRound = false
-                        playlist.segments.forEach { segment ->
+                        var blockedOnFailedSegment = false
+                        for (segment in playlist.segments) {
                             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                            if (segment.uri in seenSegments) return@forEach
+                            val identity = hlsSegmentIdentity(segment.mediaSequenceNumber, segment.uri)
+                            if (identity in seenSegments) continue
                             val bytes = try {
                                 fetchBytes(segment.uri, headers)
                             } catch (e: Throwable) {
                                 if (!isTransientFailure(e) || retryCount >= MAX_TRANSIENT_RETRIES) throw e
                                 retryCount++
-                                return@forEach // Skip this segment, retry on next playlist refresh
+                                // Stop this round: writing later segments now would put the retried one out of
+                                // order. The next refresh resumes from this exact segment.
+                                blockedOnFailedSegment = true
+                                break
                             }
                             val segKey = segment.key?.takeIf { it.method.equals("AES-128", ignoreCase = true) }
                             val payload = if (segKey != null) {
@@ -209,7 +214,7 @@ class HlsLiveCaptureEngine @Inject constructor(
                                 bytes
                             }
                             sink.write(payload)
-                            seenSegments += segment.uri
+                            seenSegments += identity
                             bytesWritten += payload.size
                             newSegmentsThisRound = true
                             lastDataAt = System.currentTimeMillis()
@@ -222,10 +227,14 @@ class HlsLiveCaptureEngine @Inject constructor(
                                     retryCount = retryCount
                                 )
                             )
-                            if (System.currentTimeMillis() >= scheduledEndMs) return@forEach
+                            if (System.currentTimeMillis() >= scheduledEndMs) break
                         }
                         sink.flush()
                         if (newSegmentsThisRound) retryCount = 0
+                        if (blockedOnFailedSegment) {
+                            delay(RETRY_BACKOFF_BASE_MS * (1L shl (retryCount - 1).coerceIn(0, 3)))
+                            continue
+                        }
                         if (playlist.endList) break
                         delay((playlist.targetDurationSeconds.coerceAtLeast(2) * 1000L) / 2L)
                     }
@@ -309,6 +318,15 @@ class HlsLiveCaptureEngine @Inject constructor(
         var segmentIndex = 0L
         lines.forEach { line ->
             when {
+                line.startsWith("#EXT-X-MAP", ignoreCase = true) ||
+                    line.startsWith("#EXT-X-BYTERANGE", ignoreCase = true) -> {
+                    // fMP4 init segments and byte-range segments need assembly this byte-appending recorder does
+                    // not do. Refuse instead of reporting a "successful" but unplayable capture.
+                    throw UnsupportedRecordingException(
+                        "This HLS stream uses fMP4/byte-range segments, which recording does not support yet.",
+                        RecordingFailureCategory.FORMAT_UNSUPPORTED
+                    )
+                }
                 line.startsWith("#EXT-X-TARGETDURATION", ignoreCase = true) -> {
                     targetDuration = line.substringAfter(':', "6").toIntOrNull() ?: 6
                 }
@@ -345,18 +363,7 @@ class HlsLiveCaptureEngine @Inject constructor(
         )
     }
 
-    private fun parseHlsAttributes(raw: String): Map<String, String> {
-        val attrs = mutableMapOf<String, String>()
-        val parts = raw.split(',')
-        parts.forEach { part ->
-            val key = part.substringBefore('=').trim()
-            val value = part.substringAfter('=', "").trim().removeSurrounding("\"")
-            if (key.isNotBlank()) {
-                attrs[key.uppercase(Locale.ROOT)] = value
-            }
-        }
-        return attrs
-    }
+    private fun parseHlsAttributes(raw: String): Map<String, String> = parseHlsAttributeList(raw)
 
     private fun resolveRelativeUrl(baseUrl: String, value: String): String {
         return runCatching { URI(baseUrl).resolve(value).toString() }.getOrDefault(value)
@@ -388,3 +395,38 @@ class UnsupportedRecordingException(
     message: String,
     val category: RecordingFailureCategory
 ) : IOException(message)
+
+/** Identity of a media segment: sequence number + URI, so a repeated URI at a new sequence is not dropped. */
+internal fun hlsSegmentIdentity(mediaSequenceNumber: Long, uri: String): String = "$mediaSequenceNumber|$uri"
+
+/**
+ * RFC 8216 4.2 attribute-list parser: commas inside quoted strings belong to the value.
+ * Keys are upper-cased; surrounding quotes are removed.
+ */
+internal fun parseHlsAttributeList(raw: String): Map<String, String> {
+    val attrs = mutableMapOf<String, String>()
+    var i = 0
+    val n = raw.length
+    while (i < n) {
+        while (i < n && (raw[i] == ',' || raw[i].isWhitespace())) i++
+        val keyStart = i
+        while (i < n && raw[i] != '=' && raw[i] != ',') i++
+        val key = raw.substring(keyStart, i).trim()
+        var value = ""
+        if (i < n && raw[i] == '=') {
+            i++
+            if (i < n && raw[i] == '"') {
+                val close = raw.indexOf('"', i + 1).let { if (it < 0) n else it }
+                value = raw.substring(i + 1, close)
+                i = (close + 1).coerceAtMost(n)
+                while (i < n && raw[i] != ',') i++
+            } else {
+                val valueStart = i
+                while (i < n && raw[i] != ',') i++
+                value = raw.substring(valueStart, i).trim()
+            }
+        }
+        if (key.isNotBlank()) attrs[key.uppercase(java.util.Locale.ROOT)] = value
+    }
+    return attrs
+}
