@@ -278,6 +278,19 @@ internal fun MagazineMediaLiveChannelList(p: LiveChannelListParams) {
                 Text("${p.channels.size} " + tr("channels", "قناة"), color = MZ.Sub, fontSize = 13.sp, fontFamily = MZ.Serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
             }
             MzRule(thick = 3.dp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    tr("Sections", "الأقسام") to p.onOpenCategories,
+                    tr("Last group", "آخر مجموعة") to p.onOpenLastGroup,
+                    tr("Guide", "الدليل") to p.onOpenGuide,
+                    tr("Close", "إغلاق") to p.onDismiss
+                ).forEach { (label, action) ->
+                    MzCard(onClick = { p.onInteracted(); action() }, zoom = 1.04f, container = Color.Transparent, focusedContainer = MZ.Raised) {
+                        Text(label, color = MZ.Text, fontSize = 13.sp, fontFamily = MZ.Serif, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                    }
+                }
+            }
+            MzRule(color = MZ.Line)
             LazyColumn(state = state, modifier = Modifier.weight(1f), contentPadding = PaddingValues(vertical = 4.dp)) {
                 items(p.channels, key = { it.id }) { c ->
                     val cur = c.id == p.currentChannelId
