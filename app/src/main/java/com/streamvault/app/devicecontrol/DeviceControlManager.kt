@@ -88,6 +88,8 @@ class DeviceControlManager @Inject constructor(
         preferences.edit().putLong(providerMappingKey(remoteProviderId), localProviderId).apply()
     }
 
+    // ANDROID_ID is the deliberate per-install pairing identity for the control center (scoped per app signing key).
+    @android.annotation.SuppressLint("HardwareIds")
     suspend fun requestPairing(): DeviceControlResult<DevicePairingRequest> = withContext(Dispatchers.IO) {
         val baseUrl = serviceUrl() ?: return@withContext DeviceControlResult.Failure(
             "Control center URL is not configured in this build."

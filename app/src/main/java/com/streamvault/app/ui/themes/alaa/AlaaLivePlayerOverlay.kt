@@ -128,6 +128,8 @@ internal fun AlaaLivePlayerOverlay(
 
     channel: Channel?,
 
+    modifier: Modifier = Modifier,
+
     /*
      * Kept for compatibility with the existing caller.
      * They are intentionally NOT rendered.
@@ -156,7 +158,6 @@ internal fun AlaaLivePlayerOverlay(
     actionBarFocusRequester: FocusRequester,
     settingsCloseFocusRequester: FocusRequester,
 
-    modifier: Modifier = Modifier,
 
     onBack: () -> Unit,
 
