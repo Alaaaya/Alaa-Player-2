@@ -640,7 +640,18 @@ fun PlayerScreen(
                     return@onPreviewKeyEvent false
                 }
 
-                when (event.nativeKeyEvent.keyCode) {
+                val keyCode = event.nativeKeyEvent.keyCode
+                val isDpadZapKey = keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_UP_RIGHT ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN_LEFT
+                // D-pad zapping only on unobstructed fullscreen playback; visible controls/panels
+                // must receive vertical focus moves. Dedicated CHANNEL_UP/DOWN always zap.
+                if (isDpadZapKey && (showControls || showFullGuideOverlay || showAlaaPlayerSettings)) {
+                    return@onPreviewKeyEvent false
+                }
+
+                when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP,
                     KeyEvent.KEYCODE_CHANNEL_UP,
                     KeyEvent.KEYCODE_DPAD_UP_RIGHT -> {
