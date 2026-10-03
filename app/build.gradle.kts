@@ -51,6 +51,9 @@ val officialSigningCertSha256 = computeOfficialSigningCertSha256()
 val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1000
 val appVersionName = providers.gradleProperty("appVersionName").orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
 val deviceControlApiBaseUrl = providers.gradleProperty("deviceControlApiBaseUrl").orNull.orEmpty()
+// Alaa admin panel (Supabase). The anon key is public by design (RLS-protected); never put the service key here.
+val panelBaseUrl = providers.gradleProperty("panelBaseUrl").orNull ?: "https://jytjcdlmygwqizgydeyp.supabase.co"
+val panelAnonKey = providers.gradleProperty("panelAnonKey").orNull ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5dGpjZGxteWd3cWl6Z3lkZXlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEwMzQzODUsImV4cCI6MjEwNjYxMDM4NX0.zcr_TaxhweaScYeHxuSNzwBtHj0cgkp9JSfbsmkIr4Y"
 val releaseMinifyEnabled = providers.gradleProperty("releaseMinify").orNull?.toBooleanStrictOrNull() ?: true
 
 android {
@@ -72,6 +75,8 @@ android {
         buildConfigField("String", "APP_UPDATE_CHANNEL", "\"stable\"")
         buildConfigField("long", "BUILD_TIMESTAMP_UTC", "0L")
         buildConfigField("String", "DEVICE_CONTROL_API_BASE_URL", "\"$deviceControlApiBaseUrl\"")
+        buildConfigField("String", "PANEL_BASE_URL", "\"$panelBaseUrl\"")
+        buildConfigField("String", "PANEL_ANON_KEY", "\"$panelAnonKey\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             providers.gradleProperty("compatAbi").orNull

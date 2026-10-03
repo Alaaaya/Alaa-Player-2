@@ -36,6 +36,7 @@ import javax.inject.Inject
 import com.streamvault.data.preferences.PreferencesRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
@@ -125,6 +126,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var databaseStartupCoordinator: DatabaseStartupCoordinator
+
+    @Inject
+    lateinit var panelManager: com.streamvault.app.panel.PanelManager
 
     private val _pictureInPictureModeFlow = MutableStateFlow(false)
     val pictureInPictureModeFlow: StateFlow<Boolean> = _pictureInPictureModeFlow.asStateFlow()
@@ -216,7 +220,27 @@ class MainActivity : ComponentActivity() {
                                     tvInputChannelSyncManager.refreshTvInputCatalog()
                                 }
                             }
+                            LaunchedEffect(Unit) {
+                                // Startup sync, then every 30 min while the activity is alive.
+                                while (true) {
+                                    panelManager.sync(force = true)
+                                    kotlinx.coroutines.delay(com.streamvault.app.panel.PanelManager.PERIODIC_INTERVAL_MS)
+                                }
+                            }
+                            val panelState by panelManager.state.collectAsState()
+                            var panelDismissed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+                            LaunchedEffect(panelState.status) {
+                                if (panelState.status == com.streamvault.app.panel.PanelStatus.ACTIVE) panelDismissed = false
+                            }
                             AppNavigation(mainActivity = this@MainActivity)
+                            if (panelState.needsActivation && !panelDismissed) {
+                                androidx.activity.compose.BackHandler { panelDismissed = true }
+                                com.streamvault.app.panel.PanelActivationScreen(
+                                    state = panelState,
+                                    onRetry = { lifecycleScope.launch { panelManager.sync(force = true) } },
+                                    onContinue = { panelDismissed = true },
+                                )
+                            }
                         }
                     }
                 }
@@ -232,6 +256,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyImmersiveSystemUi()
+        if (databaseStartupCoordinator.state.value == DatabaseStartupState.Ready) {
+            lifecycleScope.launch { panelManager.sync() } // rate-limited inside (1/min)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
