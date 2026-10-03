@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.futuristichud
 
+import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -171,6 +172,7 @@ private fun FhLive(p: PlayerOverlayParams) {
 private fun FhVod(p: PlayerOverlayParams) {
     var sheet by remember { mutableStateOf(false) }
     val sheetFocus = remember { FocusRequester() }
+    val moreFocus = p.quickActionsFocusRequester
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
     fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
@@ -212,7 +214,7 @@ private fun FhVod(p: PlayerOverlayParams) {
             }
         }
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 240.dp, end = if (sheet) 440.dp else 24.dp, bottom = 24.dp)) { Ruler(p, ::seekBy) }
-        if (sheet) SystemsTable(p, sheetFocus) { sheet = false }
+        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = moreFocus) { SystemsTable(p, sheetFocus) { sheet = false; runCatching { moreFocus.requestFocus() } } }
     }
 }
 
