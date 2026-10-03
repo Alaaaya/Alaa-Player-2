@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.purplegalaxy
 
+import com.streamvault.app.ui.themes.bespoke.onDpadToward
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -211,11 +212,6 @@ internal fun formatDuration(ms: Long): String {
 }
 
 /** D-pad edge hooks: run [handler] on a RIGHT/LEFT key press; consume it only when the handler moved focus. */
-internal fun Modifier.onRight(handler: () -> Boolean): Modifier = onDirection(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, handler)
-internal fun Modifier.onLeft(handler: () -> Boolean): Modifier = onDirection(android.view.KeyEvent.KEYCODE_DPAD_LEFT, handler)
+internal fun Modifier.onRight(handler: () -> Boolean): Modifier = onDpadToward(end = true, handler)
+internal fun Modifier.onLeft(handler: () -> Boolean): Modifier = onDpadToward(end = false, handler)
 
-private fun Modifier.onDirection(code: Int, handler: () -> Boolean): Modifier = this.then(
-    Modifier.onPreviewKeyEvent { event ->
-        event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && event.nativeKeyEvent.keyCode == code && handler()
-    }
-)

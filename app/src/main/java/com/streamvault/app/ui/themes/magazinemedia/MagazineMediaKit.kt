@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.magazinemedia
 
+import com.streamvault.app.ui.themes.bespoke.onDpadToward
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -248,5 +249,5 @@ internal fun mzDuration(ms: Long): String {
 internal fun Modifier.mzKey(code: Int, handler: () -> Boolean): Modifier = this.then(
     Modifier.onPreviewKeyEvent { e -> e.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN && e.nativeKeyEvent.keyCode == code && handler() }
 )
-internal fun Modifier.mzRight(h: () -> Boolean) = mzKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, h)
-internal fun Modifier.mzLeft(h: () -> Boolean) = mzKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT, h)
+internal fun Modifier.mzRight(h: () -> Boolean): Modifier = onDpadToward(end = true, h)
+internal fun Modifier.mzLeft(h: () -> Boolean): Modifier = onDpadToward(end = false, h)
