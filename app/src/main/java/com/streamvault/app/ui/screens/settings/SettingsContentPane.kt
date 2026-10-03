@@ -216,6 +216,7 @@ internal fun SettingsContentPane(
                 viewModel = viewModel
             )
         } else if (dialogState.selectedCategory == 7) {
+            settingsPanelSection()
             settingsAboutSection(
                 uiState = uiState,
                 context = context,
