@@ -2,7 +2,8 @@ package com.streamvault.app.ui.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.streamvault.app.device.rememberIsTelevisionDevice
@@ -24,7 +25,8 @@ internal data class ReferenceLiveTvColumnMetrics(
  */
 @Composable
 internal fun rememberReferenceLiveTvColumnMetrics(): ReferenceLiveTvColumnMetrics {
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val containerWidthPx = LocalWindowInfo.current.containerSize.width
+    val screenWidth = with(LocalDensity.current) { containerWidthPx.toDp() }
     val isTelevisionDevice = rememberIsTelevisionDevice()
     return remember(screenWidth, isTelevisionDevice) {
         val categoryWidth = if (screenWidth < 900.dp) {

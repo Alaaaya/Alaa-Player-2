@@ -74,8 +74,8 @@ internal fun CinematicCategoryCard(
     isSelected: Boolean,
     isLocked: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
     var isFocused by remember(category.id) { mutableStateOf(false) }
     TvClickableSurface(
@@ -136,9 +136,9 @@ internal fun CinematicChannelRow(
     channel: Channel,
     isLocked: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
     onFocused: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
     var isFocused by remember(channel.id) { mutableStateOf(false) }
     val program = channel.currentProgram
