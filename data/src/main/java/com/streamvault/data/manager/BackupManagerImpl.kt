@@ -322,7 +322,14 @@ class BackupManagerImpl @Inject constructor(
                     "Cannot export backup because one or more providers have no typed configuration snapshot"
                 )
             }
-            val providerCredentials = sourceProviders.mapNotNull { it.toBackupCredentials() }
+            // Secrets-free by default (local file AND Drive copies share this path): backups are plain JSON, so
+            // provider passwords are never written. Restore asks the user to re-enter them. An encrypted,
+            // password-protected opt-in export is the only acceptable way to bring them back.
+            val providerCredentials = if (BACKUP_INCLUDES_PLAINTEXT_CREDENTIALS) {
+                sourceProviders.mapNotNull { it.toBackupCredentials() }
+            } else {
+                emptyList()
+            }
             val providerSnapshots = providers.map { provider ->
                 val configuration = when (val config = provider.toTypedConfiguration()) {
                     is com.streamvault.domain.model.XtreamConfig -> config.copy(password = "")
@@ -5775,3 +5782,6 @@ private val PORTABLE_MULTIVIEW_PRESETS_TYPE: Type = object : TypeToken<Map<Strin
 private val PROTECTED_CATEGORY_LIST_TYPE: Type = object : TypeToken<List<ProtectedCategoryBackup>>() {}.type
 private val SCHEDULED_RECORDING_LIST_TYPE: Type = object : TypeToken<List<ScheduledRecordingBackup>>() {}.type
 private val CHANNEL_PREFERENCE_ENTITY_LIST_TYPE: Type = object : TypeToken<List<ChannelPreferenceEntity>>() {}.type
+
+/** Must stay false: plaintext JSON backups may not carry provider passwords. */
+internal val BACKUP_INCLUDES_PLAINTEXT_CREDENTIALS: Boolean = false
