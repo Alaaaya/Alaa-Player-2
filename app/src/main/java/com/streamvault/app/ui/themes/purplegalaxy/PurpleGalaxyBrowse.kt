@@ -284,13 +284,13 @@ internal fun PurpleGalaxyLiveTv(p: LiveTvParams) {
     }
 }
 
-private val filterLabels = mapOf(
-    LibraryFilterType.ALL to "All", LibraryFilterType.FAVORITES to "Saved", LibraryFilterType.IN_PROGRESS to "In orbit",
-    LibraryFilterType.UNWATCHED to "Unexplored", LibraryFilterType.TOP_RATED to "Brightest", LibraryFilterType.RECENTLY_UPDATED to "Fresh"
+@Composable private fun filterLabels() = mapOf(
+    LibraryFilterType.ALL to tr("All", "الكل"), LibraryFilterType.FAVORITES to tr("Saved", "المفضلة"), LibraryFilterType.IN_PROGRESS to tr("In orbit", "قيد المشاهدة"),
+    LibraryFilterType.UNWATCHED to tr("Unexplored", "غير مشاهد"), LibraryFilterType.TOP_RATED to tr("Brightest", "الأعلى تقييماً"), LibraryFilterType.RECENTLY_UPDATED to tr("Fresh", "الأحدث")
 )
-private val sortLabels = mapOf(
-    LibrarySortBy.LIBRARY to "Default", LibrarySortBy.TITLE to "A–Z", LibrarySortBy.RELEASE to "Release",
-    LibrarySortBy.UPDATED to "Updated", LibrarySortBy.RATING to "Rating", LibrarySortBy.WATCH_COUNT to "Most watched"
+@Composable private fun sortLabels() = mapOf(
+    LibrarySortBy.LIBRARY to tr("Default", "افتراضي"), LibrarySortBy.TITLE to tr("A–Z", "أ–ي"), LibrarySortBy.RELEASE to tr("Release", "الإصدار"),
+    LibrarySortBy.UPDATED to tr("Updated", "التحديث"), LibrarySortBy.RATING to tr("Rating", "التقييم"), LibrarySortBy.WATCH_COUNT to tr("Most watched", "الأكثر مشاهدة")
 )
 
 /** Star chart library: constellation chips across the top, arch-window grid below. */
@@ -307,16 +307,16 @@ internal fun <T> PurpleGalaxyLibrary(
     var sortIndex by remember(s.selectedSort) { mutableStateOf(LibrarySortBy.entries.indexOf(s.selectedSort)) }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.weight(1f)) { GalaxyLabel("$kind star chart"); Text("${s.libraryCount} objects catalogued", color = PG.Muted, fontSize = 12.sp) }
-            SearchInput(s.searchQuery, p.onQueryChange, "Scan $kind", Modifier.width(280.dp).focusRequester(p.initialFocusRequester))
-            GalaxyChip("Sort · ${sortLabels[s.selectedSort]}", false, onClick = {
+            Column(Modifier.weight(1f)) { GalaxyLabel(kind); Text("${s.libraryCount} " + tr("titles", "عنوان"), color = PG.Muted, fontSize = 12.sp) }
+            SearchInput(s.searchQuery, p.onQueryChange, tr("Search", "بحث"), Modifier.width(280.dp).focusRequester(p.initialFocusRequester))
+            GalaxyChip(tr("Sort", "ترتيب") + " · ${sortLabels()[s.selectedSort]}", false, onClick = {
                 sortIndex = (sortIndex + 1) % LibrarySortBy.entries.size
                 p.onSortChange(LibrarySortBy.entries[sortIndex])
             })
         }
         Spacer(Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(LibraryFilterType.entries) { f -> GalaxyChip(filterLabels[f] ?: f.name, f == s.selectedFilter, { p.onFilterChange(f) }) }
+            items(LibraryFilterType.entries) { f -> GalaxyChip(filterLabels()[f] ?: f.name, f == s.selectedFilter, { p.onFilterChange(f) }) }
         }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -324,6 +324,18 @@ internal fun <T> PurpleGalaxyLibrary(
             Column(Modifier.width(250.dp).fillMaxHeight().clip(PG.Panel).background(PG.Deep.copy(alpha = 0.7f)).border(1.dp, PG.Plasma.copy(alpha = 0.25f), PG.Panel).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(tr("Genres", "التصنيفات"), color = PG.Comet, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    item(key = "__all__") {
+                        GalaxySurface(
+                            onClick = p.onShowAll, shape = PG.Pill,
+                            container = if (s.isShowingAll) PG.Flare.copy(alpha = 0.35f) else Color.Transparent, scale = 1.04f, modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("✦", color = PG.Flare, fontSize = 13.sp, modifier = Modifier.width(22.dp))
+                                Text(tr("All", "الكل"), color = PG.Star, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                Text("${s.libraryCount}", color = PG.Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
                     items(s.categoryNames) { name ->
                         val cat = s.categoryFor(name)
                         val locked = cat?.let(p.isCategoryLocked) == true

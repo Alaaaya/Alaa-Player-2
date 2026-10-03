@@ -109,7 +109,7 @@ internal fun <T> CardStackLibrary(
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp, horizontal = 2.dp)) {
                 item {
-                    CsCard({ s.categories.firstOrNull()?.let(p.onCategoryClick) }, Modifier.fillMaxWidth().height(44.dp), shape = CS.RSmall,
+                    CsCard({ p.onShowAll() }, Modifier.fillMaxWidth().height(44.dp), shape = CS.RSmall,
                         container = if (s.selectedCategory == null) CS.Amber else CS.Card) {
                         Text(tr("All", "الكل"), color = if (s.selectedCategory == null) CS.Bg else CS.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 14.dp))
                     }

@@ -116,7 +116,7 @@ internal fun <T> AuroraLoungeLibrary(
         ) {
             Text(tr("Genres", "التصنيفات"), color = AL.Amber, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.padding(start = 8.dp, bottom = 6.dp))
             AlCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@AlCard) }, shape = AL.Pill, zoom = 1.03f,
+                onClick = { p.onShowAll() }, shape = AL.Pill, zoom = 1.03f,
                 container = if (s.selectedCategory == null) AL.Line else Color.Transparent, modifier = Modifier.fillMaxWidth()
             ) { Text("✦ " + tr("Everything", "الكل"), color = if (s.selectedCategory == null) AL.Amber else AL.Sub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 20.dp)) {

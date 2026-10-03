@@ -74,7 +74,7 @@ internal fun <T> FuturisticHudLibrary(
         Column(Modifier.width(220.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             FhLabel(tr("Index", "التصنيفات") + " [${s.categoryNames.size}]")
             FhCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@FhCard) }, shape = FH.RSmall, zoom = 1.0f,
+                onClick = { p.onShowAll() }, shape = FH.RSmall, zoom = 1.0f,
                 container = if (s.selectedCategory == null) FH.Amber.copy(alpha = 0.16f) else Color.Transparent, focusedContainer = FH.Amber.copy(alpha = 0.3f), modifier = Modifier.fillMaxWidth()
             ) { Text("00 " + tr("ALL", "الكل"), color = if (s.selectedCategory == null) FH.Amber else FH.Sub, fontSize = 12.sp, fontFamily = FH.Mono, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp)) }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 40.dp)) {

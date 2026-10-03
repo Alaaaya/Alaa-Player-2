@@ -269,7 +269,8 @@ fun SeriesScreen(
                     onItemClick = onThemedSeriesClick, onItemLongClick = { item -> viewModel.onShowDialog(item) },
                     onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
                     onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
-                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                    onLoadMorePreview = viewModel::loadMorePreviewRows,
+                    onShowAll = { viewModel.selectCategory(null) }
                 ))
             } else if (isRedCinemaTheme) {
                 RedCinemaSeasonPlaybill(

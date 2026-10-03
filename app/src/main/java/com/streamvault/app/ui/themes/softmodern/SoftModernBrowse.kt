@@ -74,7 +74,7 @@ internal fun <T> SoftModernLibrary(
             Text(tr(kindEn, kindAr), color = SM.Text, fontSize = 28.sp, fontWeight = FontWeight.Black)
             Text("${s.libraryCount} " + tr("titles", "عنوان"), color = SM.Faint, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
             SmCard(
-                onClick = { p.onCategoryClick(s.categories.firstOrNull() ?: return@SmCard) }, zoom = 1.03f,
+                onClick = { p.onShowAll() }, zoom = 1.03f,
                 shape = SM.Pill, container = if (s.selectedCategory == null) SM.Card else Color.Transparent, modifier = Modifier.fillMaxWidth()
             ) { Text(tr("Browse all genres", "كل التصنيفات"), color = if (s.selectedCategory == null) SM.Amber else SM.Sub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), contentPadding = PaddingValues(bottom = 40.dp)) {

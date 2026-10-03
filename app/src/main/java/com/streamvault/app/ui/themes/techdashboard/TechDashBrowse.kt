@@ -152,7 +152,7 @@ internal fun <T> TechDashLibrary(
         TdModule(tr("Genres", "التصنيفات"), Modifier.width(230.dp).fillMaxHeight(), meta = "${s.categoryNames.size}") {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 item {
-                    TechDashSurface(onClick = { s.categoryFor(s.categoryNames.firstOrNull() ?: "")?.let(p.onCategoryClick) }, shape = TD.Pill,
+                    TechDashSurface(onClick = { p.onShowAll() }, shape = TD.Pill,
                         container = if (s.selectedCategory == null) TD.Plasma.copy(alpha = 0.3f) else Color.Transparent, modifier = Modifier.fillMaxWidth()) {
                         Text("*  " + tr("ALL", "الكل") + "  [${s.libraryCount}]", color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono, modifier = Modifier.padding(6.dp))
                     }
@@ -181,7 +181,7 @@ internal fun <T> TechDashLibrary(
             ) {
                 Text("SELECT * FROM ${kind.uppercase()}", color = TD.Plasma, fontSize = 12.sp, fontFamily = TD.Mono, fontWeight = FontWeight.Bold)
                 Text("[${s.libraryCount}]", color = TD.Muted, fontSize = 12.sp, fontFamily = TD.Mono)
-                SearchInput(s.searchQuery, p.onQueryChange, "WHERE title LIKE …", Modifier.width(260.dp).focusRequester(p.initialFocusRequester))
+                SearchInput(s.searchQuery, p.onQueryChange, tr("Search…", "بحث…"), Modifier.width(260.dp).focusRequester(p.initialFocusRequester))
                 Row(Modifier.weight(1f).clip(TD.Pill).border(1.dp, TD.Plasma.copy(alpha = 0.3f), TD.Pill)) {
                     LibraryFilterType.entries.forEach { f ->
                         val sel = f == s.selectedFilter
