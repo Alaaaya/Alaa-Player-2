@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 
 set -eu
+# Installed application id of this fork (instrumentation classes stay under com.streamvault).
+APP_ID="${APP_ID:-com.alaaaya.alaaplayer2.debug}"
 
 api_level="${1:?API level is required}"
 compat_abi="${2:-x86_64}"
@@ -19,7 +21,7 @@ cleanup_platform_smoke() {
 
   if [ "$api_level" = "35" ] || [ "$api_level" = "36" ]; then
     adb shell device_config delete activity_manager data_sync_fgs_timeout_duration >/dev/null 2>&1 || true
-    adb shell am compat disable FGS_INTRODUCE_TIME_LIMITS com.streamvault.app.debug >/dev/null 2>&1 || true
+    adb shell am compat disable FGS_INTRODUCE_TIME_LIMITS "$APP_ID" >/dev/null 2>&1 || true
   fi
 
   exit "$status"
@@ -41,7 +43,7 @@ export PLATFORM_SMOKE_ACTIVE_SUITE
   --no-daemon
 
 if [ "$api_level" = "35" ] || [ "$api_level" = "36" ]; then
-  adb shell am compat enable FGS_INTRODUCE_TIME_LIMITS com.streamvault.app.debug
+  adb shell am compat enable FGS_INTRODUCE_TIME_LIMITS "$APP_ID" || echo "warning: could not enable FGS_INTRODUCE_TIME_LIMITS for $APP_ID" >&2
   adb shell device_config put activity_manager data_sync_fgs_timeout_duration 5000
 
   PLATFORM_SMOKE_ACTIVE_SUITE="com.streamvault.app.service.DownloadForegroundServiceInstrumentationTest"

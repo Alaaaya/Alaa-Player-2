@@ -353,10 +353,9 @@ jobs:
   publish-release:
     name: Publish GitHub release
 
-    # The signed APK job already verifies its signature before artifact upload.
-    # Quality, instrumentation, and TV smoke remain visible but do not block
-    # publication of the installable signed release APK.
-    needs: [metadata, build]
+    # Release gates: nothing is published unless the signed build, unit/lint quality,
+    # instrumentation compile and TV smoke jobs all succeeded.
+    needs: [metadata, build, quality, instrumentation, release-tv-smoke]
 
     runs-on: ubuntu-latest
 
@@ -377,7 +376,7 @@ jobs:
           body: |
             ## Alaa Player 2 ${{ needs.metadata.outputs.version_name }}
 
-            إصدار رسمي تم بناؤه تلقائيًا من فرع `master`.
+            ${{ github.ref == 'refs/heads/master' && 'إصدار رسمي تم بناؤه تلقائيًا من فرع `master`.' || format('إصدار تجريبي (pre-release) من الفرع `{0}`، ليس من `master`.', github.ref_name) }}
 
             | البند | القيمة |
             | --- | --- |
@@ -397,5 +396,7 @@ jobs:
             dist/${{ needs.metadata.outputs.apk_name }}
             dist/${{ needs.metadata.outputs.apk_name }}.sha256
 
-          make_latest: true
+          # Only master builds are official/latest; any other branch is a pre-release.
+          prerelease: ${{ github.ref != 'refs/heads/master' }}
+          make_latest: ${{ github.ref == 'refs/heads/master' && 'true' || 'false' }}
           generate_release_notes: false
