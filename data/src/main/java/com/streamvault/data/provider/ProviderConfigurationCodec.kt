@@ -51,17 +51,29 @@ class ProviderConfigurationCodec @Inject constructor(
 
     private fun ProviderConfiguration.encryptSecrets(): ProviderConfiguration = when (this) {
         is XtreamConfig -> copy(password = credentialCrypto.encryptIfNeeded(password))
-        is M3uConfig -> this
+        is M3uConfig -> copy(
+            playlistUrl = encryptIfCredentialBearing(playlistUrl),
+            epgUrl = encryptIfCredentialBearing(epgUrl),
+            httpHeaders = credentialCrypto.encryptIfNeeded(httpHeaders)
+        )
         is StalkerConfig -> copy(password = credentialCrypto.encryptIfNeeded(password))
         is JellyfinConfig -> copy(credential = credentialCrypto.encryptIfNeeded(credential))
     }
 
     private fun ProviderConfiguration.decryptSecrets(): ProviderConfiguration = when (this) {
         is XtreamConfig -> copy(password = credentialCrypto.decryptIfNeeded(password))
-        is M3uConfig -> this
+        is M3uConfig -> copy(
+            playlistUrl = credentialCrypto.decryptIfNeeded(playlistUrl),
+            epgUrl = credentialCrypto.decryptIfNeeded(epgUrl),
+            httpHeaders = credentialCrypto.decryptIfNeeded(httpHeaders)
+        )
         is StalkerConfig -> copy(password = credentialCrypto.decryptIfNeeded(password))
         is JellyfinConfig -> copy(credential = credentialCrypto.decryptIfNeeded(credential))
     }
+
+    /** Playlist/EPG URLs that carry user info or token/password query parameters are stored encrypted. */
+    private fun encryptIfCredentialBearing(url: String): String =
+        if (isCredentialBearingUrl(url)) credentialCrypto.encryptIfNeeded(url) else url
 
     private fun normalizeOrigin(value: String): String = runCatching {
         val uri = URI(value.trim())
@@ -77,4 +89,21 @@ class ProviderConfigurationCodec @Inject constructor(
     }.getOrElse { value.trim().trimEnd('/').lowercase() }
 
     private fun normalizeUrl(value: String): String = value.trim()
+}
+
+private val CREDENTIAL_QUERY_KEYS = setOf(
+    "username", "user", "password", "pass", "pwd", "token", "auth", "key", "apikey", "api_key",
+    "access_token", "sig", "signature", "secret", "mac"
+)
+
+internal fun isCredentialBearingUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (trimmed.isEmpty() || trimmed.startsWith("enc:")) return false
+    return runCatching {
+        val uri = URI(trimmed)
+        if (!uri.rawUserInfo.isNullOrEmpty()) return@runCatching true
+        uri.rawQuery.orEmpty().split('&').any { pair ->
+            pair.substringBefore('=').lowercase() in CREDENTIAL_QUERY_KEYS
+        }
+    }.getOrElse { true }
 }

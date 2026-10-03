@@ -47,6 +47,35 @@ class ProviderConfigurationCodecTest {
         assertThat(codec.identityKey(first)).hasLength(64)
     }
 
+    @Test
+    fun `token bearing m3u urls and headers are encrypted at rest, plain urls stay readable`() {
+        val config = M3uConfig(
+            playlistUrl = "http://iptv.test/get.php?username=alice&password=s3cret&type=m3u_plus",
+            epgUrl = "https://iptv.test/epg.xml",
+            httpHeaders = "Authorization: Bearer abc"
+        )
+        val encoded = codec.encode(config)
+        assertThat(encoded).doesNotContain("s3cret")
+        assertThat(encoded).doesNotContain("Bearer abc")
+        assertThat(encoded).contains("https://iptv.test/epg.xml")
+        assertThat(codec.decode(ProviderType.M3U, encoded)).isEqualTo(config)
+    }
+
+    @Test
+    fun `legacy plaintext m3u rows still decode`() {
+        val legacy = Gson().toJson(M3uConfig("http://iptv.test/list.m3u?token=t0k"))
+        assertThat((codec.decode(ProviderType.M3U, legacy) as M3uConfig).playlistUrl)
+            .isEqualTo("http://iptv.test/list.m3u?token=t0k")
+    }
+
+    @Test
+    fun `credential url detection`() {
+        assertThat(isCredentialBearingUrl("http://u:p@host/list.m3u")).isTrue()
+        assertThat(isCredentialBearingUrl("http://host/list.m3u?Token=x")).isTrue()
+        assertThat(isCredentialBearingUrl("https://host/list.m3u?type=m3u")).isFalse()
+        assertThat(isCredentialBearingUrl("")).isFalse()
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `decode rejects stored type mismatch`() {
         codec.decode(ProviderType.M3U, codec.encode(XtreamConfig("https://x.test", "u", "p")))
