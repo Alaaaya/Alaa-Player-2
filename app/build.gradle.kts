@@ -48,8 +48,8 @@ fun computeOfficialSigningCertSha256(): String {
 }
 
 val officialSigningCertSha256 = computeOfficialSigningCertSha256()
-val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1000
-val appVersionName = providers.gradleProperty("appVersionName").orNull?.takeIf { it.isNotBlank() } ?: "1.0.0"
+val appVersionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1700
+val appVersionName = providers.gradleProperty("appVersionName").orNull?.takeIf { it.isNotBlank() } ?: "1.7"
 val deviceControlApiBaseUrl = providers.gradleProperty("deviceControlApiBaseUrl").orNull.orEmpty()
 // Alaa admin panel (Supabase). The anon key is public by design (RLS-protected); never put the service key here.
 val panelBaseUrl = providers.gradleProperty("panelBaseUrl").orNull ?: "https://jytjcdlmygwqizgydeyp.supabase.co"
