@@ -115,7 +115,7 @@ internal fun CgButton(label: String, onClick: () -> Unit, modifier: Modifier = M
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(CG.Amber.copy(alpha = 0.55f), 14.dp))
     ) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            icon?.let { Text(it, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
+            icon?.let { CgGlyph(it, 18.dp) }
             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp, maxLines = 1)
         }
     }
@@ -134,7 +134,7 @@ internal fun CgRound(glyph: String, onClick: () -> Unit, modifier: Modifier = Mo
         border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, CG.Line), shape = CG.RSmall)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(CG.Amber.copy(alpha = 0.55f), 14.dp))
-    ) { Text(glyph, fontSize = (size.value / 2.8f).sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center)) }
+    ) { CgGlyph(glyph, size * 0.46f, Modifier.align(Alignment.Center)) }
 }
 
 /** Text-only menu entry: gold underline when selected, gold fill when focused. */
@@ -144,15 +144,15 @@ internal fun CgTab(label: String, selected: Boolean, onClick: () -> Unit, modifi
         onClick = onClick, modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(CG.RSmall),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent, focusedContainerColor = CG.Amber,
-            contentColor = if (selected) CG.Amber else CG.Sub, focusedContentColor = CG.Bg
+            containerColor = if (selected) CG.AmberDeep else Color.Transparent, focusedContainerColor = CG.Amber,
+            contentColor = if (selected) Color.White else CG.Sub, focusedContentColor = Color.White
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(CG.Amber.copy(alpha = 0.55f), 14.dp))
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, maxLines = 1)
-            if (selected) Box(Modifier.padding(top = 3.dp).width(24.dp).height(2.dp).background(CG.Amber))
+            if (selected) Box(Modifier.padding(top = 3.dp).width(24.dp).height(2.dp).background(Color.White))
         }
     }
 }

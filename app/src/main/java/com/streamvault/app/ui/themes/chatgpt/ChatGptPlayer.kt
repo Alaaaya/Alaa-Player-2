@@ -53,8 +53,23 @@ private fun CgCtl(a: CgAct, modifier: Modifier = Modifier, size: androidx.compos
             border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, CG.Line), shape = CircleShape)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
             glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(CG.Blue.copy(alpha = 0.6f), 16.dp))
-        ) { Text(a.glyph, fontSize = (size.value * 0.32f).sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.align(Alignment.Center)) }
+        ) { CgGlyph(a.glyph, size * 0.44f, Modifier.align(Alignment.Center)) }
         Text(a.label, color = if (a.active) CG.Blue else CG.Sub, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = size + 28.dp))
+    }
+}
+
+/** Fixed-width action strip: up to [primary] keys centered, the rest paged behind a "More" key, so nothing is clipped. */
+@Composable
+private fun CgActionStrip(acts: List<CgAct>, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 50.dp, primary: Int = 10, firstModifier: Modifier = Modifier) {
+    var page by remember { mutableStateOf(0) }
+    val pages = remember(acts.size) { if (acts.size <= primary + 1) listOf(acts) else listOf(acts.take(primary)) + acts.drop(primary).chunked(primary) }
+    val shown = pages[page.coerceIn(0, pages.lastIndex)]
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.Top) {
+        shown.forEachIndexed { i, a -> CgCtl(a, if (page == 0 && i == 0) firstModifier else Modifier, size = size) }
+        if (pages.size > 1) {
+            val last = page >= pages.lastIndex
+            CgCtl(CgAct(if (last) "←" else "⋯", if (last) tr("Back", "رجوع") else tr("More", "المزيد")) { page = if (last) 0 else page + 1 }, size = size)
+        }
     }
 }
 
@@ -141,21 +156,17 @@ private fun CgLive(p: PlayerOverlayParams) {
     Box(p.modifier.fillMaxSize()) {
         // top OSD: channel head + clock on a walnut band with brass underline
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().background(CG.Bg.copy(alpha = 0.92f)).padding(horizontal = 40.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.35f), Color.Transparent))).padding(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { ChannelHead(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0) }
                 if (rec) CgBadge("● REC", CG.Live, filled = true)
                 Text("  " + cgClock(System.currentTimeMillis()), color = CG.Amber, fontSize = 30.sp, fontFamily = CG.Serif)
             }
-            Box(Modifier.fillMaxWidth().height(2.dp).background(CG.Amber))
         }
-        // bottom front panel: now/next + full-width key strip
+        // bottom: translucent gradient with now/next + paged key strip
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Box(Modifier.fillMaxWidth().height(2.dp).background(CG.Amber))
-            Column(Modifier.fillMaxWidth().background(CG.Bg.copy(alpha = 0.94f)).padding(horizontal = 40.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.88f)))).padding(start = 40.dp, end = 40.dp, top = 70.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 NowNext(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth())
-                LazyRow(Modifier.fillMaxWidth().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(acts.size) { i -> CgCtl(acts[i], if (i == 0) Modifier.focusRequester(p.playButtonFocusRequester) else Modifier) }
-                }
+                CgActionStrip(acts, Modifier.focusRequester(p.quickActionsFocusRequester), 50.dp, firstModifier = Modifier.focusRequester(p.playButtonFocusRequester))
             }
         }
     }
@@ -170,7 +181,7 @@ private fun CgVod(p: PlayerOverlayParams) {
     LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
     LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
     fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
-    Box(p.modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.85f))))) {
+    Box(p.modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.9f))))) {
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -182,8 +193,7 @@ private fun CgVod(p: PlayerOverlayParams) {
                 if (p.playbackSpeed != 1f) CgBadge("${p.playbackSpeed}×", CG.Amber)
                 Text(cgClock(System.currentTimeMillis()), color = CG.Amber, fontSize = 24.sp, fontFamily = CG.Serif)
             }
-            Box(Modifier.fillMaxWidth().height(2.dp).background(CG.Amber))
-        Column(Modifier.fillMaxWidth().background(CG.Bg.copy(alpha = 0.94f)).padding(horizontal = 40.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Scrubber(p, ::seekBy)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)) {
                 CgCtl(CgAct("←", tr("Back", "رجوع")) { p.onNavigateBack() }, size = 48.dp)
@@ -192,7 +202,7 @@ private fun CgVod(p: PlayerOverlayParams) {
                 CgCtl(CgAct("↻", "+10s") { seekBy(STEP) }, size = 56.dp)
                 if (p.showEpisodesAction) CgCtl(CgAct("≣", tr("Episodes", "الحلقات")) { p.onOpenEpisodes() }, size = 48.dp)
             }
-            LazyRow(Modifier.focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyRow(Modifier.fillMaxWidth().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
                 item { CgButton(tr("Audio", "الصوت") + " · ${p.audioTrackCount}", p.onOpenAudioTracks, icon = "♪") }
                 item { CgButton(tr("Subtitles", "الترجمة") + " · ${p.subtitleTrackCount}", p.onOpenSubtitleTracks, icon = "CC") }
                 item { CgButton(p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks, icon = "HD") }
@@ -314,7 +324,7 @@ internal fun ChatGptLiveChannelList(p: LiveChannelListParams) {
                         modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("%03d".format(p.numberOf(c)), color = CG.Amber, fontSize = 14.sp, fontFamily = CG.Serif, modifier = Modifier.width(40.dp))
+                            Text("${p.numberOf(c)}", color = CG.Blue, fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp))
                             CgLogo(c.name, c.logoUrl, 36.dp)
                             Column(Modifier.weight(1f)) {
                                 Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = CG.Text, fontSize = 15.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -330,7 +340,7 @@ internal fun ChatGptLiveChannelList(p: LiveChannelListParams) {
             }
         }
         focused?.let { c ->
-            Column(Modifier.align(Alignment.BottomStart).padding(40.dp).width(520.dp).background(CG.Bg.copy(alpha = 0.92f)).border(1.dp, CG.Amber, CG.RSmall).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 32.dp).width(360.dp).background(CG.Bg.copy(alpha = 0.92f)).border(1.dp, CG.Amber, CG.RSmall).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 CgHeading(c.name, size = 12)
                 NowNext(c.currentProgram, c.nextProgram)
             }
@@ -369,19 +379,16 @@ internal fun ChatGptLiveChannelInfo(p: LiveChannelInfoParams) {
     }
     Box(Modifier.fillMaxSize()) {
         Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(CG.Bg.copy(alpha = 0.94f)),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f), Color.Black.copy(alpha = 0.9f)))).padding(top = 60.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(Modifier.fillMaxWidth().height(2.dp).background(CG.Amber))
             Column(Modifier.padding(horizontal = 40.dp).padding(bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 ChannelHead(p.channel, null, p.displayChannelNumber, p.resolutionLabel, false)
                 NowNext(p.currentProgram, p.nextProgram, Modifier.weight(1f))
                 Text(cgClock(System.currentTimeMillis()), color = CG.Amber, fontSize = 28.sp, fontFamily = CG.Serif)
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(acts.size) { i -> CgCtl(acts[i], if (i == 0) Modifier.focusRequester(p.focusRequester) else Modifier, size = 46.dp) }
-            }
+            CgActionStrip(acts, size = 48.dp, firstModifier = Modifier.focusRequester(p.focusRequester))
             }
         }
     }
