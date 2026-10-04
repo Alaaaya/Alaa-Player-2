@@ -91,7 +91,7 @@ private fun CgIconKey(glyph: String, label: String, onClick: () -> Unit, active:
             border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, CG.Line), shape = CircleShape)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
             glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(CG.Amber.copy(alpha = 0.6f), 16.dp))
-        ) { Text(glyph, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center)) }
+        ) { CgGlyph(glyph, 24.dp, Modifier.align(Alignment.Center)) }
         Text(label, color = CG.Sub, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -123,8 +123,8 @@ internal fun ChatGptMovieDetail(p: MovieDetailParams) {
                     Meta(m.year, m.duration, m.variantLabel)
                 }
                 Text(m.plot.orEmpty(), color = CG.Sub, fontSize = 15.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, lineHeight = 22.sp)
-                m.director?.takeIf { it.isNotBlank() }?.let { Text(tr("Director", "المخرج") + ": $it", color = CG.Faint, fontSize = 12.sp, maxLines = 1) }
-                m.cast?.takeIf { it.isNotBlank() }?.let { Text(tr("Cast", "الممثلون") + ": $it", color = CG.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                m.director?.takeIf { it.isNotBlank() }?.let { Text(tr("Director", "المخرج") + ": $it", color = CG.Sub, fontSize = 14.sp, maxLines = 1) }
+                m.cast?.takeIf { it.isNotBlank() }?.let { Text(tr("Cast", "الممثلون") + ": $it", color = CG.Sub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 if (p.hasResume) Text(tr("Resume from", "استكمال من") + " " + cgDuration(p.resumePositionMs), color = CG.Blue, fontSize = 13.sp)
             }
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -276,7 +276,7 @@ internal fun ChatGptSearch(p: SearchParams) {
             SearchTab.entries.forEach { t ->
                 val label = when (t.name) { "ALL" -> tAll; "LIVE" -> tLv; "MOVIES" -> tMov; "SERIES" -> tSer; else -> t.name }
                 CgCard(onClick = { p.onTabSelected(t) }, shape = CG.RSmall, container = if (t == p.selectedTab) CG.AmberDeep else Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-                    Text(label, color = if (t == p.selectedTab) CG.Amber else CG.Text, fontSize = 16.sp, fontFamily = CG.Serif, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
+                    Text(label, color = Color.White, fontWeight = if (t == p.selectedTab) FontWeight.Bold else FontWeight.Normal, fontSize = 16.sp, fontFamily = CG.Serif, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
                 }
             }
             CgButton(tr("Build full index", "فهرسة كاملة"), p.onBuildCompleteIndex, Modifier.fillMaxWidth(), icon = "↻")

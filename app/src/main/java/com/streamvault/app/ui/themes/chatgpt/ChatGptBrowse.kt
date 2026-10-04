@@ -89,7 +89,9 @@ internal fun <T> ChatGptLibrary(
                     CgCard(onClick = { cat?.let(p.onCategoryClick) }, onLongClick = { cat?.let(p.onCategoryLongClick) }, shape = CG.RSmall,
                         container = if (sel) CG.AmberDeep else Color.Transparent, modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text((if (locked) "🔒 " else "") + name, color = if (sel) Color.White else CG.Sub, fontSize = 14.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            CgCategoryGlyph(name, locked, if (sel) Color.White else CG.Blue, 18.dp)
+                            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+                            Text(name, color = if (sel) Color.White else CG.Sub, fontSize = 14.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             s.categoryCounts[name]?.let { Text("$it", color = CG.Faint, fontSize = 11.sp) }
                         }
                     }
@@ -224,7 +226,7 @@ private fun CgEpgGrid(p: EpgParams) {
                         CgLogo(c.name, c.logoUrl, rowH - 18.dp)
                         Column(Modifier.weight(1f)) {
                             Text(c.name, color = if (chFocus) CG.Bg else CG.Text, fontSize = 13.sp, fontFamily = CG.Serif, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (c.number > 0) Text("${c.number}", color = if (chFocus) CG.Bg.copy(alpha = 0.6f) else CG.Faint, fontSize = 11.sp)
+                            if (c.number > 0) Text("${c.number}", color = if (chFocus) CG.Bg.copy(alpha = 0.7f) else CG.Sub, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                         if (c.id in p.favoriteChannelIds) Text("★", color = CG.Amber, fontSize = 12.sp)
                     }

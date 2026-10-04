@@ -95,7 +95,7 @@ internal fun ChatGptShell(p: ShellParams) {
                         val active = onRoute(p.currentRoute, d.route)
                         CgCard(onClick = { if (!active) p.onNavigate(d.route) }, container = if (active) CG.AmberDeep else Color.Transparent, modifier = Modifier.fillMaxWidth()) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(d.glyph, color = if (active) Color.White else CG.Sub, fontSize = 17.sp)
+                                CgGlyph(d.glyph, 20.dp, tint = if (active) Color.White else CG.Sub)
                                 Text(tr(d.en, d.ar), color = if (active) Color.White else CG.Sub, fontSize = 15.sp, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
                             }
                         }
@@ -160,7 +160,7 @@ internal fun ChatGptDashboard(p: DashboardParams) {
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 listOf(
-                    CgTile("📺", tr("Live", "مباشر"), tr("${s.stats.liveChannelCount} channels", "${s.stats.liveChannelCount} قناة"), Routes.LIVE_TV, Color(0xFF1E5BFF), Color(0xFF0A2A8A)),
+                    CgTile("📺", tr("Live", "مباشر"), if (s.stats.liveChannelCount > 0) tr("${s.stats.liveChannelCount} channels", "${s.stats.liveChannelCount} قناة") else tr("Watch live TV", "شاهد البث المباشر"), Routes.LIVE_TV, Color(0xFF1E5BFF), Color(0xFF0A2A8A)),
                     CgTile("🎞", tr("Movies", "أفلام"), tr("Latest movies", "أحدث الأفلام"), Routes.MOVIES, Color(0xFFE0284F), Color(0xFF6E0A26)),
                     CgTile("🎬", tr("Series", "مسلسلات"), tr("Top series", "أشهر المسلسلات"), Routes.SERIES, Color(0xFF8C3BFF), Color(0xFF3B0E8A)),
                     CgTile("☆", tr("Favorites", "المفضلة"), tr("My list", "قائمتي الخاصة"), Routes.FAVORITES, Color(0xFF14B88A), Color(0xFF07513F))
@@ -169,7 +169,7 @@ internal fun ChatGptDashboard(p: DashboardParams) {
                         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(t.a, t.b))))
                         Box(Modifier.fillMaxWidth().height(50.dp).background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.18f), Color.Transparent))))
                         Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                            Text(t.glyph, fontSize = 30.sp, color = Color.White)
+                            CgGlyph(t.glyph, 34.dp, tint = Color.White)
                             Spacer(Modifier.height(6.dp))
                             Text(t.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                             Text(t.sub, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1)
@@ -250,7 +250,9 @@ internal fun ChatGptLiveTv(p: LiveTvParams) {
                             .cgRight { p.onRequestChannelsFromCategory() }
                     ) {
                         Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text((if (p.isCategoryLocked(cat)) "🔒 " else "▢  ") + cat.name, color = if (sel) Color.White else CG.Sub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            CgCategoryGlyph(cat.name, p.isCategoryLocked(cat), if (sel) Color.White else CG.Blue, 18.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text(cat.name, color = if (sel) Color.White else CG.Sub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (cat.count > 0) Text("${cat.count}", color = if (sel) Color.White else CG.Faint, fontSize = 12.sp)
                         }
                     }
@@ -287,8 +289,8 @@ internal fun ChatGptLiveTv(p: LiveTvParams) {
                         Row(Modifier.align(Alignment.TopEnd).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (!locked) c.qualityBadge()?.let { CgBadge(it, Color.White, filled = false) }
                         }
-                        if (c.isFavorite) Text("♥", color = Color(0xFFFF4D7A), fontSize = 13.sp, modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
-                        if (c.number > 0) Text("%03d".format(c.number), color = CG.Faint, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
+                        if (c.isFavorite) CgGlyph("♥", 16.dp, tint = Color(0xFFFF4D7A), modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
+                        if (c.number > 0) Text("${c.number}", color = CG.Sub, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 6.dp).background(Color.Black.copy(alpha = 0.35f), CG.RSmall).padding(horizontal = 6.dp, vertical = 1.dp))
                     }
                 }
             }
