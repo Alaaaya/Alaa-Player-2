@@ -430,20 +430,22 @@ internal fun ChatGpt2Favorites(p: FavoritesParams) {
         }
         val sections = p.sections.filter { it.items.isNotEmpty() }
         if (sections.isEmpty()) Cg2EmptyState("♡", tr("Nothing saved yet", "لا يوجد شيء في المفضلة"), tr("Long-press any title or channel to add it", "اضغط مطولاً على أي فيلم أو قناة لإضافتها"))
-        else LazyVerticalGrid(GridCells.Fixed(5), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(4.dp, 4.dp, 4.dp, 40.dp)) {
+        else LazyVerticalGrid(GridCells.Fixed(4), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(4.dp, 4.dp, 4.dp, 40.dp)) {
             sections.forEach { section ->
                 item(key = "h${section.key}", span = { GridItemSpan(maxLineSpan) }) { Cg2SectionTitle(section.title + "  (${section.items.size})") }
                 items(section.items, key = { "${section.key}${it.favorite.contentType}${it.favorite.contentId}" }) { f ->
                     CgCard(onClick = { p.onItemClick(f) }, onLongClick = { p.onItemLongClick(f) }, container = Color(0xFF15151A), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
-                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                          Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF7A0A12), Color(0xFF2A0508)))), contentAlignment = Alignment.Center) {
                                 CgGlyph(favGlyph(f.favorite.contentType), 24.dp, tint = Color.White)
                             }
-                            Column(Modifier.weight(1f)) {
+                            CgGlyph("♥", 18.dp, tint = CG.Amber)
+                          }
+                            Column(Modifier.fillMaxWidth()) {
                                 Text(f.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 f.subtitle?.let { Text(it, color = CG.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
-                            CgGlyph("♥", 18.dp, tint = CG.Amber)
                         }
                     }
                 }
