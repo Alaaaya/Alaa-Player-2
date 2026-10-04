@@ -69,7 +69,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.DARK_GLASS,
                 AppHomeTheme.MAGAZINE_MEDIA,
                 AppHomeTheme.NEXT_GEN_TV,
-                AppHomeTheme.AURORA_LOUNGE
+                AppHomeTheme.AURORA_LOUNGE,
+                AppHomeTheme.CHAT_GPT
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -132,9 +133,26 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.DARK_GLASS,
                 AppHomeTheme.MAGAZINE_MEDIA,
                 AppHomeTheme.NEXT_GEN_TV,
-                AppHomeTheme.AURORA_LOUNGE
+                AppHomeTheme.AURORA_LOUNGE,
+                AppHomeTheme.CHAT_GPT
             )
             .inOrder()
+    }
+
+    @Test
+    fun `chatgpt persists and resolves to its dedicated blue side rail presentation`() {
+        val theme = AppHomeTheme.CHAT_GPT
+        val presentation = ThemePresentationRegistry.resolve(theme)
+
+        assertThat(AppHomeTheme.fromStorage("chatgpt")).isEqualTo(theme)
+        assertThat(AppHomeTheme.fromStorage("CHATGPT")).isEqualTo(theme)
+        assertThat(theme.isFixedFoundation).isFalse()
+        assertThat(ThemeCatalog.entry(theme).title).isEqualTo("ChatGPT")
+        assertThat(presentation.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(presentation.surfaces.accent).isEqualTo(androidx.compose.ui.graphics.Color(0xFF2F7BFF))
+        assertThat(presentation.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(theme))
+            .isSameInstanceAs(com.streamvault.app.ui.themes.chatgpt.ChatGptUi)
     }
 
     @Test

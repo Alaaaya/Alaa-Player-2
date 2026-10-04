@@ -29,7 +29,8 @@ enum class AppHomeTheme(
     DARK_GLASS("dark_glass", isFixedFoundation = false),
     MAGAZINE_MEDIA("magazine_media", isFixedFoundation = false),
     NEXT_GEN_TV("next_gen_tv", isFixedFoundation = false),
-    AURORA_LOUNGE("aurora_lounge", isFixedFoundation = false);
+    AURORA_LOUNGE("aurora_lounge", isFixedFoundation = false),
+    CHAT_GPT("chatgpt", isFixedFoundation = false);
 
     companion object {
         val fixedFoundations: Set<AppHomeTheme> = entries.filterTo(linkedSetOf()) { it.isFixedFoundation }
