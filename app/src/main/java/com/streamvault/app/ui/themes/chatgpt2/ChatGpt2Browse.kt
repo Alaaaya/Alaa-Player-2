@@ -1,5 +1,7 @@
 package com.streamvault.app.ui.themes.chatgpt2
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -72,7 +74,8 @@ internal fun <T> ChatGpt2Library(
     rating: (T) -> Float = { 0f },
     backdrop: (T) -> String? = { null },
     plot: (T) -> String? = { null },
-    isMovies: Boolean = true
+    isMovies: Boolean = true,
+    quality: (T) -> String? = { null }
 ) {
     val s = p.uiState
     val nav = LocalCg2Navigate.current
@@ -120,7 +123,7 @@ internal fun <T> ChatGpt2Library(
                         Text(hero?.let(title) ?: tr(kindEn, kindAr), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             hero?.let { Cg2Rating(rating(it), 14) }
-                            Cg2Tag("4K", bg = Color(0xFFFFC107), fg = Color.Black); Cg2Tag("HDR", fg = Color.White, outlined = true)
+                            hero?.let { cg2QualityTags(quality(it)).forEach { t -> t() } }
                             hero?.let(caption)?.takeIf { it.isNotBlank() }?.let { Text(it, color = CG.Sub, fontSize = 13.sp, maxLines = 1) }
                         }
                         hero?.let(plot)?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -153,7 +156,7 @@ internal fun <T> ChatGpt2Library(
                             }
                             val locked = p.isItemLocked(item)
                             Cg2GridPoster(title(item), if (locked) null else image(item), caption(item), rating(item), { p.onItemClick(item) }, { p.onItemLongClick(item) },
-                                Modifier.onFocusChanged { if (it.hasFocus) focusedItem = item })
+                                quality = if (locked) null else quality(item), modifier = Modifier.onFocusChanged { if (it.hasFocus) focusedItem = item })
                         }
                     }
                 }
@@ -163,13 +166,13 @@ internal fun <T> ChatGpt2Library(
 }
 
 @Composable
-internal fun Cg2GridPoster(title: String, image: String?, sub: String?, rating: Float, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun Cg2GridPoster(title: String, image: String?, sub: String?, rating: Float, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier, quality: String? = null) {
     CgCard(onClick = onClick, onLongClick = onLongClick, container = Color(0xFF15151A), zoom = 1.06f, shape = RoundedCornerShape(10.dp), modifier = modifier) {
         Column {
             Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(CG.Raised)) {
                 if (image != null) AsyncImage(image, title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Text(title.take(1), color = CG.Amber, fontSize = 34.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
-                Box(Modifier.align(Alignment.TopStart).padding(6.dp)) { Cg2Tag("HD") }
+                cg2QualityTags(quality).takeIf { it.isNotEmpty() }?.let { tags -> Row(Modifier.align(Alignment.TopStart).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { tags.forEach { it() } } }
             }
             Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -186,24 +189,31 @@ internal fun Cg2GridPoster(title: String, image: String?, sub: String?, rating: 
 internal fun ChatGpt2Epg(p: EpgParams, modifier: Modifier) {
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            CgHeading(tr("Programme guide", "دليل البرامج"), size = 13, modifier = Modifier.padding(end = 14.dp))
-            CgTab(p.selectedCategoryName, true, { p.onGuideInteract(); p.onOpenCategoryPicker() })
-            CgTab(tr("Now", "الآن"), false, { p.onGuideInteract(); p.onJumpToNow() })
-            CgTab(tr("Search", "بحث"), false, { p.onGuideInteract(); p.onOpenSearch() })
-            CgTab(tr("Options", "خيارات"), false, { p.onGuideInteract(); p.onOpenOptions() })
+            CgGlyph("guide", 28.dp, tint = CG.Amber); Spacer(Modifier.width(10.dp))
+            Text(tr("Programme guide", "دليل البرامج"), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(end = 18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Cg2Pill(p.selectedCategoryName, true) { p.onGuideInteract(); p.onOpenCategoryPicker() }
+                Cg2Pill(tr("Now", "الآن"), false) { p.onGuideInteract(); p.onJumpToNow() }
+                Cg2Pill(tr("Search", "بحث"), false) { p.onGuideInteract(); p.onOpenSearch() }
+                Cg2Pill(tr("Options", "خيارات"), false) { p.onGuideInteract(); p.onOpenOptions() }
+            }
             Spacer(Modifier.weight(1f))
             if (p.isRefreshing) CgBadge(tr("Updating", "تحديث"), CG.Blue)
             Text("  ${p.channels.size} " + tr("channels", "قناة"), color = CG.Faint, fontSize = 12.sp)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { CgEpgGrid(p) }
-        Row(Modifier.fillMaxWidth().height(150.dp).background(Color(0xFF0F0C08), CG.R).border(1.dp, CG.Line, CG.R).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(14.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF2A0508), Color(0xFF141418)))).border(1.dp, Color(0x66E50914), RoundedCornerShape(14.dp)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Box(Modifier.aspectRatio(16f / 9f).fillMaxHeight().background(Color.Black).border(1.dp, CG.Line)) {
                 p.previewPlayerEngine?.let { PlayerRenderView(it, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize()) }
                 if (p.isPreviewLoading) Text(tr("Tuning…", "جار الضبط…"), color = CG.Sub, fontFamily = CG.Serif, modifier = Modifier.align(Alignment.Center))
             }
             val prog = p.focusedProgram
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                CgHeading(p.focusedChannel?.name ?: p.selectedCategoryName, size = 11)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(p.focusedChannel?.name ?: p.selectedCategoryName, color = CG.Amber, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    val n = System.currentTimeMillis()
+                    if (prog != null && prog.startTime <= n && prog.endTime > n) Cg2Tag("LIVE")
+                }
                 Text(prog?.title ?: tr("Select a programme", "اختر برنامجاً"), color = CG.Text, fontSize = 24.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 prog?.let {
                     val now = System.currentTimeMillis()
@@ -263,8 +273,8 @@ private fun CgEpgGrid(p: EpgParams) {
                     ) {
                         CgLogo(c.name, c.logoUrl, rowH - 18.dp)
                         Column(Modifier.weight(1f)) {
-                            Text(c.name, color = if (chFocus) CG.Bg else CG.Text, fontSize = 13.sp, fontFamily = CG.Serif, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (c.number > 0) Text("${c.number}", color = if (chFocus) CG.Bg.copy(alpha = 0.7f) else CG.Sub, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(c.name, color = if (chFocus) Color.White else CG.Text, fontSize = 13.sp, fontFamily = CG.Serif, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (c.number > 0) Text("${c.number}", color = if (chFocus) Color.White.copy(alpha = 0.8f) else CG.Sub, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
                         if (c.id in p.favoriteChannelIds) Text("★", color = CG.Amber, fontSize = 12.sp)
                     }
@@ -282,15 +292,15 @@ private fun CgEpgGrid(p: EpgParams) {
                                 val live = prog.startTime <= now && prog.endTime > now
                                 Box(
                                     Modifier.padding(start = x).width(w).fillMaxHeight().clip(CG.RSmall)
-                                        .background(if (f) CG.Amber else if (live) CG.AmberDeep else CG.Raised)
+                                        .background(if (f) CG.Amber else if (live) Color(0xFF3A0A0E) else CG.Raised)
                                         .border(1.dp, if (live && !f) CG.Amber.copy(alpha = 0.6f) else CG.Line.copy(alpha = 0.6f), CG.RSmall)
                                         .onFocusChanged { f = it.isFocused; if (it.isFocused) p.onProgramFocused(c, prog, first) }
                                         .combinedClickable(onClick = { p.onProgramClick(c, prog) }, onLongClick = { p.onChannelLongClick(c, prog) })
                                         .padding(horizontal = 10.dp)
                                 ) {
                                     Column(Modifier.align(Alignment.CenterStart)) {
-                                        Text(prog.title, color = if (f) CG.Bg else CG.Text, fontSize = 13.sp, fontFamily = CG.Serif, fontWeight = if (live) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (rowH >= 58.dp) Text("${cgClock(prog.startTime)} – ${cgClock(prog.endTime)}", color = if (f) CG.Bg.copy(alpha = 0.6f) else CG.Faint, fontSize = 11.sp, maxLines = 1)
+                                        Text(prog.title, color = if (f) Color.White else CG.Text, fontSize = 13.sp, fontFamily = CG.Serif, fontWeight = if (live) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (rowH >= 58.dp) Text("${cgClock(prog.startTime)} – ${cgClock(prog.endTime)}", color = if (f) Color.White.copy(alpha = 0.75f) else CG.Faint, fontSize = 11.sp, maxLines = 1)
                                     }
                                     if (live && !f) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(prog.progressFraction(now)).height(3.dp).background(CG.Amber))
                                 }

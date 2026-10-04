@@ -1,5 +1,8 @@
 package com.streamvault.app.ui.themes.chatgpt2
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -158,8 +161,10 @@ private fun CgLive(p: PlayerOverlayParams) {
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.35f), Color.Transparent))).padding(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { ChannelHead(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0) }
-                if (rec) CgBadge("● REC", CG.Live, filled = true)
-                Text("  " + cgClock(System.currentTimeMillis()), color = CG.Amber, fontSize = 30.sp, fontFamily = CG.Serif)
+                if (rec) Cg2Tag("REC") else Cg2Tag("LIVE")
+                Spacer(Modifier.width(16.dp))
+                Text(cgClock(System.currentTimeMillis()), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(16.dp)); Cg2Logo(compact = true)
             }
         }
         // bottom: translucent gradient with now/next + paged key strip
@@ -271,7 +276,7 @@ private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, on
         add(Triple(tr("Cast", "البث"), if (p.isCastConnected) tr("Connected", "متصل") else "", if (p.isCastConnected) p.onStopCasting else p.onCast))
     }
     Column(
-        Modifier.align(Alignment.CenterStart).fillMaxHeight().width(400.dp).background(CG.Bg.copy(alpha = 0.97f)).border(1.dp, CG.Amber).padding(20.dp),
+        Modifier.align(Alignment.CenterStart).fillMaxHeight().width(400.dp).background(Brush.horizontalGradient(listOf(Color(0xF7140406), Color(0xF70A0A0C)))).border(1.dp, Color(0x66E50914)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -285,7 +290,7 @@ private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, on
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(label, color = CG.Text, fontSize = 15.sp, fontFamily = CG.Serif, modifier = Modifier.weight(1f), maxLines = 1)
                         Text(value, color = CG.Amber, fontSize = 14.sp, maxLines = 1)
-                        Text("  ›", color = CG.Faint, fontSize = 16.sp)
+                        CgGlyph("‹", 16.dp, tint = CG.Faint)
                     }
                 }
             }
@@ -301,7 +306,7 @@ internal fun ChatGpt2LiveChannelList(p: LiveChannelListParams) {
     var focused by remember(p.currentChannelId) { mutableStateOf(p.channels.getOrNull(idx)) }
     LaunchedEffect(Unit) { runCatching { p.focusRequester.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f), Color.Black.copy(alpha = 0.92f))))) {
-        Column(Modifier.align(Alignment.TopEnd).fillMaxHeight().width(540.dp).background(CG.Bg.copy(alpha = 0.95f)).border(1.dp, CG.Line).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.align(Alignment.TopEnd).fillMaxHeight().width(540.dp).background(Brush.verticalGradient(listOf(Color(0xF2140406), Color(0xF20A0A0C)))).border(1.dp, Color(0x55E50914)).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     CgHeading(tr("Channel list", "قائمة القنوات"), size = 11)
@@ -320,7 +325,7 @@ internal fun ChatGpt2LiveChannelList(p: LiveChannelListParams) {
                 items(p.channels, key = { it.id }) { c ->
                     val cur = c.id == p.currentChannelId
                     CgCard(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = CG.RSmall, container = if (cur) CG.AmberDeep else Color.Transparent,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = CG.RSmall, container = if (cur) Color(0xFF3A0A0E) else Color.Transparent,
                         modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -330,17 +335,17 @@ internal fun ChatGpt2LiveChannelList(p: LiveChannelListParams) {
                                 Text(if (c.id == p.movingChannelId) "⇅  ${c.name}" else c.name, color = CG.Text, fontSize = 15.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 c.currentProgram?.let { Text(it.title, color = CG.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
-                            if (cur) CgBadge(tr("Now", "الآن"), CG.Amber, filled = true)
-                            c.qualityBadge()?.let { CgBadge(it, CG.Text) }
+                            if (cur) Cg2Tag(tr("Now", "الآن"))
+                            c.qualityBadge()?.let { Cg2Tag(it, fg = Color.White, outlined = true) }
                             if (c.catchUpSupported) CgBadge("⟲ " + tr("Archive", "أرشيف"), CG.Blue)
-                            Text(if (c.isFavorite) "★" else "", color = CG.Amber, fontSize = 14.sp)
+                            if (c.isFavorite) CgGlyph("♥", 16.dp, tint = CG.Amber)
                         }
                     }
                 }
             }
         }
         focused?.let { c ->
-            Column(Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 32.dp).width(360.dp).background(CG.Bg.copy(alpha = 0.92f)).border(1.dp, CG.Amber, CG.RSmall).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 24.dp, bottom = 32.dp).width(360.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xEE141418)).border(1.dp, CG.Amber, RoundedCornerShape(14.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 CgHeading(c.name, size = 12)
                 NowNext(c.currentProgram, c.nextProgram)
             }

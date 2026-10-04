@@ -183,3 +183,24 @@ internal fun Cg2SectionTitle(text: String, modifier: Modifier = Modifier, onShow
         }
     }
 }
+
+/** Active server name/health, published by the dashboard (which owns provider state) for the shell card. */
+internal object Cg2Server {
+    var name by androidx.compose.runtime.mutableStateOf("")
+    var healthy by androidx.compose.runtime.mutableStateOf<Boolean?>(null)
+}
+
+/** Whether the saved-library route was opened from "المشاهدة الأخيرة" (shows the real history view). */
+internal object Cg2Recent {
+    var active by androidx.compose.runtime.mutableStateOf(false)
+}
+
+internal fun cg2QualityLabel(label: String?): String? {
+    val l = label?.uppercase() ?: return null
+    return when {
+        "4K" in l || "UHD" in l || "2160" in l -> "4K"
+        "FHD" in l || "1080" in l -> "FHD"
+        Regex("\\bHD\\b").containsMatchIn(l) || "720" in l -> "HD"
+        else -> null
+    }
+}

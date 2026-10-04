@@ -7,6 +7,7 @@ import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.automirrored.outlined.VolumeOff
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -79,6 +80,17 @@ internal fun cgIcon(glyph: String): ImageVector? = when (glyph) {
     "clock" -> Icons.Outlined.Schedule
     "apps" -> Icons.Outlined.GridView
     "star" -> Icons.Outlined.Star
+    "filter" -> Icons.Outlined.Tune
+    "lock" -> Icons.Outlined.Lock
+    "theme" -> Icons.Outlined.Palette
+    "lang" -> Icons.Outlined.Translate
+    "rec" -> Icons.Outlined.FiberManualRecord
+    "backup" -> Icons.Outlined.Backup
+    "guide" -> Icons.Outlined.CalendarViewMonth
+    "refresh" -> Icons.Outlined.Refresh
+    "!" -> Icons.Outlined.ErrorOutline
+    "‹" -> Icons.Outlined.ChevronLeft
+    "⌫" -> Icons.AutoMirrored.Outlined.Backspace
     else -> null
 }
 
