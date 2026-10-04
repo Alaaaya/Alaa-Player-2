@@ -70,7 +70,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.MAGAZINE_MEDIA,
                 AppHomeTheme.NEXT_GEN_TV,
                 AppHomeTheme.AURORA_LOUNGE,
-                AppHomeTheme.CHAT_GPT
+                AppHomeTheme.CHAT_GPT,
+                AppHomeTheme.CHAT_GPT_2
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -134,7 +135,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.MAGAZINE_MEDIA,
                 AppHomeTheme.NEXT_GEN_TV,
                 AppHomeTheme.AURORA_LOUNGE,
-                AppHomeTheme.CHAT_GPT
+                AppHomeTheme.CHAT_GPT,
+                AppHomeTheme.CHAT_GPT_2
             )
             .inOrder()
     }
