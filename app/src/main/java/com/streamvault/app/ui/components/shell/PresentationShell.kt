@@ -23,7 +23,8 @@ internal val PresentationShellThemes: Set<AppHomeTheme> = setOf(
     AppHomeTheme.DARK_GLASS,
     AppHomeTheme.MAGAZINE_MEDIA,
     AppHomeTheme.NEXT_GEN_TV,
-    AppHomeTheme.AURORA_LOUNGE
+    AppHomeTheme.AURORA_LOUNGE,
+    AppHomeTheme.CHAT_GPT
 )
 
 /** Per-theme canvas treatment built from palette tokens, so each theme reads distinctly. */
