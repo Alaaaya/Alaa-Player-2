@@ -116,7 +116,12 @@ internal fun ChatGpt2Shell(p: ShellParams) {
                         cg2Destinations.forEach { d ->
                             val active = d.route == Routes.HOME && onRoute(p.currentRoute, Routes.HOME) || d.route != Routes.HOME && p.currentRoute == d.route ||
                                 (d.route == Routes.LIVE_TV || d.route == Routes.MOVIES || d.route == Routes.SERIES || d.route == Routes.SETTINGS || d.route == Routes.SEARCH || d.route == Routes.EPG) && onRoute(p.currentRoute, d.route)
-                            Cg2NavItem(d, active, expanded) { if (!active) p.onNavigate(d.route.substringBefore("?recent").let { r -> if (d.route.endsWith("?recent")) Routes.FAVORITES else r }) }
+                            val isRecent = d.route.endsWith("?recent")
+                            val active2 = if (d.route == Routes.FAVORITES || isRecent) onRoute(p.currentRoute, Routes.FAVORITES) && Cg2Recent.active == isRecent else active
+                            Cg2NavItem(d, active2, expanded) {
+                                Cg2Recent.active = isRecent
+                                if (!onRoute(p.currentRoute, Routes.FAVORITES) || !(d.route == Routes.FAVORITES || isRecent)) p.onNavigate(if (isRecent) Routes.FAVORITES else d.route)
+                            }
                         }
                         Spacer(Modifier.weight(1f))
                         if (expanded) Row(
@@ -126,9 +131,9 @@ internal fun ChatGpt2Shell(p: ShellParams) {
                             CgGlyph("server", 18.dp, tint = CG.Sub)
                             Column(Modifier.weight(1f)) {
                                 Text(tr("Current server", "السيرفر الحالي"), color = CG.Sub, fontSize = 11.sp)
-                                Text("Server 1", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(Cg2Server.name.ifBlank { tr("Not connected", "غير متصل") }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF22C55E)))
+                            Cg2Server.healthy?.let { ok -> Box(Modifier.size(10.dp).clip(CircleShape).background(if (ok) Color(0xFF22C55E) else Color(0xFFEF4444))) }
                         }
                     }
                 }
@@ -177,6 +182,10 @@ private fun Cg2NavItem(d: Cg2Dest, active: Boolean, expanded: Boolean, onClick: 
 @Composable
 internal fun ChatGpt2Dashboard(p: DashboardParams) {
     val s = p.uiState
+    LaunchedEffect(s.provider?.id, s.providerHealth.status) {
+        Cg2Server.name = s.provider?.name.orEmpty()
+        Cg2Server.healthy = when (s.providerHealth.status.name) { "ACTIVE" -> true; "ERROR", "EXPIRED", "DISABLED" -> false; else -> null }
+    }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val heroes = remember(s.recommendedMovies, s.recentMovies, s.recentSeries) {
@@ -206,7 +215,7 @@ internal fun ChatGpt2Dashboard(p: DashboardParams) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     hero?.genre?.split(",", "/", "|")?.map { it.trim() }?.filter { it.isNotEmpty() }?.take(3)?.joinToString("  ·  ")?.let { Text(it, color = CG.Sub, fontSize = 14.sp, maxLines = 1) }
                     hero?.rating?.let { Cg2Rating(it, 14) }
-                    Cg2Tag("HD")
+                    hero?.title?.let { t -> cg2QualityTags(t).forEach { it() } }
                     hero?.year?.let { Text(it, color = Color.White, fontSize = 14.sp) }
                 }
                 Text(hero?.plot?.takeIf { it.isNotBlank() } ?: s.feature.summary, color = Color.White.copy(alpha = 0.88f), fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 22.sp)
@@ -243,7 +252,7 @@ internal fun ChatGpt2Dashboard(p: DashboardParams) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val movies = (s.recentMovies.ifEmpty { s.recommendedMovies }).take(6)
                     if (movies.isEmpty()) Text(tr("No movies yet", "لا توجد أفلام بعد"), color = CG.Faint, fontSize = 13.sp)
-                    movies.forEachIndexed { i, m -> Cg2SmallPoster(m.name, m.posterUrl, m.year ?: "", if (i == 0) "HD" else null, Modifier.weight(1f)) { p.onMovieClick(m) } }
+                    movies.forEachIndexed { i, m -> Cg2SmallPoster(m.name, m.posterUrl, m.year ?: "", cg2QualityLabel(m.variantLabel ?: m.name), Modifier.weight(1f)) { p.onMovieClick(m) } }
                     repeat((6 - movies.size).coerceAtLeast(0).let { if (movies.isEmpty()) 0 else it }) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -424,7 +433,7 @@ internal fun ChatGpt2LiveTv(p: LiveTvParams) {
                                     val prog = c.currentProgram
                                     Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(prog?.title ?: "—", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                        if (prog != null && i == 0 || c.id == pc?.id && prog != null) Cg2Tag("LIVE")
+                                        if (prog != null && prog.endTime > System.currentTimeMillis() && prog.startTime <= System.currentTimeMillis()) Cg2Tag("LIVE")
                                     }
                                     Text(prog?.takeIf { it.endTime > 0 }?.let { "${cgClock(it.startTime)} - ${cgClock(it.endTime)}" } ?: "", color = Color.White, fontSize = 13.sp, maxLines = 1, modifier = Modifier.width(110.dp))
                                     (if (locked) null else c.qualityBadge())?.let { Cg2Tag(it, fg = Color.White, outlined = true) } ?: Spacer(Modifier.width(30.dp))

@@ -12,9 +12,9 @@ object ChatGpt2Ui : BespokeThemeUi {
     @Composable override fun LiveTv(p: LiveTvParams) = ChatGpt2LiveTv(p)
     @Composable override fun Epg(p: EpgParams, modifier: Modifier) = ChatGpt2Epg(p, modifier)
     @Composable override fun Movies(p: LibraryParams<Movie>) =
-        ChatGpt2Library("Movies", "الأفلام", p, { it.id }, { it.name }, { it.posterUrl }, { it.year }, { it.rating }, { it.backdropUrl }, { it.plot }, true)
+        ChatGpt2Library("Movies", "الأفلام", p, { it.id }, { it.name }, { it.posterUrl }, { it.year }, { it.rating }, { it.backdropUrl }, { it.plot }, true, { listOfNotNull(it.variantLabel, it.name, it.containerExtension).joinToString(" ") })
     @Composable override fun Series(p: LibraryParams<Series>) =
-        ChatGpt2Library("Series", "المسلسلات", p, { it.id }, { it.name }, { it.posterUrl }, { it.genre?.substringBefore(",") }, { it.rating }, { it.backdropUrl }, { it.plot }, false)
+        ChatGpt2Library("Series", "المسلسلات", p, { it.id }, { it.name }, { it.posterUrl }, { it.genre?.substringBefore(",") }, { it.rating }, { it.backdropUrl }, { it.plot }, false, { it.name })
     @Composable override fun MovieDetail(p: MovieDetailParams) = ChatGpt2MovieDetail(p)
     @Composable override fun SeriesDetail(p: SeriesDetailParams) = ChatGpt2SeriesDetail(p)
     @Composable override fun Search(p: SearchParams) = ChatGpt2Search(p)
