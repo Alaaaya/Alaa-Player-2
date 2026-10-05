@@ -298,9 +298,9 @@ private fun SbsLiveColumns(p: LiveTvParams) {
     var focused by remember { mutableStateOf<Channel?>(null) }
     val foc = focused ?: p.previewChannel ?: p.channels.firstOrNull()
     val selCat = p.categories.firstOrNull { it.id == p.selectedCategoryId }
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         // column 1: categories with icons + counts
-        Column(Modifier.width(210.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
+        Column(Modifier.width(150.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SbIcon(Icons.Outlined.LiveTv, Color.White, 24.dp)
                 Text(tr("Categories", "الفئات"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -325,24 +325,23 @@ private fun SbsLiveColumns(p: LiveTvParams) {
             }
         }
         // column 2: channel list
-        Column(Modifier.weight(0.95f).fillMaxHeight()) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
             Column(Modifier.fillMaxSize().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(selCat?.name ?: tr("All channels", "جميع القنوات"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("${p.channels.size}", color = SBX.Faint, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
-                    Row(Modifier.width(150.dp).height(42.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.width(96.dp).height(38.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SbIcon(Icons.Outlined.Search, SBX.Sub, 18.dp)
                         Box(Modifier.weight(1f)) {
-                            if (p.channelSearchQuery.isEmpty()) Text(tr("Search channels…", "بحث عن القنوات…"), color = SBX.Faint, fontSize = 14.sp)
+                            
                             BasicTextField(p.channelSearchQuery, p.onChannelSearchChange, singleLine = true, textStyle = TextStyle(color = Color.White, fontSize = 15.sp), cursorBrush = SolidColor(SBX.Red), modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Text("#", color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(36.dp))
+                    Text("#", color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(26.dp))
                     Text(tr("Channel", "القناة"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(tr("Time", "الوقت"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(96.dp))
                 }
                 when {
                     p.channels.isEmpty() && p.categories.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { repeat(7) { SbSkeleton(Modifier.fillMaxWidth().height(50.dp)) } }
@@ -353,22 +352,21 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                                 color = if (p.movingChannelId == c.id) SBX.RedSoft else Color.Transparent, focusedColor = Color(0x40E50914), scale = 1.02f,
                                 onLongClick = { p.onChannelLongClick(c) }, onFocus = { if (it) { focused = c; p.onChannelFocused(c) } }) { f ->
                                 Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${if (c.number > 0) c.number else i + 1}", color = SBX.Sub, fontSize = 15.sp, modifier = Modifier.width(36.dp))
+                                    Text("${if (c.number > 0) c.number else i + 1}", color = SBX.Sub, fontSize = 14.sp, modifier = Modifier.width(26.dp))
                                     Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Box(Modifier.size(50.dp, 34.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x14FFFFFF)), contentAlignment = Alignment.Center) {
+                                        Box(Modifier.size(40.dp, 30.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x14FFFFFF)), contentAlignment = Alignment.Center) {
                                             c.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(3.dp)) } ?: Text(c.name.take(2), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                         Column(Modifier.weight(1f)) {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                 Text(c.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                                if (f || c.id == foc?.id) SbTag("LIVE", SBX.Red)
+                                                
                                             }
-                                            Text(c.currentProgram?.title.orEmpty(), color = SBX.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(listOfNotNull(c.currentProgram?.let { sbTime(it.startTime) }, c.currentProgram?.title).joinToString("  "), color = SBX.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
-                                    Row(Modifier.width(96.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(c.currentProgram?.let { sbTime(it.startTime) } ?: "--", color = SBX.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                                        SbIcon(if (c.isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (c.isFavorite) SBX.Red else SBX.Sub, 20.dp)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (c.isFavorite) SbIcon(Icons.Outlined.Favorite, SBX.Red, 16.dp)
                                     }
                                 }
                                 if (f) Box(Modifier.fillMaxSize().border(1.5.dp, SBX.Red, RoundedCornerShape(10.dp)))
@@ -379,7 +377,7 @@ private fun SbsLiveColumns(p: LiveTvParams) {
             }
         }
         // column 3: big preview (~45%) + info + actions
-        Column(Modifier.weight(1.35f).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1.4f).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SbFocus({ foc?.let(p.onChannelClick) }, Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(p.previewFocusRequester), shape = RoundedCornerShape(12.dp), color = Color.Black, focusedColor = Color.Black, scale = 1.02f) {
                 val eng = p.previewPlayerEngine
                 if (eng != null && p.previewChannel != null) PlayerRenderView(eng, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
