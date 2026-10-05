@@ -69,7 +69,9 @@ internal fun UvGlassPlayer(p: PlayerOverlayParams) {
 
         // TOP BAR
         Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 36.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
-            CpLogo(compact = true)
+            UvLogo(size = 26)
+            Spacer(Modifier.width(8.dp))
+            Text("Universe", color = Color.White, fontSize = 20.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif)
             Box(Modifier.padding(horizontal = 14.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.35f)))
             Text(if (live) tr("Live TV", "البث المباشر") else tr("Premium Movies & Series", "أفلام ومسلسلات مميزة"), color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp)
             Spacer(Modifier.weight(1f))
@@ -82,10 +84,10 @@ internal fun UvGlassPlayer(p: PlayerOverlayParams) {
 
         // BOTTOM
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 36.dp).padding(bottom = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoCard(p, live, Modifier.fillMaxWidth(0.53f))
+            InfoCard(p, live, Modifier.fillMaxWidth())
             if (!live && p.duration > 0) SeekBar(p, ::seekBy)
             else if (live) LiveProgress(p)
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp).focusRequester(p.quickActionsFocusRequester), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(28.dp)).background(Brush.horizontalGradient(listOf(Color(0xCC0A1440), Color(0xE6122A78), Color(0xCC0A1440)))).border(1.dp, Color(0x335AA2FF), RoundedCornerShape(28.dp)).padding(horizontal = 18.dp, vertical = 6.dp).focusRequester(p.quickActionsFocusRequester), verticalAlignment = Alignment.CenterVertically) {
                 LabeledAction(Icons.Outlined.Settings, tr("Quality", "الجودة"), p.resolutionBadgeLabel ?: "${p.videoQualityCount}", p.onOpenVideoTracks)
                 LabeledAction(Icons.AutoMirrored.Outlined.VolumeUp, tr("Audio", "الصوت"), if (p.isMuted) tr("Muted", "مكتوم") else "${p.audioTrackCount} " + tr("tracks", "مسارات"), p.onOpenAudioTracks)
                 LabeledAction(Icons.Outlined.ClosedCaption, tr("Subtitles", "الترجمة"), if (p.subtitleTrackCount > 0) "${p.subtitleTrackCount}" else tr("Off", "معطلة"), p.onOpenSubtitleTracks)
@@ -116,17 +118,17 @@ private fun InfoCard(p: PlayerOverlayParams, live: Boolean, modifier: Modifier) 
     val sub = if (live) p.currentProgram?.title else p.episodeLine
     val desc = p.currentProgram?.description?.takeIf { it.isNotBlank() }
     Row(
-        modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xB30A1438)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(16.dp),
+        modifier.padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.width(70.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF14224E)), contentAlignment = Alignment.Center) {
+        Box(Modifier.width(92.dp).height(92.dp).clip(CircleShape).background(Color(0xFF14224E)).border(2.dp, Cyan, CircleShape), contentAlignment = Alignment.Center) {
             val img = ch?.logoUrl
             if (img != null) AsyncImage(img, null, contentScale = if (live) ContentScale.Fit else ContentScale.Crop, modifier = Modifier.fillMaxSize().padding(if (live) 8.dp else 0.dp))
             else Text(title.take(1), color = Cyan, fontSize = 34.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(title, color = Color.White, fontSize = 40.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (live) LiveDot()
                 qualityBadges(p.resolutionBadgeLabel ?: ch?.qualityBadge()).forEach { OutlineBadge(it) }
                 Text("  Dolby Vision", color = Color.White.copy(alpha = 0.75f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
