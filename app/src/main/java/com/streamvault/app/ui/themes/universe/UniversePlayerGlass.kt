@@ -1,4 +1,4 @@
-package com.streamvault.app.ui.themes.cyanpro
+package com.streamvault.app.ui.themes.universe
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,8 +44,8 @@ import com.streamvault.app.ui.themes.bespoke.InnerPanelBackScope
 import com.streamvault.app.ui.themes.bespoke.PlayerOverlayParams
 
 private const val GSTEP = 10_000L
-private val Cyan = Color(0xFF00E5FF)
-private val Grey = Color(0xFF9AA7AE)
+private val Cyan = Color(0xFF1E6FD9)
+private val Grey = Color(0xFFAFC0E8)
 
 /**
  * Cyan Premium player: top brand bar + clock/wifi/settings, bottom glass info card (poster, title,
@@ -53,7 +53,7 @@ private val Grey = Color(0xFF9AA7AE)
  * Quality/Audio/Subtitles | -10 / big ring play / +10 / Next Episode | PiP/Cast. Live hides seek + next.
  */
 @Composable
-internal fun CpGlassPlayer(p: PlayerOverlayParams) {
+internal fun UvGlassPlayer(p: PlayerOverlayParams) {
     val live = p.isLive && !p.isCatchUpPlayback
     var sheet by remember { mutableStateOf(false) }
     val sheetFocus = remember { FocusRequester() }
@@ -65,7 +65,7 @@ internal fun CpGlassPlayer(p: PlayerOverlayParams) {
     Box(p.modifier.fillMaxSize()) {
         // soft gradients: thin at top, deeper at bottom; video stays clear in between
         Box(Modifier.fillMaxWidth().height(120.dp).align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent))))
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.55f).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x99050A0D), Color(0xEE050A0D)))))
+        Box(Modifier.fillMaxWidth().fillMaxHeight(0.55f).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x99050B28), Color(0xEE050B28)))))
 
         // TOP BAR
         Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 36.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -105,7 +105,7 @@ internal fun CpGlassPlayer(p: PlayerOverlayParams) {
                 LabeledAction(Icons.Outlined.Cast, tr("Cast", "بث"), if (p.isCastConnected) tr("Connected", "متصل") else tr("Off", "معطل"), if (p.isCastConnected) p.onStopCasting else p.onCast)
             }
         }
-        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = gear) { CpPlayerSheet(p, sheetFocus) { sheet = false; runCatching { gear.requestFocus() } } }
+        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = gear) { UvPlayerSheet(p, sheetFocus) { sheet = false; runCatching { gear.requestFocus() } } }
     }
 }
 
@@ -116,10 +116,10 @@ private fun InfoCard(p: PlayerOverlayParams, live: Boolean, modifier: Modifier) 
     val sub = if (live) p.currentProgram?.title else p.episodeLine
     val desc = p.currentProgram?.description?.takeIf { it.isNotBlank() }
     Row(
-        modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xB30B1216)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(16.dp),
+        modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xB30A1438)).border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)).padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(Modifier.width(70.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF14232A)), contentAlignment = Alignment.Center) {
+        Box(Modifier.width(70.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF14224E)), contentAlignment = Alignment.Center) {
             val img = ch?.logoUrl
             if (img != null) AsyncImage(img, null, contentScale = if (live) ContentScale.Fit else ContentScale.Crop, modifier = Modifier.fillMaxSize().padding(if (live) 8.dp else 0.dp))
             else Text(title.take(1), color = Cyan, fontSize = 34.sp, fontWeight = FontWeight.Black)
@@ -164,7 +164,7 @@ private fun Track(frac: Float, focused: Boolean, modifier: Modifier = Modifier) 
     BoxWithConstraints(modifier.height(22.dp), contentAlignment = Alignment.CenterStart) {
         val h = if (focused) 6.dp else 4.dp
         Box(Modifier.fillMaxWidth().height(h).clip(CircleShape).background(Color.White.copy(alpha = 0.2f))) {
-            Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(Brush.horizontalGradient(listOf(Color(0xFF0096C7), Cyan))))
+            Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(Brush.horizontalGradient(listOf(Color(0xFF1655B0), Cyan))))
         }
         val k = if (focused) 20.dp else 16.dp
         Box(Modifier.offset(x = (maxWidth - k) * frac).size(k).shadow(if (focused) 16.dp else 10.dp, CircleShape, ambientColor = Cyan, spotColor = Cyan).background(Cyan, CircleShape).border(2.dp, Color.White.copy(alpha = 0.85f), CircleShape))
@@ -222,7 +222,7 @@ private fun LabeledAction(icon: ImageVector, label: String, value: String, onCli
     val shape = RoundedCornerShape(14.dp)
     val (s, b, g) = focusStyle(shape)
     TvClickableSurface(onClick = onClick, shape = s, border = b, glow = g,
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x331E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f)) {
         Column(Modifier.width(104.dp).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
@@ -236,7 +236,7 @@ private fun LabeledAction(icon: ImageVector, label: String, value: String, onCli
 private fun RoundSeek(icon: ImageVector, onClick: () -> Unit) {
     val (s, b, g) = focusStyle(CircleShape)
     TvClickableSurface(onClick = onClick, shape = s, border = b, glow = g, modifier = Modifier.size(54.dp),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x331E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
     }
@@ -251,7 +251,7 @@ private fun BigPlay(playing: Boolean, modifier: Modifier, onClick: () -> Unit) {
             border = Border(androidx.compose.foundation.BorderStroke(3.dp, Cyan), shape = CircleShape),
             focusedBorder = Border(androidx.compose.foundation.BorderStroke(4.dp, Cyan), shape = CircleShape)),
         glow = ClickableSurfaceDefaults.glow(glow = Glow(Cyan.copy(alpha = 0.45f), 14.dp), focusedGlow = Glow(Cyan.copy(alpha = 0.8f), 24.dp)),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x660B1216), focusedContainerColor = Color(0x4400E5FF), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x660A1438), focusedContainerColor = Color(0x441E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(44.dp))
@@ -263,13 +263,13 @@ private fun BigPlay(playing: Boolean, modifier: Modifier, onClick: () -> Unit) {
 private fun CyanPill(icon: ImageVector, label: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
     var pf by remember { mutableStateOf(false) }
-    val fg = if (pf) Color(0xFF00151A) else Color.White
+    val fg = Color.White
     TvClickableSurface(onClick = onClick, modifier = Modifier.onFocusChanged { pf = it.isFocused }, shape = ClickableSurfaceDefaults.shape(shape),
         border = ClickableSurfaceDefaults.border(
             border = Border(androidx.compose.foundation.BorderStroke(1.5.dp, Cyan), shape = shape),
             focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, Cyan), shape = shape)),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Cyan.copy(alpha = 0.6f), 16.dp)),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x2600E5FF), focusedContainerColor = Cyan, contentColor = Color.White, focusedContentColor = Color(0xFF00151A)),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x261E6FD9), focusedContainerColor = Cyan, contentColor = Color.White, focusedContentColor = Color(0xFFFFFFFF)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f)) {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
@@ -282,7 +282,7 @@ private fun CyanPill(icon: ImageVector, label: String, onClick: () -> Unit) {
 private fun GlassIconButton(icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
     val (s, b, g) = focusStyle(CircleShape)
     TvClickableSurface(onClick = onClick, shape = s, border = b, glow = g, modifier = modifier.size(40.dp),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x331E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
     }
