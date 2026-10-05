@@ -97,8 +97,9 @@ internal fun SbsShell(p: ShellParams) {
                     Box(Modifier.padding(start = 6.dp, bottom = 18.dp)) { SbsLogo() }
                     navs.forEach { n ->
                         val target = n.route.substringBefore('#')
-                        val sel = onRoute(p.currentRoute, target) && !n.route.contains('#')
-                        SbFocus({ p.onNavigate(target) }, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp),
+                        val isRec = n.route.contains('#')
+                        val sel = onRoute(p.currentRoute, target) && (target != Routes.FAVORITES || SbRecent.active == isRec)
+                        SbFocus({ SbRecent.active = isRec; p.onNavigate(target) }, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp),
                             color = if (sel) SBX.Red else Color.Transparent, focusedColor = if (sel) SBX.Red else Color(0x26E50914), scale = 1.04f) {
                             Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 SbIcon(n.icon, Color.White, 24.dp)
@@ -109,9 +110,10 @@ internal fun SbsShell(p: ShellParams) {
                     }
                     Spacer(Modifier.weight(1f))
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x0FFFFFFF)).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(SBX.Green))
+                        val ok = CpServer.healthy
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(when (ok) { true -> SBX.Green; false -> Color(0xFFEF4444); null -> Color(0xFF9CA3AF) }))
                         Column {
-                            Text(tr("Server connected", "الخادم متصل"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(when (ok) { true -> tr("Server connected", "الخادم متصل"); false -> tr("Server problem", "مشكلة في الخادم"); null -> tr("Checking server…", "جارٍ فحص الخادم…") }, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Text(p.subtitle?.takeIf { it.isNotBlank() } ?: "Alaa IPTV", color = SBX.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -163,6 +165,7 @@ private class SbsCat(val en: String, val ar: String, val icon: ImageVector, val 
 @Composable
 internal fun SbsHome(p: DashboardParams) {
     val s = p.uiState
+    androidx.compose.runtime.LaunchedEffect(s.providerHealth.status) { CpServer.healthy = when (s.providerHealth.status.name) { "ACTIVE" -> true; "ERROR", "EXPIRED", "DISABLED" -> false; else -> null } }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val movie = (s.recommendedMovies + s.recentMovies).firstOrNull { it.backdropUrl != null || it.posterUrl != null }
@@ -268,15 +271,15 @@ private fun SbsLiveCards(p: LiveTvParams, openChannels: () -> Unit) {
         LazyVerticalGrid(GridCells.Fixed(5), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) { items(List(10) { it }) { SbSkeleton(Modifier.fillMaxWidth().height(150.dp)) } }
         return
     }
-    LazyVerticalGrid(GridCells.Adaptive(220.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(10.dp)) {
+    LazyVerticalGrid(GridCells.Adaptive(220.dp), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(10.dp, 10.dp, 10.dp, 48.dp)) {
         items(p.categories, key = { "c${it.id}" }) { cat ->
             val (ic, col) = catStyle(cat.name)
-            SbFocus({ p.onCategoryClick(cat); openChannels() }, Modifier.fillMaxWidth().height(150.dp).focusRequester(p.categoryRequester(cat.id)), shape = SBX.PanelShape, color = Color.Transparent, focusedColor = Color.Transparent, scale = 1.08f,
+            SbFocus({ p.onCategoryClick(cat); openChannels() }, Modifier.fillMaxWidth().height(118.dp).focusRequester(p.categoryRequester(cat.id)), shape = SBX.PanelShape, color = Color.Transparent, focusedColor = Color.Transparent, scale = 1.08f,
                 onLongClick = { p.onCategoryLongClick(cat) }, onFocus = { if (it) p.onCategoryFocused(cat) }) {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(col, col.copy(alpha = 0.35f), SBX.Card))))
-                Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0x33FFFFFF)), contentAlignment = Alignment.Center) { SbIcon(ic, Color.White, 30.dp) }
+                        Box(Modifier.size(42.dp).clip(CircleShape).background(Color(0x33FFFFFF)), contentAlignment = Alignment.Center) { SbIcon(ic, Color.White, 24.dp) }
                         Spacer(Modifier.weight(1f))
                         if (p.isCategoryLocked(cat)) SbIcon(Icons.Outlined.Lock, Color.White, 20.dp)
                     }
@@ -297,7 +300,7 @@ private fun SbsLiveColumns(p: LiveTvParams) {
     val selCat = p.categories.firstOrNull { it.id == p.selectedCategoryId }
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         // column 1: categories with icons + counts
-        Column(Modifier.width(230.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
+        Column(Modifier.width(210.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SbIcon(Icons.Outlined.LiveTv, Color.White, 24.dp)
                 Text(tr("Categories", "الفئات"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -322,13 +325,13 @@ private fun SbsLiveColumns(p: LiveTvParams) {
             }
         }
         // column 2: channel list
-        Column(Modifier.weight(1.15f).fillMaxHeight()) {
+        Column(Modifier.weight(0.95f).fillMaxHeight()) {
             Column(Modifier.fillMaxSize().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(selCat?.name ?: tr("All channels", "جميع القنوات"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("${p.channels.size}", color = SBX.Faint, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
-                    Row(Modifier.width(200.dp).height(42.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.width(150.dp).height(42.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SbIcon(Icons.Outlined.Search, SBX.Sub, 18.dp)
                         Box(Modifier.weight(1f)) {
                             if (p.channelSearchQuery.isEmpty()) Text(tr("Search channels…", "بحث عن القنوات…"), color = SBX.Faint, fontSize = 14.sp)
@@ -339,7 +342,7 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Text("#", color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(36.dp))
                     Text(tr("Channel", "القناة"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(tr("Time", "الوقت"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(130.dp))
+                    Text(tr("Time", "الوقت"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(96.dp))
                 }
                 when {
                     p.channels.isEmpty() && p.categories.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { repeat(7) { SbSkeleton(Modifier.fillMaxWidth().height(50.dp)) } }
@@ -363,9 +366,8 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                                             Text(c.currentProgram?.title.orEmpty(), color = SBX.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
-                                    Row(Modifier.width(130.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Text(c.currentProgram?.let { "${sbTime(it.startTime)} - ${sbTime(it.endTime)}" } ?: "--", color = SBX.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                                        SbTag(sbQuality(c.name) ?: "SD", Color(0x66FFFFFF), filled = false)
+                                    Row(Modifier.width(96.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(c.currentProgram?.let { sbTime(it.startTime) } ?: "--", color = SBX.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
                                         SbIcon(if (c.isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (c.isFavorite) SBX.Red else SBX.Sub, 20.dp)
                                     }
                                 }
@@ -376,8 +378,8 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                 }
             }
         }
-        // column 3: big preview + info + actions
-        Column(Modifier.weight(1f).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // column 3: big preview (~45%) + info + actions
+        Column(Modifier.weight(1.35f).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SbFocus({ foc?.let(p.onChannelClick) }, Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(p.previewFocusRequester), shape = RoundedCornerShape(12.dp), color = Color.Black, focusedColor = Color.Black, scale = 1.02f) {
                 val eng = p.previewPlayerEngine
                 if (eng != null && p.previewChannel != null) PlayerRenderView(eng, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
@@ -415,6 +417,65 @@ private fun SbsMini(icon: ImageVector, label: String, modifier: Modifier = Modif
     SbFocus(onClick, modifier.height(42.dp), shape = RoundedCornerShape(10.dp), color = Color(0x14FFFFFF), focusedColor = SBX.Red, scale = 1.06f) {
         Row(Modifier.align(Alignment.Center).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SbIcon(icon, Color.White, 18.dp); Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1)
+        }
+    }
+}
+
+/** المشاهدة الأخيرة: real playback history (continue watching + recently watched channels). */
+@Composable
+internal fun SbsRecent(p: com.streamvault.app.ui.themes.bespoke.FavoritesParams) {
+    val df = remember { java.text.SimpleDateFormat("d MMM  HH:mm", java.util.Locale("ar")) }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SbIcon(Icons.Outlined.History, SBX.Red, 28.dp)
+            Text(tr("Recently watched", "المشاهدة الأخيرة"), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("${p.continueWatching.size + p.recentLive.size} " + tr("items", "عنصر"), color = SBX.Faint, fontSize = 14.sp)
+        }
+        if (p.continueWatching.isEmpty() && p.recentLive.isEmpty()) {
+            SbEmpty(Icons.Outlined.History, tr("No history yet", "لا يوجد سجل مشاهدة بعد"), tr("What you watch shows up here", "ما تشاهده سيظهر هنا")); return
+        }
+        LazyVerticalGrid(GridCells.Fixed(4), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp, 6.dp, 6.dp, 48.dp)) {
+            if (p.continueWatching.isNotEmpty()) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { Text(tr("Continue watching", "متابعة المشاهدة"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                items(p.continueWatching, key = { "rc${it.history.id}" }) { h ->
+                    val tot = h.history.totalDurationMs
+                    val prog = if (tot > 0) (h.history.resumePositionMs.toFloat() / tot).coerceIn(0f, 1f) else 0f
+                    SbFocus({ p.onHistoryClick(h) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = SBX.Card, focusedColor = SBX.Card, scale = 1.05f, fill = false) { f ->
+                        Column {
+                            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0x14FFFFFF))) {
+                                h.history.posterUrl?.let { AsyncImage(it, h.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))))
+                                Box(Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(SBX.Red), contentAlignment = Alignment.Center) { SbIcon(Icons.Outlined.PlayArrow, Color.White, 26.dp) }
+                                if (tot > 0) Text("${((tot - h.history.resumePositionMs).coerceAtLeast(0) / 60000)} " + tr("min left", "د متبقية"), color = Color.White, fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
+                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x44FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(prog).background(SBX.Red)) }
+                            }
+                            Column(Modifier.padding(10.dp)) {
+                                Text(h.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(h.subtitle, color = SBX.Faint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (f) Box(Modifier.matchParentSize().border(2.dp, SBX.Red, RoundedCornerShape(12.dp)))
+                    }
+                }
+            }
+            if (p.recentLive.isNotEmpty()) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { Text(tr("Recently watched channels", "قنوات شوهدت مؤخراً"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                items(p.recentLive, key = { "rl${it.history.id}" }) { h ->
+                    SbFocus({ p.onHistoryClick(h) }, Modifier.fillMaxWidth().height(76.dp), shape = RoundedCornerShape(12.dp), color = SBX.Card, focusedColor = Color(0x40E50914), scale = 1.04f) { f ->
+                        Row(Modifier.fillMaxSize().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(56.dp, 40.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x14FFFFFF)), contentAlignment = Alignment.Center) {
+                                h.history.posterUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(3.dp)) } ?: Text(h.title.take(2), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(h.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (h.history.lastWatchedAt > 0) df.format(java.util.Date(h.history.lastWatchedAt)) else h.subtitle, color = SBX.Faint, fontSize = 12.sp, maxLines = 1)
+                            }
+                            SbTag("LIVE", SBX.Red)
+                        }
+                        if (f) Box(Modifier.matchParentSize().border(1.5.dp, SBX.Red, RoundedCornerShape(12.dp)))
+                    }
+                }
+            }
         }
     }
 }
