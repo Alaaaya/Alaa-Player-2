@@ -106,7 +106,7 @@ internal fun IvanoShell(p: ShellParams) {
     var railFocused by remember { mutableStateOf(false) }
     val expanded = !dense || railFocused
     CompositionLocalProvider(LocalCpNavigate provides p.onNavigate) {
-        Box(p.modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF0A1440), Color(0xFF0A1230), Color(0xFF050B28)), center = androidx.compose.ui.geometry.Offset(1800f, 0f), radius = 2200f))) {
+        Box(p.modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF0F0B16), Color(0xFF0E0C12), Color(0xFF0A0A0A)), center = androidx.compose.ui.geometry.Offset(1800f, 0f), radius = 2200f))) {
             CpLtrRow(Modifier.fillMaxSize()) { rtl ->
                 if (p.topBarVisible) rtl {
                     Column(
@@ -127,7 +127,7 @@ internal fun IvanoShell(p: ShellParams) {
                         }
                         Spacer(Modifier.weight(1f))
                         if (expanded) Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF0E1838)).border(1.dp, Color(0xFF24346E), RoundedCornerShape(10.dp)).padding(12.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF121016)).border(1.dp, Color(0xFF2E2442), RoundedCornerShape(10.dp)).padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             CgGlyph("server", 18.dp, tint = CG.Sub)
@@ -210,8 +210,8 @@ internal fun IvanoDashboard(p: DashboardParams) {
             androidx.compose.animation.Crossfade(hero?.image ?: s.feature.artworkUrl, label = "hero") { url ->
                 url?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF00A1230), Color(0x990A1230), Color.Transparent))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color(0xE60A1230))))
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF00E0C12), Color(0x990E0C12), Color.Transparent))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color(0xE60E0C12))))
             Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(0.55f).padding(start = 70.dp, end = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(hero?.title ?: s.feature.title.ifBlank { "Alaa IPTV" }, color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -331,12 +331,12 @@ private fun CpCategoryTile(t: CpTileData, modifier: Modifier, onClick: () -> Uni
 
 @Composable
 internal fun CpSmallPoster(title: String, image: String?, sub: String, tag: String?, modifier: Modifier, onClick: () -> Unit) {
-    CgCard(onClick = onClick, container = Color(0xFF101A42), zoom = 1.06f, shape = RoundedCornerShape(8.dp), modifier = modifier) {
+    CgCard(onClick = onClick, container = Color(0xFF17121F), zoom = 1.06f, shape = RoundedCornerShape(8.dp), modifier = modifier) {
         Column {
             Box(Modifier.fillMaxWidth().aspectRatio(0.78f).background(CG.Raised)) {
                 if (image != null) AsyncImage(image, title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 else Text(title.take(1), color = CG.Amber, fontSize = 30.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
-                Box(Modifier.fillMaxWidth().height(40.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF101A42)))))
+                Box(Modifier.fillMaxWidth().height(40.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF17121F)))))
                 tag?.let { Box(Modifier.align(Alignment.TopStart).padding(6.dp)) { CpTag(it) } }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -432,7 +432,7 @@ internal fun IvanoLiveTv(p: LiveTvParams) {
                                 val now = System.currentTimeMillis()
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text(cgClock(prog.startTime), color = Color.White, fontSize = 13.sp)
-                                    Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(Color(0xFF2A3A70))) {
+                                    Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(Color(0xFF332848))) {
                                         Box(Modifier.fillMaxHeight().fillMaxWidth(((now - prog.startTime).toFloat() / (prog.endTime - prog.startTime)).coerceIn(0f, 1f)).clip(CircleShape).background(CG.Amber))
                                     }
                                     Text(cgClock(prog.endTime), color = Color.White, fontSize = 13.sp)
@@ -457,7 +457,7 @@ internal fun IvanoLiveTv(p: LiveTvParams) {
                             Text(tr("Now playing", "البرنامج الحالي"), color = CG.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
                             Text("", modifier = Modifier.width(80.dp))
                         }
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF24346E)))
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF2E2442)))
                         LazyColumn(contentPadding = PaddingValues(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             items(rows.size, key = { rows[it].id }) { i ->
                                 val c = rows[i]
@@ -504,8 +504,8 @@ internal fun CpListRow(
     TvClickableSurface(
         onClick = onClick, onLongClick = onLongClick, modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0xFF1E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
-        border = ClickableSurfaceDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF8EC3FF)), shape = shape)),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0xFF9B5CFF), contentColor = Color.White, focusedContentColor = Color.White),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFC4A3FF)), shape = shape)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(CG.Amber.copy(alpha = 0.55f), 12.dp))
     ) {
@@ -515,8 +515,8 @@ internal fun CpListRow(
 
 @Composable
 internal fun CpLogoBox(name: String, logo: String?, w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp) {
-    Box(Modifier.size(w, h).clip(RoundedCornerShape(6.dp)).background(Color(0xFF14224E)), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(w, h).clip(RoundedCornerShape(6.dp)).background(Color(0xFF1A1424)), contentAlignment = Alignment.Center) {
         Text(name.take(3).uppercase(), color = Color.White, fontSize = (h.value / 2.8f).sp, fontWeight = FontWeight.Black, maxLines = 1)
-        logo?.let { AsyncImage(it, name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().background(Color(0xFF14224E)).padding(3.dp)) }
+        logo?.let { AsyncImage(it, name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().background(Color(0xFF1A1424)).padding(3.dp)) }
     }
 }

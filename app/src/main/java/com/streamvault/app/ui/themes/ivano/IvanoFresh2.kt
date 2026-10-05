@@ -1,5 +1,7 @@
 package com.streamvault.app.ui.themes.ivano
 
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -138,8 +141,9 @@ private fun IvRoundLabeled(icon: ImageVector, label: String, active: Boolean = f
 @Composable
 private fun IvBackdrop(url: String?) {
     Box(Modifier.fillMaxSize()) {
-        url?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth(0.72f).fillMaxHeight().align(Alignment.TopEnd)) }
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to IV.Bg, 0.38f to IV.Bg, 0.6f to Color(0xAA0A0A0A), 1f to Color(0x220A0A0A))))
+        url?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+        Box(Modifier.fillMaxSize().background(if (rtl) Brush.horizontalGradient(0f to Color(0x220A0A0A), 0.4f to Color(0xAA0A0A0A), 0.62f to IV.Bg, 1f to IV.Bg) else Brush.horizontalGradient(0f to IV.Bg, 0.38f to IV.Bg, 0.6f to Color(0xAA0A0A0A), 1f to Color(0x220A0A0A))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to IV.Bg)))
     }
 }
@@ -289,22 +293,22 @@ internal fun IvFreshSearch(p: SearchParams) {
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                Column(Modifier.clip(IV.R).background(Color(0xFF121218)).border(1.dp, IV.Line, IV.R).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f).clip(IV.R).background(Color(0xFF121218)).border(1.dp, IV.Line, IV.R).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     (if (arabic) IV_KB_AR else IV_KB_EN).forEachIndexed { ri, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (ri == 3) IvKey(Modifier.width(56.dp), icon = Icons.Outlined.Language) { arabic = !arabic }
-                            row.forEachIndexed { ci, ch -> IvKey(if (ri == 2 && ci == 0) Modifier.focusRequester(keyFirst) else Modifier, ch.toString()) { p.onQueryChange(p.query + ch) } }
-                            if (ri == 3) IvKey(Modifier.width(66.dp), icon = Icons.Outlined.Backspace) { p.onQueryChange(p.query.dropLast(1)) }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (ri == 3) IvKey(Modifier.weight(1.3f), icon = Icons.Outlined.Language) { arabic = !arabic }
+                            row.forEachIndexed { ci, ch -> IvKey(if (ri == 2 && ci == 0) Modifier.weight(1f).focusRequester(keyFirst) else Modifier.weight(1f), ch.toString()) { p.onQueryChange(p.query + ch) } }
+                            if (ri == 3) IvKey(Modifier.weight(1.5f), icon = Icons.Outlined.Backspace) { p.onQueryChange(p.query.dropLast(1)) }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IvKey(Modifier.width(80.dp), if (arabic) "EN" else "ع") { arabic = !arabic }
-                        IvKey(Modifier.width(260.dp), tr("space", "مسافة")) { p.onQueryChange(p.query + " ") }
-                        IvKey(Modifier.width(110.dp), icon = Icons.Outlined.Search, accent = true) { p.onSearch() }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IvKey(Modifier.weight(1.5f), if (arabic) "EN" else "ع") { arabic = !arabic }
+                        IvKey(Modifier.weight(5f), tr("space", "مسافة")) { p.onQueryChange(p.query + " ") }
+                        IvKey(Modifier.weight(2f), icon = Icons.Outlined.Search, accent = true) { p.onSearch() }
                     }
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(96.dp).shadow(26.dp, CircleShape, ambientColor = IV.Purple, spotColor = IV.Purple).clip(CircleShape).background(IV.PurpleDeep).border(3.dp, IV.Purple, CircleShape), contentAlignment = Alignment.Center) { IvIcon(Icons.Outlined.Mic, size = 40.dp) }
+                    Box(Modifier.size(64.dp).shadow(20.dp, CircleShape, ambientColor = IV.Purple, spotColor = IV.Purple).clip(CircleShape).background(IV.PurpleDeep).border(3.dp, IV.Purple, CircleShape), contentAlignment = Alignment.Center) { IvIcon(Icons.Outlined.Mic, size = 28.dp) }
                     Text(tr("Tap to speak", "اضغط للتحدث"), color = IV.Sub, fontSize = 15.sp)
                 }
             }
@@ -342,8 +346,8 @@ private fun tr0(ar: Boolean, en: String, a: String) = if (ar) a else en
 
 @Composable
 private fun IvKey(modifier: Modifier = Modifier, label: String? = null, icon: ImageVector? = null, accent: Boolean = false, onClick: () -> Unit) {
-    IvFocus(onClick, modifier.defaultMinSize(minWidth = 46.dp).height(46.dp), shape = RoundedCornerShape(10.dp), color = if (accent) IV.Purple else Color(0xFF22222C), focusedColor = if (accent) Color(0xFFAE7BFF) else Color(0xFF2E2442), scale = 1.12f) {
-        Box(Modifier.align(Alignment.Center)) { if (icon != null) IvIcon(icon, size = 22.dp) else Text(label.orEmpty(), color = Color.White, fontSize = 19.sp) }
+    IvFocus(onClick, modifier.height(38.dp), shape = RoundedCornerShape(10.dp), color = if (accent) IV.Purple else Color(0xFF22222C), focusedColor = if (accent) Color(0xFFAE7BFF) else Color(0xFF2E2442), scale = 1.12f) {
+        Box(Modifier.align(Alignment.Center)) { if (icon != null) IvIcon(icon, size = 22.dp) else Text(label.orEmpty(), color = Color.White, fontSize = 16.sp) }
     }
 }
 
@@ -366,7 +370,7 @@ internal fun IvFreshFavorites(p: FavoritesParams) {
         }
         if (all.isEmpty()) { IvEmpty(Icons.Outlined.FavoriteBorder, tr("No favorites yet", "لا توجد مفضلة بعد"), tr("Long-press any channel, movie or series to add it", "اضغط مطولاً على أي قناة أو فيلم لإضافته")); return@Column }
         if (grid) LazyVerticalGrid(GridCells.Adaptive(250.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp), contentPadding = PaddingValues(10.dp)) {
-            items(all, key = { it.favorite.id }) { f ->
+            gridItemsIndexed(all, key = { i, f -> "${f.favorite.contentType}-${f.favorite.id}-$i" }) { _, f ->
                 IvFocus({ p.onItemClick(f) }, Modifier.fillMaxWidth().aspectRatio(16f / 9f), shape = IV.R, onLongClick = { p.onItemLongClick(f) }) {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF2A1A44), IV.Card))))
                     Text(f.title.take(2).uppercase(), color = Color(0x22FFFFFF), fontSize = 64.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
@@ -378,7 +382,7 @@ internal fun IvFreshFavorites(p: FavoritesParams) {
                 }
             }
         } else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(8.dp)) {
-            itemsIndexed(all, key = { _, f -> f.favorite.id }) { i, f ->
+            itemsIndexed(all, key = { i, f -> "${f.favorite.contentType}-${f.favorite.id}-$i" }) { i, f ->
                 IvFocus({ p.onItemClick(f) }, Modifier.fillMaxWidth().height(76.dp), shape = IV.RS, scale = 1.02f, onLongClick = { p.onItemLongClick(f) }) {
                     Row(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text("${i + 1}", color = IV.Faint, fontSize = 16.sp, modifier = Modifier.width(32.dp))
@@ -482,25 +486,25 @@ internal fun IvFreshPlayer(p: PlayerOverlayParams) {
                     Text(cgDuration(p.currentPosition) + "  /  " + cgDuration(p.duration), color = Color.White, fontSize = 20.sp)
                     IvSeek(if (p.duration > 0) (p.currentPosition.toFloat() / p.duration).coerceIn(0f, 1f) else 0f)
                 }
+                Row(Modifier.fillMaxWidth().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)) {
+                    IvPill(Icons.Outlined.HighQuality, p.resolutionBadgeLabel ?: tr("Auto", "تلقائي"), p.onOpenVideoTracks)
+                    IvPill(Icons.Outlined.VolumeUp, tr("Audio", "الصوت"), p.onOpenAudioTracks)
+                    IvPill(Icons.Outlined.ClosedCaption, tr("Subtitles", "الترجمة"), p.onOpenSubtitleTracks)
+                }
                 Box(Modifier.fillMaxWidth()) {
                     Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         IvRound(if (p.isMuted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp, 50.dp, p.isMuted, p.onToggleMute)
-                        Box(Modifier.width(170.dp).height(5.dp).clip(CircleShape).background(Color(0x44FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(if (p.isMuted) 0f else 0.6f).background(IV.Purple)) }
+                        Box(Modifier.width(110.dp).height(5.dp).clip(CircleShape).background(Color(0x44FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(if (p.isMuted) 0f else 0.6f).background(IV.Purple)) }
                         if (live) { IvRound(Icons.Outlined.List, 50.dp, onClick = p.onOpenLiveChannels); IvRound(Icons.Outlined.CalendarMonth, 50.dp, onClick = p.onOpenLiveGuide) }
                     }
-                    Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-                        IvRound(Icons.Outlined.Replay10, 64.dp, onClick = p.onSeekBackward)
-                        IvFocus(p.onTogglePlayPause, Modifier.size(88.dp).focusRequester(p.playButtonFocusRequester), shape = CircleShape, color = IV.Purple, focusedColor = Color(0xFFAE7BFF), scale = 1.1f) {
+                    Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                        IvRound(Icons.Outlined.Replay10, 54.dp, onClick = p.onSeekBackward)
+                        IvFocus(p.onTogglePlayPause, Modifier.size(72.dp).focusRequester(p.playButtonFocusRequester), shape = CircleShape, color = IV.Purple, focusedColor = Color(0xFFAE7BFF), scale = 1.1f) {
                             Box(Modifier.align(Alignment.Center)) { IvIcon(if (p.isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, size = 46.dp) }
                         }
-                        IvRound(Icons.Outlined.Forward10, 64.dp, onClick = p.onSeekForward)
+                        IvRound(Icons.Outlined.Forward10, 54.dp, onClick = p.onSeekForward)
                         if (p.showEpisodesAction) IvRound(Icons.Outlined.SkipNext, 56.dp, onClick = p.onOpenEpisodes)
                         if (live) IvRound(Icons.Outlined.Star, 56.dp, p.currentChannel?.isFavorite == true, p.onToggleLiveFavorite)
-                    }
-                    Row(Modifier.align(Alignment.CenterEnd).focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IvPill(Icons.Outlined.HighQuality, p.resolutionBadgeLabel ?: tr("Auto", "تلقائي"), p.onOpenVideoTracks)
-                        IvPill(Icons.Outlined.VolumeUp, tr("Audio", "الصوت"), p.onOpenAudioTracks)
-                        IvPill(Icons.Outlined.ClosedCaption, tr("Subtitles", "الترجمة"), p.onOpenSubtitleTracks)
                     }
                 }
             }

@@ -44,17 +44,17 @@ import com.streamvault.app.ui.interaction.TvClickableSurface
  *  letter-spaced headings, square 6dp corners. Focus = solid brass fill + gold edge bar, NO zoom (feels like a
  *  hardware menu, not a streaming app). Lists are the primary navigation; artwork is "fanart" behind content. */
 internal object CG {
-    val Bg = Color(0xFF0A1230)
-    val Raised = Color(0xFF101A42)
+    val Bg = Color(0xFF0E0C12)
+    val Raised = Color(0xFF17121F)
     val Card = Color(0xB3101A44)
-    val Line = Color(0xFF24346E)
+    val Line = Color(0xFF2E2442)
     val Text = Color(0xFFFFFFFF)
-    val Sub = Color(0xFFAFC0E8)
+    val Sub = Color(0xFFC9B8E8)
     val Faint = Color(0xFF7A7A84)
-    val Amber = Color(0xFF1E6FD9)
-    val AmberDeep = Color(0xFF1655B0)
+    val Amber = Color(0xFF9B5CFF)
+    val AmberDeep = Color(0xFF6E3BD1)
     val Live = Color(0xFFFF4D5E)
-    val Blue = Color(0xFF5AA2FF)
+    val Blue = Color(0xFFB48CFF)
     val R = RoundedCornerShape(16.dp)
     val RSmall = RoundedCornerShape(12.dp)
     val Pill = RoundedCornerShape(50)
@@ -70,7 +70,7 @@ internal fun CgHeading(text: String, modifier: Modifier = Modifier, size: Int = 
 
 @Composable
 internal fun CgBackground(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
-    Box(modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF0A1440), Color(0xFF0A1230), Color(0xFF050B28)), center = androidx.compose.ui.geometry.Offset(1600f, 0f), radius = 2000f)), content = content)
+    Box(modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF0F0B16), Color(0xFF0E0C12), Color(0xFF0A0A0A)), center = androidx.compose.ui.geometry.Offset(1600f, 0f), radius = 2000f)), content = content)
 }
 
 /** Focusable panel: brass fill + 4dp gold bar on the START edge when focused, no zoom. */
@@ -89,7 +89,7 @@ internal fun CgCard(
     TvClickableSurface(
         onClick = onClick, onLongClick = onLongClick, modifier = modifier.onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = container, focusedContainerColor = Color(0xFF1E6FD9), contentColor = CG.Text, focusedContentColor = CG.Text),
+        colors = ClickableSurfaceDefaults.colors(containerColor = container, focusedContainerColor = Color(0xFF9B5CFF), contentColor = CG.Text, focusedContentColor = CG.Text),
         border = ClickableSurfaceDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, CG.Amber), shape = shape)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = zoom.coerceAtLeast(1.08f)),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(CG.Amber.copy(alpha = 0.6f), 18.dp))
@@ -209,7 +209,7 @@ internal fun CgWide(title: String, imageUrl: String?, sub: String?, progress: Fl
 /** Channel logo on a brass-framed square plate. */
 @Composable
 internal fun CgLogo(name: String, logoUrl: String?, size: Dp, modifier: Modifier = Modifier) {
-    Box(modifier.size(size).clip(CG.RSmall).background(Color(0xFF0E1838)).border(1.dp, CG.Line, CG.RSmall), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size).clip(CG.RSmall).background(Color(0xFF121016)).border(1.dp, CG.Line, CG.RSmall), contentAlignment = Alignment.Center) {
         Text(name.take(2).uppercase(), color = CG.Faint, fontSize = (size.value / 3.2f).sp, fontFamily = CG.Serif, fontWeight = FontWeight.Bold)
         logoUrl?.let { AsyncImage(it, name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(size / 8)) }
     }

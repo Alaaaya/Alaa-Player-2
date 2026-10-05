@@ -193,7 +193,7 @@ internal fun IvanoEpg(p: EpgParams, modifier: Modifier) {
             Text("  ${p.channels.size} " + tr("channels", "قناة"), color = CG.Faint, fontSize = 12.sp)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) { CgEpgGrid(p) }
-        Row(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(14.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF0A1C4A), Color(0xFF101A42)))).border(1.dp, Color(0x661E6FD9), RoundedCornerShape(14.dp)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(14.dp)).background(Brush.horizontalGradient(listOf(Color(0xFF14101C), Color(0xFF17121F)))).border(1.dp, Color(0x669B5CFF), RoundedCornerShape(14.dp)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Box(Modifier.aspectRatio(16f / 9f).fillMaxHeight().background(Color.Black).border(1.dp, CG.Line)) {
                 p.previewPlayerEngine?.let { PlayerRenderView(it, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize()) }
                 if (p.isPreviewLoading) Text(tr("Tuning…", "جار الضبط…"), color = CG.Sub, fontFamily = CG.Serif, modifier = Modifier.align(Alignment.Center))
@@ -283,7 +283,7 @@ private fun CgEpgGrid(p: EpgParams) {
                                 val live = prog.startTime <= now && prog.endTime > now
                                 Box(
                                     Modifier.padding(start = x).width(w).fillMaxHeight().clip(CG.RSmall)
-                                        .background(if (f) CG.Amber else if (live) Color(0xFF1E6FD9) else CG.Raised)
+                                        .background(if (f) CG.Amber else if (live) Color(0xFF9B5CFF) else CG.Raised)
                                         .border(1.dp, if (live && !f) CG.Amber.copy(alpha = 0.6f) else CG.Line.copy(alpha = 0.6f), CG.RSmall)
                                         .onFocusChanged { f = it.isFocused; if (it.isFocused) p.onProgramFocused(c, prog, first) }
                                         .combinedClickable(onClick = { p.onProgramClick(c, prog) }, onLongClick = { p.onChannelLongClick(c, prog) })
