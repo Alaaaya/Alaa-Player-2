@@ -468,7 +468,8 @@ private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
         AppHomeTheme.CHAT_GPT to com.streamvault.app.ui.themes.chatgpt.ChatGptUi,
         AppHomeTheme.CHAT_GPT_2 to com.streamvault.app.ui.themes.chatgpt2.ChatGpt2Ui,
         AppHomeTheme.CYAN_PRO to com.streamvault.app.ui.themes.cyanpro.CyanProUi,
-        AppHomeTheme.UNIVERSE to com.streamvault.app.ui.themes.universe.UniverseUi
+        AppHomeTheme.UNIVERSE to com.streamvault.app.ui.themes.universe.UniverseUi,
+        AppHomeTheme.IVANO to com.streamvault.app.ui.themes.ivano.IvanoUi
     )
 }
 
