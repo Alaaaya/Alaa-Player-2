@@ -41,7 +41,6 @@ import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.RecordingStatus
 
-private const val STEP = 10_000L
 
 private class CgAct(val glyph: String, val label: String, val active: Boolean = false, val onClick: () -> Unit)
 
@@ -120,147 +119,11 @@ private fun ChannelHead(channel: Channel?, name: String?, number: Int, resolutio
 @Composable
 internal fun CyanProPlayerOverlay(p: PlayerOverlayParams) {
     if (!p.visible) return
-    if (p.isLive && !p.isCatchUpPlayback) CgLive(p) else CgVod(p)
-}
-
-/** Live: receiver OSD. Top walnut band (number box, logo, name, clock), bottom front panel with now/next + full-width key strip. */
-@Composable
-private fun CgLive(p: PlayerOverlayParams) {
-    LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
-    val rec = p.currentRecordingStatus == RecordingStatus.RECORDING
-    val acts = buildList {
-        add(CgAct(if (p.isPlaying) "❚❚" else "▶", if (p.isPlaying) tr("Pause", "إيقاف") else tr("Play", "تشغيل"), true) { p.onUserInteraction(); p.onTogglePlayPause() })
-        add(CgAct("☰", tr("Channels", "القنوات")) { p.onOpenLiveChannels() })
-        add(CgAct("▦", tr("Guide", "الدليل")) { p.onOpenLiveGuide() })
-        add(CgAct(if (p.currentChannel?.isFavorite == true) "♥" else "♡", tr("My List", "قائمتي"), p.currentChannel?.isFavorite == true) { p.onToggleLiveFavorite() })
-        add(CgAct("⏪", "-10s") { p.onUserInteraction(); p.onSeekBackward() })
-        add(CgAct("⏩", "+10s") { p.onUserInteraction(); p.onSeekForward() })
-        add(CgAct("⏮", tr("Restart", "من البداية")) { p.onRestartProgram() })
-        add(CgAct("⟲", tr("Catch-up", "الأرشيف")) { p.onOpenArchive() })
-        if (p.timeshiftUiState.canSeekToLive) add(CgAct("⇥", tr("Go live", "مباشر")) { p.onSeekToLiveEdge() })
-        add(CgAct("CC", tr("Subtitles", "الترجمة") + " ${p.subtitleTrackCount}") { p.onOpenSubtitleTracks() })
-        add(CgAct("♪", tr("Audio", "الصوت") + " ${p.audioTrackCount}") { p.onOpenAudioTracks() })
-        add(CgAct("HD", p.resolutionBadgeLabel ?: tr("Quality", "الجودة")) { p.onOpenVideoTracks() })
-        add(CgAct(if (p.isMuted) "🔇" else "🔊", tr("Mute", "كتم"), p.isMuted) { p.onToggleMute() })
-        add(CgAct(if (rec) "■" else "●", if (rec) tr("Stop rec", "إيقاف التسجيل") else tr("Record", "تسجيل"), rec) { if (rec) p.onStopRecording() else p.onStartRecording() })
-        add(CgAct("◷", tr("Schedule", "جدولة")) { p.onScheduleRecording() })
-        add(CgAct("◷", tr("Daily", "يومي")) { p.onScheduleDailyRecording() })
-        add(CgAct("◷", tr("Weekly", "أسبوعي")) { p.onScheduleWeeklyRecording() })
-        add(CgAct("▭", p.aspectRatioLabel) { p.onToggleAspectRatio() })
-        add(CgAct("»", "${p.playbackSpeed}×") { p.onOpenPlaybackSpeed() })
-        if (p.audioVideoSyncEnabled) add(CgAct("⇄", tr("A/V sync", "مزامنة")) { p.onOpenAudioVideoSync() })
-        add(CgAct("◫", tr("Multiview", "تقسيم")) { p.onOpenSplitScreen() })
-        add(CgAct("⏲", if (p.sleepTimerUiState.stopTimerActive) cgDuration(p.sleepTimerUiState.stopRemainingMs) else tr("Sleep", "مؤقت"), p.sleepTimerUiState.stopTimerActive) { p.onOpenStopPlaybackTimer() })
-        add(CgAct("☾", if (p.sleepTimerUiState.idleTimerActive) cgDuration(p.sleepTimerUiState.idleRemainingMs) else tr("Standby", "استعداد"), p.sleepTimerUiState.idleTimerActive) { p.onOpenIdleStandbyTimer() })
-        add(CgAct("⧉", "PiP") { p.onEnterPictureInPicture() })
-        add(CgAct("⎚", if (p.isCastConnected) tr("Stop cast", "إيقاف البث") else tr("Cast", "بث"), p.isCastConnected) { if (p.isCastConnected) p.onStopCasting() else p.onCast() })
-        add(CgAct("✕", tr("Close", "إغلاق")) { p.onClose() })
-    }
-    Box(p.modifier.fillMaxSize()) {
-        // top OSD: channel head + clock on a walnut band with brass underline
-        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.78f), Color.Black.copy(alpha = 0.35f), Color.Transparent))).padding(start = 40.dp, end = 40.dp, top = 22.dp, bottom = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { ChannelHead(p.currentChannel, p.currentChannelName, p.displayChannelNumber, p.resolutionBadgeLabel, p.timeshiftUiState.enabledForSession && p.timeshiftUiState.bufferedBehindLiveMs > 0) }
-                if (rec) CpTag("REC") else CpTag("LIVE")
-                Spacer(Modifier.width(16.dp))
-                Text(cgClock(System.currentTimeMillis()), color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(16.dp)); CpLogo(compact = true)
-            }
-        }
-        // bottom: translucent gradient with now/next + paged key strip
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.88f)))).padding(start = 40.dp, end = 40.dp, top = 70.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                NowNext(p.currentProgram, p.nextProgram, Modifier.fillMaxWidth())
-                CgActionStrip(acts, Modifier.focusRequester(p.quickActionsFocusRequester), 50.dp, firstModifier = Modifier.focusRequester(p.playButtonFocusRequester))
-            }
-        }
-    }
-}
-
-/** VOD: serif title above a brass-ruled front panel: inline back/-10/play/+10 keys + scrubber, option keys below, setup menu from START. */
-@Composable
-private fun CgVod(p: PlayerOverlayParams) {
-    var sheet by remember { mutableStateOf(false) }
-    val sheetFocus = remember { FocusRequester() }
-    val moreFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { p.playButtonFocusRequester.requestFocus() } }
-    LaunchedEffect(sheet) { if (sheet) runCatching { sheetFocus.requestFocus() } }
-    fun seekBy(d: Long) { p.onUserInteraction(); p.onSeekToPosition((p.currentPosition + d).coerceIn(0L, (p.duration - 1_000L).coerceAtLeast(0L))) }
-    Box(p.modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.9f))))) {
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(Modifier.weight(1f)) {
-                    CgHeading(if (p.isCatchUpPlayback) tr("Catch-up", "من الأرشيف") else tr("Now playing", "يعرض الآن"), size = 11)
-                    Text(p.displayTitle, color = CG.Text, fontSize = 30.sp, fontFamily = CG.Serif, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    p.episodeLine?.let { Text(it, color = CG.Sub, fontSize = 14.sp, maxLines = 1) }
-                }
-                if (p.currentRecordingStatus == RecordingStatus.RECORDING) CgBadge("● REC", CG.Live, filled = true)
-                if (p.playbackSpeed != 1f) CgBadge("${p.playbackSpeed}×", CG.Amber)
-                Text(cgClock(System.currentTimeMillis()), color = CG.Amber, fontSize = 24.sp, fontFamily = CG.Serif)
-            }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Scrubber(p, ::seekBy)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterHorizontally)) {
-                CgCtl(CgAct("←", tr("Back", "رجوع")) { p.onNavigateBack() }, size = 48.dp)
-                CgCtl(CgAct("↺", "-10s") { seekBy(-STEP) }, size = 56.dp)
-                CgCtl(CgAct(if (p.isPlaying) "❚❚" else "▶", if (p.isPlaying) tr("Pause", "إيقاف") else tr("Play", "تشغيل"), true) { p.onUserInteraction(); p.onTogglePlayPause() }, Modifier.focusRequester(p.playButtonFocusRequester), size = 72.dp)
-                CgCtl(CgAct("↻", "+10s") { seekBy(STEP) }, size = 56.dp)
-                if (p.showEpisodesAction) CgCtl(CgAct("≣", tr("Episodes", "الحلقات")) { p.onOpenEpisodes() }, size = 48.dp)
-            }
-            LazyRow(Modifier.fillMaxWidth().focusRequester(p.quickActionsFocusRequester), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                item { CgButton(tr("Audio", "الصوت") + " · ${p.audioTrackCount}", p.onOpenAudioTracks, icon = "♪") }
-                item { CgButton(tr("Subtitles", "الترجمة") + " · ${p.subtitleTrackCount}", p.onOpenSubtitleTracks, icon = "CC") }
-                item { CgButton(p.resolutionBadgeLabel ?: tr("Quality", "الجودة"), p.onOpenVideoTracks, icon = "HD") }
-                item { CgButton(tr("Start over", "من البداية"), { p.onSeekToPosition(0L) }, icon = "⏮") }
-                item { androidx.compose.foundation.layout.Box(Modifier.focusRequester(moreFocus)) { CgButton(tr("More", "المزيد"), { sheet = !sheet }, primary = sheet, icon = "⚙") } }
-                item { CgButton(tr("Close", "إغلاق"), p.onClose, icon = "✕") }
-            }
-        }
-        }
-        if (sheet) InnerPanelBackScope(onClose = { sheet = false }, opener = moreFocus) { SideSheet(p, sheetFocus) { sheet = false; runCatching { moreFocus.requestFocus() } } }
-    }
+    CpGlassPlayer(p)
 }
 
 @Composable
-private fun Scrubber(p: PlayerOverlayParams, seekBy: (Long) -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val pos = if (p.seekPreview.visible) p.seekPreview.positionMs else p.currentPosition
-    val frac = if (p.duration > 0) (pos.toFloat() / p.duration).coerceIn(0f, 1f) else 0f
-    val remaining = (p.duration - pos).coerceAtLeast(0)
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        CgCard(
-            onClick = { p.onUserInteraction(); p.onTogglePlayPause() }, shape = CG.Pill, container = Color.Transparent, focusedContainer = Color.White.copy(alpha = 0.06f), zoom = 1f,
-            modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused; p.onSetScrubbingMode(it.isFocused) }.onPreviewKeyEvent { e ->
-                val n = e.nativeKeyEvent
-                if (n.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
-                when (n.keyCode) {
-                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { seekBy(-STEP); true }
-                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { seekBy(STEP); true }
-                    else -> false
-                }
-            }
-        ) {
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                val h = if (focused) 8.dp else 5.dp
-                Box(Modifier.fillMaxWidth().height(h).clip(CG.Pill).background(Color.White.copy(alpha = 0.18f))) {
-                    Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(Brush.horizontalGradient(listOf(CG.AmberDeep, CG.Blue))))
-                }
-                val thumb = if (focused) 18.dp else 12.dp
-                Box(Modifier.offset(x = (maxWidth - thumb) * frac).size(thumb).background(Color.White, CircleShape).border(2.dp, CG.Blue, CircleShape))
-            }
-        }
-        Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(cgDuration(pos), color = if (p.seekPreview.visible) CG.Blue else CG.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text("  /  " + cgDuration(p.duration), color = CG.Faint, fontSize = 13.sp)
-            Spacer(Modifier.weight(1f))
-            if (p.duration > 0) Text(tr("Ends at", "ينتهي") + " " + cgClock(System.currentTimeMillis() + remaining) + "   ", color = CG.Faint, fontSize = 12.sp)
-            Text("-" + cgDuration(remaining), color = CG.Sub, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
-private fun BoxScope.SideSheet(p: PlayerOverlayParams, focus: FocusRequester, onDismiss: () -> Unit) {
+internal fun BoxScope.CpPlayerSheet(p: PlayerOverlayParams, focus: FocusRequester, onDismiss: () -> Unit) {
     val rows = buildList<Triple<String, String, () -> Unit>> {
         add(Triple(tr("Video quality", "جودة الفيديو"), p.resolutionBadgeLabel ?: "${p.videoQualityCount}", p.onOpenVideoTracks))
         add(Triple(tr("Audio track", "مسار الصوت"), "${p.audioTrackCount}", p.onOpenAudioTracks))
