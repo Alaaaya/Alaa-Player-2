@@ -373,6 +373,7 @@ private fun SbKey(modifier: Modifier = Modifier, label: String? = null, icon: Im
 
 @Composable
 internal fun SbFreshFavorites(p: FavoritesParams) {
+    if (SbRecent.active) { SbsRecent(p); return }
     var grid by remember { mutableStateOf(true) }
     val all = p.sections.flatMap { it.items }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
