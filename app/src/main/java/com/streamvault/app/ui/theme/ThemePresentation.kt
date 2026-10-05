@@ -116,7 +116,8 @@ object ThemeCatalog {
         ThemeCatalogEntry(AppHomeTheme.CHAT_GPT_2, "ChatGPT 2", "أسود فحمي مع توهج أحمر سينمائي."),
         ThemeCatalogEntry(AppHomeTheme.CYAN_PRO, "Cyan Premium", "أسود عميق مع زجاج وتوهج سماوي."),
         ThemeCatalogEntry(AppHomeTheme.UNIVERSE, "Universe", "أزرق كوني بموجات مضيئة وتنقل سريع."),
-        ThemeCatalogEntry(AppHomeTheme.IVANO, "Ivano", "أسود سينمائي بلمسات بنفسجية وزجاج.")
+        ThemeCatalogEntry(AppHomeTheme.IVANO, "Ivano", "أسود سينمائي بلمسات بنفسجية وزجاج."),
+        ThemeCatalogEntry(AppHomeTheme.SABHIYA, "صبحية", "داكن بلمسات حمراء متوهجة وبث مباشر بثلاثة أعمدة.")
     )
 
     fun entry(theme: AppHomeTheme): ThemeCatalogEntry =
@@ -384,6 +385,7 @@ private val expansionPresentations = listOf(
     futurePresentation(AppHomeTheme.CHAT_GPT_2, Color(0xFF0A0A0C), Color(0xFF141418), Color(0xFF1A1A1F), Color(0xFF2A2A31), Color(0xFFFFFFFF), Color(0xFFB8B8C0), Color(0xFFE50914), ThemeNavigationLayout.SIDE_RAIL, 14.dp, 24.dp, 1.04f, 180),
     futurePresentation(AppHomeTheme.UNIVERSE, Color(0xFF0A1230), Color(0xFF0A1440), Color(0xFF111C4A), Color(0xFF1A2760), Color(0xFFFFFFFF), Color(0xFFAFC0E8), Color(0xFF1E6FD9), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.06f, 180),
     futurePresentation(AppHomeTheme.IVANO, Color(0xFF0A0A0A), Color(0xFF111111), Color(0xFF181818), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFB8B8C8), Color(0xFF9B5CFF), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.08f, 180),
+    futurePresentation(AppHomeTheme.SABHIYA, Color(0xFF0B0D11), Color(0xFF0F1115), Color(0xFF181818), Color(0xFF222222), Color(0xFFFFFFFF), Color(0xFFB8B8C8), Color(0xFFE50914), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.08f, 180),
     futurePresentation(AppHomeTheme.CYAN_PRO, Color(0xFF0D0D0D), Color(0xFF121212), Color(0xFF181A1C), Color(0xFF23272B), Color(0xFFFFFFFF), Color(0xFFAEB8C0), Color(0xFF00E5FF), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.06f, 180)
 )
 
