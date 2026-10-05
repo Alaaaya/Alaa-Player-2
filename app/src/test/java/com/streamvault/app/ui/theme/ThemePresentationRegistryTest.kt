@@ -73,7 +73,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.CHAT_GPT,
                 AppHomeTheme.CHAT_GPT_2,
                 AppHomeTheme.CYAN_PRO,
-                AppHomeTheme.UNIVERSE
+                AppHomeTheme.UNIVERSE,
+                AppHomeTheme.IVANO
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -140,7 +141,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.CHAT_GPT,
                 AppHomeTheme.CHAT_GPT_2,
                 AppHomeTheme.CYAN_PRO,
-                AppHomeTheme.UNIVERSE
+                AppHomeTheme.UNIVERSE,
+                AppHomeTheme.IVANO
             )
             .inOrder()
     }

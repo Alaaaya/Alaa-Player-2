@@ -27,7 +27,8 @@ internal val PresentationShellThemes: Set<AppHomeTheme> = setOf(
     AppHomeTheme.CHAT_GPT,
     AppHomeTheme.CHAT_GPT_2,
     AppHomeTheme.CYAN_PRO,
-    AppHomeTheme.UNIVERSE
+    AppHomeTheme.UNIVERSE,
+    AppHomeTheme.IVANO
 )
 
 /** Per-theme canvas treatment built from palette tokens, so each theme reads distinctly. */
