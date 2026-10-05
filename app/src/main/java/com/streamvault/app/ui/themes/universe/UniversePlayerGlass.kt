@@ -70,8 +70,6 @@ internal fun UvGlassPlayer(p: PlayerOverlayParams) {
         // TOP BAR
         Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(horizontal = 36.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
             UvLogo(size = 26)
-            Spacer(Modifier.width(8.dp))
-            Text("Universe", color = Color.White, fontSize = 20.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif)
             Box(Modifier.padding(horizontal = 14.dp).width(1.dp).height(20.dp).background(Color.White.copy(alpha = 0.35f)))
             Text(if (live) tr("Live TV", "البث المباشر") else tr("Premium Movies & Series", "أفلام ومسلسلات مميزة"), color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp)
             Spacer(Modifier.weight(1f))
