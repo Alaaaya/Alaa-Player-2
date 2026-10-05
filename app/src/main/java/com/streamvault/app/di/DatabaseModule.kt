@@ -61,6 +61,7 @@ object DatabaseModule {
     @Provides fun provideCatalogSyncDao(db: StreamVaultDatabase): CatalogSyncDao = db.catalogSyncDao()
     @Provides fun provideProgramDao(db: StreamVaultDatabase): ProgramDao = db.programDao()
     @Provides fun provideFavoriteDao(db: StreamVaultDatabase): FavoriteDao = db.favoriteDao()
+    @Provides fun provideWatchLaterDao(db: StreamVaultDatabase): com.streamvault.data.local.dao.WatchLaterDao = db.watchLaterDao()
     @Provides fun provideVirtualGroupDao(db: StreamVaultDatabase): VirtualGroupDao = db.virtualGroupDao()
     @Provides fun providePlaybackHistoryDao(db: StreamVaultDatabase): PlaybackHistoryDao = db.playbackHistoryDao()
     @Provides fun provideTmdbIdentityDao(db: StreamVaultDatabase): TmdbIdentityDao = db.tmdbIdentityDao()

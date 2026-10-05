@@ -214,7 +214,8 @@ internal fun SbFreshMovieDetail(p: MovieDetailParams) {
                     }
                 }
                 SbRoundLabeled(if (m.isFavorite) Icons.Outlined.Check else Icons.Outlined.Add, tr("Add to favorites", "إضافة إلى المفضلة"), m.isFavorite, p.onToggleFavorite)
-                SbRoundLabeled(Icons.Outlined.WatchLater, tr("Watch later", "المشاهدة لاحقاً"), m.isFavorite, p.onToggleFavorite)
+                val (wl, wlToggle) = rememberSbWatchLater(m.providerId, m.id, com.streamvault.domain.model.ContentType.MOVIE, m.name, m.posterUrl)
+                SbRoundLabeled(if (wl) Icons.Outlined.Check else Icons.Outlined.WatchLater, tr("Watch later", "المشاهدة لاحقاً"), wl, wlToggle)
                 p.onPlayTrailer?.let { SbRoundLabeled(Icons.Outlined.Movie, tr("Trailer", "الإعلان"), onClick = it) }
                 SbRoundLabeled(Icons.Outlined.Download, tr("Download", "تحميل"), onClick = p.onDownload)
                 SbRoundLabeled(Icons.Outlined.Cast, tr("Cast", "بث"), p.isCasting, p.onCast)
@@ -254,7 +255,8 @@ internal fun SbFreshSeriesDetail(p: SeriesDetailParams) {
                     }
                 }
                 SbRoundLabeled(if (sr.isFavorite) Icons.Outlined.Check else Icons.Outlined.Add, tr("Add to favorites", "إضافة إلى المفضلة"), sr.isFavorite, p.onToggleFavorite)
-                SbRoundLabeled(Icons.Outlined.WatchLater, tr("Watch later", "المشاهدة لاحقاً"), sr.isFavorite, p.onToggleFavorite)
+                val (wl, wlToggle) = rememberSbWatchLater(sr.providerId, sr.id, com.streamvault.domain.model.ContentType.SERIES, sr.name, sr.posterUrl)
+                SbRoundLabeled(if (wl) Icons.Outlined.Check else Icons.Outlined.WatchLater, tr("Watch later", "المشاهدة لاحقاً"), wl, wlToggle)
                 SbRoundLabeled(Icons.Outlined.Cast, tr("Cast", "بث"), p.isCasting, p.onCastResumeEpisode)
                 SbRoundLabeled(Icons.Outlined.Share, tr("Share", "مشاركة")) { target?.let(p.onCopyEpisodeUrl) }
             }

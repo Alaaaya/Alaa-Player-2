@@ -429,10 +429,40 @@ internal fun SbsRecent(p: com.streamvault.app.ui.themes.bespoke.FavoritesParams)
             Text(tr("Recently watched", "المشاهدة الأخيرة"), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text("${p.continueWatching.size + p.recentLive.size} " + tr("items", "عنصر"), color = SBX.Faint, fontSize = 14.sp)
         }
-        if (p.continueWatching.isEmpty() && p.recentLive.isEmpty()) {
+        val later = rememberSbWatchLaterItems()
+        if (p.continueWatching.isEmpty() && p.recentLive.isEmpty() && later.isEmpty()) {
             SbEmpty(Icons.Outlined.History, tr("No history yet", "لا يوجد سجل مشاهدة بعد"), tr("What you watch shows up here", "ما تشاهده سيظهر هنا")); return
         }
         LazyVerticalGrid(GridCells.Fixed(4), Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(6.dp, 6.dp, 6.dp, 48.dp)) {
+            if (later.isNotEmpty()) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SbIcon(Icons.Outlined.WatchLater, SBX.Red, 20.dp)
+                        Text(tr("Watch later", "المشاهدة لاحقاً"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("${later.size}", color = SBX.Faint, fontSize = 14.sp)
+                    }
+                }
+                items(later, key = { "wl${it.id}" }) { w ->
+                    val open = {
+                        p.onItemClick(com.streamvault.app.ui.screens.favorites.FavoriteUiModel(
+                            com.streamvault.domain.model.Favorite(providerId = w.providerId, contentId = w.contentId, contentType = w.contentType), w.title, providerId = w.providerId))
+                    }
+                    SbFocus(open, Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = SBX.Card, focusedColor = SBX.Card, scale = 1.05f, fill = false) { f ->
+                        Column {
+                            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0x14FFFFFF))) {
+                                w.posterUrl?.let { AsyncImage(it, w.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))))
+                                Box(Modifier.align(Alignment.TopStart).padding(8.dp).size(30.dp).clip(CircleShape).background(SBX.Red), contentAlignment = Alignment.Center) { SbIcon(Icons.Outlined.WatchLater, Color.White, 18.dp) }
+                            }
+                            Column(Modifier.padding(10.dp)) {
+                                Text(w.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (w.contentType == com.streamvault.domain.model.ContentType.SERIES) tr("Series", "مسلسل") else tr("Movie", "فيلم"), color = SBX.Faint, fontSize = 12.sp, maxLines = 1)
+                            }
+                        }
+                        if (f) Box(Modifier.matchParentSize().border(2.dp, SBX.Red, RoundedCornerShape(12.dp)))
+                    }
+                }
+            }
             if (p.continueWatching.isNotEmpty()) {
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) { Text(tr("Continue watching", "متابعة المشاهدة"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
                 items(p.continueWatching, key = { "rc${it.history.id}" }) { h ->
