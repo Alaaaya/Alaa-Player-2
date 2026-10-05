@@ -174,20 +174,20 @@ internal fun SbsHome(p: DashboardParams) {
         SbsCat("News", "أخبار", Icons.Outlined.Newspaper, Color(0xFF0EA5E9), Color(0xFF07506F), 0, Routes.LIVE_TV),
         SbsCat("Sports", "رياضة", Icons.Outlined.SportsSoccer, Color(0xFF16A34A), Color(0xFF0A4F24), 0, Routes.LIVE_TV)
     )
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        Box(Modifier.fillMaxWidth().height(380.dp).shadow(20.dp, SBX.PanelShape).clip(SBX.PanelShape).background(SBX.Panel)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(Modifier.fillMaxWidth().height(250.dp).shadow(20.dp, SBX.PanelShape).clip(SBX.PanelShape).background(SBX.Panel)) {
             (movie?.backdropUrl ?: movie?.posterUrl ?: s.feature.artworkUrl)?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF20B0D11), Color(0x990B0D11), Color.Transparent))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to SBX.Bg)))
-            Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(0.55f).padding(start = 44.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(0.55f).padding(start = 44.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SbTag(tr("Featured", "مميز اليوم"), SBX.Red)
-                Text(movie?.name ?: s.feature.title.ifBlank { "صبحية" }, color = Color.White, fontSize = 50.sp, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 56.sp)
+                Text(movie?.name ?: s.feature.title.ifBlank { "صبحية" }, color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, lineHeight = 44.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     movie?.year?.let { Text(it, color = SBX.Sub, fontSize = 17.sp) }
                     movie?.rating?.takeIf { it > 0 }?.let { Text("★ %.1f".format(it), color = Color(0xFFF5C518), fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                     movie?.genre?.split(",")?.firstOrNull()?.let { Text(it.trim(), color = SBX.Sub, fontSize = 17.sp) }
                 }
-                Text(movie?.plot?.takeIf { it.isNotBlank() } ?: s.feature.summary, color = Color(0xE6FFFFFF), fontSize = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis, lineHeight = 24.sp)
+                Text(movie?.plot?.takeIf { it.isNotBlank() } ?: s.feature.summary, color = Color(0xE6FFFFFF), fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 22.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     SbButton(tr("Watch now", "مشاهدة الآن"), Icons.Outlined.PlayArrow, { movie?.let(p.onMovieClick) ?: p.onNavigate(Routes.MOVIES) }, Modifier.focusRequester(first))
                     SbButton(tr("More info", "مزيد من المعلومات"), Icons.Outlined.Info, { movie?.let(p.onMovieClick) ?: p.onNavigate(Routes.MOVIES) }, primary = false)
@@ -196,7 +196,7 @@ internal fun SbsHome(p: DashboardParams) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             cats.forEach { c ->
-                SbFocus({ p.onNavigate(c.route) }, Modifier.weight(1f).height(130.dp), shape = SBX.PanelShape, color = Color.Transparent, focusedColor = Color.Transparent, scale = 1.08f) {
+                SbFocus({ p.onNavigate(c.route) }, Modifier.weight(1f).height(104.dp), shape = SBX.PanelShape, color = Color.Transparent, focusedColor = Color.Transparent, scale = 1.08f) {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(c.c1, c.c2))))
                     Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(70.dp).clip(CircleShape).background(Color(0x1FFFFFFF)))
                     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -247,9 +247,11 @@ private fun catStyle(name: String): Pair<ImageVector, Color> {
     }
 }
 
+internal object SbLiveMode { var startB = true }
+
 @Composable
 internal fun SbsLive(p: LiveTvParams) {
-    var modeB by rememberSaveable { mutableStateOf(true) }
+    var modeB by rememberSaveable { mutableStateOf(SbLiveMode.startB) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(p.sourceTitle.ifBlank { tr("Live TV", "البث المباشر") }, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
@@ -295,7 +297,7 @@ private fun SbsLiveColumns(p: LiveTvParams) {
     val selCat = p.categories.firstOrNull { it.id == p.selectedCategoryId }
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         // column 1: categories with icons + counts
-        Column(Modifier.width(270.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
+        Column(Modifier.width(230.dp).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
             Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SbIcon(Icons.Outlined.LiveTv, Color.White, 24.dp)
                 Text(tr("Categories", "الفئات"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -319,46 +321,14 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                 }
             }
         }
-        // column 2: preview on top, channel table below
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth().height(210.dp).clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                SbFocus({ foc?.let(p.onChannelClick) }, Modifier.fillMaxHeight().aspectRatio(16f / 9f).focusRequester(p.previewFocusRequester), shape = RoundedCornerShape(12.dp), color = Color.Black, focusedColor = Color.Black, scale = 1.02f) {
-                    val eng = p.previewPlayerEngine
-                    if (eng != null && p.previewChannel != null) PlayerRenderView(eng, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
-                    else foc?.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(36.dp)) }
-                    if (p.isPreviewLoading) Text("…", color = Color.White, fontSize = 26.sp, modifier = Modifier.align(Alignment.Center))
-                }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(Modifier.size(54.dp, 40.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x14FFFFFF))) { foc?.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(3.dp)) } }
-                        Column(Modifier.weight(1f)) {
-                            Text(foc?.name ?: tr("Pick a channel", "اختر قناة"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            SbTag("LIVE", SBX.Red)
-                        }
-                    }
-                    Text(foc?.currentProgram?.title ?: tr("No guide info", "لا يوجد دليل برامج"), color = SBX.Sub, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    foc?.currentProgram?.let { pr ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(sbTime(pr.startTime), color = SBX.Sub, fontSize = 13.sp)
-                            Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(Color(0x22FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(sbProgress(foc) ?: 0f).background(SBX.Red)) }
-                            Text(sbTime(pr.endTime), color = SBX.Sub, fontSize = 13.sp)
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SbsMini(Icons.Outlined.Info, tr("Info", "معلومات")) { foc?.let(p.onChannelLongClick) }
-                        SbsMini(Icons.Outlined.FiberManualRecord, tr("Record", "تسجيل")) { foc?.let(p.onChannelLongClick) }
-                        SbsMini(Icons.Outlined.FavoriteBorder, tr("Favorite", "مفضلة")) { foc?.let(p.onChannelLongClick) }
-                        SbsMini(Icons.Outlined.SwapHoriz, tr("Switch", "تبديل القناة")) { foc?.let(p.onChannelClick) }
-                    }
-                }
-            }
+        // column 2: channel list
+        Column(Modifier.weight(1.15f).fillMaxHeight()) {
             Column(Modifier.fillMaxSize().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(10.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(selCat?.name ?: tr("All channels", "جميع القنوات"), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("${p.channels.size}", color = SBX.Faint, fontSize = 14.sp)
                     Spacer(Modifier.weight(1f))
-                    Row(Modifier.width(280.dp).height(42.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.width(200.dp).height(42.dp).clip(RoundedCornerShape(50)).background(Color(0x14FFFFFF)).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SbIcon(Icons.Outlined.Search, SBX.Sub, 18.dp)
                         Box(Modifier.weight(1f)) {
                             if (p.channelSearchQuery.isEmpty()) Text(tr("Search channels…", "بحث عن القنوات…"), color = SBX.Faint, fontSize = 14.sp)
@@ -369,15 +339,14 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                     Text("#", color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(36.dp))
                     Text(tr("Channel", "القناة"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(tr("Now playing", "البرنامج الحالي"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(tr("Time", "الوقت"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(190.dp))
+                    Text(tr("Time", "الوقت"), color = SBX.Faint, fontSize = 13.sp, modifier = Modifier.width(130.dp))
                 }
                 when {
                     p.channels.isEmpty() && p.categories.isEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { repeat(7) { SbSkeleton(Modifier.fillMaxWidth().height(50.dp)) } }
                     p.channels.isEmpty() -> SbEmpty(Icons.Outlined.TvOff, tr("No channels here", "لا توجد قنوات هنا"), tr("Pick another category", "اختر فئة أخرى"))
                     else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(4.dp)) {
                         itemsIndexed(p.channels, key = { i, c -> "ch${c.id}-$i" }) { i, c ->
-                            SbFocus({ p.onChannelClick(c) }, Modifier.fillMaxWidth().height(54.dp).focusRequester(p.channelRequester(c.id)), shape = RoundedCornerShape(10.dp),
+                            SbFocus({ p.onChannelClick(c) }, Modifier.fillMaxWidth().height(58.dp).focusRequester(p.channelRequester(c.id)), shape = RoundedCornerShape(10.dp),
                                 color = if (p.movingChannelId == c.id) SBX.RedSoft else Color.Transparent, focusedColor = Color(0x40E50914), scale = 1.02f,
                                 onLongClick = { p.onChannelLongClick(c) }, onFocus = { if (it) { focused = c; p.onChannelFocused(c) } }) { f ->
                                 Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -386,13 +355,15 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                                         Box(Modifier.size(50.dp, 34.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x14FFFFFF)), contentAlignment = Alignment.Center) {
                                             c.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(3.dp)) } ?: Text(c.name.take(2), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
-                                        Text(c.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Column(Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(c.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                                if (f || c.id == foc?.id) SbTag("LIVE", SBX.Red)
+                                            }
+                                            Text(c.currentProgram?.title.orEmpty(), color = SBX.Sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        }
                                     }
-                                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(c.currentProgram?.title.orEmpty(), color = SBX.Sub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                        if (f || c.id == foc?.id) SbTag("LIVE", SBX.Red)
-                                    }
-                                    Row(Modifier.width(190.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(Modifier.width(130.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         Text(c.currentProgram?.let { "${sbTime(it.startTime)} - ${sbTime(it.endTime)}" } ?: "--", color = SBX.Sub, fontSize = 13.sp, modifier = Modifier.weight(1f))
                                         SbTag(sbQuality(c.name) ?: "SD", Color(0x66FFFFFF), filled = false)
                                         SbIcon(if (c.isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder, if (c.isFavorite) SBX.Red else SBX.Sub, 20.dp)
@@ -405,12 +376,43 @@ private fun SbsLiveColumns(p: LiveTvParams) {
                 }
             }
         }
+        // column 3: big preview + info + actions
+        Column(Modifier.weight(1f).fillMaxHeight().clip(SBX.PanelShape).background(SBX.Panel).border(1.dp, SBX.Line, SBX.PanelShape).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SbFocus({ foc?.let(p.onChannelClick) }, Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(p.previewFocusRequester), shape = RoundedCornerShape(12.dp), color = Color.Black, focusedColor = Color.Black, scale = 1.02f) {
+                val eng = p.previewPlayerEngine
+                if (eng != null && p.previewChannel != null) PlayerRenderView(eng, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
+                else foc?.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(40.dp)) }
+                if (p.isPreviewLoading) Text("…", color = Color.White, fontSize = 26.sp, modifier = Modifier.align(Alignment.Center))
+                Box(Modifier.align(Alignment.TopStart).padding(10.dp)) { SbTag("LIVE", SBX.Red) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(54.dp, 40.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x14FFFFFF))) { foc?.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(3.dp)) } }
+                Text(foc?.name ?: tr("Pick a channel", "اختر قناة"), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+            Text(foc?.currentProgram?.title ?: tr("No guide info", "لا يوجد دليل برامج"), color = SBX.Sub, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            foc?.currentProgram?.let { pr ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(sbTime(pr.startTime), color = SBX.Sub, fontSize = 13.sp)
+                    Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(Color(0x22FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(sbProgress(foc) ?: 0f).background(SBX.Red)) }
+                    Text(sbTime(pr.endTime), color = SBX.Sub, fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SbsMini(Icons.Outlined.Info, tr("Info", "معلومات"), Modifier.weight(1f)) { foc?.let(p.onChannelLongClick) }
+                SbsMini(Icons.Outlined.FiberManualRecord, tr("Record", "تسجيل"), Modifier.weight(1f)) { foc?.let(p.onChannelLongClick) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SbsMini(Icons.Outlined.FavoriteBorder, tr("Favorite", "مفضلة"), Modifier.weight(1f)) { foc?.let(p.onChannelLongClick) }
+                SbsMini(Icons.Outlined.SwapHoriz, tr("Switch", "تبديل القناة"), Modifier.weight(1f)) { foc?.let(p.onChannelClick) }
+            }
+        }
     }
 }
 
 @Composable
-private fun SbsMini(icon: ImageVector, label: String, onClick: () -> Unit) {
-    SbFocus(onClick, Modifier.height(40.dp), shape = RoundedCornerShape(10.dp), color = Color(0x14FFFFFF), focusedColor = SBX.Red, scale = 1.06f) {
+private fun SbsMini(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    SbFocus(onClick, modifier.height(42.dp), shape = RoundedCornerShape(10.dp), color = Color(0x14FFFFFF), focusedColor = SBX.Red, scale = 1.06f) {
         Row(Modifier.align(Alignment.Center).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             SbIcon(icon, Color.White, 18.dp); Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1)
         }
