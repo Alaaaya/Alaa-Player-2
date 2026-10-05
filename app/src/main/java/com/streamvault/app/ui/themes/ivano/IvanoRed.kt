@@ -40,14 +40,14 @@ internal fun CpLogo(modifier: Modifier = Modifier, compact: Boolean = false) {
                 lineTo(size.width * 0.08f, size.height * 0.94f)
                 close()
             }
-            drawPath(p, Brush.verticalGradient(listOf(Color(0xFF8EC3FF), Color(0xFF1655B0))))
+            drawPath(p, Brush.verticalGradient(listOf(Color(0xFFC4A3FF), Color(0xFF6E3BD1))))
             val hole = Path().apply {
                 moveTo(size.width * 0.32f, size.height * 0.34f)
                 lineTo(size.width * 0.62f, size.height * 0.5f)
                 lineTo(size.width * 0.32f, size.height * 0.66f)
                 close()
             }
-            drawPath(hole, Color(0xFF0A1230))
+            drawPath(hole, Color(0xFF0E0C12))
         }
         if (!compact) Text("Alaa IPTV", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
@@ -98,7 +98,7 @@ internal fun CpButton(label: String, glyph: String, onClick: () -> Unit, modifie
         onClick = onClick, modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (primary) CG.Amber else Color(0xCC1A2A5C), focusedContainerColor = if (primary) Color(0xFF5AA2FF) else Color(0xFF2A3A70),
+            containerColor = if (primary) CG.Amber else Color(0xCC1A2A5C), focusedContainerColor = if (primary) Color(0xFFB48CFF) else Color(0xFF332848),
             contentColor = Color.White, focusedContentColor = Color.White
         ),
         border = ClickableSurfaceDefaults.border(
@@ -121,7 +121,7 @@ internal fun CpSearchBox(value: String, onChange: (String) -> Unit, hint: String
     var focused by remember { mutableStateOf(false) }
     Row(
         modifier.height(44.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xCC0E1838))
-            .border(if (focused) 2.dp else 1.dp, if (focused) CG.Amber else Color(0xFF2A3A70), RoundedCornerShape(10.dp)).padding(horizontal = 14.dp),
+            .border(if (focused) 2.dp else 1.dp, if (focused) CG.Amber else Color(0xFF332848), RoundedCornerShape(10.dp)).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         CgGlyph("⌕", 20.dp, tint = if (focused) CG.Amber else CG.Sub)
@@ -157,13 +157,13 @@ internal fun CpRating(rating: Float, size: Int = 13) {
 
 /** Panel background used for the three columns / sidebars. */
 internal fun Modifier.cg2Panel(): Modifier = this.clip(RoundedCornerShape(14.dp))
-    .background(Brush.verticalGradient(listOf(Color(0xE6101A44), Color(0xE60A1230))))
-    .border(1.dp, Color(0xFF24346E), RoundedCornerShape(14.dp))
+    .background(Brush.verticalGradient(listOf(Color(0xE6101A44), Color(0xE60E0C12))))
+    .border(1.dp, Color(0xFF2E2442), RoundedCornerShape(14.dp))
 
 /** Selected-row look: dark-red fill with red glowing border. */
 internal fun Modifier.cg2Selected(on: Boolean): Modifier =
-    if (!on) this else this.background(Brush.horizontalGradient(listOf(Color(0xFF0A2A6A), Color(0xFF1655B0))), RoundedCornerShape(10.dp))
-        .border(1.5.dp, Color(0xFF8EC3FF), RoundedCornerShape(10.dp))
+    if (!on) this else this.background(Brush.horizontalGradient(listOf(Color(0xFF0A2A6A), Color(0xFF6E3BD1))), RoundedCornerShape(10.dp))
+        .border(1.5.dp, Color(0xFFC4A3FF), RoundedCornerShape(10.dp))
 
 @Composable
 internal fun CpSectionTitle(text: String, modifier: Modifier = Modifier, onShowAll: (() -> Unit)? = null) {

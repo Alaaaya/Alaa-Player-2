@@ -87,7 +87,7 @@ private fun CgIconKey(glyph: String, label: String, onClick: () -> Unit, active:
         TvClickableSurface(
             onClick = onClick, modifier = Modifier.size(52.dp),
             shape = ClickableSurfaceDefaults.shape(CircleShape),
-            colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x99182A5C), focusedContainerColor = CG.Amber, contentColor = if (active) Color(0xFF8EC3FF) else CG.Text, focusedContentColor = Color.White),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x99182A5C), focusedContainerColor = CG.Amber, contentColor = if (active) Color(0xFFC4A3FF) else CG.Text, focusedContentColor = Color.White),
             border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, CG.Line), shape = CircleShape)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
             glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(CG.Amber.copy(alpha = 0.6f), 16.dp))
@@ -218,13 +218,13 @@ internal fun IvanoSeriesDetail(p: SeriesDetailParams) {
                 }
             }
             items(p.selectedSeason?.episodes.orEmpty(), key = { it.id }) { e ->
-                CgCard(onClick = { p.onEpisodeClick(e) }, onLongClick = { p.onCopyEpisodeUrl(e) }, container = Color(0xFF101A42), shape = RoundedCornerShape(10.dp), zoom = 1.05f) {
+                CgCard(onClick = { p.onEpisodeClick(e) }, onLongClick = { p.onCopyEpisodeUrl(e) }, container = Color(0xFF17121F), shape = RoundedCornerShape(10.dp), zoom = 1.05f) {
                     Column {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(CG.Card)) {
                             (e.coverUrl ?: p.selectedSeason?.coverUrl ?: s.backdropUrl)?.let { AsyncImage(it, e.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000)))))
                             Box(Modifier.align(Alignment.TopStart).padding(8.dp)) { CpTag("E${e.episodeNumber}") }
-                            Box(Modifier.align(Alignment.Center).size(42.dp).clip(CircleShape).background(Color(0xCC1E6FD9)), contentAlignment = Alignment.Center) { CgGlyph("▶", 24.dp, tint = Color.White) }
+                            Box(Modifier.align(Alignment.Center).size(42.dp).clip(CircleShape).background(Color(0xCC9B5CFF)), contentAlignment = Alignment.Center) { CgGlyph("▶", 24.dp, tint = Color.White) }
                             e.duration?.let { Text(it, color = Color.White, fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) }
                             if (e.watchProgress > 0 && e.durationSeconds > 0) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(Color(0x55FFFFFF))) {
                                 Box(Modifier.fillMaxHeight().fillMaxWidth((e.watchProgress / (e.durationSeconds * 1000f)).coerceIn(0f, 1f)).background(CG.Amber))
@@ -245,16 +245,16 @@ internal fun IvanoSeriesDetail(p: SeriesDetailParams) {
 private fun CpDetailBackdrop(url: String?, content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(CG.Bg)) {
         url?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF50A1230), Color(0xD90A1230), Color(0x660A1230)))))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF50E0C12), Color(0xD90E0C12), Color(0x660E0C12)))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to CG.Bg)))
-        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0x331E6FD9), Color.Transparent), radius = 1400f)))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0x339B5CFF), Color.Transparent), radius = 1400f)))
         content()
     }
 }
 
 @Composable
 private fun CpPosterFrame(url: String?, title: String, width: androidx.compose.ui.unit.Dp = 280.dp) {
-    Box(Modifier.width(width).aspectRatio(0.68f).clip(RoundedCornerShape(14.dp)).background(CG.Card).border(1.dp, Color(0x558EC3FF), RoundedCornerShape(14.dp))) {
+    Box(Modifier.width(width).aspectRatio(0.68f).clip(RoundedCornerShape(14.dp)).background(CG.Card).border(1.dp, Color(0x55C4A3FF), RoundedCornerShape(14.dp))) {
         if (url != null) AsyncImage(url, title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         else Text(title.take(1), color = CG.Amber, fontSize = 60.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.Center))
     }
@@ -275,10 +275,10 @@ internal fun CpPill(label: String, selected: Boolean, modifier: Modifier = Modif
     val shape = RoundedCornerShape(50)
     TvClickableSurface(
         onClick = onClick, modifier = modifier, shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) CG.Amber else Color(0xCC14224E), focusedContainerColor = if (selected) Color(0xFF5AA2FF) else Color(0xFF1E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) CG.Amber else Color(0xCC14224E), focusedContainerColor = if (selected) Color(0xFFB48CFF) else Color(0xFF9B5CFF), contentColor = Color.White, focusedContentColor = Color.White),
         border = ClickableSurfaceDefaults.border(
-            border = Border(androidx.compose.foundation.BorderStroke(1.dp, if (selected) Color.Transparent else Color(0xFF2A3A70)), shape = shape),
-            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF8EC3FF)), shape = shape)
+            border = Border(androidx.compose.foundation.BorderStroke(1.dp, if (selected) Color.Transparent else Color(0xFF332848)), shape = shape),
+            focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFC4A3FF)), shape = shape)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(CG.Amber.copy(alpha = 0.55f), 12.dp))
@@ -339,7 +339,7 @@ internal fun IvanoSearch(p: SearchParams) {
                                 val locked = p.isChannelLocked(c)
                                 val prog = c.currentProgram
                                 val now = System.currentTimeMillis()
-                                CgCard(onClick = { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) }, container = Color(0xFF101A42), shape = RoundedCornerShape(10.dp), zoom = 1.01f, modifier = Modifier.fillMaxWidth()) {
+                                CgCard(onClick = { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) }, container = Color(0xFF17121F), shape = RoundedCornerShape(10.dp), zoom = 1.01f, modifier = Modifier.fillMaxWidth()) {
                                     Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                         CgLogo(c.name, if (locked) null else c.logoUrl, 40.dp)
                                         Text(c.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(240.dp))
@@ -376,7 +376,7 @@ internal fun IvanoSearch(p: SearchParams) {
 @Composable
 private fun CpEmptyState(glyph: String, title: String, sub: String?) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(Modifier.size(96.dp).clip(CircleShape).background(Color(0x221E6FD9)).border(1.dp, Color(0x661E6FD9), CircleShape), contentAlignment = Alignment.Center) { CgGlyph(glyph, 42.dp, tint = CG.Amber) }
+        Box(Modifier.size(96.dp).clip(CircleShape).background(Color(0x229B5CFF)).border(1.dp, Color(0x669B5CFF), CircleShape), contentAlignment = Alignment.Center) { CgGlyph(glyph, 42.dp, tint = CG.Amber) }
         Spacer(Modifier.height(16.dp))
         Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         sub?.let { Text(it, color = CG.Sub, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp)) }
@@ -434,10 +434,10 @@ internal fun IvanoFavorites(p: FavoritesParams) {
             sections.forEach { section ->
                 item(key = "h${section.key}", span = { GridItemSpan(maxLineSpan) }) { CpSectionTitle(section.title + "  (${section.items.size})") }
                 items(section.items, key = { "${section.key}${it.favorite.contentType}${it.favorite.contentId}" }) { f ->
-                    CgCard(onClick = { p.onItemClick(f) }, onLongClick = { p.onItemLongClick(f) }, container = Color(0xFF101A42), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
+                    CgCard(onClick = { p.onItemClick(f) }, onLongClick = { p.onItemLongClick(f) }, container = Color(0xFF17121F), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                           Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF1655B0), Color(0xFF0A1C4A)))), contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(Color(0xFF6E3BD1), Color(0xFF14101C)))), contentAlignment = Alignment.Center) {
                                 CgGlyph(favGlyph(f.favorite.contentType), 24.dp, tint = Color.White)
                             }
                             CgGlyph("♥", 18.dp, tint = CG.Amber)
@@ -469,12 +469,12 @@ private fun CpRecentScreen(p: FavoritesParams) {
                 item(span = { GridItemSpan(maxLineSpan) }) { CpSectionTitle(tr("Continue watching", "متابعة المشاهدة")) }
                 items(p.continueWatching, key = { "c${it.history.id}" }) { h ->
                     val prog = if (h.history.totalDurationMs > 0) (h.history.resumePositionMs.toFloat() / h.history.totalDurationMs).coerceIn(0f, 1f) else 0f
-                    CgCard(onClick = { p.onHistoryClick(h) }, container = Color(0xFF101A42), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
+                    CgCard(onClick = { p.onHistoryClick(h) }, container = Color(0xFF17121F), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
                         Column {
                             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(CG.Raised)) {
                                 h.history.posterUrl?.let { AsyncImage(it, h.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))))
-                                Box(Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(Color(0xCC1E6FD9)), contentAlignment = Alignment.Center) { CgGlyph("▶", 26.dp, tint = Color.White) }
+                                Box(Modifier.align(Alignment.Center).size(46.dp).clip(CircleShape).background(Color(0xCC9B5CFF)), contentAlignment = Alignment.Center) { CgGlyph("▶", 26.dp, tint = Color.White) }
                                 if (h.history.totalDurationMs > 0) Text(cgDuration((h.history.totalDurationMs - h.history.resumePositionMs).coerceAtLeast(0)) + " " + tr("left", "متبقي"), color = Color.White, fontSize = 11.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
                                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(4.dp).background(Color(0x55FFFFFF))) { Box(Modifier.fillMaxHeight().fillMaxWidth(prog).background(CG.Amber)) }
                             }
@@ -489,7 +489,7 @@ private fun CpRecentScreen(p: FavoritesParams) {
             if (p.recentLive.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) { CpSectionTitle(tr("Recently watched channels", "قنوات شوهدت مؤخراً")) }
                 items(p.recentLive, key = { "l${it.history.id}" }) { h ->
-                    CgCard(onClick = { p.onHistoryClick(h) }, container = Color(0xFF101A42), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
+                    CgCard(onClick = { p.onHistoryClick(h) }, container = Color(0xFF17121F), shape = RoundedCornerShape(12.dp), zoom = 1.05f) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             CgLogo(h.title, h.history.posterUrl, 48.dp)
                             Column(Modifier.weight(1f)) {
@@ -539,8 +539,8 @@ internal fun IvanoSettingsNav(p: SettingsNavParams) {
             TvClickableSurface(
                 onClick = { p.onCategorySelected(i) }, modifier = Modifier.fillMaxWidth().then(if (sel) Modifier.focusRequester(p.focusRequester) else Modifier),
                 shape = ClickableSurfaceDefaults.shape(shape),
-                colors = ClickableSurfaceDefaults.colors(containerColor = if (sel) CG.Amber else Color.Transparent, focusedContainerColor = if (sel) Color(0xFF5AA2FF) else Color(0xFF1E6FD9), contentColor = Color.White, focusedContentColor = Color.White),
-                border = ClickableSurfaceDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF8EC3FF)), shape = shape)),
+                colors = ClickableSurfaceDefaults.colors(containerColor = if (sel) CG.Amber else Color.Transparent, focusedContainerColor = if (sel) Color(0xFFB48CFF) else Color(0xFF9B5CFF), contentColor = Color.White, focusedContentColor = Color.White),
+                border = ClickableSurfaceDefaults.border(focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFC4A3FF)), shape = shape)),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
                 glow = ClickableSurfaceDefaults.glow(glow = if (sel) Glow(CG.Amber.copy(alpha = 0.4f), 10.dp) else Glow.None, focusedGlow = Glow(CG.Amber.copy(alpha = 0.55f), 14.dp))
             ) {
@@ -561,8 +561,8 @@ internal fun IvanoSettingsNav(p: SettingsNavParams) {
 internal fun IvanoSettingsFrame(navigation: @Composable () -> Unit, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         navigation()
-        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Color(0xFF0E1838)).border(1.dp, Color(0xFF24346E), RoundedCornerShape(16.dp))) {
-            Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color(0x331E6FD9), Color.Transparent))))
+        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Color(0xFF121016)).border(1.dp, Color(0xFF2E2442), RoundedCornerShape(16.dp))) {
+            Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color(0x339B5CFF), Color.Transparent))))
             Box(Modifier.fillMaxSize().padding(26.dp)) { content() }
         }
     }
@@ -601,7 +601,7 @@ private fun CgArabicKeyboard(onKey: (String) -> Unit, onBackspace: () -> Unit, o
 
 @Composable
 private fun CgKey(label: String, modifier: Modifier, accent: Boolean = false, on: Boolean = false, onClick: () -> Unit) {
-    CgCard(onClick = onClick, container = if (accent || on) CG.Amber else Color(0xFF14224E), shape = RoundedCornerShape(8.dp), zoom = 1.1f, modifier = modifier.height(46.dp)) {
+    CgCard(onClick = onClick, container = if (accent || on) CG.Amber else Color(0xFF1A1424), shape = RoundedCornerShape(8.dp), zoom = 1.1f, modifier = modifier.height(46.dp)) {
         if (label == "⌕" || label == "⌫") CgGlyph(label, 22.dp, Modifier.align(Alignment.Center), tint = Color.White)
         else Text(label, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.align(Alignment.Center))
     }

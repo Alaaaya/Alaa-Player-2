@@ -57,8 +57,8 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Path
 
-private val IvBlue = Color(0xFF1E6FD9)
-private val IvNavy = Color(0xFF0A1230)
+private val IvBlue = Color(0xFF9B5CFF)
+private val IvNavy = Color(0xFF0E0C12)
 
 /** Deep-blue radial background with concentric glowing rings (home). */
 @Composable
@@ -66,11 +66,11 @@ internal fun IvRings(modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "uvRings")
     val phase by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "ph")
     androidx.compose.foundation.Canvas(modifier.fillMaxSize()) {
-        drawRect(Brush.radialGradient(listOf(Color(0xFF1A3A8A), Color(0xFF0A1440), Color(0xFF050B28)), center = center, radius = size.maxDimension * 0.62f))
+        drawRect(Brush.radialGradient(listOf(Color(0xFF1A3A8A), Color(0xFF0F0B16), Color(0xFF0A0A0A)), center = center, radius = size.maxDimension * 0.62f))
         val maxR = size.maxDimension * 0.75f
         for (i in 0 until 14) {
             val f = ((i + phase) / 14f)
-            drawCircle(Color(0xFF5AA2FF).copy(alpha = (0.16f * (1f - f)).coerceAtLeast(0f)), radius = maxR * f, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2f))
+            drawCircle(Color(0xFFB48CFF).copy(alpha = (0.16f * (1f - f)).coerceAtLeast(0f)), radius = maxR * f, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.2f))
         }
     }
 }
@@ -82,13 +82,13 @@ internal fun IvWaveBg(modifier: Modifier = Modifier) {
     val s by t.animateFloat(0f, 1f, infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Reverse), label = "s")
     androidx.compose.foundation.Canvas(modifier.fillMaxSize()) {
         drawRect(IvNavy)
-        drawRect(Brush.radialGradient(listOf(Color(0x551E6FD9), Color.Transparent), center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.45f), radius = size.width * 0.45f))
+        drawRect(Brush.radialGradient(listOf(Color(0x559B5CFF), Color.Transparent), center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.45f), radius = size.width * 0.45f))
         for (k in 0 until 7) {
             val path = Path()
             val x0 = size.width * (0.55f + k * 0.035f)
             path.moveTo(x0 + 120f * s, 0f)
             path.cubicTo(size.width * (0.95f - k * 0.02f), size.height * (0.25f + 0.05f * s), size.width * (0.55f + k * 0.03f), size.height * 0.65f, size.width * (1.02f - k * 0.015f), size.height)
-            drawPath(path, Brush.verticalGradient(listOf(Color(0x005AA2FF), Color(0xFF5AA2FF).copy(alpha = 0.55f - k * 0.06f), Color(0x001E6FD9))), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f - k * 0.3f))
+            drawPath(path, Brush.verticalGradient(listOf(Color(0x00B48CFF), Color(0xFFB48CFF).copy(alpha = 0.55f - k * 0.06f), Color(0x009B5CFF))), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f - k * 0.3f))
         }
     }
 }
@@ -97,7 +97,7 @@ internal fun IvWaveBg(modifier: Modifier = Modifier) {
 internal fun IvLogo(modifier: Modifier = Modifier, size: Int = 30) {
     Row(modifier, verticalAlignment = Alignment.Top) {
         Text("Ivano", color = Color.White, fontSize = size.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.Light, letterSpacing = (size / 14f).sp)
-        Text("✦", color = Color(0xFF8EC3FF), fontSize = (size * 0.38f).sp, modifier = Modifier.padding(start = 2.dp))
+        Text("✦", color = Color(0xFFC4A3FF), fontSize = (size * 0.38f).sp, modifier = Modifier.padding(start = 2.dp))
     }
 }
 
@@ -164,8 +164,8 @@ internal fun IvHome(p: DashboardParams) {
                 Text(s.provider?.name ?: "Ivano", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(cgClock(now), color = Color.White, fontSize = 18.sp)
-                    Text(cg2ArabicDate(now), color = Color(0xFFAFC0E8), fontSize = 16.sp)
-                    if (days != null) Text(tr("(Days Left: $days)", "(الأيام المتبقية: $days)"), color = if (days <= 7) Color(0xFFFFB74D) else Color(0xFF8EC3FF), fontSize = 16.sp)
+                    Text(cg2ArabicDate(now), color = Color(0xFFC9B8E8), fontSize = 16.sp)
+                    if (days != null) Text(tr("(Days Left: $days)", "(الأيام المتبقية: $days)"), color = if (days <= 7) Color(0xFFFFB74D) else Color(0xFFC4A3FF), fontSize = 16.sp)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -183,7 +183,7 @@ private fun HomeTile(t: IvTile, modifier: Modifier) {
     val shape = RoundedCornerShape(18.dp)
     TvClickableSurface(onClick = t.go, modifier = modifier.height(190.dp), shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x8C0A1438), focusedContainerColor = IvBlue, contentColor = Color.White, focusedContentColor = Color.White),
-        border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)), shape = shape), focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF8EC3FF)), shape = shape)),
+        border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)), shape = shape), focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFC4A3FF)), shape = shape)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(IvBlue.copy(alpha = 0.7f), 24.dp))) {
         Column(Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -200,7 +200,7 @@ private fun HomeTile(t: IvTile, modifier: Modifier) {
 internal fun IvRow(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, content: @Composable RowScope.() -> Unit) {
     val shape = RoundedCornerShape(8.dp)
     TvClickableSurface(onClick = onClick, onLongClick = onLongClick, modifier = modifier.fillMaxWidth(), shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) Color(0x331E6FD9) else Color.Transparent, focusedContainerColor = IvBlue, contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) Color(0x339B5CFF) else Color.Transparent, focusedContainerColor = IvBlue, contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.0f)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), content = content)
     }
@@ -209,8 +209,8 @@ internal fun IvRow(selected: Boolean, onClick: () -> Unit, modifier: Modifier = 
 @Composable
 private fun IvHint(text: String, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.Icon(Icons.Outlined.Info, null, tint = Color(0xFFAFC0E8), modifier = Modifier.size(20.dp))
-        Text(text, color = Color(0xFFAFC0E8), fontSize = 15.sp)
+        androidx.compose.material3.Icon(Icons.Outlined.Info, null, tint = Color(0xFFC9B8E8), modifier = Modifier.size(20.dp))
+        Text(text, color = Color(0xFFC9B8E8), fontSize = 15.sp)
     }
 }
 
@@ -236,7 +236,7 @@ private fun IvCategories(p: LiveTvParams, open: () -> Unit) {
                         val cat = p.categories[i]
                         IvRow(cat.id == p.selectedCategoryId, onClick = { p.onCategoryClick(cat); open() }, onLongClick = { p.onCategoryLongClick(cat) },
                             modifier = Modifier.focusRequester(if (i == 0) first else p.categoryRequester(cat.id)).onFocusChanged { if (it.isFocused) p.onCategoryFocused(cat) }) {
-                            Text("${i + 1}", fontSize = 20.sp, color = Color(0xFFAFC0E8), modifier = Modifier.width(36.dp))
+                            Text("${i + 1}", fontSize = 20.sp, color = Color(0xFFC9B8E8), modifier = Modifier.width(36.dp))
                             if (p.isCategoryLocked(cat)) androidx.compose.material3.Icon(Icons.Outlined.Lock, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(20.dp))
                             Text(cat.name, fontSize = 21.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (cat.count > 0) Text("${cat.count}", fontSize = 18.sp, color = Color.White.copy(alpha = 0.8f))
@@ -250,7 +250,7 @@ private fun IvCategories(p: LiveTvParams, open: () -> Unit) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(now)), color = Color.White, fontSize = 150.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-                        Text(cg2ArabicDate(now), color = Color(0xFFAFC0E8), fontSize = 24.sp)
+                        Text(cg2ArabicDate(now), color = Color(0xFFC9B8E8), fontSize = 24.sp)
                     }
                 }
             }
@@ -270,7 +270,7 @@ private fun IvChannels(p: LiveTvParams, back: () -> Unit) {
                 IvIconKey(Icons.AutoMirrored.Outlined.ArrowBack, onClick = back)
                 Spacer(Modifier.width(14.dp))
                 Text(catName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text("${p.channels.size} " + tr("channels", "قناة"), color = Color(0xFFAFC0E8), fontSize = 16.sp)
+                Text("${p.channels.size} " + tr("channels", "قناة"), color = Color(0xFFC9B8E8), fontSize = 16.sp)
             }
             CpLtrRow(Modifier.fillMaxSize(), spacing = 30.dp) { rtl ->
                 rtl {
@@ -281,7 +281,7 @@ private fun IvChannels(p: LiveTvParams, back: () -> Unit) {
                             val moving = c.id == p.movingChannelId
                             IvRow(moving || c.id == p.previewChannel?.id, onClick = { p.onChannelClick(c) }, onLongClick = { p.onChannelLongClick(c) },
                                 modifier = Modifier.focusRequester(if (i == 0) first else p.channelRequester(c.id)).onFocusChanged { if (it.isFocused) p.onChannelFocused(c) }.cgRight { p.onRequestPreviewFromChannel() }) {
-                                Text(if (c.number > 0) "${c.number}" else "${i + 1}", fontSize = 19.sp, color = Color(0xFFAFC0E8), modifier = Modifier.width(44.dp))
+                                Text(if (c.number > 0) "${c.number}" else "${i + 1}", fontSize = 19.sp, color = Color(0xFFC9B8E8), modifier = Modifier.width(44.dp))
                                 CpLogoBox(c.name, if (locked) null else c.logoUrl, 54.dp, 36.dp)
                                 Text((if (moving) "⇅ " else "") + c.name, fontSize = 20.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                 (if (locked) null else c.qualityBadge())?.let {
@@ -301,12 +301,12 @@ private fun IvChannels(p: LiveTvParams, back: () -> Unit) {
                             if (engine != null && pc != null) PlayerRenderView(engine, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
                             else pc?.logoUrl?.let { AsyncImage(it, null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(50.dp)) }
                             if (p.isPreviewLoading) Text("…", color = Color.White, fontSize = 26.sp, modifier = Modifier.align(Alignment.Center))
-                            p.previewErrorMessage?.let { Text(it, color = Color(0xFFAFC0E8), fontSize = 13.sp, maxLines = 2, modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp)) }
+                            p.previewErrorMessage?.let { Text(it, color = Color(0xFFC9B8E8), fontSize = 13.sp, maxLines = 2, modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp)) }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(pc?.name ?: tr("Pick a channel", "اختر قناة"), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                pc?.currentProgram?.let { Text(it.title + "  " + cgClock(it.startTime) + " - " + cgClock(it.endTime), color = Color(0xFFAFC0E8), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                pc?.currentProgram?.let { Text(it.title + "  " + cgClock(it.startTime) + " - " + cgClock(it.endTime), color = Color(0xFFC9B8E8), fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
                             androidx.compose.material3.Icon(if (pc?.isFavorite == true) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, null, tint = if (pc?.isFavorite == true) Color(0xFFFF5A7A) else Color.White, modifier = Modifier.size(32.dp))
                         }

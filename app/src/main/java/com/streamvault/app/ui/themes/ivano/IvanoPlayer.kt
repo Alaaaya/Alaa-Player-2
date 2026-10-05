@@ -139,7 +139,7 @@ internal fun BoxScope.IvPlayerSheet(p: PlayerOverlayParams, focus: FocusRequeste
         add(Triple(tr("Cast", "البث"), if (p.isCastConnected) tr("Connected", "متصل") else "", if (p.isCastConnected) p.onStopCasting else p.onCast))
     }
     Column(
-        Modifier.align(Alignment.CenterStart).fillMaxHeight().width(400.dp).background(Brush.horizontalGradient(listOf(Color(0xF0061214), Color(0xF70A1230)))).border(1.dp, Color(0x661E6FD9)).padding(20.dp),
+        Modifier.align(Alignment.CenterStart).fillMaxHeight().width(400.dp).background(Brush.horizontalGradient(listOf(Color(0xF0061214), Color(0xF70E0C12)))).border(1.dp, Color(0x669B5CFF)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -169,7 +169,7 @@ internal fun IvanoLiveChannelList(p: LiveChannelListParams) {
     var focused by remember(p.currentChannelId) { mutableStateOf(p.channels.getOrNull(idx)) }
     LaunchedEffect(Unit) { runCatching { p.focusRequester.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f), Color.Black.copy(alpha = 0.92f))))) {
-        Column(Modifier.align(Alignment.TopEnd).fillMaxHeight().width(540.dp).background(Brush.verticalGradient(listOf(Color(0xE6061214), Color(0xD90D0D0D)))).border(1.dp, Color(0x551E6FD9)).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.align(Alignment.TopEnd).fillMaxHeight().width(540.dp).background(Brush.verticalGradient(listOf(Color(0xE6061214), Color(0xD90D0D0D)))).border(1.dp, Color(0x559B5CFF)).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     CgHeading(tr("Channel list", "قائمة القنوات"), size = 11)
@@ -188,7 +188,7 @@ internal fun IvanoLiveChannelList(p: LiveChannelListParams) {
                 items(p.channels, key = { it.id }) { c ->
                     val cur = c.id == p.currentChannelId
                     CgCard(
-                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = CG.RSmall, container = if (cur) Color(0xFF1E6FD9) else Color.Transparent,
+                        onClick = { p.onInteracted(); p.onSelectChannel(c.id) }, onLongClick = { p.onChannelLongPress(c) }, shape = CG.RSmall, container = if (cur) Color(0xFF9B5CFF) else Color.Transparent,
                         modifier = Modifier.fillMaxWidth().then(if (cur) Modifier.focusRequester(p.focusRequester) else Modifier).onFocusChanged { if (it.isFocused) { focused = c; p.onInteracted() } }
                     ) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

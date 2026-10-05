@@ -89,10 +89,10 @@ import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
 
 // ===================== Ivano second pass: bespoke library / details / search / settings =====================
 
-private val NBlue = Color(0xFF1E6FD9)
-private val NSub = Color(0xFFAFC0E8)
-private val NGlass = Color(0x2E5AA2FF)
-private val NLine = Color(0x335AA2FF)
+private val NBlue = Color(0xFF9B5CFF)
+private val NSub = Color(0xFFC9B8E8)
+private val NGlass = Color(0x2EB48CFF)
+private val NLine = Color(0x33B48CFF)
 
 /** Poster: rounded, thin blue line, solid blue ring + glow on focus, title strip below. */
 @Composable
@@ -103,12 +103,12 @@ internal fun IvPoster(title: String, url: String?, caption: String?, onClick: ()
         TvClickableSurface(onClick = onClick, onLongClick = onLongClick,
             modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus() },
             shape = ClickableSurfaceDefaults.shape(shape),
-            colors = ClickableSurfaceDefaults.colors(containerColor = Color(0xFF101C4A), focusedContainerColor = Color(0xFF101C4A)),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Color(0xFF171220), focusedContainerColor = Color(0xFF171220)),
             border = ClickableSurfaceDefaults.border(border = Border(androidx.compose.foundation.BorderStroke(1.dp, NLine), shape = shape), focusedBorder = Border(androidx.compose.foundation.BorderStroke(3.dp, NBlue), shape = shape)),
             glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(NBlue.copy(alpha = 0.7f), 18.dp)),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.07f)) {
             if (!locked && url != null) AsyncImage(url, title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF16307A), Color(0xFF0A1440)))), contentAlignment = Alignment.Center) {
+            else Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF16307A), Color(0xFF0F0B16)))), contentAlignment = Alignment.Center) {
                 if (locked) androidx.compose.material3.Icon(Icons.Outlined.Lock, null, tint = Color.White, modifier = Modifier.size(34.dp))
                 else Text(title.take(1), color = Color.White, fontSize = 40.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif)
             }
@@ -242,11 +242,11 @@ internal fun <T> IvLibrary(
 private fun IvDetailHero(backdrop: String?, poster: String?, name: String, meta: List<String?>, plot: String?, badges: List<String>, actions: @Composable RowScope.() -> Unit) {
     Box(Modifier.fillMaxWidth().height(470.dp).clip(RoundedCornerShape(20.dp))) {
         (backdrop ?: poster)?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF00A1230), Color(0xC00A1230), Color(0x400A1230)))))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color(0xFF0A1230))))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xF00E0C12), Color(0xC00E0C12), Color(0x400E0C12)))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color(0xFF0E0C12))))
         IvRings(Modifier.fillMaxSize().alpha(0.28f))
         Row(Modifier.fillMaxSize().padding(34.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-            Box(Modifier.width(250.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(Color(0xFF101C4A)).border(2.dp, NBlue.copy(alpha = 0.7f), RoundedCornerShape(14.dp))) {
+            Box(Modifier.width(250.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)).background(Color(0xFF171220)).border(2.dp, NBlue.copy(alpha = 0.7f), RoundedCornerShape(14.dp))) {
                 poster?.let { AsyncImage(it, name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                     ?: Text(name.take(1), color = Color.White, fontSize = 60.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, modifier = Modifier.align(Alignment.Center))
             }
@@ -345,7 +345,7 @@ internal fun IvSeriesDetail(p: SeriesDetailParams) {
                             items(p.selectedSeason?.episodes.orEmpty(), key = { it.id }) { e ->
                                 IvRow(resume?.id == e.id, onClick = { p.onEpisodeClick(e) }, onLongClick = { p.onCopyEpisodeUrl(e) }) {
                                     Text("${e.episodeNumber}", fontSize = 20.sp, color = NSub, modifier = Modifier.width(34.dp))
-                                    Box(Modifier.width(150.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF101C4A))) {
+                                    Box(Modifier.width(150.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)).background(Color(0xFF171220))) {
                                         (e.coverUrl ?: p.selectedSeason?.coverUrl ?: s.backdropUrl)?.let { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                                         if (e.watchProgress > 0 && e.durationSeconds > 0) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(Color(0x55FFFFFF))) {
                                             Box(Modifier.fillMaxHeight().fillMaxWidth((e.watchProgress / (e.durationSeconds * 1000f)).coerceIn(0f, 1f)).background(NBlue))
@@ -393,7 +393,7 @@ internal fun IvSearch(p: SearchParams) {
     var digits by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(NGlass).border(1.dp, NLine, RoundedCornerShape(16.dp)).padding(horizontal = 18.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("✦", color = Color(0xFF8EC3FF), fontSize = 24.sp)
+            Text("✦", color = Color(0xFFC4A3FF), fontSize = 24.sp)
             CgSearchField(p.query, p.onQueryChange, tr("Search movies, series, channels…", "ابحث عن فيلم، مسلسل أو قناة…"), Modifier.weight(1f).focusRequester(p.searchFocusRequester), onSubmit = p.onSearch)
             if (s.isLoading) Text("…", color = NSub, fontSize = 22.sp)
         }

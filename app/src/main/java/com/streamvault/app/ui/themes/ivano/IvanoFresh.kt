@@ -470,7 +470,7 @@ internal fun IvFreshLiveTv(p: LiveTvParams) {
                 when {
                     shown.isEmpty() && p.channels.isEmpty() -> LazyVerticalGrid(GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) { items(List(9) { it }) { IvSkeleton(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) } }
                     shown.isEmpty() -> IvEmpty(Icons.Outlined.TvOff, tr("No channels match", "لا توجد قنوات مطابقة"), tr("Try another quality or category", "جرّب جودة أو قسماً آخر"))
-                    grid -> LazyVerticalGrid(GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalArrangement = Arrangement.spacedBy(22.dp), contentPadding = PaddingValues(12.dp)) {
+                    grid -> LazyVerticalGrid(GridCells.Adaptive(180.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(12.dp)) {
                         items(shown, key = { it.id }) { c ->
                             IvChannelCard(c, p.movingChannelId == c.id, Modifier.fillMaxWidth(), p.channelRequester(c.id), onFocus = { focused = c; p.onChannelFocused(c) }, onLongClick = { p.onChannelLongClick(c) }) { p.onChannelClick(c) }
                         }
@@ -493,7 +493,7 @@ internal fun IvFreshLiveTv(p: LiveTvParams) {
                 }
             }
             // focused preview + program info (glass)
-            Column(Modifier.width(400.dp).fillMaxHeight().clip(IV.R).background(IV.Glass).border(1.dp, IV.Line, IV.R).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.width(290.dp).fillMaxHeight().clip(IV.R).background(IV.Glass).border(1.dp, IV.Line, IV.R).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 IvFocus({ foc?.let(p.onChannelClick) }, Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(p.previewFocusRequester), shape = IV.RS, color = Color.Black, focusedColor = Color.Black, scale = 1.03f) {
                     val eng = p.previewPlayerEngine
                     if (eng != null && p.previewChannel != null) PlayerRenderView(eng, PlayerSurfaceResizeMode.FIT, Modifier.fillMaxSize())
