@@ -114,7 +114,8 @@ object ThemeCatalog {
         ThemeCatalogEntry(AppHomeTheme.AURORA_LOUNGE, "Aurora Lounge", "تجربة صالة ليلية دافئة."),
         ThemeCatalogEntry(AppHomeTheme.CHAT_GPT, "ChatGPT", "تجربة كحلية بتوهج أزرق لامع."),
         ThemeCatalogEntry(AppHomeTheme.CHAT_GPT_2, "ChatGPT 2", "أسود فحمي مع توهج أحمر سينمائي."),
-        ThemeCatalogEntry(AppHomeTheme.CYAN_PRO, "Cyan Premium", "أسود عميق مع زجاج وتوهج سماوي.")
+        ThemeCatalogEntry(AppHomeTheme.CYAN_PRO, "Cyan Premium", "أسود عميق مع زجاج وتوهج سماوي."),
+        ThemeCatalogEntry(AppHomeTheme.UNIVERSE, "Universe", "أزرق كوني بموجات مضيئة وتنقل سريع.")
     )
 
     fun entry(theme: AppHomeTheme): ThemeCatalogEntry =
@@ -380,6 +381,7 @@ private val expansionPresentations = listOf(
     futurePresentation(AppHomeTheme.AURORA_LOUNGE, Color(0xFF0C0B19), Color(0xFF19152C), Color(0xFF141126), Color(0xFF332854), Color(0xFFF8F3FF), Color(0xFFC4B6D2), Color(0xFFE6AD68), ThemeNavigationLayout.TOP_BAR, 32.dp, 64.dp, 1.018f, 280),
     futurePresentation(AppHomeTheme.CHAT_GPT, Color(0xFF060B18), Color(0xFF101C33), Color(0xFF0B1426), Color(0xFF1E2F52), Color(0xFFF2F6FF), Color(0xFFA9B8D6), Color(0xFF2F7BFF), ThemeNavigationLayout.SIDE_RAIL, 14.dp, 24.dp, 1.04f, 180),
     futurePresentation(AppHomeTheme.CHAT_GPT_2, Color(0xFF0A0A0C), Color(0xFF141418), Color(0xFF1A1A1F), Color(0xFF2A2A31), Color(0xFFFFFFFF), Color(0xFFB8B8C0), Color(0xFFE50914), ThemeNavigationLayout.SIDE_RAIL, 14.dp, 24.dp, 1.04f, 180),
+    futurePresentation(AppHomeTheme.UNIVERSE, Color(0xFF0A1230), Color(0xFF0A1440), Color(0xFF111C4A), Color(0xFF1A2760), Color(0xFFFFFFFF), Color(0xFFAFC0E8), Color(0xFF1E6FD9), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.06f, 180),
     futurePresentation(AppHomeTheme.CYAN_PRO, Color(0xFF0D0D0D), Color(0xFF121212), Color(0xFF181A1C), Color(0xFF23272B), Color(0xFFFFFFFF), Color(0xFFAEB8C0), Color(0xFF00E5FF), ThemeNavigationLayout.SIDE_RAIL, 16.dp, 24.dp, 1.06f, 180)
 )
 

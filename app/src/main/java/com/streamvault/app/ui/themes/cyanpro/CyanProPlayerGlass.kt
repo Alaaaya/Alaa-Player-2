@@ -225,9 +225,9 @@ private fun LabeledAction(icon: ImageVector, label: String, value: String, onCli
         colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f)) {
         Column(Modifier.width(104.dp).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Icon(icon, null, modifier = Modifier.size(24.dp))
-            Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-            Text(value, color = Grey, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(value, color = Color(0xFFD6DEE6), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -238,7 +238,7 @@ private fun RoundSeek(icon: ImageVector, onClick: () -> Unit) {
     TvClickableSurface(onClick = onClick, shape = s, border = b, glow = g, modifier = Modifier.size(54.dp),
         colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, modifier = Modifier.size(34.dp)) }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(34.dp)) }
     }
 }
 
@@ -254,7 +254,7 @@ private fun BigPlay(playing: Boolean, modifier: Modifier, onClick: () -> Unit) {
         colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x660B1216), focusedContainerColor = Color(0x4400E5FF), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, modifier = Modifier.size(44.dp))
+            Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(44.dp))
         }
     }
 }
@@ -262,7 +262,9 @@ private fun BigPlay(playing: Boolean, modifier: Modifier, onClick: () -> Unit) {
 @Composable
 private fun CyanPill(icon: ImageVector, label: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(50)
-    TvClickableSurface(onClick = onClick, shape = ClickableSurfaceDefaults.shape(shape),
+    var pf by remember { mutableStateOf(false) }
+    val fg = if (pf) Color(0xFF00151A) else Color.White
+    TvClickableSurface(onClick = onClick, modifier = Modifier.onFocusChanged { pf = it.isFocused }, shape = ClickableSurfaceDefaults.shape(shape),
         border = ClickableSurfaceDefaults.border(
             border = Border(androidx.compose.foundation.BorderStroke(1.5.dp, Cyan), shape = shape),
             focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.5.dp, Cyan), shape = shape)),
@@ -270,8 +272,8 @@ private fun CyanPill(icon: ImageVector, label: String, onClick: () -> Unit) {
         colors = ClickableSurfaceDefaults.colors(containerColor = Color(0x2600E5FF), focusedContainerColor = Cyan, contentColor = Color.White, focusedContentColor = Color(0xFF00151A)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f)) {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(icon, null, modifier = Modifier.size(22.dp))
-            Text(label, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
+            Text(label, color = fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -282,6 +284,6 @@ private fun GlassIconButton(icon: ImageVector, modifier: Modifier, onClick: () -
     TvClickableSurface(onClick = onClick, shape = s, border = b, glow = g, modifier = modifier.size(40.dp),
         colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color(0x3300E5FF), contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, modifier = Modifier.size(24.dp)) }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)) }
     }
 }
