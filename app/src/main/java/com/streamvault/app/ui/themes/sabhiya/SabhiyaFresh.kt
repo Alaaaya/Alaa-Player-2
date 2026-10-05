@@ -92,6 +92,7 @@ internal fun SbFocus(
     scale: Float = 1.07f,
     onLongClick: (() -> Unit)? = null,
     onFocus: ((Boolean) -> Unit)? = null,
+    fill: Boolean = true,
     content: @Composable BoxScope.(Boolean) -> Unit
 ) {
     var f by remember { mutableStateOf(false) }
@@ -103,7 +104,7 @@ internal fun SbFocus(
         scale = ClickableSurfaceDefaults.scale(focusedScale = scale),
         border = ClickableSurfaceDefaults.border(focusedBorder = androidx.tv.material3.Border(androidx.compose.foundation.BorderStroke(2.5.dp, SB.Purple), shape = shape)),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(SB.Purple.copy(alpha = 0.55f), 22.dp))
-    ) { Box(Modifier.fillMaxSize()) { content(f) } }
+    ) { Box(if (fill) Modifier.fillMaxSize() else Modifier) { content(f) } }
 }
 
 @Composable
@@ -122,8 +123,8 @@ internal fun SbBrand(size: Int = 26) {
 
 @Composable
 internal fun SbChip(label: String, selected: Boolean, modifier: Modifier = Modifier, icon: ImageVector? = null, count: Int? = null, onClick: () -> Unit) {
-    SbFocus(onClick, modifier.height(52.dp), shape = RoundedCornerShape(50), color = if (selected) SB.Purple else Color(0x14FFFFFF), focusedColor = if (selected) SB.Purple else Color(0x33FFFFFF), scale = 1.06f) {
-        Row(Modifier.align(Alignment.Center).padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    SbFocus(onClick, modifier.height(52.dp), shape = RoundedCornerShape(50), color = if (selected) SB.Purple else Color(0x14FFFFFF), focusedColor = if (selected) SB.Purple else Color(0x33FFFFFF), scale = 1.06f, fill = false) {
+        Row(Modifier.fillMaxHeight().padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             icon?.let { SbIcon(it, size = 20.dp) }
             Text(label, color = Color.White, fontSize = 18.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
             count?.let { Text("$it", color = if (selected) Color(0xDDFFFFFF) else SB.Faint, fontSize = 14.sp) }
