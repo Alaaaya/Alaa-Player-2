@@ -466,7 +466,8 @@ private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
         AppHomeTheme.NEXT_GEN_TV to com.streamvault.app.ui.themes.nextgentv.NextGenTvUi,
         AppHomeTheme.AURORA_LOUNGE to com.streamvault.app.ui.themes.auroralounge.AuroraLoungeUi,
         AppHomeTheme.CHAT_GPT to com.streamvault.app.ui.themes.chatgpt.ChatGptUi,
-        AppHomeTheme.CHAT_GPT_2 to com.streamvault.app.ui.themes.chatgpt2.ChatGpt2Ui
+        AppHomeTheme.CHAT_GPT_2 to com.streamvault.app.ui.themes.chatgpt2.ChatGpt2Ui,
+        AppHomeTheme.CYAN_PRO to com.streamvault.app.ui.themes.cyanpro.CyanProUi
     )
 }
 
