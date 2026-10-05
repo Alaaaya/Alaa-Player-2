@@ -25,7 +25,11 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
     }
+
+    // Exported Room schemas as unit-test assets so migrations can be verified under Robolectric.
+    sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
 
     lint {
         baseline = file("lint-baseline.xml")

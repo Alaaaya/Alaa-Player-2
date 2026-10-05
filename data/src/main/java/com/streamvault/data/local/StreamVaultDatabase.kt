@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.net.URI
 import java.security.MessageDigest
 
-internal const val STREAM_VAULT_DATABASE_VERSION = 77
+internal const val STREAM_VAULT_DATABASE_VERSION = 78
 
 @Database(
     entities = [
@@ -34,6 +34,7 @@ internal const val STREAM_VAULT_DATABASE_VERSION = 77
         CategoryImportStageEntity::class,
         ProgramEntity::class,
         FavoriteEntity::class,
+        WatchLaterEntity::class,
         VirtualGroupEntity::class,
         PlaybackHistoryEntity::class,
         TmdbIdentityEntity::class,
@@ -90,6 +91,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun catalogSyncDao(): CatalogSyncDao
     abstract fun programDao(): ProgramDao
     abstract fun favoriteDao(): FavoriteDao
+    abstract fun watchLaterDao(): WatchLaterDao
     abstract fun virtualGroupDao(): VirtualGroupDao
     abstract fun playbackHistoryDao(): PlaybackHistoryDao
     abstract fun tmdbIdentityDao(): TmdbIdentityDao
@@ -205,5 +207,6 @@ abstract class StreamVaultDatabase : RoomDatabase() {
         val MIGRATION_74_75 = FeatureMigrationsV49To75.MIGRATION_74_75
         val MIGRATION_75_76 = FeatureMigrationsV75To76.MIGRATION_75_76
         val MIGRATION_76_77 = FeatureMigrationsV76To77.MIGRATION_76_77
+        val MIGRATION_77_78 = FeatureMigrationsV77To78.MIGRATION_77_78
     }
 }
