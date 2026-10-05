@@ -134,7 +134,7 @@ internal fun UvIconKey(icon: androidx.compose.ui.graphics.vector.ImageVector, mo
         colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = UvBlue, contentColor = Color.White, focusedContentColor = Color.White),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(UvBlue.copy(alpha = 0.6f), 14.dp))) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { androidx.compose.material3.Icon(icon, null, modifier = Modifier.size(26.dp)) }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { androidx.compose.material3.Icon(icon, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(26.dp)) }
     }
 }
 
@@ -187,7 +187,7 @@ private fun HomeTile(t: UvTile, modifier: Modifier) {
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(UvBlue.copy(alpha = 0.7f), 24.dp))) {
         Column(Modifier.fillMaxSize().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            androidx.compose.material3.Icon(t.icon, null, modifier = Modifier.size(64.dp))
+            androidx.compose.material3.Icon(t.icon, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(16.dp))
             Text(tr(t.en, t.ar), fontSize = 20.sp, fontWeight = FontWeight.Medium, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
@@ -237,10 +237,10 @@ private fun UvCategories(p: LiveTvParams, open: () -> Unit) {
                         UvRow(cat.id == p.selectedCategoryId, onClick = { p.onCategoryClick(cat); open() }, onLongClick = { p.onCategoryLongClick(cat) },
                             modifier = Modifier.focusRequester(if (i == 0) first else p.categoryRequester(cat.id)).onFocusChanged { if (it.isFocused) p.onCategoryFocused(cat) }) {
                             Text("${i + 1}", fontSize = 20.sp, color = Color(0xFFAFC0E8), modifier = Modifier.width(36.dp))
-                            if (p.isCategoryLocked(cat)) androidx.compose.material3.Icon(Icons.Outlined.Lock, null, modifier = Modifier.size(20.dp))
+                            if (p.isCategoryLocked(cat)) androidx.compose.material3.Icon(Icons.Outlined.Lock, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(20.dp))
                             Text(cat.name, fontSize = 21.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (cat.count > 0) Text("${cat.count}", fontSize = 18.sp, color = Color.White.copy(alpha = 0.8f))
-                            androidx.compose.material3.Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, modifier = Modifier.size(24.dp))
+                            androidx.compose.material3.Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = androidx.tv.material3.LocalContentColor.current, modifier = Modifier.size(24.dp))
                         }
                     }
                     if (p.categories.isEmpty()) item { CgEmpty(tr("No categories", "لا توجد فئات")) }
@@ -249,7 +249,7 @@ private fun UvCategories(p: LiveTvParams, open: () -> Unit) {
             rtl {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(cgClock(now), color = Color.White, fontSize = 150.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                        Text(java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(now)), color = Color.White, fontSize = 150.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                         Text(cg2ArabicDate(now), color = Color(0xFFAFC0E8), fontSize = 24.sp)
                     }
                 }
