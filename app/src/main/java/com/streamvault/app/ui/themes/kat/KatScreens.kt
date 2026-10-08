@@ -176,7 +176,7 @@ internal fun KatSeriesDetail(p: SeriesDetailParams) {
                     Column(Modifier.weight(1f).padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             KatTag(tr("SERIES", "مسلسل"))
-                            if (p.unwatchedEpisodeCount > 0) KatTag("${p.unwatchedEpisodeCount} " + tr("new", "جديد"), bg = Color(0xFF22C55E))
+                            if (p.unwatchedEpisodeCount > 0) KatTag("${p.unwatchedEpisodeCount} " + tr("new", "جديد"), bg = CG.Violet, fg = Color.White)
                             Text("${s.seasons.size} " + tr("seasons", "مواسم"), color = CG.Sub, fontSize = 13.sp)
                         }
                         Text(s.name, color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -275,7 +275,7 @@ internal fun KatPill(label: String, selected: Boolean, modifier: Modifier = Modi
     val shape = RoundedCornerShape(50)
     TvClickableSurface(
         onClick = onClick, modifier = modifier, shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) CG.Amber else Color(0xCC1C1C3C), focusedContainerColor = if (selected) Color(0xFFFFB547) else Color(0xFF2E2448), contentColor = Color.White, focusedContentColor = Color.White),
+        colors = ClickableSurfaceDefaults.colors(containerColor = if (selected) CG.Amber else Color(0xCC1C1C3C), focusedContainerColor = CG.Amber, contentColor = if (selected) Color(0xFF14102A) else Color.White, focusedContentColor = Color(0xFF14102A)),
         border = ClickableSurfaceDefaults.border(
             border = Border(androidx.compose.foundation.BorderStroke(1.dp, if (selected) Color.Transparent else Color(0xFF34345E)), shape = shape),
             focusedBorder = Border(androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFC56B)), shape = shape)
@@ -561,7 +561,7 @@ internal fun KatSettingsNav(p: SettingsNavParams) {
 internal fun KatSettingsFrame(navigation: @Composable () -> Unit, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         navigation()
-        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Color(0xFF10102A)).border(1.dp, Color(0xFF2E2E55), RoundedCornerShape(16.dp))) {
+        Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(CG.Glass).border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp))) {
             Box(Modifier.fillMaxWidth().height(160.dp).background(Brush.verticalGradient(listOf(Color(0x33FFB547), Color.Transparent))))
             Box(Modifier.fillMaxSize().padding(26.dp)) { content() }
         }

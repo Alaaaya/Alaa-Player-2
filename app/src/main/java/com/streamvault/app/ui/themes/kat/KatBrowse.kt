@@ -130,7 +130,7 @@ internal fun <T> KatLibrary(
                         hero?.let(plot)?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             KatButton(tr("Watch now", "مشاهدة الآن"), "▶", { hero?.let(p.onItemClick) })
-                            KatButton(tr("More info", "مزيد من المعلومات"), "info", { hero?.let(p.onItemClick) }, primary = false)
+                            KatButton(tr("Details", "التفاصيل"), "info", { hero?.let(p.onItemClick) }, primary = false)
                         }
                     }
                 }
