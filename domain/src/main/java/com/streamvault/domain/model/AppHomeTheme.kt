@@ -32,6 +32,7 @@ enum class AppHomeTheme(
     AURORA_LOUNGE("aurora_lounge", isFixedFoundation = false),
     CHAT_GPT("chatgpt", isFixedFoundation = false),
     CHAT_GPT_2("chatgpt2", isFixedFoundation = false),
+    KAT("kat", isFixedFoundation = false),
     CYAN_PRO("cyanpro", isFixedFoundation = false),
     UNIVERSE("universe", isFixedFoundation = false),
     IVANO("ivano", isFixedFoundation = false),

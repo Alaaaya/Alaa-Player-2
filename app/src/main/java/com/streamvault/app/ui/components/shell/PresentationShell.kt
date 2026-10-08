@@ -26,6 +26,7 @@ internal val PresentationShellThemes: Set<AppHomeTheme> = setOf(
     AppHomeTheme.AURORA_LOUNGE,
     AppHomeTheme.CHAT_GPT,
     AppHomeTheme.CHAT_GPT_2,
+    AppHomeTheme.KAT,
     AppHomeTheme.CYAN_PRO,
     AppHomeTheme.UNIVERSE,
     AppHomeTheme.IVANO,
