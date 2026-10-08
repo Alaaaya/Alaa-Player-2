@@ -90,7 +90,7 @@ private fun NowNext(now: Program?, next: Program?, modifier: Modifier = Modifier
                 Text(cgClock(now.endTime), color = CG.Sub, fontSize = 12.sp)
             }
         } else Text(tr("No programme information", "لا توجد معلومات عن البرنامج"), color = CG.Faint, fontSize = 14.sp)
-        next?.let { Text(tr("Next", "التالي") + "  ${cgClock(it.startTime)}  ·  ${it.title}", color = CG.Faint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        next?.let { Text(tr("Next", "التالي") + "  ${cgClock(it.startTime)}  ·  ${it.title}", color = CG.Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
     }
 }
 
@@ -251,9 +251,9 @@ private fun Scrubber(p: PlayerOverlayParams, seekBy: (Long) -> Unit) {
         }
         Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(cgDuration(pos), color = if (p.seekPreview.visible) CG.Blue else CG.Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text("  /  " + cgDuration(p.duration), color = CG.Faint, fontSize = 13.sp)
+            Text("  /  " + cgDuration(p.duration), color = CG.Sub, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            if (p.duration > 0) Text(tr("Ends at", "ينتهي") + " " + cgClock(System.currentTimeMillis() + remaining) + "   ", color = CG.Faint, fontSize = 12.sp)
+            if (p.duration > 0) Text(tr("Ends at", "ينتهي") + " " + cgClock(System.currentTimeMillis() + remaining) + "   ", color = CG.Sub, fontSize = 12.sp)
             Text("-" + cgDuration(remaining), color = CG.Sub, fontSize = 14.sp)
         }
     }
