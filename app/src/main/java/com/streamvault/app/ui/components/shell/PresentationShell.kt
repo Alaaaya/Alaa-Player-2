@@ -33,7 +33,9 @@ internal val PresentationShellThemes: Set<AppHomeTheme> = setOf(
     AppHomeTheme.IVANO,
     AppHomeTheme.SABHIYA,
     AppHomeTheme.SAMA,
-    AppHomeTheme.LULU
+    AppHomeTheme.LULU,
+    AppHomeTheme.GHURUB,
+    AppHomeTheme.THALJ
 )
 
 /** Per-theme canvas treatment built from palette tokens, so each theme reads distinctly. */
