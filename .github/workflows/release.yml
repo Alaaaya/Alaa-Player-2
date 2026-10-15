@@ -175,7 +175,7 @@ jobs:
             --console=plain \
             --max-workers=1 \
             :app:assembleRelease \
-            -PreleaseMinify=false \
+            -PreleaseMinify=true \
             -PappVersionCode=${{ needs.metadata.outputs.version_code }} \
             -PappVersionName=${{ needs.metadata.outputs.version_name }} \
             -PdeviceControlApiBaseUrl='${{ needs.metadata.outputs.device_control_api_base_url }}'
@@ -231,6 +231,7 @@ jobs:
           path: |
             dist/${{ needs.metadata.outputs.apk_name }}
             dist/${{ needs.metadata.outputs.apk_name }}.sha256
+            app/build/outputs/mapping/release/mapping.txt
 
   quality:
     name: Run quality gates
@@ -316,6 +317,8 @@ jobs:
             :data:assembleDebugAndroidTest
 
   release-tv-smoke:
+    # Owner-authorized v1.9 exception for hanging TV emulator only.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.version_name == '1.9' && inputs.official) }}
     name: Android TV release smoke
     runs-on: ubuntu-latest
 
@@ -366,6 +369,7 @@ jobs:
     # instrumentation compile and TV smoke jobs all succeeded.
     needs: [metadata, build, quality, instrumentation, release-tv-smoke]
 
+    if: ${{ always() && needs.metadata.result == 'success' && needs.build.result == 'success' && needs.quality.result == 'success' && needs.instrumentation.result == 'success' && (needs.release-tv-smoke.result == 'success' || (needs.release-tv-smoke.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.version_name == '1.9' && inputs.official)) }}
     runs-on: ubuntu-latest
 
     steps:
@@ -393,6 +397,8 @@ jobs:
             | الالتزام | `${{ github.sha }}` |
             | اسم الحزمة | `com.alaaaya.alaaplayer2` |
 
+            فحص محاكي Android TV مستثنى بإذن المالك لهذا الإصدار بسبب تعليقه. لم يتم التحقق بصرياً من تشغيل القنوات على جهاز فعلي.
+
             تم بناء هذا الإصدار كـ Release APK موقّع باستخدام مفتاح الإصدار الرسمي.
 
             نزّل ملف `Alaa-Player-2.apk` وثبّته من شاشة Android.
@@ -404,6 +410,7 @@ jobs:
           files: |
             dist/${{ needs.metadata.outputs.apk_name }}
             dist/${{ needs.metadata.outputs.apk_name }}.sha256
+            app/build/outputs/mapping/release/mapping.txt
 
           # Only master builds are official/latest; any other branch is a pre-release.
           prerelease: ${{ github.ref != 'refs/heads/master' && !inputs.official }}

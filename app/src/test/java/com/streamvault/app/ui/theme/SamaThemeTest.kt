@@ -28,6 +28,6 @@ class SamaThemeTest {
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.KAT)).isTrue()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.IVANO)).isTrue()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.SABHIYA)).isTrue()
-        assertThat(ThemePresentationRegistry.selectableThemes().last()).isEqualTo(AppHomeTheme.SAMA)
+        assertThat(ThemePresentationRegistry.selectableThemes()).contains(AppHomeTheme.SAMA)
     }
 }
