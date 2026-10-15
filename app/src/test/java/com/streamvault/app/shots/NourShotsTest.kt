@@ -87,7 +87,8 @@ class NourShotsTest {
             val b = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
             v.draw(android.graphics.Canvas(b)); bmp = b
         }
-        val out = File("/home/kit/nour-shots/$name.png"); out.parentFile!!.mkdirs()
+        val out = File("build/outputs/nour-shots/$name.png")
+        check(out.parentFile!!.isDirectory || out.parentFile!!.mkdirs()) { "Cannot create screenshot output directory: ${out.parent}" }
         out.outputStream().use { bmp!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
