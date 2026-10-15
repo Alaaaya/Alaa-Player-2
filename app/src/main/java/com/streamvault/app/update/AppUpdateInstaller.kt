@@ -1,5 +1,6 @@
 package com.streamvault.app.update
 
+import androidx.core.net.toUri
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
@@ -221,7 +222,7 @@ class AppUpdateInstaller @Inject constructor(
 
         if (requiresInstallPermission()) {
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:${context.packageName}")
+                data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             val permissionRequiredState = currentState.copy(installPermissionRequired = true)

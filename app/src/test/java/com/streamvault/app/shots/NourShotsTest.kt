@@ -92,13 +92,13 @@ class NourShotsTest {
         out.outputStream().use { bmp!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    @Composable private fun shell(route: String, title: String, body: @Composable () -> Unit) {
+    @Composable private fun ShotShell(route: String, title: String, body: @Composable () -> Unit) {
         ui.Shell(ShellParams(route, {}, title, null, true, false, null, null, PaddingValues(0.dp0()), Modifier.fillMaxSize()) { body() })
     }
     private fun Int.dp0() = androidx.compose.ui.unit.Dp(this.toFloat())
 
     @Test fun a1_home() = shot("1_home") {
-        shell(Routes.HOME, "الرئيسية") {
+        ShotShell(Routes.HOME, "الرئيسية") {
             ui.Dashboard(DashboardParams(
                 DashboardUiState(homeTheme = theme, favoriteChannels = channels.filter { it.isFavorite }, recentChannels = channels.take(6),
                     continueWatching = history, continueWatchingMovies = history, recentMovies = movies, topRatedMovies = movies.reversed(),
@@ -111,7 +111,7 @@ class NourShotsTest {
 
     @Test fun a2_live() = shot("2_live") {
         val fr = remember { mutableMapOf<Long, FocusRequester>() }; val fr2 = remember { mutableMapOf<Long, FocusRequester>() }
-        shell(Routes.LIVE_TV, "مباشر") {
+        ShotShell(Routes.LIVE_TV, "مباشر") {
             ui.LiveTv(LiveTvParams("Alaa IPTV", cats, cats[0].id, "", "", channels, channels[0], null, false, null, { false }, { false },
                 fr, fr2, remember { FocusRequester() }, {}, {}, {}, {}, {}, {}, {}, {}, { false }, { false }, { false }))
         }
@@ -123,13 +123,13 @@ class NourShotsTest {
         "", emptyList(), LibraryFilterType.ALL, LibrarySortBy.LIBRARY, history)
 
     @Test fun a3_movies() = shot("3_movies") {
-        shell(Routes.MOVIES, "أفلام") {
+        ShotShell(Routes.MOVIES, "أفلام") {
             ui.Movies(LibraryParams(lib(movies, { it.genre!! }, 100L, ContentType.MOVIE), remember { FocusRequester() }, { false }, { false }, {}, {}, {}, {}, {}, {}, {}, {}, {}))
         }
     }
 
     @Test fun a4_series() = shot("4_series") {
-        shell(Routes.SERIES, "مسلسلات") {
+        ShotShell(Routes.SERIES, "مسلسلات") {
             ui.Series(LibraryParams(lib(series, { it.genre!! }, 200L, ContentType.SERIES), remember { FocusRequester() }, { false }, { false }, {}, {}, {}, {}, {}, {}, {}, {}, {}))
         }
     }
@@ -163,14 +163,14 @@ class NourShotsTest {
     }
 
     @Test fun a9_search() = shot("9_search") {
-        shell(Routes.SEARCH, "بحث") {
+        ShotShell(Routes.SEARCH, "بحث") {
             ui.Search(SearchParams("الك", SearchTab.ALL, listOf("الهيبة", "beIN"), SearchUiState(channels = channels.take(3), movies = movies.take(8),
                 series = series.take(6), hasSearched = true, hasActiveProvider = true, queryLength = 3),
                 emptySet(), emptySet(), remember { FocusRequester() }, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { false }, { false }, { false }))
         }
     }
     @Test fun b1_profiles() = shot("10_profiles") {
-        shell(Routes.SETTINGS, "Profiles") {
+        ShotShell(Routes.SETTINGS, "Profiles") {
             Column(Modifier.padding(androidx.compose.ui.unit.Dp(24f))) {
                 Row(horizontalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.Dp(18f))) {
                     com.streamvault.app.ui.themes.nour.NourProfileCard("Home", 3, true, true, {})

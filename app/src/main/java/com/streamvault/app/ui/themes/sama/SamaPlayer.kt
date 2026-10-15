@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.CircleShape
@@ -313,7 +314,7 @@ internal fun SamaLiveChannelList(p: LiveChannelListParams) {
     val slide by androidx.compose.animation.core.animateFloatAsState(
         if (entered) 0f else -420f, androidx.compose.animation.core.tween(260), label = "sama-channel-drawer")
     Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0x66000000), Color.Transparent)))) {
-        Column(Modifier.align(Alignment.TopStart).offset(x = slide.dp).fillMaxHeight().width(400.dp).background(Brush.verticalGradient(listOf(Color(0xF210171C), Color(0xF2080B0E)))).border(1.dp, Color(0x33FFFFFF)).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.align(Alignment.TopStart).offset { IntOffset(slide.dp.roundToPx(), 0) }.fillMaxHeight().width(400.dp).background(Brush.verticalGradient(listOf(Color(0xF210171C), Color(0xF2080B0E)))).border(1.dp, Color(0x33FFFFFF)).padding(start = 18.dp, top = 24.dp, bottom = 18.dp, end = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     CgHeading(tr("Channel list", "قائمة القنوات"), size = 11)

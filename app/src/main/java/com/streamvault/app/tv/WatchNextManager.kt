@@ -1,5 +1,6 @@
 package com.streamvault.app.tv
 
+import androidx.core.net.toUri
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -198,7 +199,7 @@ class WatchNextManager @Inject constructor(
         if (remoteArtwork != null) {
             return Uri.parse(remoteArtwork)
         }
-        return Uri.parse("android.resource://${context.packageName}/${R.mipmap.ic_launcher_vault}")
+        return "android.resource://${context.packageName}/${R.mipmap.ic_launcher_vault}".toUri()
     }
 
     private fun isEligibleForWatchNext(history: PlaybackHistory): Boolean {
@@ -236,7 +237,7 @@ class WatchNextManager @Inject constructor(
     }
 
     private val watchNextProgramsUri: Uri
-        get() = Uri.parse(WATCH_NEXT_PROGRAMS_URI)
+        get() = WATCH_NEXT_PROGRAMS_URI.toUri()
 }
 
 internal fun selectWatchNextHistoryEntries(

@@ -1,5 +1,6 @@
 package com.streamvault.app.panel
 
+import androidx.core.content.edit
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
@@ -90,9 +91,9 @@ class PanelManager @Inject constructor(
     suspend fun ensureIdentity() = withContext(Dispatchers.IO) {
         if (identityLoaded) return@withContext
         val code = plainPrefs.getString(KEY_CODE, null)?.takeIf(PanelDeviceCode::isValid)
-            ?: PanelDeviceCode.generate().also { plainPrefs.edit().putString(KEY_CODE, it).apply() }
+            ?: PanelDeviceCode.generate().also { plainPrefs.edit { putString(KEY_CODE, it) } }
         val mac = plainPrefs.getString(KEY_MAC, null)
-            ?: resolveMac().also { plainPrefs.edit().putString(KEY_MAC, it).apply() }
+            ?: resolveMac().also { plainPrefs.edit { putString(KEY_MAC, it) } }
         val model = listOf(Build.MANUFACTURER, Build.MODEL).filter { !it.isNullOrBlank() }.joinToString(" ").take(120)
         val cached = runCatching { securePrefs.getString(KEY_LAST_CONFIG, null)?.let(PanelConfigParser::parse) }.getOrNull()
         _state.update {
@@ -142,9 +143,9 @@ class PanelManager @Inject constructor(
             config = PanelConfigParser.parse(rpc("get_device_config", codeBody))
         }
         val failures = apply(config)
-        securePrefs.edit().putString(KEY_LAST_CONFIG, cacheJson(config)).apply()
+        securePrefs.edit { putString(KEY_LAST_CONFIG, cacheJson(config)) }
         val at = System.currentTimeMillis()
-        plainPrefs.edit().putLong(KEY_LAST_SYNC, at).apply()
+        plainPrefs.edit { putLong(KEY_LAST_SYNC, at) }
         _state.update {
             it.copy(
                 status = config.status, expiresAt = config.expiresAt, playlistCount = config.playlists.size,
@@ -222,7 +223,7 @@ class PanelManager @Inject constructor(
         }
     }.getOrNull().orEmpty()
 
-    private fun saveMappings(list: List<PanelMapping>) { securePrefs.edit().putString(KEY_MAPPINGS, gson.toJson(list)).apply() }
+    private fun saveMappings(list: List<PanelMapping>) { securePrefs.edit { putString(KEY_MAPPINGS, gson.toJson(list)) } }
 
     private fun cacheJson(c: PanelConfig): String = JsonObject().apply {
         addProperty("status", c.status.name.lowercase()); addProperty("device_code", c.deviceCode); addProperty("expires_at", c.expiresAt)

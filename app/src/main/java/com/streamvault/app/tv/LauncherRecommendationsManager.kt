@@ -1,5 +1,6 @@
 package com.streamvault.app.tv
 
+import androidx.core.net.toUri
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -414,7 +415,7 @@ class LauncherRecommendationsManager @Inject constructor(
         if (remoteArtwork != null) {
             return Uri.parse(remoteArtwork)
         }
-        return Uri.parse("android.resource://${context.packageName}/${R.mipmap.ic_launcher_vault}")
+        return "android.resource://${context.packageName}/${R.mipmap.ic_launcher_vault}".toUri()
     }
 
     private data class RecommendationChannelSpec(
