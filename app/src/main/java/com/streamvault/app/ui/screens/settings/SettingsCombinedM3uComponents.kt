@@ -66,8 +66,9 @@ internal fun CombinedM3uProfilesCard(
     onToggleProviderEnabled: (Long, Long, Boolean) -> Unit,
     onMoveProvider: (Long, Long, Boolean) -> Unit
 ) {
+    val isNour = com.streamvault.app.ui.theme.LocalThemePresentation.current.id == com.streamvault.domain.model.AppHomeTheme.NOUR
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(if (isNour) 24.dp else 12.dp),
         colors = SurfaceDefaults.colors(containerColor = SurfaceElevated),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -83,7 +84,7 @@ internal fun CombinedM3uProfilesCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Combined M3U", style = MaterialTheme.typography.titleMedium, color = OnSurface)
+                    Text(if (isNour) "NOUR · Profiles" else "Combined M3U", style = MaterialTheme.typography.titleMedium, color = OnSurface)
                     Text(
                         "Merge selected M3U playlists into one Live TV and EPG source.",
                         style = MaterialTheme.typography.bodySmall,
@@ -103,7 +104,15 @@ internal fun CombinedM3uProfilesCard(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(profiles, key = { it.id }) { profile ->
                         val isActive = (activeLiveSource as? ActiveLiveSource.CombinedM3uSource)?.profileId == profile.id
-                        ProviderChip(
+                        if (isNour) {
+                            com.streamvault.app.ui.themes.nour.NourProfileCard(
+                                name = profile.name,
+                                playlistCount = profile.members.count { it.enabled },
+                                selected = selectedProfileId == profile.id,
+                                active = isActive,
+                                onClick = { onSelectProfile(profile.id) }
+                            )
+                        } else ProviderChip(
                             title = profile.name,
                             subtitle = buildString {
                                 append("${profile.members.count { it.enabled }}/${profile.members.size} playlist(s)")

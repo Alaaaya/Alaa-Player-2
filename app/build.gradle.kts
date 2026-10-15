@@ -265,6 +265,8 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.mockito.kotlin)
     testImplementation(libs.robolectric)
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
