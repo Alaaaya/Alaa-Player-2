@@ -121,6 +121,8 @@ object ThemeCatalog {
         ThemeCatalogEntry(AppHomeTheme.IVANO, "Ivano", "أسود سينمائي بلمسات بنفسجية وزجاج."),
         ThemeCatalogEntry(AppHomeTheme.SAMA, "Sama · سما", "بث مباشر بملء الشاشة، زجاج هادئ وأزرار بيضاء دائرية، بدون دليل برامج."),
         ThemeCatalogEntry(AppHomeTheme.LULU, "لولو · Lulu", "زجاج بترولي، تنقل علوي دائري وتشغيل ذهبي."),
+        ThemeCatalogEntry(AppHomeTheme.GHURUB, "Ghurub · غروب", "سينما الغروب، ذهب ورمال وزجاج عائم."),
+        ThemeCatalogEntry(AppHomeTheme.THALJ, "Thalj · تلج", "قمم ثلجية وزجاج جليدي مضيء."),
         ThemeCatalogEntry(AppHomeTheme.SABHIYA, "صبحية", "داكن بلمسات حمراء متوهجة وبث مباشر بثلاثة أعمدة.")
     )
 
@@ -372,6 +374,8 @@ private fun futurePresentation(
 
 private val expansionPresentations = listOf(
     futurePresentation(AppHomeTheme.SAMA, Color(0xFF080B0E), Color(0xCC12191E), Color(0x991A2228), Color(0xFF343E46), Color.White, Color(0xFFCCD1D5), Color.White, ThemeNavigationLayout.TOP_BAR, 12.dp, 20.dp, 1.04f, 240),
+    futurePresentation(AppHomeTheme.GHURUB, Color(0xFF160E0B), Color(0xA6412C1D), Color(0xFF281B15), Color(0xFF633E23), Color.White, Color(0xFFE8CBA7), Color(0xFFFFB74D), ThemeNavigationLayout.TOP_BAR, 24.dp, 32.dp, 1.05f, 240),
+    futurePresentation(AppHomeTheme.THALJ, Color(0xFF112A3A), Color(0xA682BAD4), Color(0xFF21455B), Color(0xFF467F9B), Color.White, Color(0xFFD9EEF8), Color(0xFF72CFFF), ThemeNavigationLayout.TOP_BAR, 24.dp, 32.dp, 1.04f, 260)
     futurePresentation(AppHomeTheme.BLUE_OCEAN, Color(0xFF061923), Color(0xFF0B2A39), Color(0xFF0D2230), Color(0xFF164A5F), Color(0xFFE7FAFF), Color(0xFF91B8C7), Color(0xFF4DD2E8), ThemeNavigationLayout.SIDE_RAIL, 18.dp, 34.dp, 1.025f, 190),
     futurePresentation(AppHomeTheme.RED_CINEMA, Color(0xFF19090C), Color(0xFF2A0B12), Color(0xFF241014), Color(0xFF521522), Color(0xFFFFF2F0), Color(0xFFD3A5A8), Color(0xFFE44252), ThemeNavigationLayout.TOP_BAR, 0.dp, 0.dp, 1.018f, 210),
     futurePresentation(AppHomeTheme.PURPLE_GALAXY, Color(0xFF100A22), Color(0xFF1F133A), Color(0xFF181130), Color(0xFF3A2362), Color(0xFFF5F0FF), Color(0xFFC2B2DD), Color(0xFFA87CFF), ThemeNavigationLayout.SIDE_RAIL, 28.dp, 56.dp, 1.03f, 220),
