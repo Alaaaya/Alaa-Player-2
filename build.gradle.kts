@@ -96,3 +96,19 @@ kover {
         }
     }
 }
+
+// Keep runtime metadata compatible with the Kotlin 2.2 / AGP 8.10 toolchain.
+// Some transitive dependencies otherwise select stdlib 2.3, which D8 8.10
+// cannot rewrite ("Lv0: Should never be called").
+subprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.jetbrains.kotlin" &&
+                requested.name in setOf("kotlin-stdlib", "kotlin-stdlib-common",
+                    "kotlin-stdlib-jdk7", "kotlin-stdlib-jdk8", "kotlin-reflect")) {
+                useVersion(libs.versions.kotlin.get())
+                because("D8 bundled with AGP 8.10 supports Kotlin metadata up to 2.2")
+            }
+        }
+    }
+}
