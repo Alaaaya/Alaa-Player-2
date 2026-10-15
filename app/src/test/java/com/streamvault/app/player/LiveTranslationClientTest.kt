@@ -3,11 +3,13 @@ package com.streamvault.app.player
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 
 // parseTranslationUpdate relies on org.json, which is only a throwing stub in
 // plain JVM unit tests; Robolectric supplies a real implementation.
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = android.app.Application::class)
 class LiveTranslationClientTest {
 
     @Test
