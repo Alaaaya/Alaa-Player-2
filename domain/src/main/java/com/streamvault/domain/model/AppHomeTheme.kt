@@ -38,7 +38,8 @@ enum class AppHomeTheme(
     IVANO("ivano", isFixedFoundation = false),
     SABHIYA("sabhiya", isFixedFoundation = false),
     NOUR("nour", isFixedFoundation = false),
-    SAMA("sama", isFixedFoundation = false);
+    SAMA("sama", isFixedFoundation = false),
+    LULU("lulu", isFixedFoundation = false);
 
     companion object {
         val fixedFoundations: Set<AppHomeTheme> = entries.filterTo(linkedSetOf()) { it.isFixedFoundation }
