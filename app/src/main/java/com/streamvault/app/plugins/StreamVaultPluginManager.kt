@@ -1,5 +1,6 @@
 package com.streamvault.app.plugins
 
+import androidx.core.net.toUri
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -954,7 +955,7 @@ class StreamVaultPluginManager @Inject constructor(
     private fun launchPackageInstaller(apkFile: File): Result<Unit> {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:${context.packageName}")
+                data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(settingsIntent)

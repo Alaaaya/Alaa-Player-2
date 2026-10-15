@@ -1,5 +1,6 @@
 package com.streamvault.app.devicecontrol
 
+import androidx.core.content.edit
 import android.content.Context
 import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
@@ -85,7 +86,7 @@ class DeviceControlManager @Inject constructor(
         preferences.getLong(providerMappingKey(remoteProviderId), -1L).takeIf { it >= 0L }
 
     fun saveLocalProviderMapping(remoteProviderId: Int, localProviderId: Long) {
-        preferences.edit().putLong(providerMappingKey(remoteProviderId), localProviderId).apply()
+        preferences.edit { putLong(providerMappingKey(remoteProviderId), localProviderId) }
     }
 
     // ANDROID_ID is the deliberate per-install pairing identity for the control center (scoped per app signing key).
@@ -113,7 +114,7 @@ class DeviceControlManager @Inject constructor(
                 expiresAt = payload.string("expiresAt"),
                 existingDevice = payload.bool("existingDevice"),
             )
-            preferences.edit().putString(KEY_PAIRING_CODE, request.code).apply()
+            preferences.edit { putString(KEY_PAIRING_CODE, request.code) }
             DeviceControlResult.Success(request)
         }.getOrElse { DeviceControlResult.Failure(it.safeMessage()) }
     }
@@ -136,12 +137,7 @@ class DeviceControlManager @Inject constructor(
             val activationResponse = executeJson(baseUrl, "api/device/v1/pairing/activate", "POST", activation)
             if (activationResponse.code !in 200..299) error("Activation was rejected")
             val tvId = activationResponse.body.string("tvId")
-            preferences.edit()
-                .putString(KEY_TV_ID, tvId)
-                .putString(KEY_ACCESS_TOKEN, activationResponse.body.string("accessToken"))
-                .putString(KEY_REFRESH_TOKEN, activationResponse.body.string("refreshToken"))
-                .remove(KEY_PAIRING_CODE)
-                .apply()
+            preferences.edit { putString(KEY_TV_ID, tvId); putString(KEY_ACCESS_TOKEN, activationResponse.body.string("accessToken")); putString(KEY_REFRESH_TOKEN, activationResponse.body.string("refreshToken")); remove(KEY_PAIRING_CODE) }
             DeviceControlResult.Success(tvId)
         }.getOrElse { DeviceControlResult.Failure(it.safeMessage()) }
     }
@@ -215,7 +211,7 @@ class DeviceControlManager @Inject constructor(
         val response = executeJson(baseUrl, "api/device/v1/sessions/refresh", "POST", body)
         if (response.code !in 200..299) error("The device session has expired. Re-link this device.")
         return response.body.string("accessToken").also { token ->
-            preferences.edit().putString(KEY_ACCESS_TOKEN, token).apply()
+            preferences.edit { putString(KEY_ACCESS_TOKEN, token) }
         }
     }
 
