@@ -472,6 +472,7 @@ private val registry: Map<AppHomeTheme, BespokeThemeUi> by lazy {
         AppHomeTheme.CYAN_PRO to com.streamvault.app.ui.themes.cyanpro.CyanProUi,
         AppHomeTheme.UNIVERSE to com.streamvault.app.ui.themes.universe.UniverseUi,
         AppHomeTheme.IVANO to com.streamvault.app.ui.themes.ivano.IvanoUi,
+        AppHomeTheme.SAMA to com.streamvault.app.ui.themes.sama.SamaUi,
         AppHomeTheme.SABHIYA to com.streamvault.app.ui.themes.sabhiya.SabhiyaUi
     )
 }
