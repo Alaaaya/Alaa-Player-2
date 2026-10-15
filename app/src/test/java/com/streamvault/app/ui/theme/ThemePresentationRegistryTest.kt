@@ -78,7 +78,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.IVANO,
                 AppHomeTheme.SABHIYA,
                 AppHomeTheme.NOUR,
-                AppHomeTheme.SAMA
+                AppHomeTheme.SAMA,
+                AppHomeTheme.LULU
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -150,7 +151,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.IVANO,
                 AppHomeTheme.SABHIYA,
                 AppHomeTheme.NOUR,
-                AppHomeTheme.SAMA
+                AppHomeTheme.SAMA,
+                AppHomeTheme.LULU
             )
             .inOrder()
     }
@@ -178,4 +180,16 @@ class ThemePresentationRegistryTest {
             assertThat(ThemePresentationRegistry.resolve(theme).id).isEqualTo(theme)
         }
     }
+    @Test
+    fun `lulu persists and uses a distinct top capsule presentation`() {
+        val theme = AppHomeTheme.LULU
+        assertThat(AppHomeTheme.fromStorage("lulu")).isEqualTo(theme)
+        assertThat(AppHomeTheme.fromStorage("LULU")).isEqualTo(theme)
+        val presentation = ThemePresentationRegistry.resolve(theme)
+        assertThat(presentation.navigationLayout).isEqualTo(ThemeNavigationLayout.TOP_BAR)
+        assertThat(presentation.surfaces.accent).isEqualTo(androidx.compose.ui.graphics.Color(0xFF00B8BB))
+        assertThat(com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(theme))
+            .isSameInstanceAs(com.streamvault.app.ui.themes.lulu.LuluUi)
+    }
+
 }
