@@ -173,6 +173,7 @@ jobs:
 
           ./gradlew \
             --console=plain \
+            '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
             --max-workers=1 \
             :app:assembleRelease \
             -PreleaseMinify=true \
@@ -263,6 +264,7 @@ jobs:
         run: |
           ./gradlew \
             --console=plain \
+            '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
             testDebugUnitTest \
             :app:lintDebug \
             :data:lintDebug \
@@ -313,6 +315,7 @@ jobs:
 
           ./gradlew \
             --console=plain \
+            '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' \
             :app:assembleDebugAndroidTest \
             :data:assembleDebugAndroidTest
 
