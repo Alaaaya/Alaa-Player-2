@@ -2,16 +2,17 @@ package com.streamvault.app.devicecontrol
 
 import androidx.core.content.edit
 import android.content.Context
-import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.streamvault.app.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.UUID
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -96,11 +97,10 @@ class DeviceControlManager @Inject constructor(
             "Control center URL is not configured in this build."
         )
         runCatching {
-            val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-                ?.takeIf(String::isNotBlank)
-                ?: error("Android system identifier is unavailable")
+            // Keep the legacy wire field, but identify only this installation, not the device.
+            val installationId = installationId()
             val body = JsonObject().apply {
-                addProperty("androidId", androidId)
+                addProperty("androidId", installationId)
                 addProperty("publicKeyPem", publicKeyPem())
                 addProperty("appVersion", BuildConfig.VERSION_NAME)
                 addProperty("androidVersion", android.os.Build.VERSION.RELEASE ?: "unknown")
@@ -215,6 +215,13 @@ class DeviceControlManager @Inject constructor(
         }
     }
 
+    @Synchronized
+    private fun installationId(): String =
+        preferences.getString(KEY_INSTALLATION_ID, null)?.takeIf(String::isNotBlank)
+            ?: UUID.randomUUID().toString().replace("-", "").take(16).also { id ->
+                preferences.edit(commit = true) { putString(KEY_INSTALLATION_ID, id) }
+            }
+
     private fun serviceUrl(): String? = BuildConfig.DEVICE_CONTROL_API_BASE_URL
         .trim()
         .trimEnd('/')
@@ -289,6 +296,7 @@ class DeviceControlManager @Inject constructor(
     private fun providerMappingKey(remoteProviderId: Int) = "remote_provider_$remoteProviderId"
 
     private companion object {
+        const val KEY_INSTALLATION_ID = "installation_id"
         const val KEY_TV_ID = "tv_id"
         const val KEY_PAIRING_CODE = "pairing_code"
         const val KEY_ACCESS_TOKEN = "access_token"

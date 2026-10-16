@@ -64,6 +64,7 @@ import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
 import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.app.ui.themes.blueocean.BlueOceanSettingsNavigationRail
 import com.streamvault.domain.model.AppHomeTheme
+import com.streamvault.app.ui.themes.goldnight.GoldNightSettingsNavigationRail
 
 private data class SettingsNavEntry(
     val label: String,
@@ -162,7 +163,17 @@ internal fun SettingsNavigationRail(
         return
     }
 
-    val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
+    if (LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT) {
+        GoldNightSettingsNavigationRail(
+            entries = entries.map { it.label to it.icon },
+            selectedCategory = selectedCategory,
+            focusRequester = focusRequester,
+            onCategorySelected = onCategorySelected
+        )
+        return
+    }
+
+            val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
     if (bespokeUi != null) {
         bespokeUi.SettingsNav(
             com.streamvault.app.ui.themes.bespoke.SettingsNavParams(

@@ -120,6 +120,7 @@ import com.streamvault.app.ui.themes.alaa.AlaaLivePlayerOverlay
 import com.streamvault.app.ui.themes.alaa.AlaaPlayerOverlay
 import com.streamvault.app.ui.model.isArchivePlayable
 import com.streamvault.app.navigation.Routes
+import com.streamvault.app.ui.themes.goldnight.GoldNightPlayerOverlay
 
 
 
@@ -1357,6 +1358,8 @@ fun PlayerScreen(
                 showEpisodePicker = true
             },
             onOpenLiveChannels = viewModel::openChannelListOverlay,
+            liveChannels = currentChannelList,
+            onZapToChannel = { channelId -> viewModel.zapToChannel(channelId) },
             onToggleLiveFavorite = viewModel::toggleCurrentChannelFavorite,
             onRestartLiveProgram = viewModel::restartCurrentProgram,
             onOpenLiveGuide = viewModel::openFullGuideOverlay,
@@ -2162,6 +2165,8 @@ private fun PlayerControlsOverlayHost(
     showEpisodesAction: Boolean,
     onOpenEpisodes: () -> Unit,
     onOpenLiveChannels: () -> Unit,
+    liveChannels: List<Channel> = emptyList(),
+    onZapToChannel: (Long) -> Unit = {},
     onToggleLiveFavorite: () -> Unit,
     onRestartLiveProgram: () -> Unit,
     onOpenLiveGuide: () -> Unit,
@@ -2213,6 +2218,9 @@ private fun PlayerControlsOverlayHost(
 
     val isBlueOceanTheme =
         LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+
+    val isGoldNightTheme =
+        LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
 
     val isRedCinemaTheme =
         LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
@@ -2437,6 +2445,75 @@ private fun PlayerControlsOverlayHost(
             audioVideoSyncEnabled = audioVideoSyncEnabled,
             showEpisodesAction = showEpisodesAction,
             onOpenEpisodes = onOpenEpisodes,
+            onOpenSplitScreen = onOpenSplitScreen,
+            onEnterPictureInPicture = onEnterPictureInPicture,
+            onToggleMute = onToggleMute,
+            isCastConnected = isCastConnected,
+            onCast = onCast,
+            onStopCasting = onStopCasting,
+            onSeekToLiveEdge = onSeekToLiveEdge,
+            onSeekToPosition = onSeekToPosition,
+            onSetScrubbingMode = onSetScrubbingMode,
+            seekPreview = seekPreview,
+            onSeekPreviewPositionChanged =
+                onSeekPreviewPositionChanged,
+            onUserInteraction = onUserInteraction
+        )
+    } else if (isGoldNightTheme) {
+        GoldNightPlayerOverlay(
+            visible = visible,
+            title = title,
+            contentType = contentType,
+            isCatchUpPlayback = isCatchUpPlayback,
+            isPlaying = isPlaying,
+            currentProgram = currentProgram,
+            nextProgram = nextProgram ?: upcomingPrograms.firstOrNull(),
+            currentChannel = currentChannel,
+            currentChannelName = currentChannelName,
+            displayChannelNumber = displayChannelNumber,
+            liveChannels = liveChannels,
+            currentPosition = currentPosition,
+            duration = duration,
+            aspectRatioLabel = aspectRatioLabel,
+            subtitleTrackCount = subtitleTrackCount,
+            liveTranslationAvailable = liveTranslationAvailable,
+            audioTrackCount = audioTrackCount,
+            videoQualityCount = videoQualityCount,
+            currentRecordingStatus = currentRecordingStatus,
+            isMuted = isMuted,
+            playbackSpeed = playbackSpeed,
+            mediaTitle = mediaTitle,
+            sleepTimerUiState = sleepTimerUiState,
+            timeshiftUiState = timeshiftUiState,
+            playButtonFocusRequester = playButtonFocusRequester,
+            quickActionsFocusRequester = quickActionsFocusRequester,
+            modifier = modifier,
+            onClose = onClose,
+            onTogglePlayPause = onTogglePlayPause,
+            onSeekBackward = onSeekBackward,
+            onSeekForward = onSeekForward,
+            onRestartProgram = onRestartProgram,
+            onOpenArchive = onOpenArchive,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onScheduleRecording = onScheduleRecording,
+            onScheduleDailyRecording = onScheduleDailyRecording,
+            onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+            onToggleAspectRatio = onToggleAspectRatio,
+            onOpenSubtitleTracks = onOpenSubtitleTracks,
+            onOpenAudioTracks = onOpenAudioTracks,
+            onOpenVideoTracks = onOpenVideoTracks,
+            onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+            onOpenStopPlaybackTimer = onOpenStopPlaybackTimer,
+            onOpenIdleStandbyTimer = onOpenIdleStandbyTimer,
+            onOpenAudioVideoSync = onOpenAudioVideoSync,
+            audioVideoSyncEnabled = audioVideoSyncEnabled,
+            showEpisodesAction = showEpisodesAction,
+            onOpenEpisodes = onOpenEpisodes,
+            onOpenLiveChannels = onOpenLiveChannels,
+            onOpenLiveGuide = onOpenLiveGuide,
+            onToggleLiveFavorite = onToggleLiveFavorite,
+            onZapToChannel = onZapToChannel,
             onOpenSplitScreen = onOpenSplitScreen,
             onEnterPictureInPicture = onEnterPictureInPicture,
             onToggleMute = onToggleMute,

@@ -137,6 +137,8 @@ import com.streamvault.app.ui.themes.streaming.StreamingMuted
 import com.streamvault.app.ui.themes.streaming.StreamingPanel
 import com.streamvault.app.ui.themes.streaming.StreamingPanelFocused
 import com.streamvault.app.ui.themes.streaming.StreamingText
+import com.streamvault.app.ui.themes.goldnight.GoldNightCanvasBrush
+import com.streamvault.app.ui.themes.goldnight.GoldNightDestinationRail
 import com.streamvault.app.ui.themes.premium.PremiumCanvas
 import com.streamvault.app.ui.themes.premium.PremiumCanvasRaised
 import com.streamvault.app.ui.themes.premium.PremiumPanel
@@ -186,6 +188,7 @@ fun AppScreenScaffold(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val blueOceanPresentation = LocalThemePresentation.current
     // Red Cinema and the palette-driven themes reuse the shared shell, styled entirely from
     // their presentation tokens (navigation layout, surfaces, radii, focus).
@@ -199,7 +202,7 @@ fun AppScreenScaffold(
         isPresentationShellTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.SIDE_RAIL -> AppNavigationChrome.Rail
         isPresentationShellTheme && blueOceanPresentation.navigationLayout == ThemeNavigationLayout.TOP_BAR -> AppNavigationChrome.TopBar
         isStreamingPlatformTheme -> AppNavigationChrome.TopBar
-        isMinimalTheme || isGlassTheme || isPremiumBlackTheme -> AppNavigationChrome.Rail
+        isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isGoldNightTheme -> AppNavigationChrome.Rail
         else -> navigationChrome
     }
     val canvasBrush = if (isAlaaTheme) {
@@ -216,6 +219,8 @@ fun AppScreenScaffold(
         Brush.verticalGradient(listOf(StreamingCanvas, StreamingCanvasRaised, StreamingPanel))
     } else if (isPremiumBlackTheme) {
         Brush.verticalGradient(listOf(PremiumCanvas, PremiumPanel, PremiumCanvasRaised, PremiumCanvas))
+    } else if (isGoldNightTheme) {
+        GoldNightCanvasBrush
     } else if (isBlueOceanTheme) {
         BlueOceanWaveBrush
     } else if (isPresentationShellTheme) {
@@ -246,6 +251,14 @@ fun AppScreenScaffold(
                         modifier = Modifier
                             .fillMaxHeight()
                         .width(270.dp)
+                    )
+                } else if (isGoldNightTheme) {
+                    GoldNightDestinationRail(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(96.dp)
                     )
                 } else if (isPremiumBlackTheme) {
                     PremiumBlackDestinationRail(
@@ -285,10 +298,10 @@ fun AppScreenScaffold(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.lg,
-                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 30.dp else spacing.screenGutter,
-                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.safeTop,
-                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else spacing.safeBottom
+                            start = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else if (isGoldNightTheme) 0.dp else spacing.lg,
+                            end = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 30.dp else if (isGoldNightTheme) 0.dp else spacing.screenGutter,
+                            top = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else if (isGoldNightTheme) 0.dp else spacing.safeTop,
+                            bottom = if (isAlaaTheme) AlaaThemeDimensions.ContentPadding else if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isPremiumBlackTheme || isTokenPaddedTheme) 24.dp else if (isGoldNightTheme) 0.dp else spacing.safeBottom
                         )
                 ) {
                     if (isAlaaTheme || topBarActions != null) {

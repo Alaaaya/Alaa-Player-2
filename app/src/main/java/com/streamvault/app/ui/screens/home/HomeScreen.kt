@@ -113,6 +113,7 @@ import com.streamvault.app.ui.themes.blueocean.BlueOceanLiveTvLayout
 import com.streamvault.app.ui.themes.redcinema.RedCinemaLiveTvLayout
 import com.streamvault.domain.model.AppHomeTheme
 import com.streamvault.domain.model.RemoteShortcutProfile
+import com.streamvault.app.ui.themes.goldnight.GoldNightLiveTvLayout
 
 private enum class FocusRestoreTarget {
     CATEGORY,
@@ -205,11 +206,12 @@ fun HomeScreen(
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
     val isBespokeTheme = bespokeUi != null
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     // Bespoke long-press channel options (favorite / move) and the channel being moved.
     var bespokeOptionsChannel by remember { mutableStateOf<Channel?>(null) }
     var bespokeMovingId by remember { mutableStateOf<Long?>(null) }
     // Alaa يحافظ دائماً على الأعمدة الثلاثة المرجعية، بينما يبقى وضع Classic كما هو.
-    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme || isProMode
+    val shouldShowPreviewPane = isAlaaTheme || isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme || isGoldNightTheme || isProMode
     val isDenseMode = uiState.liveTvChannelMode != LiveTvChannelMode.COMFORTABLE
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -737,7 +739,7 @@ fun HomeScreen(
                         }
                     }
                 ) {
-                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme) && (!isReorderMode || isBespokeTheme)) {
+                if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isBespokeTheme || isGoldNightTheme) && (!isReorderMode || isBespokeTheme)) {
                     val onThemedCategoryClick: (Category) -> Unit = { category ->
                         if (isCategoryLocked(category)) {
                             pendingUnlockCategory = category
@@ -787,7 +789,25 @@ fun HomeScreen(
                         focusedRemoteShortcutTarget = FocusedRemoteShortcutTarget.ChannelTarget(channel)
                         if (uiState.previewChannelId != channel.id) viewModel.previewChannel(channel)
                     }
-                    if (bespokeUi != null) {
+                    if (isGoldNightTheme) {
+                        GoldNightLiveTvLayout(
+                            sourceTitle = uiState.activeLiveSourceTitle.ifBlank { uiState.provider?.name.orEmpty() },
+                            categories = visibleCategories, selectedCategoryId = uiState.selectedCategory?.id,
+                            categorySearchQuery = uiState.categorySearchQuery, channelSearchQuery = uiState.channelSearchQuery,
+                            channels = uiState.filteredChannels, previewChannel = previewChannel,
+                            previewPlayerEngine = uiState.previewPlayerEngine, isPreviewLoading = uiState.isPreviewLoading,
+                            previewErrorMessage = uiState.previewErrorMessage, isCategoryLocked = isCategoryLocked,
+                            isChannelLocked = isChannelLocked, categoryFocusRequesters = categoryFocusRequesters,
+                            channelFocusRequesters = channelFocusRequesters, previewFocusRequester = previewFocusRequester,
+                            onCategorySearchChange = viewModel::updateCategorySearchQuery,
+                            onChannelSearchChange = viewModel::updateChannelSearchQuery, onCategoryClick = onThemedCategoryClick,
+                            onCategoryLongClick = onThemedCategoryLongClick, onChannelClick = onThemedChannelClick,
+                            onChannelLongClick = onThemedChannelLongClick, onCategoryFocused = onThemedCategoryFocused,
+                            onChannelFocused = onThemedChannelFocused, onRequestChannelsFromCategory = ::requestChannelFocusFromCategory,
+                            onRequestPreviewFromChannel = ::requestPreviewFocusFromChannel,
+                            onRequestChannelsFromPreview = { requestChannelFocus(lastFocusedChannelId) }
+                        )
+                    } else if (bespokeUi != null) {
                         val movingId = if (isReorderMode) bespokeMovingId else null
                         val optionsFocus = remember { FocusRequester() }
                         Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
