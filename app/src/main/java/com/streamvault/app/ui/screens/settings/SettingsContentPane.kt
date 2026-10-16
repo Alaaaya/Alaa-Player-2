@@ -57,7 +57,8 @@ internal fun SettingsContentPane(
     val isStreamingPlatform = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlack = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOcean = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
-    val isThemedPresentation = isCinematic || isNeonFuture || isMinimal || isGlass || isStreamingPlatform || isPremiumBlack || isBlueOcean
+    val isGoldNight = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
+    val isThemedPresentation = isCinematic || isNeonFuture || isMinimal || isGlass || isStreamingPlatform || isPremiumBlack || isBlueOcean || isGoldNight
     LazyColumn(
         modifier = modifier
             .fillMaxHeight()

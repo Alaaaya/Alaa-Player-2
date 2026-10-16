@@ -97,6 +97,7 @@ import com.streamvault.app.ui.themes.streaming.StreamingPlatformDashboard
 import com.streamvault.app.ui.themes.premium.PremiumBlackDashboard
 import com.streamvault.app.ui.themes.blueocean.BlueOceanDashboard
 import com.streamvault.app.ui.themes.redcinema.RedCinemaDashboard
+import com.streamvault.app.ui.themes.goldnight.GoldNightDashboard
 
 @Composable
 fun DashboardScreen(
@@ -175,6 +176,33 @@ fun DashboardScreen(
                     onSeriesClick = onSeriesClick,
                     onPlaybackHistoryClick = onPlaybackHistoryClick,
                     onContinueWatchingItemClick = onAlaaContinueWatchingItemClick
+                )
+                return@AppScreenScaffold
+            }
+
+            if (uiState.homeTheme == AppHomeTheme.GOLD_NIGHT) {
+                val onGoldNightContinueWatchingItemClick: (PlaybackHistory) -> Unit = { history ->
+                    val rawSeriesId = history.seriesId ?: history.contentId
+                    val presentedSeries = if (
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES ||
+                        history.contentType == com.streamvault.domain.model.ContentType.SERIES_EPISODE
+                    ) {
+                        uiState.continueWatchingSeries.firstOrNull { series ->
+                            series.rawSeriesIdsForNavigation().contains(rawSeriesId)
+                        }
+                    } else null
+                    if (presentedSeries != null) onSeriesClick(presentedSeries) else onPlaybackHistoryClick(history)
+                }
+                GoldNightDashboard(
+                    uiState = uiState,
+                    recordingChannelIds = recordingChannelIds,
+                    scheduledChannelIds = scheduledChannelIds,
+                    onNavigate = onNavigate,
+                    onRecentChannelClick = onRecentChannelClick,
+                    onFavoriteChannelClick = onFavoriteChannelClick,
+                    onMovieClick = onMovieClick,
+                    onSeriesClick = onSeriesClick,
+                    onContinueWatchingItemClick = onGoldNightContinueWatchingItemClick
                 )
                 return@AppScreenScaffold
             }

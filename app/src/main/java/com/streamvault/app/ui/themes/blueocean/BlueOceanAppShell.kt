@@ -75,7 +75,7 @@ internal fun BlueOceanShellRail(
             BlueOceanNavEntry(Routes.MOVIES, "FILM TIDES", "F"),
             BlueOceanNavEntry(Routes.SERIES, "SERIES FLOW", "S"),
             BlueOceanNavEntry(Routes.SEARCH, "DEPTHS", "D"),
-            BlueOceanNavEntry(Routes.FAVORITES, "HARBOUR", "B"),
+            BlueOceanNavEntry(Routes.liveTv(VirtualCategoryIds.FAVORITES), "HARBOUR", "B"),
             BlueOceanNavEntry(Routes.SETTINGS, "OPERATIONS", "O")
         )
     }

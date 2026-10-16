@@ -86,6 +86,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.streamvault.app.ui.themes.goldnight.GoldNightSearchLayout
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -552,9 +553,10 @@ fun SearchScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
-    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || bespokeUi != null) {
+    if (isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || bespokeUi != null || isGoldNightTheme) {
         val onThemedChannelClick: (Channel) -> Unit = { channel ->
             if (isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected)) {
                 pendingChannel = channel
@@ -590,6 +592,21 @@ fun SearchScreen(
             ))
         } else if (isRedCinemaTheme) {
             RedCinemaArchiveSearch(
+                query = query, selectedTab = selectedTab, recentQueries = recentQueries, uiState = uiState,
+                recordingChannelIds = recordingChannelIds, scheduledChannelIds = scheduledChannelIds,
+                searchFocusRequester = searchFocusRequester, onQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::onSearchSubmitted, onTabSelected = viewModel::onTabSelected,
+                onRecentQuerySelected = viewModel::onRecentQuerySelected, onClearRecentQueries = viewModel::clearRecentQueries,
+                onBuildCompleteIndex = viewModel::buildCompleteStalkerSearchIndex, onChannelClick = onThemedChannelClick,
+                onChannelLongClick = ::showChannelActions, onMovieClick = onThemedMovieClick,
+                onMovieLongClick = ::showMovieActions, onSeriesClick = onThemedSeriesClick,
+                onSeriesLongClick = ::showSeriesActions,
+                isChannelLocked = { channel -> isLocked(channel.categoryId, channel.isAdult, channel.isUserProtected) },
+                isMovieLocked = { movie -> isLocked(movie.categoryId, movie.isAdult, movie.isUserProtected) },
+                isSeriesLocked = { seriesItem -> isLocked(seriesItem.categoryId, seriesItem.isAdult, seriesItem.isUserProtected) }
+            )
+        } else if (isGoldNightTheme) {
+            GoldNightSearchLayout(
                 query = query, selectedTab = selectedTab, recentQueries = recentQueries, uiState = uiState,
                 recordingChannelIds = recordingChannelIds, scheduledChannelIds = scheduledChannelIds,
                 searchFocusRequester = searchFocusRequester, onQueryChange = viewModel::onQueryChange,

@@ -97,6 +97,7 @@ import com.streamvault.app.ui.themes.premium.PremiumMuted
 import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
+import com.streamvault.app.ui.themes.goldnight.GoldNightSeriesDetail
 
 private const val EPISODE_DETAIL_PAGE_SIZE = 100
 
@@ -120,6 +121,7 @@ fun SeriesDetailScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val isAlaaTheme = LocalIsAlaaTheme.current
     val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
@@ -200,6 +202,18 @@ fun SeriesDetailScreen(
         )
     } else if (isRedCinemaTheme) {
         RedCinemaSerialFile(
+            series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
+            unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,
+            externalRatings = uiState.externalRatings, isLoadingExternalRatings = uiState.isLoadingExternalRatings,
+            onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectSeriesVariant,
+            onSeasonSelected = viewModel::selectSeason, onEpisodeClick = onEpisodeClick,
+            onResumeClick = onResumeClick ?: onEpisodeClick,
+            onCopyEpisodeUrl = { episode -> coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl(episode)) { is Result.Success -> result.data; else -> null }) } },
+            onDownloadEpisode = { episode -> viewModel.downloadEpisode(context, episode) },
+            onCastResumeEpisode = viewModel::castResumeEpisode, onCastEpisode = viewModel::castEpisode, onBack = onBack
+        )
+    } else if (isGoldNightTheme) {
+        GoldNightSeriesDetail(
             series = series, selectedSeason = uiState.selectedSeason, resumeEpisode = uiState.resumeEpisode,
             unwatchedEpisodeCount = uiState.unwatchedEpisodeCount, isCasting = uiState.isCasting,
             externalRatings = uiState.externalRatings, isLoadingExternalRatings = uiState.isLoadingExternalRatings,
