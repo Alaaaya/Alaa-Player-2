@@ -102,6 +102,7 @@ import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
 import com.streamvault.app.ui.screens.vod.vodActiveFilterSortDetail
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.delay
+import com.streamvault.app.ui.themes.goldnight.GoldNightMoviesLayout
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -123,6 +124,7 @@ fun MoviesScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val snackbarHostState = remember { SnackbarHostState() }
     val initialContentFocusRequester = remember { FocusRequester() }
@@ -231,7 +233,7 @@ fun MoviesScreen(
                     subtitle = stringResource(R.string.movies_no_found_subtitle)
                 )
             }
-        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) && !uiState.isReorderMode) {
+        } else if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isGoldNightTheme) && !uiState.isReorderMode) {
             val isCategoryLocked: (Category) -> Boolean = { category ->
                 (category.isAdult || category.isUserProtected) &&
                     uiState.parentalControlLevel in 1..2 &&
@@ -262,6 +264,16 @@ fun MoviesScreen(
             }
             if (isRedCinemaTheme) {
                 RedCinemaScreeningLedger(
+                    uiState = uiState, initialFocusRequester = initialContentFocusRequester,
+                    isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,
+                    onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },
+                    onMovieClick = onThemedMovieClick, onMovieLongClick = viewModel::onShowDialog,
+                    onQueryChange = viewModel::setSearchQuery, onFilterChange = viewModel::setSelectedLibraryFilterType,
+                    onSortChange = viewModel::setSelectedLibrarySortBy, onLoadMoreSelected = viewModel::loadMoreSelectedCategory,
+                    onLoadMorePreview = viewModel::loadMorePreviewRows
+                )
+            } else if (isGoldNightTheme) {
+                GoldNightMoviesLayout(
                     uiState = uiState, initialFocusRequester = initialContentFocusRequester,
                     isCategoryLocked = isCategoryLocked, isMovieLocked = isMovieLocked,
                     onCategoryClick = onThemedCategoryClick, onCategoryLongClick = { category -> viewModel.showCategoryOptions(category.name) },

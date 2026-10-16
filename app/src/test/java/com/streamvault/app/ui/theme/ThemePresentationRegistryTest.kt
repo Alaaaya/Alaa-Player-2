@@ -56,7 +56,9 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
-                AppHomeTheme.RED_CINEMA
+                AppHomeTheme.BLUE_OCEAN,
+                AppHomeTheme.RED_CINEMA,
+                AppHomeTheme.GOLD_NIGHT
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -106,8 +108,24 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.GLASSMORPHISM,
                 AppHomeTheme.STREAMING_PLATFORM,
                 AppHomeTheme.PREMIUM_BLACK,
-                AppHomeTheme.RED_CINEMA
+                AppHomeTheme.BLUE_OCEAN,
+                AppHomeTheme.RED_CINEMA,
+                AppHomeTheme.GOLD_NIGHT
             )
             .inOrder()
+    }
+
+    @Test
+    fun `gold night is registered as a complete columns presentation`() {
+        assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.GOLD_NIGHT)).isTrue()
+        val goldNight = ThemePresentationRegistry.resolve(AppHomeTheme.GOLD_NIGHT)
+        assertThat(goldNight.id).isEqualTo(AppHomeTheme.GOLD_NIGHT)
+        assertThat(goldNight.navigationLayout).isEqualTo(ThemeNavigationLayout.SIDE_RAIL)
+        assertThat(goldNight.liveTvLayout).isEqualTo(ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW)
+        assertThat(goldNight.surfaces.accent).isEqualTo(androidx.compose.ui.graphics.Color(0xFFD4AF37))
+        assertThat(goldNight.focus.focusedScale).isEqualTo(1.03f)
+        assertThat(goldNight.replacesHomeWhenOpeningSections).isTrue()
+        assertThat(ThemeCatalog.entry(AppHomeTheme.GOLD_NIGHT).title).isEqualTo("Gold Night")
+        assertThat(AppHomeTheme.fromStorage("gold_night")).isEqualTo(AppHomeTheme.GOLD_NIGHT)
     }
 }

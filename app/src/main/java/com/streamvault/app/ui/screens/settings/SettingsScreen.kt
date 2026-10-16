@@ -42,6 +42,7 @@ import com.streamvault.app.ui.design.requestFocusSafely
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import com.streamvault.app.ui.themes.goldnight.GoldNightSettingsSurface
 
 private val backupFileNameFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS")
 
@@ -67,6 +68,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val settingsNavFocusRequester = remember { FocusRequester() }
 
@@ -469,7 +471,18 @@ fun SettingsScreen(
                 )
             }
         ) {
-            if (isBlueOceanTheme) {
+            if (isGoldNightTheme) {
+                GoldNightSettingsSurface(
+                    navigation = {
+                        SettingsNavigationRail(
+                            selectedCategory = dialogState.selectedCategory,
+                            focusRequester = settingsNavFocusRequester,
+                            onCategorySelected = { dialogState.selectedCategory = it }
+                        )
+                    },
+                    content = { SettingsContent(Modifier.fillMaxSize()) }
+                )
+            } else if (isBlueOceanTheme) {
                 BlueOceanSettingsSurface(
                     navigation = {
                         SettingsNavigationRail(

@@ -71,6 +71,9 @@ import java.time.Instant
 import java.time.ZoneId
 import kotlinx.coroutines.delay
 import kotlin.math.max
+import com.streamvault.app.ui.theme.LocalAppHomeTheme
+import com.streamvault.domain.model.AppHomeTheme
+import com.streamvault.app.ui.themes.goldnight.GoldNightGold
 
 @Composable
 internal fun GuideMessageState(
@@ -315,7 +318,7 @@ private fun GuideTimelineHeader(
                                     .padding(start = totalTimelineWidth * elapsedRatio)
                                     .width(2.dp)
                                     .fillMaxHeight()
-                                    .background(Primary)
+                                    .background(epgAccent())
                             )
                         }
                     }
@@ -404,7 +407,7 @@ fun EpgRow(
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             border = ClickableSurfaceDefaults.border(
                 focusedBorder = Border(
-                    border = BorderStroke(2.dp, FocusBorder),
+                    border = BorderStroke(2.dp, epgFocusBorder()),
                     shape = RoundedCornerShape(8.dp)
                 )
             )
@@ -457,7 +460,7 @@ fun EpgRow(
                     Box(
                         modifier = Modifier
                             .background(
-                                color = Primary.copy(alpha = 0.16f),
+                                color = epgAccent().copy(alpha = 0.16f),
                                 shape = CircleShape
                             )
                             .padding(horizontal = 5.dp, vertical = 1.dp)
@@ -465,7 +468,7 @@ fun EpgRow(
                         Text(
                             text = if (hasUsableArchive) stringResource(R.string.player_archive_badge) else stringResource(R.string.epg_favorite_badge),
                             style = MaterialTheme.typography.labelSmall,
-                            color = Primary,
+                            color = epgAccent(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -628,8 +631,8 @@ fun ProgramItem(
             },
         colors = ClickableSurfaceDefaults.colors(
             containerColor = when {
-                isCurrent && transparentOverlay -> Primary.copy(alpha = 0.28f)
-                isCurrent -> Primary.copy(alpha = 0.2f)
+                isCurrent && transparentOverlay -> epgAccent().copy(alpha = 0.28f)
+                isCurrent -> epgAccent().copy(alpha = 0.2f)
                 transparentOverlay -> SurfaceElevated.copy(alpha = 0.54f)
                 else -> SurfaceElevated
             },
@@ -642,7 +645,7 @@ fun ProgramItem(
                 shape = RoundedCornerShape(8.dp)
             ),
             focusedBorder = Border(
-                border = BorderStroke(2.dp, FocusBorder),
+                border = BorderStroke(2.dp, epgFocusBorder()),
                 shape = RoundedCornerShape(8.dp)
             )
         )
@@ -656,7 +659,7 @@ fun ProgramItem(
             Text(
                 text = program.title,
                 style = titleStyle,
-                color = if (isFocused) TextPrimary else if (isCurrent) Primary else OnSurface,
+                color = if (isFocused) TextPrimary else if (isCurrent) epgAccent() else OnSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -690,3 +693,12 @@ internal fun epgChannelKey(channel: Channel, index: Int): String {
     val epgId = channel.guideLookupKey().orEmpty()
     return "channel:${channel.id}:${channel.streamId}:${epgId}:${channel.name.trim()}:$index"
 }
+
+/** Gold Night يلوّن خط «الآن» والتركيز والبرنامج الحالي بالذهبي؛ بقية الثيمات تحتفظ بألوانها الحالية. */
+@Composable
+private fun epgAccent(): Color =
+    if (LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT) GoldNightGold else Primary
+
+@Composable
+private fun epgFocusBorder(): Color =
+    if (LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT) GoldNightGold else FocusBorder
