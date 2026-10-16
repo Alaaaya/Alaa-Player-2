@@ -41,6 +41,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.streamvault.app.navigation.Routes
+import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.app.ui.interaction.TvClickableSurface
 
 /**
@@ -71,7 +72,7 @@ internal fun BlueOceanShellRail(
             BlueOceanNavEntry(Routes.MOVIES, "FILM TIDES", "F"),
             BlueOceanNavEntry(Routes.SERIES, "SERIES FLOW", "S"),
             BlueOceanNavEntry(Routes.SEARCH, "DEPTHS", "D"),
-            BlueOceanNavEntry(Routes.FAVORITES, "HARBOUR", "B"),
+            BlueOceanNavEntry(Routes.liveTv(VirtualCategoryIds.FAVORITES), "HARBOUR", "B"),
             BlueOceanNavEntry(Routes.SETTINGS, "OPERATIONS", "O")
         )
     }
