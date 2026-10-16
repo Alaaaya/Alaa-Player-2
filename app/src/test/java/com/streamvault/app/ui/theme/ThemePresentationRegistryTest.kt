@@ -81,7 +81,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.SAMA,
                 AppHomeTheme.LULU,
                 AppHomeTheme.GHURUB,
-                AppHomeTheme.THALJ
+                AppHomeTheme.THALJ,
+                AppHomeTheme.NAJMA
             )
             .inOrder()
         assertThat(ThemePresentationRegistry.isSelectable(AppHomeTheme.CINEMATIC)).isTrue()
@@ -156,7 +157,8 @@ class ThemePresentationRegistryTest {
                 AppHomeTheme.SAMA,
                 AppHomeTheme.LULU,
                 AppHomeTheme.GHURUB,
-                AppHomeTheme.THALJ
+                AppHomeTheme.THALJ,
+                AppHomeTheme.NAJMA
             )
             .inOrder()
     }
