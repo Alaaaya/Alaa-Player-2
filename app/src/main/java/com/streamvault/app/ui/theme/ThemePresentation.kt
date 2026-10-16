@@ -90,6 +90,7 @@ data class ThemeCatalogEntry(
 
 object ThemeCatalog {
     private val entries = listOf(
+        ThemeCatalogEntry(AppHomeTheme.NAJMA, "Najma · نجمة", "سماء بنفسجية ونجوم متحركة وزجاج شفاف وتحديد أحمر، بث بثلاثة أعمدة دون دليل برامج."),
         ThemeCatalogEntry(AppHomeTheme.CLASSIC, "Classic", "واجهة Alaa Player الافتراضية الحالية."),
         ThemeCatalogEntry(AppHomeTheme.ALAA, "Signature Alaa", "هوية Alaa الخاصة الثابتة."),
         ThemeCatalogEntry(AppHomeTheme.CINEMATIC, "Cinematic", "تجربة سينمائية بلوحات عرض كبيرة."),
@@ -373,6 +374,7 @@ private fun futurePresentation(
 )
 
 private val expansionPresentations = listOf(
+    futurePresentation(AppHomeTheme.NAJMA, Color(0xFF0C0C24), Color(0x9921264C), Color(0x99171935), Color(0xFFB72340), Color.White, Color(0xFFC7C8E3), Color(0xFFFF3B4C), ThemeNavigationLayout.TOP_BAR, 18.dp, 26.dp, 1.04f, 220).copy(liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW),
     futurePresentation(AppHomeTheme.SAMA, Color(0xFF080B0E), Color(0xCC12191E), Color(0x991A2228), Color(0xFF343E46), Color.White, Color(0xFFCCD1D5), Color.White, ThemeNavigationLayout.TOP_BAR, 12.dp, 20.dp, 1.04f, 240),
     futurePresentation(AppHomeTheme.GHURUB, Color(0xFF160E0B), Color(0xA6412C1D), Color(0xFF281B15), Color(0xFF633E23), Color.White, Color(0xFFE8CBA7), Color(0xFFFFB74D), ThemeNavigationLayout.TOP_BAR, 24.dp, 32.dp, 1.05f, 240),
     futurePresentation(AppHomeTheme.THALJ, Color(0xFF112A3A), Color(0xA682BAD4), Color(0xFF21455B), Color(0xFF467F9B), Color.White, Color(0xFFD9EEF8), Color(0xFF72CFFF), ThemeNavigationLayout.TOP_BAR, 24.dp, 32.dp, 1.04f, 260),
