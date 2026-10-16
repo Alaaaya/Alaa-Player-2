@@ -117,6 +117,10 @@ private fun isBlueOceanSettingsPresentation(): Boolean =
     LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
 
 @Composable
+private fun isGoldNightSettingsPresentation(): Boolean =
+    LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
+
+@Composable
 internal fun SettingsSectionHeader(
     title: String,
     subtitle: String
@@ -128,6 +132,7 @@ internal fun SettingsSectionHeader(
     val isStreaming = isStreamingSettingsPresentation()
     val isPremiumBlack = isPremiumBlackSettingsPresentation()
     val isBlueOcean = isBlueOceanSettingsPresentation()
+    val isGoldNight = isGoldNightSettingsPresentation()
     val blueOceanSurfaces = LocalThemePresentation.current.surfaces
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -136,13 +141,13 @@ internal fun SettingsSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; isPremiumBlack -> PremiumGold; isBlueOcean -> blueOceanSurfaces.accent; else -> Primary },
+            color = when { isCinematic -> CinematicGold; isNeon -> NeonCyan; isMinimal -> MinimalText; isGlass -> GlassAccent; isStreaming -> StreamingAccent; isPremiumBlack -> PremiumGold; isBlueOcean || isGoldNight -> blueOceanSurfaces.accent; else -> Primary },
             fontWeight = if (isCinematic || isNeon) FontWeight.Black else FontWeight.Normal
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; isPremiumBlack -> PremiumMuted; isBlueOcean -> blueOceanSurfaces.textSecondary; else -> OnSurfaceDim }
+            color = when { isCinematic -> CinematicMuted; isNeon -> NeonMuted; isMinimal -> MinimalMuted; isGlass -> GlassMuted; isStreaming -> StreamingMuted; isPremiumBlack -> PremiumMuted; isBlueOcean || isGoldNight -> blueOceanSurfaces.textSecondary; else -> OnSurfaceDim }
         )
     }
 }

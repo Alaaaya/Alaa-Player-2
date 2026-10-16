@@ -35,6 +35,15 @@ import com.streamvault.app.ui.themes.premium.PremiumMuted
 import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.app.ui.themes.premium.PremiumPanelFocused
 import com.streamvault.app.ui.themes.premium.PremiumText
+import com.streamvault.app.ui.themes.goldnight.GoldNightCanvas
+import com.streamvault.app.ui.themes.goldnight.GoldNightFocusBorderWidth
+import com.streamvault.app.ui.themes.goldnight.GoldNightFocusMotionMs
+import com.streamvault.app.ui.themes.goldnight.GoldNightFocusedScale
+import com.streamvault.app.ui.themes.goldnight.GoldNightGold
+import com.streamvault.app.ui.themes.goldnight.GoldNightMuted
+import com.streamvault.app.ui.themes.goldnight.GoldNightPanel
+import com.streamvault.app.ui.themes.goldnight.GoldNightPanelFocused
+import com.streamvault.app.ui.themes.goldnight.GoldNightText
 
 /**
  * مواصفات عرض الثيم فقط. لا تحمل بيانات مزود أو قناة أو حالة تشغيل؛ تلك تبقى في طبقات
@@ -110,7 +119,8 @@ object ThemeCatalog {
         ThemeCatalogEntry(AppHomeTheme.DARK_GLASS, "Dark Glass", "تجربة زجاج داكن مضيئة."),
         ThemeCatalogEntry(AppHomeTheme.MAGAZINE_MEDIA, "Magazine Media", "تجربة تحريرية غنية بالصور."),
         ThemeCatalogEntry(AppHomeTheme.NEXT_GEN_TV, "Next Gen TV", "تجربة تلفاز مكانية متقدمة."),
-        ThemeCatalogEntry(AppHomeTheme.AURORA_LOUNGE, "Aurora Lounge", "تجربة صالة ليلية دافئة.")
+        ThemeCatalogEntry(AppHomeTheme.AURORA_LOUNGE, "Aurora Lounge", "تجربة صالة ليلية دافئة."),
+        ThemeCatalogEntry(AppHomeTheme.GOLD_NIGHT, "Gold Night", "ثيم كحلي ليلي بلمسات ذهبية وقنوات بأعمدة.")
     )
 
     fun entry(theme: AppHomeTheme): ThemeCatalogEntry =
@@ -320,6 +330,31 @@ private val premiumBlackPresentation = ThemePresentation(
     replacesHomeWhenOpeningSections = true
 )
 
+private val goldNightPresentation = ThemePresentation(
+    id = AppHomeTheme.GOLD_NIGHT,
+    navigationLayout = ThemeNavigationLayout.SIDE_RAIL,
+    liveTvLayout = ThemeLiveTvLayout.CATEGORIES_CHANNELS_PREVIEW,
+    surfaces = ThemeSurfaceSpec(
+        canvas = GoldNightCanvas,
+        browseRail = GoldNightCanvas,
+        browseContent = GoldNightPanel,
+        focusedSurface = GoldNightPanelFocused,
+        textPrimary = GoldNightText,
+        textSecondary = GoldNightMuted,
+        accent = GoldNightGold,
+        selectedAccent = GoldNightGold.copy(alpha = 0.2f),
+        focusBorderWidth = GoldNightFocusBorderWidth,
+        cornerMedium = 12.dp,
+        cornerLarge = 16.dp
+    ),
+    focus = ThemeFocusSpec(
+        focusedScale = GoldNightFocusedScale,
+        pressedScale = 0.98f,
+        motionDurationMs = GoldNightFocusMotionMs
+    ),
+    replacesHomeWhenOpeningSections = true
+)
+
 private fun futurePresentation(
     id: AppHomeTheme,
     canvas: Color,
@@ -398,6 +433,7 @@ object ThemePresentationRegistry {
         registerAdditional(premiumBlackPresentation)
         registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.RED_CINEMA })
         registerAdditional(expansionPresentations.first { it.id == AppHomeTheme.BLUE_OCEAN })
+        registerAdditional(goldNightPresentation)
     }
 
     fun resolve(theme: AppHomeTheme): ThemePresentation =

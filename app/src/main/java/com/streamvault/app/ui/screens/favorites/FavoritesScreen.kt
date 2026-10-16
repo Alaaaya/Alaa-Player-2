@@ -90,6 +90,7 @@ import kotlinx.coroutines.launch
 import com.streamvault.app.ui.interaction.TvClickableSurface
 import com.streamvault.app.ui.interaction.TvButton
 import com.streamvault.app.ui.interaction.TvIconButton
+import com.streamvault.app.ui.themes.goldnight.GoldNightFavoritesLayout
 
 @Composable
 fun FavoritesScreen(
@@ -107,6 +108,7 @@ fun FavoritesScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val activeReorderSection = uiState.sections.firstOrNull { it.key == uiState.reorderSectionKey }
     val listState = rememberLazyListState()
@@ -401,7 +403,7 @@ fun FavoritesScreen(
                     }
                 }
 
-                !hasVisibleContent && !isGlassTheme && !isStreamingPlatformTheme && !isPremiumBlackTheme && !isBlueOceanTheme && !isRedCinemaTheme -> {
+                !hasVisibleContent && !isGlassTheme && !isStreamingPlatformTheme && !isPremiumBlackTheme && !isBlueOceanTheme && !isRedCinemaTheme && !isGoldNightTheme -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -420,13 +422,26 @@ fun FavoritesScreen(
                 }
 
                 else -> {
-                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme) && !uiState.isReorderMode) {
+                    if ((isCinematicTheme || isNeonFutureTheme || isMinimalTheme || isGlassTheme || isStreamingPlatformTheme || isPremiumBlackTheme || isBlueOceanTheme || isRedCinemaTheme || isGoldNightTheme) && !uiState.isReorderMode) {
                         val onThemedItemClick: (FavoriteUiModel) -> Unit = { item ->
                             if (item.favorite.contentType == ContentType.SERIES) {
                                 onNavigate("series_detail/${item.favorite.contentId}")
                             } else onItemClick(item)
                         }
                         if (isRedCinemaTheme) RedCinemaSeatLedger(
+                            sections = filteredSections,
+                            continueWatching = visibleContinueWatching,
+                            recentLive = visibleRecentLive,
+                            selectedPreset = uiState.selectedPreset,
+                            selectedFilter = uiState.selectedFilter,
+                            selectedSort = uiState.selectedSort,
+                            onPresetSelected = viewModel::selectPreset,
+                            onFilterSelected = viewModel::selectFilter,
+                            onSortSelected = viewModel::selectSort,
+                            onItemClick = onThemedItemClick,
+                            onItemLongClick = viewModel::showItemOptions,
+                            onHistoryClick = onHistoryClick
+                        ) else if (isGoldNightTheme) GoldNightFavoritesLayout(
                             sections = filteredSections,
                             continueWatching = visibleContinueWatching,
                             recentLive = visibleRecentLive,

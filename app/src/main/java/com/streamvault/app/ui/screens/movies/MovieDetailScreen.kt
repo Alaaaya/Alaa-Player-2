@@ -93,6 +93,7 @@ import com.streamvault.app.ui.themes.premium.PremiumPanel
 import com.streamvault.app.ui.themes.premium.PremiumText
 import com.streamvault.domain.model.AppHomeTheme
 import kotlinx.coroutines.launch
+import com.streamvault.app.ui.themes.goldnight.GoldNightMovieDetail
 
 @Composable
 fun MovieDetailScreen(
@@ -113,6 +114,7 @@ fun MovieDetailScreen(
     val isStreamingPlatformTheme = LocalAppHomeTheme.current == AppHomeTheme.STREAMING_PLATFORM
     val isPremiumBlackTheme = LocalAppHomeTheme.current == AppHomeTheme.PREMIUM_BLACK
     val isBlueOceanTheme = LocalAppHomeTheme.current == AppHomeTheme.BLUE_OCEAN
+    val isGoldNightTheme = LocalAppHomeTheme.current == AppHomeTheme.GOLD_NIGHT
     val isRedCinemaTheme = LocalAppHomeTheme.current == AppHomeTheme.RED_CINEMA
     val isAlaaTheme = LocalIsAlaaTheme.current
 
@@ -175,6 +177,16 @@ fun MovieDetailScreen(
                 )
             } else if (isRedCinemaTheme) {
                 RedCinemaFeatureFile(
+                    movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
+                    isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
+                    onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
+                    onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
+                    onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
+                    onRelatedClick = onPlay, onBack = onBack,
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                )
+            } else if (isGoldNightTheme) {
+                GoldNightMovieDetail(
                     movie = movie, hasResume = uiState.hasResume, resumePositionMs = uiState.resumePositionMs,
                     isCasting = uiState.isCasting, relatedContent = uiState.relatedContent, onPlay = { onPlay(movie) },
                     onCopyUrl = { coroutineScope.launch { copyStreamUrlToClipboard(context, when (val result = viewModel.resolveCopyStreamUrl()) { is Result.Success -> result.data; else -> null }) } },
