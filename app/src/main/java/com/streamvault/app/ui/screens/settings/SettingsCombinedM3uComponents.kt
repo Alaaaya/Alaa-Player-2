@@ -67,9 +67,10 @@ internal fun CombinedM3uProfilesCard(
     onMoveProvider: (Long, Long, Boolean) -> Unit
 ) {
     val isNour = com.streamvault.app.ui.theme.LocalThemePresentation.current.id == com.streamvault.domain.model.AppHomeTheme.NOUR
+    val isNajma = com.streamvault.app.ui.theme.LocalThemePresentation.current.id == com.streamvault.domain.model.AppHomeTheme.NAJMA
     val isLulu = com.streamvault.app.ui.theme.LocalThemePresentation.current.id == com.streamvault.domain.model.AppHomeTheme.LULU
     Surface(
-        shape = RoundedCornerShape(if (isNour || isLulu) 24.dp else 12.dp),
+        shape = RoundedCornerShape(if (isNour || isLulu || isNajma) 24.dp else 12.dp),
         colors = SurfaceDefaults.colors(containerColor = SurfaceElevated),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -113,6 +114,8 @@ internal fun CombinedM3uProfilesCard(
                                 active = isActive,
                                 onClick = { onSelectProfile(profile.id) }
                             )
+                        } else if (isNajma) {
+                            com.streamvault.app.ui.themes.najma.NajmaProfileCard(profile.name, profile.members.count { it.enabled }, selectedProfileId == profile.id, isActive) { onSelectProfile(profile.id) }
                         } else if (isLulu) {
                             com.streamvault.app.ui.themes.lulu.LuluProfileCard(profile.name, profile.members.count { it.enabled }, selectedProfileId == profile.id, isActive) { onSelectProfile(profile.id) }
                         } else ProviderChip(
