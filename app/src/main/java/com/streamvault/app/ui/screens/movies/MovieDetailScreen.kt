@@ -5,7 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
-import android.net.Uri
+import androidx.core.net.toUri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -183,7 +183,7 @@ fun MovieDetailScreen(
                     onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
                     onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay, onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isGoldNightTheme) {
                 GoldNightMovieDetail(
@@ -193,7 +193,7 @@ fun MovieDetailScreen(
                     onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
                     onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay, onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isBlueOceanTheme) {
                 BlueOceanMovieDetail(
@@ -203,7 +203,7 @@ fun MovieDetailScreen(
                     onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
                     onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay, onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isPremiumBlackTheme) {
                 PremiumBlackMovieDetail(
@@ -213,7 +213,7 @@ fun MovieDetailScreen(
                     onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
                     onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay, onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isStreamingPlatformTheme) {
                 StreamingPlatformMovieDetail(
@@ -230,7 +230,7 @@ fun MovieDetailScreen(
                     onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay,
                     onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isGlassTheme) {
                 GlassmorphismMovieDetail(
@@ -257,7 +257,7 @@ fun MovieDetailScreen(
                     onRelatedClick = onPlay,
                     onBack = onBack,
                     onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
-                        { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } }
+                        { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } }
                     }
                 )
             } else if (isMinimalTheme) {
@@ -268,7 +268,7 @@ fun MovieDetailScreen(
                     onDownload = { viewModel.downloadMovie(context) }, onCast = viewModel::castMovie,
                     onToggleFavorite = viewModel::toggleFavorite, onSelectVariant = viewModel::selectMovieVariant,
                     onRelatedClick = onPlay, onBack = onBack,
-                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } } }
+                    onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl -> { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } } }
                 )
             } else if (isNeonFutureTheme) {
                 NeonFutureMovieDetail(
@@ -295,7 +295,7 @@ fun MovieDetailScreen(
                     onRelatedClick = onPlay,
                     onBack = onBack,
                     onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
-                        { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl))) } }
+                        { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri())) } }
                     }
                 )
             } else if (isCinematicTheme) {
@@ -325,7 +325,7 @@ fun MovieDetailScreen(
                     onPlayTrailer = resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
                         {
                             runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                                context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri()))
                             }
                         }
                     }
@@ -476,7 +476,7 @@ private fun MovieDetailContent(
                             onPlayTrailer = {
                                 resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
                                     runCatching {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri()))
                                     }
                                 }
                             }
@@ -509,7 +509,7 @@ private fun MovieDetailContent(
                             onPlayTrailer = {
                                 resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
                                     runCatching {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, trailerUrl.toUri()))
                                     }
                                 }
                             },
