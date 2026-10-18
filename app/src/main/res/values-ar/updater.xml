@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">تحديث جديد %1$s متوفر</string>
+    <string name="updater_system_confirm">نزّل وثبّت آخر إصدار. سيطلب Android منك تأكيد التثبيت.</string>
+    <string name="updater_update">تحديث</string>
+    <string name="updater_later">لاحقاً</string>
+    <string name="updater_downloading">جارٍ تنزيل التحديث…</string>
+    <string name="updater_failed">تعذّر التحديث أو تم إلغاؤه. حاول مرة أخرى.</string>
+    <string name="updater_permission">اسمح بالتثبيت من هذا التطبيق في إعدادات Android، ثم ارجع للمتابعة تلقائياً.</string>
+</resources>

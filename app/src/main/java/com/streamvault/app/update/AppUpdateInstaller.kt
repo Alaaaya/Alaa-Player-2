@@ -37,7 +37,8 @@ data class AppUpdateDownloadState(
     val status: AppUpdateDownloadStatus = AppUpdateDownloadStatus.Idle,
     val versionName: String? = null,
     val downloadId: Long? = null,
-    val installPermissionRequired: Boolean = false
+    val installPermissionRequired: Boolean = false,
+    val progress: Float? = null
 )
 
 enum class AppUpdateDownloadStatus {
@@ -56,6 +57,8 @@ class AppUpdateInstaller @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _downloadState = MutableStateFlow(AppUpdateDownloadState())
     private var downloadPollingJob: Job? = null
+    private val installMutex = kotlinx.coroutines.sync.Mutex()
+    private val metadata = context.getSharedPreferences("update-integrity", Context.MODE_PRIVATE)
     private val downloadCompleteReceiver = object : BroadcastReceiver() {
         override fun onReceive(receiverContext: Context?, intent: Intent?) {
             if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
@@ -121,7 +124,12 @@ class AppUpdateInstaller @Inject constructor(
                 DownloadManager.STATUS_RUNNING -> AppUpdateDownloadState(
                     status = AppUpdateDownloadStatus.Downloading,
                     versionName = trackedVersionName,
-                    downloadId = downloadId
+                    downloadId = downloadId,
+                    progress = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        .takeIf { it > 0 }?.let { total ->
+                            (cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                                .toFloat() / total).coerceIn(0f, 1f)
+                        }
                 )
 
                 DownloadManager.STATUS_SUCCESSFUL -> {
@@ -167,6 +175,9 @@ class AppUpdateInstaller @Inject constructor(
             return@withContext Result.error("Update download is unavailable because the download URL is not HTTPS")
         }
 
+        if (releaseInfo.downloadSha256?.matches(Regex("[a-fA-F0-9]{64}")) != true) {
+            return@withContext Result.error("Update checksum is unavailable")
+        }
         try {
             val targetFile = apkFileForVersion(releaseInfo.versionName)
             targetFile.parentFile?.mkdirs()
@@ -195,6 +206,7 @@ class AppUpdateInstaller @Inject constructor(
                     targetFile.name
                 )
 
+            metadata.edit().putString(releaseInfo.versionName, releaseInfo.downloadSha256).commit()
             val downloadId = downloadManager.enqueue(request)
             preferencesRepository.setAppUpdateDownloadId(downloadId)
             preferencesRepository.setAppUpdateDownloadVersionName(releaseInfo.versionName)
@@ -215,12 +227,20 @@ class AppUpdateInstaller @Inject constructor(
     }
 
     suspend fun installDownloadedUpdate(expectedSha256: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!installMutex.tryLock()) return@withContext Result.error("Installation already in progress")
+        try {
+        val activeId = metadata.getInt("active-session", -1)
+        if (activeId >= 0 && context.packageManager.packageInstaller.getSessionInfo(activeId) != null) {
+            return@withContext Result.error("Installation awaiting Android confirmation")
+        }
+        metadata.edit().remove("active-session").commit()
         val currentState = refreshState()
         if (currentState.status != AppUpdateDownloadStatus.Downloaded || currentState.versionName.isNullOrBlank()) {
             return@withContext Result.error("No downloaded update is ready to install")
         }
 
         if (requiresInstallPermission()) {
+            metadata.edit().putBoolean("pending-permission", true).commit()
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -229,14 +249,19 @@ class AppUpdateInstaller @Inject constructor(
             _downloadState.value = permissionRequiredState
             return@withContext try {
                 context.startActivity(settingsIntent)
-                Result.error("Allow installs from this app, then try Install update again")
+                Result.error("Allow installs from this app, then return to the app")
             } catch (error: ActivityNotFoundException) {
-                Result.error("Open Android settings, allow installs from this app, then try Install update again", error)
+                _downloadState.value = currentState.copy(installPermissionRequired = false)
+                metadata.edit().putBoolean("pending-permission", false).commit()
+                Result.error("Open Android settings, allow installs from this app, then return to the app", error)
             } catch (error: SecurityException) {
+                _downloadState.value = currentState.copy(installPermissionRequired = false)
+                metadata.edit().putBoolean("pending-permission", false).commit()
                 Result.error("The install permission settings screen could not be opened", error)
             }
         }
 
+        metadata.edit().putBoolean("pending-permission", false).commit()
         val apkFile = apkFileForVersion(currentState.versionName)
         if (!apkFile.exists()) {
             preferencesRepository.setAppUpdateDownloadId(null)
@@ -248,12 +273,16 @@ class AppUpdateInstaller @Inject constructor(
         // SEC-L02: Verify SHA-256 integrity before handing the APK to the package manager.
         // This guards against a truncated download, a network MITM, or a tampered file in
         // the external storage directory (which is world-readable on unencrypted devices).
-        if (!expectedSha256.isNullOrBlank()) {
+        val trustedHash = metadata.getString(currentState.versionName, null) ?: expectedSha256
+        if (trustedHash?.matches(Regex("[a-fA-F0-9]{64}")) != true) {
+            return@withContext Result.error("Update checksum is unavailable; please download again")
+        }
+        if (trustedHash.isNotBlank()) {
             val actualHash = computeSha256Hex(apkFile)
-            if (!actualHash.equals(expectedSha256.trim(), ignoreCase = true)) {
+            if (!actualHash.equals(trustedHash.trim(), ignoreCase = true)) {
                 android.util.Log.e(
                     "AppUpdateInstaller",
-                    "APK SHA-256 mismatch for ${apkFile.name}: expected=${expectedSha256.trim()} actual=$actualHash"
+                    "APK SHA-256 mismatch for ${apkFile.name}: expected=${trustedHash.trim()} actual=$actualHash"
                 )
                 apkFile.delete()
                 preferencesRepository.setAppUpdateDownloadId(null)
@@ -272,19 +301,52 @@ class AppUpdateInstaller @Inject constructor(
             apkFile
         )
 
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
+        val installer = context.packageManager.packageInstaller
+        var sessionId: Int? = null
         try {
-            context.startActivity(installIntent)
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+            ).apply { setAppPackageName(context.packageName) }
+            val id = installer.createSession(params)
+            sessionId = id
+            installer.openSession(id).use { session ->
+                context.contentResolver.openInputStream(apkUri).use { input ->
+                    requireNotNull(input) { "Downloaded update could not be opened" }
+                    session.openWrite("base.apk", 0, apkFile.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
+                }
+                val callback = Intent(context, UpdateInstallResultActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0)
+                val options = if (Build.VERSION.SDK_INT >= 35) {
+                    android.app.ActivityOptions.makeBasic().apply {
+                        setPendingIntentCreatorBackgroundActivityStartMode(
+                            if (Build.VERSION.SDK_INT >= 36)
+                                android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+                            else android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                        )
+                    }.toBundle()
+                } else null
+                val result = android.app.PendingIntent.getActivity(context, id, callback, flags, options)
+                metadata.edit().putInt("active-session", id).commit()
+                session.commit(result.intentSender)
+            }
             Result.success(Unit)
-        } catch (error: ActivityNotFoundException) {
-            Result.error("No package installer is available on this device", error)
-        } catch (error: SecurityException) {
+        } catch (error: Exception) {
+            sessionId?.let { runCatching { installer.abandonSession(it) } }
             Result.error("The package installer could not be launched", error)
+        }
+        } catch (error: Exception) {
+            Result.error("Downloaded update could not be read or installed", error)
+        } finally { installMutex.unlock() }
+    }
+
+    suspend fun resumeAfterInstallPermission() {
+        if (metadata.getBoolean("pending-permission", false) && !requiresInstallPermission()) {
+            installDownloadedUpdate()
         }
     }
 
