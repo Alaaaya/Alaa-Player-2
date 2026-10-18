@@ -7,9 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.streamvault.app.ui.theme.StreamVaultTheme
@@ -60,9 +57,12 @@ class UpdaterShotsTest {
 
         // Compose dialogs are separate Android windows. Capture the real dialog window
         // and place it at its real centered position over the activity window and dim layer.
-        val dialog = rule.onNode(isDialog()).captureToImage().asAndroidBitmap()
+        var dialog: Bitmap? = null
         var background: Bitmap? = null
         rule.runOnUiThread {
+            val dialogView = org.robolectric.shadows.ShadowDialog.getLatestDialog().window!!.decorView
+            dialog = Bitmap.createBitmap(dialogView.width, dialogView.height, Bitmap.Config.ARGB_8888)
+            dialogView.draw(Canvas(dialog!!))
             val view = rule.activity.window.decorView
             check(view.width == 1920 && view.height == 1080) { "Unexpected TV size ${view.width}x${view.height}" }
             background = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
@@ -72,7 +72,7 @@ class UpdaterShotsTest {
         Canvas(result).apply {
             drawRect(0f, 0f, result.width.toFloat(), result.height.toFloat(),
                 Paint().apply { color = android.graphics.Color.argb(82, 0, 0, 0) })
-            drawBitmap(dialog, (result.width - dialog.width) / 2f, (result.height - dialog.height) / 2f, null)
+            drawBitmap(dialog!!, (result.width - dialog!!.width) / 2f, (result.height - dialog!!.height) / 2f, null)
         }
         val out = File("build/outputs/updater-shots/updater_shot_${name}.png")
         check(out.parentFile!!.isDirectory || out.parentFile!!.mkdirs())
