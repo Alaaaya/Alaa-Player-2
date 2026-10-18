@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -28,7 +29,6 @@ import com.streamvault.app.device.removableAppStorageDirs
 import java.io.File
 import com.streamvault.app.diagnostics.CrashReportStore
 import com.streamvault.app.util.OfficialBuildVerifier
-import com.streamvault.app.ui.components.shell.AppTopBarCloseAction
 import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.*
@@ -465,11 +465,6 @@ fun SettingsScreen(
             navigationChrome = AppNavigationChrome.TopBar,
             compactHeader = true,
             showScreenHeader = false,
-            topBarActions = {
-                AppTopBarCloseAction(
-                    onClick = { mainActivity?.finishAffinity() }
-                )
-            }
         ) {
             val bespokeUi = com.streamvault.app.ui.themes.bespoke.bespokeThemeFor(LocalAppHomeTheme.current)
             if (isGoldNightTheme) {

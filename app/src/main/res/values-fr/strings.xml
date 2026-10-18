@@ -1514,4 +1514,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Fermer la lecture ?</string>
+    <string name="player_close_playback_desc">Cela arrêtera la lecture et reviendra à l\'écran précédent.</string>
+    <string name="player_close_playback_confirm">Oui</string>
+    <string name="player_close_playback_cancel">Non</string>
+    <string name="settings_confirm_close_playback">Confirmer la fermeture de la lecture</string>
+    <string name="settings_confirm_close_playback_subtitle">Demander avant que le bouton Retour n\'arrête la lecture et revienne à l\'écran précédent.</string>
+    <string name="app_close_confirm_title">Fermer l\'application ?</string>
+    <string name="app_close_confirm_desc">L\'application sera complètement fermée.</string>
 </resources>

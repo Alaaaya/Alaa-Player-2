@@ -1845,4 +1845,12 @@
     <string name="settings_themes_title" tools:ignore="MissingTranslation">Application themes</string>
     <string name="settings_themes_subtitle" tools:ignore="MissingTranslation">Choose the visual presentation for the entire application.</string>
     <string name="settings_theme_selected" tools:ignore="MissingTranslation">Selected</string>
+    <string name="player_close_playback_title">Close playback?</string>
+    <string name="player_close_playback_desc">This will stop playback and return to the previous screen.</string>
+    <string name="player_close_playback_confirm">Yes</string>
+    <string name="player_close_playback_cancel">No</string>
+    <string name="settings_confirm_close_playback">Confirm closing playback</string>
+    <string name="settings_confirm_close_playback_subtitle">Ask before the back button stops playback and returns to the previous screen.</string>
+    <string name="app_close_confirm_title">Close app?</string>
+    <string name="app_close_confirm_desc">The app will close completely.</string>
 </resources>

@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Suljetaanko toisto?</string>
+    <string name="player_close_playback_desc">Tämä pysäyttää toiston ja palaa edelliseen näkymään.</string>
+    <string name="player_close_playback_confirm">Kyllä</string>
+    <string name="player_close_playback_cancel">Ei</string>
+    <string name="settings_confirm_close_playback">Vahvista toiston sulkeminen</string>
+    <string name="settings_confirm_close_playback_subtitle">Kysy ennen kuin Takaisin-painike pysäyttää toiston ja palaa edelliseen näkymään.</string>
+    <string name="app_close_confirm_title">Suljetaanko sovellus?</string>
+    <string name="app_close_confirm_desc">Sovellus suljetaan kokonaan.</string>
 </resources>
-

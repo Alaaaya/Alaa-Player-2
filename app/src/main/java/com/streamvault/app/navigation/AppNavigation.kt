@@ -549,6 +549,9 @@ fun AppNavigation(mainActivity: MainActivity) {
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.streamvault.app.ui.components.shell.LocalAppCloseAction provides { mainActivity.finishAffinity() }
+    ) {
     NavHost(
         navController = navController,
         startDestination = Routes.WELCOME
@@ -1131,6 +1134,7 @@ fun AppNavigation(mainActivity: MainActivity) {
                 onBack = { navController.popBackStack() }
             )
         }
+    }
     }
 }
 

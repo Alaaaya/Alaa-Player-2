@@ -777,6 +777,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setPlayerConfirmClosePlayback(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerConfirmClosePlayback(enabled)
+        }
+    }
+
     fun setPlayerMediaSessionEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setPlayerMediaSessionEnabled(enabled)

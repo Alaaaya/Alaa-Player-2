@@ -26,7 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew --console=plain :app:assembleDebug
+        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:assembleDebug
 
       - name: Prepare APK artifact
         shell: bash
