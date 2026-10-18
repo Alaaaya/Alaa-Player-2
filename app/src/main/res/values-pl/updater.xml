@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Dostępna jest nowa aktualizacja %1$s</string>
+    <string name="updater_system_confirm">Pobierz i zainstaluj najnowszą wersję. Android poprosi o potwierdzenie instalacji.</string>
+    <string name="updater_update">Aktualizuj</string>
+    <string name="updater_later">Później</string>
+    <string name="updater_downloading">Pobieranie aktualizacji…</string>
+    <string name="updater_failed">Aktualizacja nie powiodła się lub została anulowana. Spróbuj ponownie.</string>
+    <string name="updater_permission">Zezwól na instalowanie z tej aplikacji w ustawieniach Androida, a następnie wróć tutaj, aby automatycznie kontynuować.</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Доступне нове оновлення %1$s</string>
+    <string name="updater_system_confirm">Завантажте та встановіть останню версію. Android попросить підтвердити встановлення.</string>
+    <string name="updater_update">Оновити</string>
+    <string name="updater_later">Пізніше</string>
+    <string name="updater_downloading">Завантаження оновлення…</string>
+    <string name="updater_failed">Не вдалося оновити застосунок, або оновлення було скасовано. Спробуйте ще раз.</string>
+    <string name="updater_permission">Дозвольте встановлення з цього застосунку в налаштуваннях Android, а потім поверніться сюди для автоматичного продовження.</string>
+</resources>

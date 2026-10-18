@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Yeni %1$s güncellemesi mevcut</string>
+    <string name="updater_system_confirm">En son sürümü indirip yükleyin. Android, yüklemeyi onaylamanızı isteyecek.</string>
+    <string name="updater_update">Güncelle</string>
+    <string name="updater_later">Daha sonra</string>
+    <string name="updater_downloading">Güncelleme indiriliyor…</string>
+    <string name="updater_failed">Güncelleme başarısız oldu veya iptal edildi. Lütfen tekrar deneyin.</string>
+    <string name="updater_permission">Android ayarlarında bu uygulamadan yüklemeye izin verin, ardından otomatik olarak devam etmek için buraya dönün.</string>
+</resources>

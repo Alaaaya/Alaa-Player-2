@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Uusi päivitys %1$s saatavilla</string>
+    <string name="updater_system_confirm">Lataa ja asenna uusin versio. Android pyytää vahvistamaan asennuksen.</string>
+    <string name="updater_update">Päivitä</string>
+    <string name="updater_later">Myöhemmin</string>
+    <string name="updater_downloading">Ladataan päivitystä…</string>
+    <string name="updater_failed">Päivitys epäonnistui tai peruttiin. Yritä uudelleen.</string>
+    <string name="updater_permission">Salli asennukset tästä sovelluksesta Androidin asetuksissa ja palaa sitten tänne jatkaaksesi automaattisesti.</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Nieuwe update %1$s beschikbaar</string>
+    <string name="updater_system_confirm">Download en installeer de nieuwste versie. Android vraagt je de installatie te bevestigen.</string>
+    <string name="updater_update">Bijwerken</string>
+    <string name="updater_later">Later</string>
+    <string name="updater_downloading">Update downloaden…</string>
+    <string name="updater_failed">De update is mislukt of geannuleerd. Probeer het opnieuw.</string>
+    <string name="updater_permission">Sta installaties vanuit deze app toe in de Android-instellingen en keer daarna hier terug om automatisch verder te gaan.</string>
+</resources>

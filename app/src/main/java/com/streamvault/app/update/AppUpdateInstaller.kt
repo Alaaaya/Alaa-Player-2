@@ -1,6 +1,7 @@
 package com.streamvault.app.update
 
 import androidx.core.net.toUri
+import androidx.core.content.edit
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
@@ -206,7 +207,8 @@ class AppUpdateInstaller @Inject constructor(
                     targetFile.name
                 )
 
-            metadata.edit().putString(releaseInfo.versionName, releaseInfo.downloadSha256).commit()
+            // Persist integrity metadata before enqueuing work that can outlive this process.
+            metadata.edit(commit = true) { putString(releaseInfo.versionName, releaseInfo.downloadSha256) }
             val downloadId = downloadManager.enqueue(request)
             preferencesRepository.setAppUpdateDownloadId(downloadId)
             preferencesRepository.setAppUpdateDownloadVersionName(releaseInfo.versionName)
@@ -233,14 +235,14 @@ class AppUpdateInstaller @Inject constructor(
         if (activeId >= 0 && context.packageManager.packageInstaller.getSessionInfo(activeId) != null) {
             return@withContext Result.error("Installation awaiting Android confirmation")
         }
-        metadata.edit().remove("active-session").commit()
+        metadata.edit(commit = true) { remove("active-session") }
         val currentState = refreshState()
         if (currentState.status != AppUpdateDownloadStatus.Downloaded || currentState.versionName.isNullOrBlank()) {
             return@withContext Result.error("No downloaded update is ready to install")
         }
 
         if (requiresInstallPermission()) {
-            metadata.edit().putBoolean("pending-permission", true).commit()
+            metadata.edit(commit = true) { putBoolean("pending-permission", true) }
             val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                 data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -252,16 +254,16 @@ class AppUpdateInstaller @Inject constructor(
                 Result.error("Allow installs from this app, then return to the app")
             } catch (error: ActivityNotFoundException) {
                 _downloadState.value = currentState.copy(installPermissionRequired = false)
-                metadata.edit().putBoolean("pending-permission", false).commit()
+                metadata.edit(commit = true) { putBoolean("pending-permission", false) }
                 Result.error("Open Android settings, allow installs from this app, then return to the app", error)
             } catch (error: SecurityException) {
                 _downloadState.value = currentState.copy(installPermissionRequired = false)
-                metadata.edit().putBoolean("pending-permission", false).commit()
+                metadata.edit(commit = true) { putBoolean("pending-permission", false) }
                 Result.error("The install permission settings screen could not be opened", error)
             }
         }
 
-        metadata.edit().putBoolean("pending-permission", false).commit()
+        metadata.edit(commit = true) { putBoolean("pending-permission", false) }
         val apkFile = apkFileForVersion(currentState.versionName)
         if (!apkFile.exists()) {
             preferencesRepository.setAppUpdateDownloadId(null)
@@ -331,7 +333,7 @@ class AppUpdateInstaller @Inject constructor(
                     }.toBundle()
                 } else null
                 val result = android.app.PendingIntent.getActivity(context, id, callback, flags, options)
-                metadata.edit().putInt("active-session", id).commit()
+                metadata.edit(commit = true) { putInt("active-session", id) }
                 session.commit(result.intentSender)
             }
             Result.success(Unit)

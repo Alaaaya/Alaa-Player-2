@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Có bản cập nhật mới %1$s</string>
+    <string name="updater_system_confirm">Tải xuống và cài đặt phiên bản mới nhất. Android sẽ yêu cầu bạn xác nhận việc cài đặt.</string>
+    <string name="updater_update">Cập nhật</string>
+    <string name="updater_later">Để sau</string>
+    <string name="updater_downloading">Đang tải bản cập nhật…</string>
+    <string name="updater_failed">Cập nhật không thành công hoặc đã bị hủy. Vui lòng thử lại.</string>
+    <string name="updater_permission">Cho phép cài đặt từ ứng dụng này trong phần cài đặt Android, rồi quay lại đây để tự động tiếp tục.</string>
+</resources>

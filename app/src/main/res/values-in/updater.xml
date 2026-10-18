@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Pembaruan baru %1$s tersedia</string>
+    <string name="updater_system_confirm">Unduh dan instal versi terbaru. Android akan meminta Anda mengonfirmasi penginstalan.</string>
+    <string name="updater_update">Perbarui</string>
+    <string name="updater_later">Nanti</string>
+    <string name="updater_downloading">Mengunduh pembaruan…</string>
+    <string name="updater_failed">Pembaruan gagal atau dibatalkan. Silakan coba lagi.</string>
+    <string name="updater_permission">Izinkan penginstalan dari aplikasi ini di setelan Android, lalu kembali ke sini untuk melanjutkan secara otomatis.</string>
+</resources>

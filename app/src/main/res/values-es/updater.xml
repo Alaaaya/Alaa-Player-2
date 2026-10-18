@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Nueva actualización %1$s disponible</string>
+    <string name="updater_system_confirm">Descarga e instala la última versión. Android te pedirá que confirmes la instalación.</string>
+    <string name="updater_update">Actualizar</string>
+    <string name="updater_later">Más tarde</string>
+    <string name="updater_downloading">Descargando actualización…</string>
+    <string name="updater_failed">La actualización falló o se canceló. Inténtalo de nuevo.</string>
+    <string name="updater_permission">Permite las instalaciones desde esta aplicación en los ajustes de Android y vuelve aquí para continuar automáticamente.</string>
+</resources>

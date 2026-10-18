@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">新更新 %1$s 已可用</string>
+    <string name="updater_system_confirm">下载并安装最新版本。Android 将要求您确认安装。</string>
+    <string name="updater_update">更新</string>
+    <string name="updater_later">稍后</string>
+    <string name="updater_downloading">正在下载更新…</string>
+    <string name="updater_failed">更新失败或已取消。请重试。</string>
+    <string name="updater_permission">请在 Android 设置中允许安装来自此应用的应用，然后返回此处以自动继续。</string>
+</resources>

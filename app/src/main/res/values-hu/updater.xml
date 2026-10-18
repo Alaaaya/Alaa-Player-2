@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Új frissítés érhető el (%1$s)</string>
+    <string name="updater_system_confirm">Töltse le és telepítse a legújabb verziót. Az Android kérni fogja a telepítés megerősítését.</string>
+    <string name="updater_update">Frissítés</string>
+    <string name="updater_later">Később</string>
+    <string name="updater_downloading">Frissítés letöltése…</string>
+    <string name="updater_failed">A frissítés sikertelen volt vagy megszakadt. Próbálja újra.</string>
+    <string name="updater_permission">Engedélyezze az ebből az alkalmazásból történő telepítést az Android beállításaiban, majd térjen vissza ide az automatikus folytatáshoz.</string>
+</resources>

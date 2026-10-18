@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Este disponibilă o nouă actualizare %1$s</string>
+    <string name="updater_system_confirm">Descarcă și instalează cea mai recentă versiune. Android îți va cere să confirmi instalarea.</string>
+    <string name="updater_update">Actualizează</string>
+    <string name="updater_later">Mai târziu</string>
+    <string name="updater_downloading">Se descarcă actualizarea…</string>
+    <string name="updater_failed">Actualizarea a eșuat sau a fost anulată. Încearcă din nou.</string>
+    <string name="updater_permission">Permite instalările din această aplicație în setările Android, apoi revino aici pentru a continua automat.</string>
+</resources>
