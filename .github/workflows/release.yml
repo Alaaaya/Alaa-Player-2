@@ -320,8 +320,8 @@ jobs:
             :data:assembleDebugAndroidTest
 
   release-tv-smoke:
-    # Owner-authorized v2.0 exception for hanging TV emulator only.
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.version_name == '2.0' && inputs.official) }}
+    # Owner-authorized v2.1 exception for hanging TV emulator only.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.version_name == '2.1' && inputs.official) }}
     name: Android TV release smoke
     runs-on: ubuntu-latest
 
@@ -372,7 +372,7 @@ jobs:
     # instrumentation compile and TV smoke jobs all succeeded.
     needs: [metadata, build, quality, instrumentation, release-tv-smoke]
 
-    if: ${{ always() && needs.metadata.result == 'success' && needs.build.result == 'success' && needs.quality.result == 'success' && needs.instrumentation.result == 'success' && (needs.release-tv-smoke.result == 'success' || (needs.release-tv-smoke.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.version_name == '2.0' && inputs.official)) }}
+    if: ${{ always() && needs.metadata.result == 'success' && needs.build.result == 'success' && needs.quality.result == 'success' && needs.instrumentation.result == 'success' && (needs.release-tv-smoke.result == 'success' || (needs.release-tv-smoke.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.version_name == '2.1' && inputs.official)) }}
     runs-on: ubuntu-latest
 
     steps:
