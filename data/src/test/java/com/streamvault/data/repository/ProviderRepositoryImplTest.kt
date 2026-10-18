@@ -740,6 +740,9 @@ class ProviderRepositoryImplTest {
 
     @Test
     fun `loginXtream returns an error instead of crashing when credential encryption fails`() = runTest {
+        // Production inserts an identity row before encrypting the typed snapshot in the
+        // same Room transaction. Let that insert complete so this test reaches crypto.
+        whenever(providerDao.insert(any())).thenReturn(9L)
         whenever(credentialCrypto.encryptIfNeeded(any()))
             .thenThrow(SecurityException("private-password"))
         whenever(xtreamApiService.authenticate(any(), any())).thenReturn(
@@ -765,7 +768,9 @@ class ProviderRepositoryImplTest {
         val error = result as Result.Error
         assertThat(error.exception).isInstanceOf(SecurityException::class.java)
         assertThat(error.message).doesNotContain("private-password")
-        verify(providerDao, never()).insert(any())
+        verify(credentialCrypto).encryptIfNeeded("private-password")
+        verify(providerSnapshotDao, never()).commitConfiguration(any())
+        verify(syncManager, never()).sync(any(), any(), anyOrNull(), anyOrNull(), anyOrNull(), any())
     }
 
     @Test
