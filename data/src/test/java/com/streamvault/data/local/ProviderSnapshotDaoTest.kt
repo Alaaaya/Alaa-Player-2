@@ -1,6 +1,10 @@
 package com.streamvault.data.local
 
 import androidx.room.Room
+import com.google.gson.Gson
+import com.streamvault.data.provider.ProviderConfigurationCodec
+import com.streamvault.data.security.CredentialCrypto
+import com.streamvault.domain.model.XtreamConfig
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.entity.ProviderConfigEntity
 import com.streamvault.data.local.entity.ProviderEntity
@@ -142,6 +146,40 @@ class ProviderSnapshotDaoTest {
             .isFalse()
         assertThat(dao.getConfig(8)?.identityKey).isEqualTo("second")
         assertThat(dao.getConfig(8)?.configurationGeneration).isEqualTo(1)
+    }
+
+    @Test
+    fun `credential encryption failure rolls back provider identity in real Room transaction`() = runTest {
+        val failure = SecurityException("credential key unavailable")
+        var cryptoInvoked = false
+        val crypto = object : CredentialCrypto {
+            override fun encryptIfNeeded(value: String): String {
+                cryptoInvoked = true
+                throw failure
+            }
+            override fun decryptIfNeeded(value: String): String = value
+        }
+        val codec = ProviderConfigurationCodec(Gson(), crypto)
+        val caught = runCatching {
+            RoomDatabaseTransactionRunner(database).inTransaction {
+                val providerId = database.providerDao().insert(
+                    ProviderEntity(id = 19, name = "Xtream", type = ProviderType.XTREAM_CODES)
+                )
+                // Match repository ordering: identity insert, then encrypted snapshot.
+                val payload = codec.encode(XtreamConfig("https://example.com", "user", "secret"))
+                database.providerSnapshotDao().commitConfiguration(
+                    config(providerId = providerId, generation = 1).copy(
+                        type = ProviderType.XTREAM_CODES,
+                        encryptedConfigJson = payload
+                    )
+                )
+            }
+        }.exceptionOrNull()
+
+        assertThat(caught).isSameInstanceAs(failure)
+        assertThat(cryptoInvoked).isTrue()
+        assertThat(database.providerDao().getById(19)).isNull()
+        assertThat(database.providerSnapshotDao().getConfig(19)).isNull()
     }
 
     private suspend fun insertProvider(id: Long, name: String) {
