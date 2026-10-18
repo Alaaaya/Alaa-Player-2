@@ -176,7 +176,12 @@ class ProviderSnapshotDaoTest {
             }
         }.exceptionOrNull()
 
-        assertThat(caught).isSameInstanceAs(failure)
+        // Coroutine stack-trace recovery may copy exceptions across the Room dispatcher.
+        // The original crypto exception must remain the root cause, not be replaced.
+        assertThat(caught).isInstanceOf(SecurityException::class.java)
+        assertThat(caught?.message).isEqualTo(failure.message)
+        val original = generateSequence(caught) { it.cause }.last()
+        assertThat(original).isSameInstanceAs(failure)
         assertThat(cryptoInvoked).isTrue()
         assertThat(database.providerDao().getById(19)).isNull()
         assertThat(database.providerSnapshotDao().getConfig(19)).isNull()
