@@ -94,6 +94,7 @@ import com.streamvault.app.ui.screens.player.overlay.PlayerErrorOverlay
 import com.streamvault.app.ui.screens.player.overlay.PlayerNoticeBanner
 import com.streamvault.app.ui.screens.player.overlay.PlayerEpisodeSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerResumePrompt
+import com.streamvault.app.ui.screens.player.overlay.PlayerClosePlaybackConfirmation
 import com.streamvault.app.ui.screens.player.overlay.PlayerTrackSelectionDialog
 import com.streamvault.app.ui.screens.player.overlay.PlayerAspectRatioToast
 import com.streamvault.app.ui.screens.player.overlay.PlayerControlsOverlay
@@ -123,6 +124,8 @@ import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.themes.goldnight.GoldNightPlayerOverlay
 
 
+
+private const val CLOSE_PLAYBACK_CONFIRM_GUARD_MS = 350L
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -196,6 +199,9 @@ fun PlayerScreen(
     val autoPlayCountdown by viewModel.autoPlayCountdown.collectAsStateWithLifecycle()
     val playbackTitle by viewModel.playbackTitle.collectAsStateWithLifecycle()
     val resumePrompt by viewModel.resumePrompt.collectAsStateWithLifecycle()
+    val playerPreferences by viewModel.playerPreferencesUiState.collectAsStateWithLifecycle()
+    var showClosePlaybackConfirmation by rememberSaveable { mutableStateOf(false) }
+    var closePlaybackConfirmationOpenedAtMs by remember { mutableStateOf(0L) }
     val currentSeriesSeasons = remember(currentSeries) {
         currentSeries?.seasons.sanitizedForPlayer()
     }
@@ -564,10 +570,18 @@ fun PlayerScreen(
         showEpgOverlay,
         showFullGuideOverlay,
         showControls,
-        numericChannelInput
+        numericChannelInput,
+        showClosePlaybackConfirmation,
+        playerPreferences.confirmClosePlayback
     ) {
         {
             when {
+                // A BACK press that opens the confirmation can deliver a tail event to the new dialog; ignore cancels inside that window.
+                showClosePlaybackConfirmation -> {
+                    if (System.currentTimeMillis() - closePlaybackConfirmationOpenedAtMs >= CLOSE_PLAYBACK_CONFIRM_GUARD_MS) {
+                        showClosePlaybackConfirmation = false
+                    }
+                }
                 viewModel.hasPendingNumericChannelInput() -> viewModel.clearNumericChannelInput()
                 autoPlayCountdown != null -> viewModel.cancelAutoPlay()
                 playerNotice != null -> viewModel.dismissPlayerNotice()
@@ -590,6 +604,10 @@ fun PlayerScreen(
                 showFullGuideOverlay -> viewModel.closeFullGuideOverlay()
                 showChannelListOverlay || showCategoryListOverlay || showEpgOverlay -> viewModel.closeOverlays()
                 showControls -> viewModel.toggleControls()
+                playerPreferences.confirmClosePlayback -> {
+                    closePlaybackConfirmationOpenedAtMs = System.currentTimeMillis()
+                    showClosePlaybackConfirmation = true
+                }
                 else -> onBack()
             }
         }
@@ -625,6 +643,9 @@ fun PlayerScreen(
                     return@onPreviewKeyEvent false
                 }
                 viewModel.notifyUserActivity()
+                if (showClosePlaybackConfirmation) {
+                    return@onPreviewKeyEvent false
+                }
                 if (nextEpisodeCountdownVisible) {
                     return@onPreviewKeyEvent false
                 }
@@ -677,6 +698,20 @@ fun PlayerScreen(
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     viewModel.notifyUserActivity()
+                    if (showClosePlaybackConfirmation) {
+                        return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_BACK -> {
+                                handleBackPress()
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_CENTER,
+                            KeyEvent.KEYCODE_ENTER,
+                            KeyEvent.KEYCODE_NUMPAD_ENTER,
+                            KeyEvent.KEYCODE_DPAD_LEFT,
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> false
+                            else -> true
+                        }
+                    }
                     if (nextEpisodeCountdownVisible) {
                         return@onKeyEvent when (event.nativeKeyEvent.keyCode) {
                             KeyEvent.KEYCODE_BACK -> {
@@ -1489,6 +1524,20 @@ fun PlayerScreen(
                 },
                 onResume = {
                     viewModel.dismissResumePrompt(resume = true)
+                }
+            )
+        }
+
+        if (!isInPictureInPictureMode && showClosePlaybackConfirmation) {
+            PlayerClosePlaybackConfirmation(
+                onConfirm = {
+                    showClosePlaybackConfirmation = false
+                    onBack()
+                },
+                onCancel = {
+                    if (System.currentTimeMillis() - closePlaybackConfirmationOpenedAtMs >= CLOSE_PLAYBACK_CONFIRM_GUARD_MS) {
+                        showClosePlaybackConfirmation = false
+                    }
                 }
             )
         }

@@ -90,6 +90,8 @@ import com.streamvault.app.ui.design.FocusSpec
 import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 import com.streamvault.app.ui.interaction.TvIconButton
+import com.streamvault.app.ui.interaction.TvButton
+import androidx.compose.runtime.LaunchedEffect
 import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
 import com.streamvault.app.ui.theme.AlaaThemeColors
@@ -152,8 +154,54 @@ enum class AppNavigationChrome {
     TopBar
 }
 
+val LocalAppCloseAction = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 fun AppScreenScaffold(
+    currentRoute: String,
+    onNavigate: (String) -> Unit,
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+    navigationChrome: AppNavigationChrome = AppNavigationChrome.Rail,
+    topBarVisible: Boolean = true,
+    compactHeader: Boolean = false,
+    showScreenHeader: Boolean = true,
+    header: (@Composable ColumnScope.() -> Unit)? = null,
+    topBarActions: (@Composable RowScope.() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val closeAppAction = LocalAppCloseAction.current
+    var showCloseAppConfirmation by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    // Every theme shell (shared and bespoke) renders topBarActions, so the close control is added here once.
+    val actionsWithClose: (@Composable RowScope.() -> Unit)? = if (closeAppAction == null) {
+        topBarActions
+    } else {
+        {
+            topBarActions?.invoke(this)
+            AppTopBarCloseAction(onClick = { showCloseAppConfirmation = true })
+        }
+    }
+    AppScreenScaffoldContent(
+        currentRoute = currentRoute, onNavigate = onNavigate, title = title, subtitle = subtitle,
+        modifier = modifier, navigationChrome = navigationChrome, topBarVisible = topBarVisible,
+        compactHeader = compactHeader, showScreenHeader = showScreenHeader, header = header,
+        topBarActions = actionsWithClose, contentPadding = contentPadding, content = content
+    )
+    if (closeAppAction != null && showCloseAppConfirmation) {
+        AppCloseConfirmationDialog(
+            onConfirm = {
+                showCloseAppConfirmation = false
+                closeAppAction()
+            },
+            onDismiss = { showCloseAppConfirmation = false }
+        )
+    }
+}
+
+@Composable
+private fun AppScreenScaffoldContent(
     currentRoute: String,
     onNavigate: (String) -> Unit,
     title: String,
@@ -684,6 +732,44 @@ private fun AlaaTopAction(
 }
 
 @Composable
+fun AppCloseConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val cancelFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier
+                .background(AppColors.SurfaceEmphasis, RoundedCornerShape(14.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            androidx.compose.material3.Text(
+                text = stringResource(R.string.app_close_confirm_title),
+                color = AppColors.TextPrimary,
+                style = androidx.compose.material3.MaterialTheme.typography.titleLarge
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            androidx.compose.material3.Text(
+                text = stringResource(R.string.app_close_confirm_desc),
+                color = AppColors.TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TvButton(onClick = onConfirm) {
+                    androidx.compose.material3.Text(stringResource(R.string.player_close_playback_confirm))
+                }
+                TvButton(onClick = onDismiss, modifier = Modifier.focusRequester(cancelFocus)) {
+                    androidx.compose.material3.Text(stringResource(R.string.player_close_playback_cancel))
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
+}
+
+@Composable
 fun AppTopBarCloseAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -858,8 +944,8 @@ fun AppHeroHeader(
 @Composable
 fun AppSectionHeader(
     title: String,
-    subtitle: String? = null,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
     actionLabel: String? = null,
     onActionClick: (() -> Unit)? = null,
     actionContentColor: Color = AppColors.TextTertiary

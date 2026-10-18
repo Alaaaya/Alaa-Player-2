@@ -1486,5 +1486,12 @@
     <string name="settings_themes_title">ثيمات التطبيق</string>
     <string name="settings_themes_subtitle">اختر المظهر المرئي للتطبيق بالكامل.</string>
     <string name="settings_theme_selected">مُختار</string>
+    <string name="player_close_playback_title">إغلاق التشغيل؟</string>
+    <string name="player_close_playback_desc">سيؤدي هذا إلى إيقاف التشغيل والعودة إلى الشاشة السابقة.</string>
+    <string name="player_close_playback_confirm">نعم</string>
+    <string name="player_close_playback_cancel">لا</string>
+    <string name="settings_confirm_close_playback">تأكيد إغلاق التشغيل</string>
+    <string name="settings_confirm_close_playback_subtitle">اسأل قبل أن يوقف زر الرجوع التشغيل ويعود إلى الشاشة السابقة.</string>
+    <string name="app_close_confirm_title">إغلاق التطبيق؟</string>
+    <string name="app_close_confirm_desc">سيتم إغلاق التطبيق بالكامل.</string>
 </resources>
-

@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Închizi redarea?</string>
+    <string name="player_close_playback_desc">Aceasta va opri redarea și va reveni la ecranul anterior.</string>
+    <string name="player_close_playback_confirm">Da</string>
+    <string name="player_close_playback_cancel">Nu</string>
+    <string name="settings_confirm_close_playback">Confirmă închiderea redării</string>
+    <string name="settings_confirm_close_playback_subtitle">Întreabă înainte ca butonul Înapoi să oprească redarea și să revină la ecranul anterior.</string>
+    <string name="app_close_confirm_title">Închizi aplicația?</string>
+    <string name="app_close_confirm_desc">Aplicația va fi închisă complet.</string>
 </resources>
-

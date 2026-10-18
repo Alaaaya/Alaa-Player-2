@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">再生を閉じますか？</string>
+    <string name="player_close_playback_desc">再生を停止して前の画面に戻ります。</string>
+    <string name="player_close_playback_confirm">はい</string>
+    <string name="player_close_playback_cancel">いいえ</string>
+    <string name="settings_confirm_close_playback">再生を閉じる前に確認</string>
+    <string name="settings_confirm_close_playback_subtitle">戻るボタンで再生を停止して前の画面に戻る前に確認します。</string>
+    <string name="app_close_confirm_title">アプリを閉じますか？</string>
+    <string name="app_close_confirm_desc">アプリが完全に終了します。</string>
 </resources>
-

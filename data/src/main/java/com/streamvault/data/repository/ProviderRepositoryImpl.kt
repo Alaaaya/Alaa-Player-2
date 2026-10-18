@@ -538,136 +538,143 @@ class ProviderRepositoryImpl @Inject constructor(
         onProgress: ((String) -> Unit)? = null,
         id: Long? = null
     ): Result<Provider> {
-        val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
-        val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
-        val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
-        val resolvedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(normalizedServerUrl)
+        return try {
+            val normalizedServerUrl = ProviderInputSanitizer.normalizeUrl(serverUrl)
+            val normalizedUsername = ProviderInputSanitizer.normalizeUsername(username)
+            val normalizedName = ProviderInputSanitizer.normalizeProviderName(name)
+            val resolvedServerUrl = ProviderInputSanitizer.resolveUrlProtocol(normalizedServerUrl)
 
-        ProviderInputSanitizer.validateUrl(resolvedServerUrl)?.let { message ->
-            return Result.error(message)
-        }
-        UrlSecurityPolicy.validateXtreamServerUrl(resolvedServerUrl)?.let { message ->
-            return Result.error(message)
-        }
-        onProgress?.invoke("Authenticating...")
-        val existingProvider = if (id != null) {
-            // Edit path: check that the new normalized identity does not collide with a
-            // different provider before we commit the update.
-            val collision = findProviderByConfigurationIdentity(
-                XtreamConfig(resolvedServerUrl, normalizedUsername, "")
-            )
-            if (collision != null && collision.id != id) {
-                return Result.error("A provider with this server URL and username already exists.")
+            ProviderInputSanitizer.validateUrl(resolvedServerUrl)?.let { message ->
+                return Result.error(message)
             }
-            loadLegacyProvider(id)
-        } else {
-            findProviderByConfigurationIdentity(XtreamConfig(resolvedServerUrl, normalizedUsername, ""))
-                ?.let { loadLegacyProvider(it.id) }
-        }
-        val effectivePassword = try {
-            password.takeIf { it.isNotBlank() }
-                ?: existingProvider?.password
-                ?: ""
-        } catch (e: CredentialDecryptionException) {
-            return Result.error(e.message ?: CredentialDecryptionException.MESSAGE, e)
-        }
-        val candidateGeneration = existingProvider
-            ?.let { providerCapabilityResolver.snapshot(it.id)?.configurationGeneration }
-            ?.plus(1L)
-            ?: 1L
-        val provider = when (val resolution = typedProviderClientFactory.xtream(
-            ProviderSnapshot(
-                provider = StableProvider(
-                    id = 0L,
-                    name = normalizedName.ifBlank { "Xtream" },
-                    type = ProviderType.XTREAM_CODES
-                ),
-                configuration = XtreamConfig(
-                    serverUrl = resolvedServerUrl,
-                    username = normalizedUsername,
-                    password = effectivePassword,
-                    httpUserAgent = httpUserAgent,
-                    httpHeaders = httpHeaders,
-                    epgSyncMode = epgSyncMode,
-                    guideSourcePolicy = guideSourcePolicy,
-                    channelLogoSourcePolicy = channelLogoSourcePolicy,
-                    fastSyncEnabled = xtreamFastSyncEnabled,
-                    liveSyncMode = xtreamLiveSyncMode
-                ),
-                configurationGeneration = candidateGeneration
-            )
-        )) {
-            is CapabilityResolution.Available -> resolution.capability
-            is CapabilityResolution.ConfigurationError -> return Result.error(resolution.reason)
-            is CapabilityResolution.Restricted -> return Result.error(resolution.reason)
-            is CapabilityResolution.Unsupported -> return Result.error(resolution.reason)
-        }
-        return when (val authResult = provider.authenticate()) {
-            is Result.Success -> {
-                onProgress?.invoke("Profile accepted; catalog validated")
-                val onboardingTarget = if (existingProvider != null) {
-                    onProgress?.invoke("Updating existing provider...")
-                    val updated = authResult.data.copy(
-                        id = existingProvider.id,
-                        name = normalizedName.ifBlank { existingProvider.name },
+            UrlSecurityPolicy.validateXtreamServerUrl(resolvedServerUrl)?.let { message ->
+                return Result.error(message)
+            }
+            onProgress?.invoke("Authenticating...")
+            val existingProvider = if (id != null) {
+                // Edit path: check that the new normalized identity does not collide with a
+                // different provider before we commit the update.
+                val collision = findProviderByConfigurationIdentity(
+                    XtreamConfig(resolvedServerUrl, normalizedUsername, "")
+                )
+                if (collision != null && collision.id != id) {
+                    return Result.error("A provider with this server URL and username already exists.")
+                }
+                loadLegacyProvider(id)
+            } else {
+                findProviderByConfigurationIdentity(XtreamConfig(resolvedServerUrl, normalizedUsername, ""))
+                    ?.let { loadLegacyProvider(it.id) }
+            }
+            val effectivePassword = try {
+                password.takeIf { it.isNotBlank() }
+                    ?: existingProvider?.password
+                    ?: ""
+            } catch (e: CredentialDecryptionException) {
+                return Result.error(e.message ?: CredentialDecryptionException.MESSAGE, e)
+            }
+            val candidateGeneration = existingProvider
+                ?.let { providerCapabilityResolver.snapshot(it.id)?.configurationGeneration }
+                ?.plus(1L)
+                ?: 1L
+            val provider = when (val resolution = typedProviderClientFactory.xtream(
+                ProviderSnapshot(
+                    provider = StableProvider(
+                        id = 0L,
+                        name = normalizedName.ifBlank { "Xtream" },
+                        type = ProviderType.XTREAM_CODES
+                    ),
+                    configuration = XtreamConfig(
                         serverUrl = resolvedServerUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
                         httpUserAgent = httpUserAgent,
                         httpHeaders = httpHeaders,
                         epgSyncMode = epgSyncMode,
-                        xtreamLiveSyncMode = xtreamLiveSyncMode,
                         guideSourcePolicy = guideSourcePolicy,
                         channelLogoSourcePolicy = channelLogoSourcePolicy,
-                        xtreamFastSyncEnabled = false,
-                        isActive = false,
-                        status = ProviderStatus.PARTIAL,
-                        lastSyncedAt = 0,
-                        createdAt = existingProvider.createdAt
-                    )
-                    InitialOnboardingTarget(
-                        providerData = updated.copy(password = ""),
-                        providerForSync = updated,
-                        pendingEdit = stageProviderEdit(updated)
-                    )
-                } else {
-                    val newData = authResult.data.copy(
-                        name = normalizedName.ifBlank { authResult.data.name },
-                        httpUserAgent = httpUserAgent,
-                        httpHeaders = httpHeaders,
-                        epgSyncMode = epgSyncMode,
-                        xtreamLiveSyncMode = xtreamLiveSyncMode,
-                        guideSourcePolicy = guideSourcePolicy,
-                        channelLogoSourcePolicy = channelLogoSourcePolicy,
-                        xtreamFastSyncEnabled = false,
-                        isActive = false,
-                        status = ProviderStatus.PARTIAL
-                    )
-                    val newId = insertConfiguredProvider(newData)
-                    InitialOnboardingTarget(
-                        providerData = newData.copy(id = newId, password = ""),
-                        providerForSync = newData.copy(id = newId)
-                    )
-                }
-
-                if (onboardingTarget.providerData.stalkerCatalogMode == StalkerCatalogMode.ON_DEMAND) {
-                    stalkerIndexJobDao.disableForProvider(onboardingTarget.providerData.id, System.currentTimeMillis())
-                    syncManager.cancelStalkerIndexSync(onboardingTarget.providerData.id)
-                }
-
-                handleInitialOnboardingSync(
-                    providerData = onboardingTarget.providerData,
-                    syncResult = syncInitialOnboarding(
-                        onboardingTarget,
-                        onProgress,
-                        trackInitialLiveOnboarding = true
+                        fastSyncEnabled = xtreamFastSyncEnabled,
+                        liveSyncMode = xtreamLiveSyncMode
                     ),
-                    syncFailurePrefix = "Provider login succeeded, but initial sync failed. The provider was saved and can be retried from Settings",
-                    pendingEdit = onboardingTarget.pendingEdit
+                    configurationGeneration = candidateGeneration
                 )
+            )) {
+                is CapabilityResolution.Available -> resolution.capability
+                is CapabilityResolution.ConfigurationError -> return Result.error(resolution.reason)
+                is CapabilityResolution.Restricted -> return Result.error(resolution.reason)
+                is CapabilityResolution.Unsupported -> return Result.error(resolution.reason)
             }
-            is Result.Error -> Result.error(authResult.message, authResult.exception)
-            is Result.Loading -> Result.error("Unexpected loading state")
+            when (val authResult = provider.authenticate()) {
+                is Result.Success -> {
+                    onProgress?.invoke("Profile accepted; catalog validated")
+                    val onboardingTarget = if (existingProvider != null) {
+                        onProgress?.invoke("Updating existing provider...")
+                        val updated = authResult.data.copy(
+                            id = existingProvider.id,
+                            name = normalizedName.ifBlank { existingProvider.name },
+                            serverUrl = resolvedServerUrl,
+                            username = normalizedUsername,
+                            password = effectivePassword,
+                            httpUserAgent = httpUserAgent,
+                            httpHeaders = httpHeaders,
+                            epgSyncMode = epgSyncMode,
+                            xtreamLiveSyncMode = xtreamLiveSyncMode,
+                            guideSourcePolicy = guideSourcePolicy,
+                            channelLogoSourcePolicy = channelLogoSourcePolicy,
+                            xtreamFastSyncEnabled = false,
+                            isActive = false,
+                            status = ProviderStatus.PARTIAL,
+                            lastSyncedAt = 0,
+                            createdAt = existingProvider.createdAt
+                        )
+                        InitialOnboardingTarget(
+                            providerData = updated.copy(password = ""),
+                            providerForSync = updated,
+                            pendingEdit = stageProviderEdit(updated)
+                        )
+                    } else {
+                        val newData = authResult.data.copy(
+                            name = normalizedName.ifBlank { authResult.data.name },
+                            httpUserAgent = httpUserAgent,
+                            httpHeaders = httpHeaders,
+                            epgSyncMode = epgSyncMode,
+                            xtreamLiveSyncMode = xtreamLiveSyncMode,
+                            guideSourcePolicy = guideSourcePolicy,
+                            channelLogoSourcePolicy = channelLogoSourcePolicy,
+                            xtreamFastSyncEnabled = false,
+                            isActive = false,
+                            status = ProviderStatus.PARTIAL
+                        )
+                        val newId = insertConfiguredProvider(newData)
+                        InitialOnboardingTarget(
+                            providerData = newData.copy(id = newId, password = ""),
+                            providerForSync = newData.copy(id = newId)
+                        )
+                    }
+
+                    if (onboardingTarget.providerData.stalkerCatalogMode == StalkerCatalogMode.ON_DEMAND) {
+                        stalkerIndexJobDao.disableForProvider(onboardingTarget.providerData.id, System.currentTimeMillis())
+                        syncManager.cancelStalkerIndexSync(onboardingTarget.providerData.id)
+                    }
+
+                    handleInitialOnboardingSync(
+                        providerData = onboardingTarget.providerData,
+                        syncResult = syncInitialOnboarding(
+                            onboardingTarget,
+                            onProgress,
+                            trackInitialLiveOnboarding = true
+                        ),
+                        syncFailurePrefix = "Provider login succeeded, but initial sync failed. The provider was saved and can be retried from Settings",
+                        pendingEdit = onboardingTarget.pendingEdit
+                    )
+                }
+                is Result.Error -> Result.error(authResult.message, authResult.exception)
+                is Result.Loading -> Result.error("Unexpected loading state")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            // Do not include exception text: crypto/network errors can carry credentials or URLs.
+            Result.error("Failed to add Xtream provider. Please check the connection and try again.", e)
         }
     }
 
