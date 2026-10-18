@@ -30,7 +30,7 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain :app:assembleDebug
+          ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:assembleDebug
 
   unit-tests:
     name: Unit tests
@@ -48,7 +48,7 @@ jobs:
       - name: Run unit tests
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain testDebugUnitTest
+          ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 testDebugUnitTest
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,7 +73,7 @@ jobs:
       - name: Run lint
         run: |
           chmod +x gradlew
-          ./gradlew --console=plain :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline
+          ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline
       - name: Upload lint reports
         if: always()
         uses: actions/upload-artifact@v4
