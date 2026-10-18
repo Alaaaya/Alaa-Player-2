@@ -15,4 +15,5 @@
     <cache-path
         name="backup_imports"
         path="backup_imports/" />
+    <cache-path name="apk_cache" path="downloads/" />
 </paths>

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.StrictMode
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import com.streamvault.app.cast.CastManager
@@ -137,6 +138,10 @@ class MainActivity : ComponentActivity() {
     val externalNavigationRequestFlow: StateFlow<ExternalNavigationRequest?> =
         _externalNavigationRequestFlow.asStateFlow()
 
+    @Inject lateinit var updateInstaller: com.streamvault.app.update.AppUpdateInstaller
+
+    private val startupUpdater: com.streamvault.app.update.StartupUpdateViewModel by viewModels()
+
     private var playerPictureInPictureState = PlayerPictureInPictureState()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -233,6 +238,7 @@ class MainActivity : ComponentActivity() {
                                 if (panelState.status == com.streamvault.app.panel.PanelStatus.ACTIVE) panelDismissed = false
                             }
                             AppNavigation(mainActivity = this@MainActivity)
+                            com.streamvault.app.update.StartupUpdateDialog(startupUpdater)
                             if (panelState.needsActivation && !panelDismissed) {
                                 androidx.activity.compose.BackHandler { panelDismissed = true }
                                 com.streamvault.app.panel.PanelActivationScreen(
@@ -255,6 +261,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (startupUpdater.state.value.waitingForPermission) startupUpdater.resumed()
+        else lifecycleScope.launch { updateInstaller.resumeAfterInstallPermission() }
         applyImmersiveSystemUi()
         if (databaseStartupCoordinator.state.value == DatabaseStartupState.Ready) {
             lifecycleScope.launch { panelManager.sync() } // rate-limited inside (1/min)

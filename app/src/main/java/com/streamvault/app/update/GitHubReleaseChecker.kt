@@ -87,7 +87,7 @@ class GitHubReleaseChecker @Inject constructor(
                         versionCode = parsedTag.versionCode,
                         releaseUrl = releaseUrl,
                         downloadUrl = downloadAsset?.downloadUrl,
-                        downloadSha256 = downloadAsset?.sha256,
+                        downloadSha256 = downloadAsset?.let { resolveChecksum(it, assets) },
                         releaseNotes = notes,
                         publishedAt = json.optString("published_at").takeIf { it.isNotBlank() }
                     )
@@ -158,6 +158,7 @@ class GitHubReleaseChecker @Inject constructor(
             val url = asset.optString("browser_download_url").takeIf { it.isNotBlank() } ?: continue
             if (!isHttpsUrl(url)) continue
             val releaseAsset = ReleaseApkAsset(
+                name = name,
                 downloadUrl = url,
                 sha256 = parseReleaseAssetSha256Digest(asset.optString("digest"))
             )
@@ -189,6 +190,29 @@ class GitHubReleaseChecker @Inject constructor(
         return fallback
     }
 
+
+    private fun resolveChecksum(apk: ReleaseApkAsset, assets: org.json.JSONArray?): String? {
+        if (assets != null) {
+            for (index in 0 until assets.length()) {
+                val asset = assets.optJSONObject(index) ?: continue
+                if (!asset.optString("name").equals("${apk.name}.sha256", ignoreCase = true)) continue
+                val url = asset.optString("browser_download_url")
+                require(isHttpsUrl(url)) { "Checksum URL is not HTTPS" }
+                val request = Request.Builder().url(url).build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    check(response.isSuccessful) { "Checksum download failed" }
+                    val body = response.body ?: error("Empty checksum response")
+                    // Never ignore a published but unreadable/malformed checksum.
+                    val text = when (val result = readResponseBodyCapped(body)) {
+                        is Result.Success -> result.data
+                        else -> error("Invalid checksum response")
+                    }
+                    return parseChecksumFile(text, apk.name) ?: error("Invalid SHA256 asset")
+                }
+            }
+        }
+        return apk.sha256 ?: error("Release checksum is unavailable")
+    }
 
     private fun parseTagVersionInfo(rawTagName: String): ParsedTagVersion {
         val normalizedTag = rawTagName.trim()
@@ -226,6 +250,7 @@ internal fun parseReleaseAssetSha256Digest(rawDigest: String): String? {
 private val SHA256_HEX_REGEX = Regex("""^[a-fA-F0-9]{64}$""")
 
 private data class ReleaseApkAsset(
+    val name: String,
     val downloadUrl: String,
     val sha256: String?
 )
@@ -253,3 +278,15 @@ private data class ParsedTagVersion(
     val versionName: String,
     val versionCode: Int?
 )
+
+internal fun parseChecksumFile(text: String, apkName: String): String? {
+    for (line in text.lineSequence()) {
+        val parts = line.trim().split(Regex("\\s+"), limit = 2)
+        val hash = parts.firstOrNull() ?: continue
+        if (!SHA256_HEX_REGEX.matches(hash)) continue
+        if (parts.size == 1 || parts[1].removePrefix("*").removePrefix("./") == apkName) {
+            return hash.lowercase()
+        }
+    }
+    return null
+}

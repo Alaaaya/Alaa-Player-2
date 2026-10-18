@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">New update %1$s available</string>
+    <string name="updater_system_confirm">Download and install the latest version. Android will ask you to confirm installation.</string>
+    <string name="updater_update">Update</string>
+    <string name="updater_later">Later</string>
+    <string name="updater_downloading">Downloading update…</string>
+    <string name="updater_failed">Update failed or was cancelled. Please try again.</string>
+    <string name="updater_permission">Allow installs from this app in Android settings, then return here to continue automatically.</string>
+</resources>
