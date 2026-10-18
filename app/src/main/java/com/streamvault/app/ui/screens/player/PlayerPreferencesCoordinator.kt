@@ -39,6 +39,7 @@ class PlayerPreferencesCoordinator @Inject constructor(
     internal val playerLiveTranslationEnabled get() = preferencesRepository.playerLiveTranslationEnabled
     internal val playerLiveTranslationEndpoint get() = preferencesRepository.playerLiveTranslationEndpoint
     internal val playerMediaSessionEnabled get() = preferencesRepository.playerMediaSessionEnabled
+    internal val playerConfirmClosePlayback get() = preferencesRepository.playerConfirmClosePlayback
     internal val playerMuted get() = preferencesRepository.playerMuted
     internal val playerNoticeTimeoutSeconds get() = preferencesRepository.playerNoticeTimeoutSeconds
     internal val playerPlaybackBufferMode get() = preferencesRepository.playerPlaybackBufferMode

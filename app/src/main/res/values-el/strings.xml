@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Κλείσιμο αναπαραγωγής;</string>
+    <string name="player_close_playback_desc">Η αναπαραγωγή θα σταματήσει και θα επιστρέψετε στην προηγούμενη οθόνη.</string>
+    <string name="player_close_playback_confirm">Ναι</string>
+    <string name="player_close_playback_cancel">Όχι</string>
+    <string name="settings_confirm_close_playback">Επιβεβαίωση κλεισίματος αναπαραγωγής</string>
+    <string name="settings_confirm_close_playback_subtitle">Ερώτηση πριν το κουμπί πίσω σταματήσει την αναπαραγωγή και επιστρέψει στην προηγούμενη οθόνη.</string>
+    <string name="app_close_confirm_title">Κλείσιμο εφαρμογής;</string>
+    <string name="app_close_confirm_desc">Η εφαρμογή θα κλείσει πλήρως.</string>
 </resources>
-

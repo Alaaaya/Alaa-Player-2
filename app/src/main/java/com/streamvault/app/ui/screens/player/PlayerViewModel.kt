@@ -686,8 +686,15 @@ class PlayerViewModel @Inject constructor(
         }
         viewModelScope.launch {
             playerPreferencesCoordinator.playerExternalPlaybackMode.collect { mode ->
-                _playerPreferencesUiState.value = PlayerPreferencesUiState(
+                _playerPreferencesUiState.value = _playerPreferencesUiState.value.copy(
                     externalPlaybackMode = mode
+                )
+            }
+        }
+        viewModelScope.launch {
+            playerPreferencesCoordinator.playerConfirmClosePlayback.collect { confirm ->
+                _playerPreferencesUiState.value = _playerPreferencesUiState.value.copy(
+                    confirmClosePlayback = confirm
                 )
             }
         }

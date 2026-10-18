@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Lukke avspillingen?</string>
+    <string name="player_close_playback_desc">Dette stopper avspillingen og går tilbake til forrige skjermbilde.</string>
+    <string name="player_close_playback_confirm">Ja</string>
+    <string name="player_close_playback_cancel">Nei</string>
+    <string name="settings_confirm_close_playback">Bekreft lukking av avspilling</string>
+    <string name="settings_confirm_close_playback_subtitle">Spør før tilbakeknappen stopper avspillingen og går tilbake til forrige skjermbilde.</string>
+    <string name="app_close_confirm_title">Lukke appen?</string>
+    <string name="app_close_confirm_desc">Appen lukkes helt.</string>
 </resources>
-

@@ -194,11 +194,13 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
     val activeEngine = playerEngine
     val channel = currentChannel.value
     val streamInfo = currentResolvedStreamInfo
+    val reverseHandoffSource = playerPreviewCoordinator.consumeAdoptedHandoffSource()
     val canReverseHandoff = currentContentType == ContentType.LIVE
         && !isCatchUpPlayback.value
         && activeEngine !== mainPlayerEngine
         && channel != null
         && streamInfo != null
+        && reverseHandoffSource != null
         && activeEngine.playbackState.value != PlaybackState.ERROR
 
     if (canReverseHandoff) {
@@ -206,7 +208,7 @@ internal fun PlayerViewModel.cleanupAfterCleared(mainPlayerEngine: PlayerEngine)
             channel = channel!!,
             streamInfo = streamInfo!!,
             engine = activeEngine,
-            source = com.streamvault.app.player.PreviewHandoffSource.HOME
+            source = reverseHandoffSource!!
         )
         mainPlayerEngine.resetForReuse()
     } else {

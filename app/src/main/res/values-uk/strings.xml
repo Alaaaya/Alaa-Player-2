@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Закрити відтворення?</string>
+    <string name="player_close_playback_desc">Відтворення буде зупинено, і ви повернетеся на попередній екран.</string>
+    <string name="player_close_playback_confirm">Так</string>
+    <string name="player_close_playback_cancel">Ні</string>
+    <string name="settings_confirm_close_playback">Підтверджувати закриття відтворення</string>
+    <string name="settings_confirm_close_playback_subtitle">Запитувати, перш ніж кнопка «Назад» зупинить відтворення та поверне на попередній екран.</string>
+    <string name="app_close_confirm_title">Закрити застосунок?</string>
+    <string name="app_close_confirm_desc">Застосунок буде повністю закрито.</string>
 </resources>
-
