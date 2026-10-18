@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">新しいアップデート %1$s が利用可能です</string>
+    <string name="updater_system_confirm">最新バージョンをダウンロードしてインストールします。Android でインストールの確認を求められます。</string>
+    <string name="updater_update">更新</string>
+    <string name="updater_later">後で</string>
+    <string name="updater_downloading">アップデートをダウンロード中…</string>
+    <string name="updater_failed">更新に失敗したか、キャンセルされました。もう一度お試しください。</string>
+    <string name="updater_permission">Android の設定でこのアプリからのインストールを許可してから、ここに戻ると自動的に続行します。</string>
+</resources>

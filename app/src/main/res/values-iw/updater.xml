@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">עדכון חדש %1$s זמין</string>
+    <string name="updater_system_confirm">יש להוריד ולהתקין את הגרסה העדכנית ביותר. Android יבקש ממך לאשר את ההתקנה.</string>
+    <string name="updater_update">עדכון</string>
+    <string name="updater_later">מאוחר יותר</string>
+    <string name="updater_downloading">העדכון בהורדה…</string>
+    <string name="updater_failed">העדכון נכשל או בוטל. יש לנסות שוב.</string>
+    <string name="updater_permission">יש לאפשר התקנות מהאפליקציה הזו בהגדרות Android, ואז לחזור לכאן כדי להמשיך באופן אוטומטי.</string>
+</resources>

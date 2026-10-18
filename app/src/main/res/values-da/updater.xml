@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Ny opdatering %1$s er tilgængelig</string>
+    <string name="updater_system_confirm">Download og installer den nyeste version. Android vil bede dig om at bekræfte installationen.</string>
+    <string name="updater_update">Opdater</string>
+    <string name="updater_later">Senere</string>
+    <string name="updater_downloading">Downloader opdatering…</string>
+    <string name="updater_failed">Opdateringen mislykkedes eller blev annulleret. Prøv igen.</string>
+    <string name="updater_permission">Tillad installationer fra denne app i Android-indstillingerne, og vend derefter tilbage hertil for at fortsætte automatisk.</string>
+</resources>

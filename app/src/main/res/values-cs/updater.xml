@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Je k dispozici nová aktualizace %1$s</string>
+    <string name="updater_system_confirm">Stáhněte a nainstalujte nejnovější verzi. Android vás požádá o potvrzení instalace.</string>
+    <string name="updater_update">Aktualizovat</string>
+    <string name="updater_later">Později</string>
+    <string name="updater_downloading">Stahování aktualizace…</string>
+    <string name="updater_failed">Aktualizace se nezdařila nebo byla zrušena. Zkuste to znovu.</string>
+    <string name="updater_permission">V nastavení Androidu povolte instalace z této aplikace a pak se sem vraťte. Pokračování proběhne automaticky.</string>
+</resources>

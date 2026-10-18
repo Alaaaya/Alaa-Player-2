@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Διατίθεται νέα ενημέρωση %1$s</string>
+    <string name="updater_system_confirm">Κατεβάστε και εγκαταστήστε την πιο πρόσφατη έκδοση. Το Android θα σας ζητήσει να επιβεβαιώσετε την εγκατάσταση.</string>
+    <string name="updater_update">Ενημέρωση</string>
+    <string name="updater_later">Αργότερα</string>
+    <string name="updater_downloading">Λήψη ενημέρωσης…</string>
+    <string name="updater_failed">Η ενημέρωση απέτυχε ή ακυρώθηκε. Δοκιμάστε ξανά.</string>
+    <string name="updater_permission">Επιτρέψτε τις εγκαταστάσεις από αυτήν την εφαρμογή στις ρυθμίσεις του Android και επιστρέψτε εδώ για να συνεχιστεί αυτόματα η διαδικασία.</string>
+</resources>

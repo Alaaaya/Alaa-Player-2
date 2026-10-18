@@ -6,6 +6,7 @@ import android.content.pm.PackageInstaller
 import android.os.Bundle
 import android.widget.Toast
 import com.streamvault.app.R
+import androidx.core.content.edit
 
 /** Explicit, non-exported PendingIntent target. Android supplies the confirmation intent. */
 class UpdateInstallResultActivity : Activity() {
@@ -24,7 +25,7 @@ class UpdateInstallResultActivity : Activity() {
                 }
             }
         } else {
-            getSharedPreferences("update-integrity", MODE_PRIVATE).edit().remove("active-session").apply()
+            getSharedPreferences("update-integrity", MODE_PRIVATE).edit { remove("active-session") }
             if (status != PackageInstaller.STATUS_SUCCESS) {
                 Toast.makeText(this, R.string.updater_failed, Toast.LENGTH_LONG).show()
             }

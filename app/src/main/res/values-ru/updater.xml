@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="updater_available">Доступно новое обновление %1$s</string>
+    <string name="updater_system_confirm">Скачайте и установите последнюю версию. Android попросит подтвердить установку.</string>
+    <string name="updater_update">Обновить</string>
+    <string name="updater_later">Позже</string>
+    <string name="updater_downloading">Загрузка обновления…</string>
+    <string name="updater_failed">Не удалось обновить приложение, или обновление было отменено. Попробуйте ещё раз.</string>
+    <string name="updater_permission">Разрешите установку из этого приложения в настройках Android, затем вернитесь сюда для автоматического продолжения.</string>
+</resources>
