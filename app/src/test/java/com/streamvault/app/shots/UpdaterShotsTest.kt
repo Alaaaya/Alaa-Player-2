@@ -10,9 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.isDialog
-import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.streamvault.app.ui.theme.StreamVaultTheme
 import com.streamvault.app.ui.design.AppColors
