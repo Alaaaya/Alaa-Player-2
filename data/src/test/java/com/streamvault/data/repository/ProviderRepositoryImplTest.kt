@@ -739,6 +739,57 @@ class ProviderRepositoryImplTest {
     }
 
     @Test
+    fun `loginXtream returns an error instead of crashing when credential encryption fails`() = runTest {
+        whenever(credentialCrypto.encryptIfNeeded(any()))
+            .thenThrow(SecurityException("private-password"))
+        whenever(xtreamApiService.authenticate(any(), any())).thenReturn(
+            XtreamAuthResponse(
+                userInfo = XtreamUserInfo(
+                    username = "user", password = "private-password", auth = 1, status = "Active"
+                ),
+                serverInfo = XtreamServerInfo(
+                    url = "example.com", port = "80", serverProtocol = "http"
+                )
+            )
+        )
+
+        val result = repository.loginXtream(
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "private-password",
+            name = "Xtream",
+            xtreamFastSyncEnabled = false
+        )
+
+        assertThat(result).isInstanceOf(Result.Error::class.java)
+        val error = result as Result.Error
+        assertThat(error.exception).isInstanceOf(SecurityException::class.java)
+        assertThat(error.message).doesNotContain("private-password")
+        verify(providerDao, never()).insert(any())
+    }
+
+    @Test
+    fun `loginXtream does not swallow coroutine cancellation`() = runTest {
+        val cancellation = kotlinx.coroutines.CancellationException("cancelled")
+        val failure = try {
+            repository.loginXtream(
+                serverUrl = "https://example.com",
+                username = "user",
+                password = "pass",
+                name = "Xtream",
+                xtreamFastSyncEnabled = false,
+                onProgress = { throw cancellation }
+            )
+            null
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            error
+        }
+
+        assertThat(failure).isSameInstanceAs(cancellation)
+        verify(providerDao, never()).insert(any())
+    }
+
+    @Test
     fun `loginXtream does not fail onboarding when provider has no live but committed vod`() = runTest {
         whenever(credentialCrypto.encryptIfNeeded("pass")).thenReturn("pass")
         whenever(providerDao.insert(any())).thenReturn(9L)

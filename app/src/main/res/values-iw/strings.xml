@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">לסגור את ההפעלה?</string>
+    <string name="player_close_playback_desc">פעולה זו תעצור את ההפעלה ותחזור למסך הקודם.</string>
+    <string name="player_close_playback_confirm">כן</string>
+    <string name="player_close_playback_cancel">לא</string>
+    <string name="settings_confirm_close_playback">אישור סגירת ההפעלה</string>
+    <string name="settings_confirm_close_playback_subtitle">לשאול לפני שכפתור החזרה עוצר את ההפעלה וחוזר למסך הקודם.</string>
+    <string name="app_close_confirm_title">לסגור את האפליקציה?</string>
+    <string name="app_close_confirm_desc">האפליקציה תיסגר לחלוטין.</string>
 </resources>
-

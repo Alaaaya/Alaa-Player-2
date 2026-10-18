@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Đóng phát lại?</string>
+    <string name="player_close_playback_desc">Thao tác này sẽ dừng phát và quay lại màn hình trước.</string>
+    <string name="player_close_playback_confirm">Có</string>
+    <string name="player_close_playback_cancel">Không</string>
+    <string name="settings_confirm_close_playback">Xác nhận khi đóng phát lại</string>
+    <string name="settings_confirm_close_playback_subtitle">Hỏi trước khi nút Quay lại dừng phát và trở về màn hình trước.</string>
+    <string name="app_close_confirm_title">Đóng ứng dụng?</string>
+    <string name="app_close_confirm_desc">Ứng dụng sẽ được đóng hoàn toàn.</string>
 </resources>
-

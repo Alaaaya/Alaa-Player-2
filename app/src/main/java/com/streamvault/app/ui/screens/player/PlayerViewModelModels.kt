@@ -41,7 +41,8 @@ data class SeekPreviewState(
 )
 
 data class PlayerPreferencesUiState(
-    val externalPlaybackMode: ExternalPlaybackMode = ExternalPlaybackMode.INTERNAL_PLAYER
+    val externalPlaybackMode: ExternalPlaybackMode = ExternalPlaybackMode.INTERNAL_PLAYER,
+    val confirmClosePlayback: Boolean = false
 )
 
 data class PlayerDiagnosticsUiState(

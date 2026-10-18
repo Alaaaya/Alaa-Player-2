@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">재생을 닫을까요?</string>
+    <string name="player_close_playback_desc">재생이 중지되고 이전 화면으로 돌아갑니다.</string>
+    <string name="player_close_playback_confirm">예</string>
+    <string name="player_close_playback_cancel">아니요</string>
+    <string name="settings_confirm_close_playback">재생 닫기 확인</string>
+    <string name="settings_confirm_close_playback_subtitle">뒤로 버튼으로 재생을 중지하고 이전 화면으로 돌아가기 전에 확인합니다.</string>
+    <string name="app_close_confirm_title">앱을 닫을까요?</string>
+    <string name="app_close_confirm_desc">앱이 완전히 종료됩니다.</string>
 </resources>
-

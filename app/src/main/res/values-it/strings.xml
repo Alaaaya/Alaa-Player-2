@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Chiudere la riproduzione?</string>
+    <string name="player_close_playback_desc">Questo interromperà la riproduzione e tornerà alla schermata precedente.</string>
+    <string name="player_close_playback_confirm">Sì</string>
+    <string name="player_close_playback_cancel">No</string>
+    <string name="settings_confirm_close_playback">Conferma chiusura della riproduzione</string>
+    <string name="settings_confirm_close_playback_subtitle">Chiedi prima che il tasto Indietro interrompa la riproduzione e torni alla schermata precedente.</string>
+    <string name="app_close_confirm_title">Chiudere l\'app?</string>
+    <string name="app_close_confirm_desc">L\'app verrà chiusa completamente.</string>
 </resources>
-

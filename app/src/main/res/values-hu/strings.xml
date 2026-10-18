@@ -1469,5 +1469,12 @@
     <string name="settings_remote_selection_global_default">Use global default: %1$s</string>
     <string name="settings_remote_dialog_title">%1$s action</string>
     <string name="settings_remote_dialog_subtitle">Choose what this colored button should do in %1$s.</string>
+    <string name="player_close_playback_title">Bezárja a lejátszást?</string>
+    <string name="player_close_playback_desc">Ez leállítja a lejátszást, és visszatér az előző képernyőre.</string>
+    <string name="player_close_playback_confirm">Igen</string>
+    <string name="player_close_playback_cancel">Nem</string>
+    <string name="settings_confirm_close_playback">Lejátszás bezárásának megerősítése</string>
+    <string name="settings_confirm_close_playback_subtitle">Rákérdez, mielőtt a Vissza gomb leállítja a lejátszást és visszatér az előző képernyőre.</string>
+    <string name="app_close_confirm_title">Bezárja az alkalmazást?</string>
+    <string name="app_close_confirm_desc">Az alkalmazás teljesen bezárul.</string>
 </resources>
-
