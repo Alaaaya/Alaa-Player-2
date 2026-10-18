@@ -944,8 +944,8 @@ fun AppHeroHeader(
 @Composable
 fun AppSectionHeader(
     title: String,
-    subtitle: String? = null,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
     actionLabel: String? = null,
     onActionClick: (() -> Unit)? = null,
     actionContentColor: Color = AppColors.TextTertiary
