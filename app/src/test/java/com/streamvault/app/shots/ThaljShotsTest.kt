@@ -1,6 +1,14 @@
 package com.streamvault.app.shots
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.BitmapFactory
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.asImage
+import coil3.test.FakeImageLoaderEngine
+import org.junit.Before
+import org.junit.After
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.runtime.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -30,6 +38,24 @@ import java.io.File
 @Config(sdk=[34], qualifiers="ar-rSA-ldrtl-w960dp-h540dp-xhdpi", application=android.app.Application::class)
 class ThaljShotsTest {
  @get:Rule val rule=createAndroidComposeRule<androidx.activity.ComponentActivity>()
+ private val fixtureImageRequests = AtomicInteger()
+ private lateinit var imageLoader: ImageLoader
+ @Before fun fixtureImages() {
+  // Decode before composing, then Coil's test engine serves this bitmap synchronously.
+  val bitmap = requireNotNull(BitmapFactory.decodeFile(File("src/test/resources/thalj-art.jpg").absolutePath))
+  check(bitmap.width > 0 && bitmap.height > 0)
+  val engine = FakeImageLoaderEngine.Builder().intercept({ data ->
+   check(data == art) { "Unexpected image request: $data" }
+   fixtureImageRequests.incrementAndGet()
+   true
+  }, bitmap.asImage()).build()
+  imageLoader = ImageLoader.Builder(rule.activity).components { add(engine) }.build()
+  SingletonImageLoader.setUnsafe(imageLoader)
+ }
+ @After fun releaseImages() {
+  imageLoader.shutdown()
+  SingletonImageLoader.reset()
+ }
  private val art: String get() = File("src/test/resources/thalj-art.jpg").absoluteFile.toURI().toString()
  private val films = listOf("رحلة إلى الشمال 4K", "المدينة الأخيرة", "خلف الأفق", "الطريق إلى البحر", "ليلة في برلين", "الحلم البعيد", "عالم جديد", "بين النجوم").mapIndexed { i,n -> Movie(id=i+1L,name=n,posterUrl=art,backdropUrl=art,year="2026",rating=8.4f,genre="مغامرة، دراما",duration="2h 14m",plot="رحلة استثنائية عبر الجبال والبحار بحثاً عن بداية جديدة. بيانات تجريبية لعرض واجهة التطبيق.",director="مخرج تجريبي",cast="فريق العرض التجريبي") }
  private val shows = films.map { Series(id=it.id,name=it.name,posterUrl=art,backdropUrl=art,rating=8.7f,releaseDate="2026",plot=it.plot,genre="دراما") }
@@ -42,6 +68,9 @@ class ThaljShotsTest {
    else ThaljUi.Shell(ShellParams(route,{},"",null,true,false,null,null,PaddingValues(0.dp),Modifier) { screen() })
   } }
   rule.waitForIdle(); rule.mainClock.advanceTimeBy(1500); rule.waitForIdle()
+  if (name in setOf("01-home", "03-movies", "04-series", "05-details")) {
+   check(fixtureImageRequests.get() > 0) { "Expected synchronously loaded fixture artwork for $name" }
+  }
   var bitmap:Bitmap?=null
   rule.runOnUiThread { val v=rule.activity.window.decorView; check(v.width==1920 && v.height==1080) { "Wrong size ${v.width}x${v.height}" }; bitmap=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(bitmap!!)) }
   val out=File("build/outputs/thalj-shots/$name.png");out.parentFile!!.mkdirs();out.outputStream().use {bitmap!!.compress(Bitmap.CompressFormat.PNG,100,it)}
@@ -165,10 +194,10 @@ onSeekPreviewPositionChanged = {},
 onUserInteraction = {},
 resolutionBadgeLabel = "4K HDR"
 )) }
- @Test fun settings() = capture("07-settings", "settings") { ThaljUi.SettingsFrame(navigation={ThaljUi.SettingsNav(SettingsNavParams(
-entries = listOf("قوائم التشغيل" to "المزودون والحسابات", "التشغيل" to "الفيديو والصوت", "المظهر" to "الثيمات", "اللغة" to "العربية", "حول التطبيق" to "Alaa Player 2.1"),
-selectedCategory = 2,
-focusRequester = FocusRequester(),
-onCategorySelected = {}
-))},content={ LazyColumn { settingsThemesSection(SettingsUiState(appHomeTheme=AppHomeTheme.THALJ), mock<SettingsViewModel>()) } }) }
+ @Test fun settings() = capture("07-settings", "settings") {
+  ThaljUi.SettingsFrame(
+   navigation = { SettingsNavigationRail(selectedCategory = 8, focusRequester = FocusRequester(), onCategorySelected = {}) },
+   content = { LazyColumn { settingsThemesSection(SettingsUiState(appHomeTheme = AppHomeTheme.THALJ), mock<SettingsViewModel>()) } }
+  )
+ }
 }

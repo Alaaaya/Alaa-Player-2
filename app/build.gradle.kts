@@ -266,6 +266,7 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.mockito.kotlin)
     testImplementation(libs.robolectric)
+    testImplementation("io.coil-kt.coil3:coil-test:${libs.versions.coil.get()}")
     testImplementation(composeBom)
     testImplementation(libs.compose.ui.test.junit4)
 
