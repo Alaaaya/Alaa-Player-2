@@ -51,8 +51,8 @@ uiState = DashboardUiState(isLoading=false,recommendedMovies=films,recentMovies=
 recordingChannelIds = emptySet(),
 scheduledChannelIds = emptySet(),
 onNavigate = {},
-onRecentChannelClick = {},
-onFavoriteChannelClick = {},
+onRecentChannelClick = { _, _ ->  },
+onFavoriteChannelClick = { _, _ ->  },
 onMovieClick = {},
 onSeriesClick = {},
 onContinueWatchingItemClick = {}
