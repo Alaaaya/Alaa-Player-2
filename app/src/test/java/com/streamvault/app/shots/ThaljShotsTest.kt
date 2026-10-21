@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
+import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.theme.StreamVaultTheme
 import com.streamvault.app.ui.themes.thalj.ThaljUi
 import com.streamvault.app.ui.themes.bespoke.*
@@ -35,7 +36,7 @@ import org.mockito.kotlin.mock
 import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk=[34], qualifiers="ar-rSA-ldrtl-w960dp-h540dp-xhdpi", application=android.app.Application::class)
+@Config(sdk=[34], qualifiers="ar-rSA-ldrtl-w960dp-h540dp-television-xhdpi", application=android.app.Application::class)
 class ThaljShotsTest {
  @get:Rule val rule=createAndroidComposeRule<androidx.activity.ComponentActivity>()
  private val fixtureImageRequests = AtomicInteger()
@@ -116,7 +117,7 @@ onRequestChannelsFromPreview = { false }
 )) }
  @Test fun movies() = capture("03-movies", "movies") { ThaljUi.Movies(library(films)) }
  @Test fun series() = capture("04-series", "series") { ThaljUi.Series(library(shows)) }
- @Test fun details() = capture("05-details", "movie/1") { ThaljUi.MovieDetail(MovieDetailParams(
+ @Test fun details() = capture("05-details", Routes.movieDetail(1L)) { ThaljUi.MovieDetail(MovieDetailParams(
 movie = films.first(),
 hasResume = false,
 resumePositionMs = 0L,
