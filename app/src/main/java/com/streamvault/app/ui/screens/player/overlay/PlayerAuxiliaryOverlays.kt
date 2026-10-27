@@ -162,8 +162,7 @@ fun ChannelListOverlay(
                         }
                     }
 
-                    items(channels, key = { channel -> channel.id }) { channel ->
-                        val channelIndex = channels.indexOfFirst { it.id == channel.id }
+                    itemsIndexed(channels, key = { _, channel -> channel.id }) { channelIndex, channel ->
                         val channelNumber = channel.number.takeIf { it > 0 } ?: (channelIndex + 1)
                         var isFocused by remember { mutableStateOf(false) }
                         val isCurrentChannel = channel.id == currentChannelId
