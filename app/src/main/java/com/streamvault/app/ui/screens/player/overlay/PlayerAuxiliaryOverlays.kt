@@ -94,24 +94,13 @@ fun ChannelListOverlay(
     val currentIndex = remember(channels, currentChannelId) {
         channels.indexOfFirst { it.id == currentChannelId }.coerceAtLeast(0)
     }
-    val channelNumbersById = remember(channels) {
-        channels.mapIndexed { index, channel ->
-            channel.id to (channel.number.takeIf { it > 0 } ?: (index + 1))
-        }.toMap()
-    }
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val headerItemCount = remember(lastVisitedCategoryName, recentChannels) {
-        var count = 2
-        if (!lastVisitedCategoryName.isNullOrBlank()) count++
-        if (recentChannels.isNotEmpty()) count++
-        count
-    }
 
-    LaunchedEffect(channels, currentIndex, headerItemCount) {
+    LaunchedEffect(channels, currentIndex) {
         if (channels.isNotEmpty()) {
-            listState.scrollToItem(headerItemCount + currentIndex)
+            listState.scrollToItem(currentIndex + 1)
         }
     }
 
@@ -120,247 +109,180 @@ fun ChannelListOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.18f))
+            .background(Color.Black.copy(alpha = 0.22f))
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = if (isRtl) Alignment.CenterEnd else Alignment.CenterStart
+        ) {
             val isTelevisionDevice = rememberIsTelevisionDevice()
             val panelModifier = if (maxWidth < 700.dp) {
                 Modifier
-                    .fillMaxWidth(0.9f)
+                    .fillMaxWidth(0.92f)
                     .fillMaxHeight()
-                    .padding(20.dp)
+                    .padding(16.dp)
             } else if (!isTelevisionDevice && maxWidth < 1280.dp) {
                 Modifier
-                    .fillMaxWidth(0.5f)
+                    .fillMaxWidth(0.56f)
                     .fillMaxHeight()
-                    .padding(20.dp)
+                    .padding(24.dp)
             } else {
                 Modifier
-                    .width(540.dp)
-                    .fillMaxWidth()
+                    .width(620.dp)
                     .fillMaxHeight()
-                    .padding(20.dp)
+                    .padding(vertical = 28.dp, horizontal = 24.dp)
             }
 
-            Box(modifier = panelModifier) {
-                PlayerOverlayPanel(modifier = Modifier.fillMaxSize()) {
-                    androidx.compose.foundation.lazy.LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        item {
+            PlayerOverlayPanel(modifier = panelModifier) {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item(key = "channel-list-header") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = stringResource(R.string.player_channel_list_title, channels.size),
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
+
+                    items(channels, key = { channel -> channel.id }) { channel ->
+                        val channelIndex = channels.indexOfFirst { it.id == channel.id }
+                        val channelNumber = channel.number.takeIf { it > 0 } ?: (channelIndex + 1)
+                        var isFocused by remember { mutableStateOf(false) }
+                        val isCurrentChannel = channel.id == currentChannelId
+                        val isHighlighted = isFocused || isCurrentChannel
+                        val rowBackground = if (isHighlighted) {
+                            Color(0xFFF5F5F7)
+                        } else {
+                            Color.White.copy(alpha = 0.065f)
+                        }
+                        val rowTextColor = if (isHighlighted) {
+                            Color(0xFF17171A)
+                        } else {
+                            Color.White.copy(alpha = 0.94f)
+                        }
+                        val secondaryTextColor = if (isHighlighted) {
+                            Color(0xFF66666B)
+                        } else {
+                            Color.White.copy(alpha = 0.60f)
+                        }
+
+                        TvClickableSurface(
+                            onClick = {
+                                onOverlayInteracted()
+                                onSelectChannel(channel.id)
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { focusState ->
+                                    isFocused = focusState.isFocused
+                                    if (focusState.isFocused) onOverlayInteracted()
+                                }
+                                .then(
+                                    if (isCurrentChannel) Modifier.focusRequester(overlayFocusRequester)
+                                    else Modifier
+                                ),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = rowBackground,
+                                focusedContainerColor = Color(0xFFF5F5F7)
+                            )
+                        ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                Text(
-                                    text = stringResource(R.string.player_channel_list_title, channels.size),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Primary
-                                )
-                                if (!lastVisitedCategoryName.isNullOrBlank()) {
-                                    TvClickableSurface(
-                                        onClick = {
-                                            onOverlayInteracted()
-                                            onOpenLastGroup()
-                                        },
-                                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
-                                        colors = ClickableSurfaceDefaults.colors(
-                                            containerColor = AppColors.SurfaceEmphasis,
-                                            focusedContainerColor = Primary
+                                Box(
+                                    modifier = Modifier
+                                        .width(42.dp)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (isHighlighted) Color(0xFFE5E5EA)
+                                            else Color.White.copy(alpha = 0.10f)
                                         ),
-                                        modifier = Modifier.onFocusChanged {
-                                            if (it.isFocused) onOverlayInteracted()
-                                        }
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.player_last_group_label, lastVisitedCategoryName),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (!lastVisitedCategoryName.isNullOrBlank()) {
-                            item {
-                                Text(
-                                    text = stringResource(R.string.player_last_group_hint),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OnSurfaceDim,
-                                    modifier = Modifier.padding(horizontal = 8.dp)
-                                )
-                            }
-                        }
-                        item {
-                            Text(
-                                text = stringResource(R.string.player_channel_list_hint),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnSurfaceDim,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                        if (recentChannels.isNotEmpty()) {
-                            item {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = stringResource(R.string.player_recent_channels),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = OnSurfaceDim,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                                        text = channelNumber.toString(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = rowTextColor,
+                                        fontWeight = FontWeight.SemiBold
                                     )
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        itemsIndexed(
-                                            recentChannels,
-                                            key = { index, channel ->
-                                                "recent:${channel.id}:${channel.streamId}:${channel.epgChannelId.orEmpty()}:${index}"
-                                            }
-                                        ) { index, channel ->
-                                            TvClickableSurface(
-                                                onClick = {
-                                                    onOverlayInteracted()
-                                                    onSelectChannel(channel.id)
-                                                    onDismiss()
-                                                },
-                                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
-                                                colors = ClickableSurfaceDefaults.colors(
-                                                    containerColor = AppColors.SurfaceEmphasis,
-                                                    focusedContainerColor = Primary
-                                                ),
-                                                modifier = Modifier.onFocusChanged {
-                                                    if (it.isFocused) onOverlayInteracted()
-                                                }
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    val recentNumber = channelNumbersById[channel.id]
-                                                        ?.toString()
-                                                        ?.padStart(2, '0')
-                                                        ?: channel.number
-                                                            .takeIf { it > 0 }
-                                                            ?.toString()
-                                                            ?.padStart(2, '0')
-                                                        ?: "--"
-                                                    Text(
-                                                        text = recentNumber,
-                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                                                        color = Color.White.copy(alpha = 0.75f)
-                                                    )
-                                                    Text(
-                                                        text = channel.name,
-                                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                                                        color = Color.White,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
-                            }
-                        }
-                        items(channels.size) { index ->
-                            val channel = channels[index]
-                            val isSelected = channel.id == currentChannelId
-                            val shouldRequestFocus = isSelected
-                            val channelNumber = channel.number.takeIf { it > 0 } ?: (index + 1)
-                            var isFocused by remember { mutableStateOf(false) }
-                            val bgColor = when {
-                                isFocused -> Primary
-                                isSelected -> Primary.copy(alpha = 0.20f)
-                                else -> AppColors.Surface.copy(alpha = 0.68f)
-                            }
 
-                            TvClickableSurface(
-                                onClick = {
-                                    onSelectChannel(channel.id)
-                                    onDismiss()
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp)
-                                    .onFocusChanged { focusState ->
-                                        isFocused = focusState.isFocused
-                                        if (focusState.isFocused) {
-                                            onOverlayInteracted()
-                                        }
-                                    }
-                                    .then(
-                                        if (shouldRequestFocus) Modifier.focusRequester(overlayFocusRequester)
-                                        else Modifier
-                                    ),
-                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-                                colors = ClickableSurfaceDefaults.colors(
-                                    containerColor = bgColor,
-                                    focusedContainerColor = bgColor
-                                )
-                            ) {
-                                Row(
+                                com.streamvault.app.ui.components.ChannelLogoBadge(
+                                    channelName = channel.name,
+                                    logoUrl = channel.logoUrl,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        .width(54.dp)
+                                        .height(44.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    backgroundColor = Color.White,
+                                    textStyle = MaterialTheme.typography.labelMedium,
+                                    textColor = Color(0xFF55555A)
+                                )
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
-                                    Text(
-                                        text = channelNumber.toString().padStart(2, '0'),
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
-                                        color = Color.White.copy(alpha = 0.72f),
-                                        textAlign = TextAlign.Start,
-                                        modifier = Modifier.width(32.dp)
-                                    )
                                     Text(
                                         text = channel.name,
-                                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
-                                        color = Color.White,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = rowTextColor,
+                                        fontWeight = if (isHighlighted) FontWeight.SemiBold else FontWeight.Medium,
                                         maxLines = 1,
-                                        overflow = if (isFocused) TextOverflow.Clip else TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .then(
-                                                if (isFocused) {
-                                                    Modifier.basicMarquee(
-                                                        iterations = Int.MAX_VALUE,
-                                                        initialDelayMillis = 600,
-                                                        repeatDelayMillis = 900,
-                                                        velocity = 20.dp
-                                                    )
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.then(
+                                            if (isFocused) {
+                                                Modifier.basicMarquee(
+                                                    iterations = Int.MAX_VALUE,
+                                                    initialDelayMillis = 700,
+                                                    repeatDelayMillis = 1000,
+                                                    velocity = 18.dp
+                                                )
+                                            } else Modifier
+                                        )
                                     )
-                                    if (isSelected) {
-                                        StatusPill(
-                                            label = stringResource(R.string.player_channel_selected),
-                                            containerColor = AppColors.BrandMuted
-                                        )
-                                    }
-                                    if (channel.archivePlaybackCapability().canBuildReplayCandidate) {
-                                        StatusPill(
-                                            label = stringResource(R.string.player_archive_badge),
-                                            containerColor = AppColors.Warning,
-                                            contentColor = Color.Black
-                                        )
-                                    }
+                                    Text(
+                                        text = channel.number.takeIf { it > 0 }?.let { "CH $it" } ?: "CH ${channelIndex + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = secondaryTextColor,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                if (isCurrentChannel) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(7.dp)
+                                            .height(7.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(Color(0xFF32D74B))
+                                    )
                                 }
                             }
                         }
@@ -377,20 +299,20 @@ fun ChannelListOverlay(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(42.dp)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(AppColors.Canvas.copy(alpha = 0.9f), Color.Transparent)
+                                colors = listOf(Color(0xFF202024).copy(alpha = 0.92f), Color.Transparent)
                             ),
                             RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
                         ),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     Text(
-                        text = "\u25b2",
-                        color = Color.White.copy(alpha = 0.55f),
+                        text = "⌃",
+                        color = Color.White.copy(alpha = 0.66f),
                         style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.padding(top = 7.dp)
                     )
                 }
             }
@@ -404,53 +326,20 @@ fun ChannelListOverlay(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(42.dp)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, AppColors.Canvas.copy(alpha = 0.9f))
+                                colors = listOf(Color.Transparent, Color(0xFF202024).copy(alpha = 0.92f))
                             ),
                             RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)
                         ),
                     contentAlignment = Alignment.BottomCenter
                 ) {
                     Text(
-                        text = "\u25bc",
-                        color = Color.White.copy(alpha = 0.55f),
+                        text = "⌄",
+                        color = Color.White.copy(alpha = 0.66f),
                         style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-            }
-
-            TvClickableSurface(
-                onClick = {
-                    onOverlayInteracted()
-                    onOpenCategories()
-                },
-                modifier = Modifier
-                    .align(if (isRtl) Alignment.CenterEnd else Alignment.CenterStart)
-                    .offset(x = if (isRtl) 28.dp else (-28).dp)
-                    .onFocusChanged { if (it.isFocused) onOverlayInteracted() },
-                shape = ClickableSurfaceDefaults.shape(
-                    if (isRtl) RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp)
-                    else RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)
-                ),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = AppColors.SurfaceEmphasis.copy(alpha = 0.92f),
-                    focusedContainerColor = Primary
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .width(28.dp)
-                        .height(96.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = if (isRtl) "\u25ba" else "\u25c4",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.85f)
+                        modifier = Modifier.padding(bottom = 7.dp)
                     )
                 }
             }
