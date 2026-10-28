@@ -1,5 +1,6 @@
 package com.streamvault.domain.model
 
+import org.junit.Before
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -8,6 +9,7 @@ class PanelCategoryPolicyRegistryTest {
     private val id = 9834751L
     private fun policy(hidden: Map<String, Set<String>> = mapOf("live" to setOf("007"), "vod" to emptySet(), "series" to setOf("21"))) =
         PanelCategoryPolicy("device-a", "playlist-a", "generation-a", "opaque-revision", hidden)
+    @Before fun startup() { PanelCategoryPolicyRegistry.markStartupReady() }
     @After fun clear() { PanelCategoryPolicyRegistry.remove(id); PanelCategoryPolicyRegistry.remove(id + 1) }
     @Test fun manualProvidersRemainUnrestricted() {
         assertTrue(PanelCategoryPolicyRegistry.allowsCategory(id, "live", null))
@@ -34,9 +36,18 @@ class PanelCategoryPolicyRegistryTest {
         assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "live", 3))
         assertFalse(PanelCategoryPolicyRegistry.recordMembership(token, "live", 3, setOf("7", "007")))
         assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "live", 3))
+        assertFalse(PanelCategoryPolicyRegistry.recordMembership(token, "live", 3, setOf("7")))
+        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "live", 3))
+        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "series", 3))
+    }
+    @Test fun visibleThenHiddenMembershipRevokesAndCannotResurrect() {
+        PanelCategoryPolicyRegistry.install(id, policy())
+        val token = PanelCategoryPolicyRegistry.snapshot(id)
         assertTrue(PanelCategoryPolicyRegistry.recordMembership(token, "live", 3, setOf("7")))
         assertTrue(PanelCategoryPolicyRegistry.allowsContent(id, "live", 3))
-        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "series", 3))
+        assertFalse(PanelCategoryPolicyRegistry.recordMembership(token, "live", 3, setOf("007")))
+        assertFalse(PanelCategoryPolicyRegistry.recordMembership(token, "live", 3, setOf("7")))
+        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id, "live", 3))
     }
     @Test fun changedScopeInvalidatesLateCallbacksEvenWhenRevisionReused() {
         PanelCategoryPolicyRegistry.install(id, policy())
