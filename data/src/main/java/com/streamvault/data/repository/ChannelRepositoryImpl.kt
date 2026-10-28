@@ -26,6 +26,7 @@ import com.streamvault.domain.model.LiveChannelVariant
 import com.streamvault.domain.model.LiveChannelVariantAttributes
 import com.streamvault.domain.model.LiveVariantPreferenceMode
 import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.repository.ChannelRepository
@@ -244,6 +245,7 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamInfo(channel: Channel, preferStableUrl: Boolean): Result<StreamInfo> = try {
+        val authorizationVersion = PanelPlaybackAuthorization.version(channel.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = channel.streamUrl,
             fallbackProviderId = channel.providerId,
@@ -265,7 +267,9 @@ class ChannelRepositoryImpl @Inject constructor(
                     proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(resolvedStream.containerExtension),
                     containerExtension = resolvedStream.containerExtension,
-                    expirationTime = resolvedStream.expirationTime
+                    expirationTime = resolvedStream.expirationTime,
+                    providerId = channel.providerId,
+                    panelAuthorizationVersion = authorizationVersion
                 )
             )
         } ?: Result.error("No stream URL available for channel: ${channel.name}")
