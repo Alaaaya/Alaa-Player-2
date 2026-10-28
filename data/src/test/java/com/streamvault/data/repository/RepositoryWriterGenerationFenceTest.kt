@@ -129,11 +129,14 @@ class RepositoryWriterGenerationFenceTest {
     }
     @Test fun episodeAuthorizationUsesTypedNamespaceAndAllDurableParents() {
         val id = 8_450L
-        PanelCategoryPolicyRegistry.install(id, policy("episode"))
+        PanelCategoryPolicyRegistry.install(id, com.streamvault.domain.model.PanelCategoryPolicy(
+            "writer-test-device", "playlist", "provider-generation", "episode",
+            mapOf("live" to emptySet(), "vod" to emptySet(), "series" to setOf("007"))
+        ))
         try {
             val token = PanelCategoryPolicyRegistry.snapshot(id)
-            PanelCategoryPolicyRegistry.recordMembership(token, "series", 7L, setOf("visible"))
-            PanelCategoryPolicyRegistry.recordMembership(token, "series", 8L, setOf("visible"))
+            PanelCategoryPolicyRegistry.recordMembership(token, "series", 7L, setOf("7"))
+            PanelCategoryPolicyRegistry.recordMembership(token, "series", 8L, setOf("7"))
             PanelCategoryPolicyRegistry.recordEpisodeParent(token, 7L, 7001L)
             val stream = com.streamvault.domain.model.StreamInfo(
                 url = "https://example.invalid/episode",
@@ -147,12 +150,8 @@ class RepositoryWriterGenerationFenceTest {
             assertEquals("episode", PanelCategoryPolicyRegistry.media(stream.contentType!!))
             assertTrue(com.streamvault.domain.model.PanelPlaybackAuthorization.allows(stream))
             // Parent discovery can deny an already resolved episode without a generation change.
-            PanelCategoryPolicyRegistry.recordMembership(token, "series", 8L, setOf("hidden"))
+            PanelCategoryPolicyRegistry.recordMembership(token, "series", 8L, setOf("007"))
             PanelCategoryPolicyRegistry.recordEpisodeParent(token, 8L, 7001L)
-            PanelCategoryPolicyRegistry.install(id, com.streamvault.domain.model.PanelCategoryPolicy(
-                "writer-test-device", "playlist", "provider-generation", "hidden",
-                mapOf("series" to setOf("hidden"))
-            ))
             assertTrue(!com.streamvault.domain.model.PanelPlaybackAuthorization.allows(
                 stream.copy(panelCategoryPolicyVersion = PanelCategoryPolicyRegistry.version(id))
             ))
