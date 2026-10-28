@@ -6,6 +6,17 @@ import com.google.gson.JsonParser
 import java.security.MessageDigest
 import java.security.SecureRandom
 
+/** Validated policy, independent of provider setup fingerprint. Null on unsupported/malformed input. */
+data class PanelCategorySettings(
+    val providerGeneration: String,
+    val revision: String,
+    val hidden: Map<String, Set<String>>,
+) {
+    companion object {
+        val LEGACY = PanelCategorySettings("legacy-empty", "legacy-empty", mapOf("live" to emptySet(), "vod" to emptySet(), "series" to emptySet()))
+    }
+}
+
 /** Server-side device state returned by `get_device_config`. */
 enum class PanelStatus { UNKNOWN, INACTIVE, EXPIRED, ACTIVE }
 
@@ -20,6 +31,7 @@ data class PanelPlaylist(
     val server: String?,
     val username: String?,
     val password: String?,
+    val categorySettings: PanelCategorySettings? = PanelCategorySettings.LEGACY,
 ) {
     /** Usable = has everything its type needs to become a provider. */
     val isUsable: Boolean
@@ -49,7 +61,7 @@ data class PanelConfig(
 class PanelParseException(message: String) : Exception(message)
 
 object PanelConfigParser {
-    fun parse(json: String): PanelConfig {
+    fun parse(json: String, previous: PanelConfig? = null): PanelConfig {
         val root = runCatching { JsonParser.parseString(json) }.getOrNull()
             ?.takeIf { it.isJsonObject }?.asJsonObject
             ?: throw PanelParseException("Panel response is not a JSON object")
@@ -66,7 +78,18 @@ object PanelConfigParser {
                 ?.distinctBy { it.id }
                 .orEmpty()
         } else emptyList()
-        return PanelConfig(status, root.str("device_code"), root.str("expires_at"), playlists, root.str("status").orEmpty())
+        val resolved = playlists.map { p ->
+            if (p.categorySettings != null) p else {
+                val old = previous?.playlists?.firstOrNull { it.id == p.id && it.fingerprint() == p.fingerprint() }
+                val rawPlaylist = root.getAsJsonArray("playlists")?.firstOrNull {
+                    it.isJsonObject && it.asJsonObject.str("id") == p.id
+                }?.asJsonObject
+                val incomingGeneration = rawPlaylist?.str("category_provider_generation")
+                val sameEpoch = incomingGeneration == null || incomingGeneration == old?.categorySettings?.providerGeneration
+                p.copy(categorySettings = old?.categorySettings?.takeIf { sameEpoch })
+            }
+        }
+        return PanelConfig(status, root.str("device_code"), root.str("expires_at"), resolved, root.str("status").orEmpty())
     }
 
     private fun JsonObject.toPlaylist(): PanelPlaylist? {
@@ -85,7 +108,57 @@ object PanelConfigParser {
             server = str("server"),
             username = str("username"),
             password = str("password"),
+            categorySettings = if (type == PanelPlaylistType.M3U) PanelCategorySettings.LEGACY else categorySettings(),
         )
+    }
+
+    private fun JsonObject.categorySettings(): PanelCategorySettings? {
+        val names = listOf("category_settings_version", "category_provider_generation", "category_config_revision", "hidden_category_ids")
+        if (names.none(::has)) return PanelCategorySettings.LEGACY
+        return runCatching {
+            val version = get("category_settings_version")
+            require(version.isJsonPrimitive && version.asJsonPrimitive.isNumber && version.toString() == "1")
+            fun text(key: String): String {
+                val v = get(key)
+                require(v.isJsonPrimitive && v.asJsonPrimitive.isString)
+                return v.asString
+            }
+            val generation = text("category_provider_generation")
+            require(generation.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")))
+            val revision = text("category_config_revision")
+            require(revision.matches(Regex("hc1_[0-9a-f]{64}")))
+            val obj = getAsJsonObject("hidden_category_ids")
+            val hidden = listOf("live", "vod", "series").associateWith { media ->
+                val ids = obj.get(media)
+                require(ids.isJsonArray && ids.asJsonArray.size() <= 10000)
+                ids.asJsonArray.map { id ->
+                    require(id.isJsonPrimitive && id.asJsonPrimitive.isString)
+                    id.asString.also { require(it.matches(Regex("[0-9]{1,64}"))) }
+                }.toSet()
+            }
+            PanelCategorySettings(generation, revision, hidden)
+        }.getOrNull()
+    }
+
+    /** Persist effective known policy, not a malformed response that would lose it next startup. */
+    fun cacheJson(root: JsonObject, config: PanelConfig): String {
+        root.getAsJsonArray("playlists")?.forEach { item ->
+            if (!item.isJsonObject) return@forEach
+            val obj = item.asJsonObject
+            val p = config.playlists.firstOrNull { it.id == obj.str("id") } ?: return@forEach
+            val policy = p.categorySettings ?: return@forEach
+            val names = listOf("category_settings_version", "category_provider_generation", "category_config_revision", "hidden_category_ids")
+            if (policy == PanelCategorySettings.LEGACY) names.forEach(obj::remove)
+            else {
+                obj.addProperty("category_settings_version", 1)
+                obj.addProperty("category_provider_generation", policy.providerGeneration)
+                obj.addProperty("category_config_revision", policy.revision)
+                obj.add("hidden_category_ids", JsonObject().apply {
+                    policy.hidden.forEach { (key, values) -> add(key, com.google.gson.JsonArray().apply { values.forEach(::add) }) }
+                })
+            }
+        }
+        return root.toString()
     }
 
     private fun JsonObject.str(name: String): String? =
@@ -125,7 +198,7 @@ fun planPanelSync(
             val upserts = config.playlists.mapNotNull { p ->
                 val mapped = byId[p.id]
                 when {
-                    !p.isUsable -> null
+                    !p.isUsable || p.categorySettings == null -> null
                     mapped == null || mapped.localProviderId !in existingLocalProviderIds -> PanelSyncAction.Add(p)
                     mapped.fingerprint != p.fingerprint() -> PanelSyncAction.Update(p, mapped.localProviderId)
                     else -> null
@@ -151,7 +224,7 @@ object PanelDeviceCode {
 fun panelProviderGrants(config: PanelConfig, mappings: List<PanelMapping>): Pair<Set<Long>, Set<Long>> {
     val remote = if (config.status == PanelStatus.ACTIVE) config.playlists.associateBy { it.id } else emptyMap()
     val authorized = mappings.filter { m ->
-        remote[m.panelId]?.let { it.isUsable && it.fingerprint() == m.fingerprint } == true
+        remote[m.panelId]?.let { it.isUsable && it.categorySettings != null && it.fingerprint() == m.fingerprint } == true
     }.map { it.localProviderId }.toSet()
     return (mappings.map { it.localProviderId }.toSet() - authorized) to authorized
 }
