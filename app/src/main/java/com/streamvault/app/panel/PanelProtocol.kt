@@ -1,6 +1,5 @@
 package com.streamvault.app.panel
 
-import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.IOException
@@ -47,6 +46,10 @@ class PanelProtocol(
     }
     fun cached(): PanelConfig? = store.read()?.cached?.let(PanelConfigParser::parse)
     fun retryAtMs(): Long = store.read()?.retryAtMs ?: 0
+    fun discardExpiredCache() {
+        val b = store.read() ?: return
+        store.write(b.copy(cached = null, uncertain = true))
+    }
 
     fun refresh(): PanelConfig? {
         var b = identity()
@@ -59,7 +62,7 @@ class PanelProtocol(
                     "rate_limited" -> throw PanelRetryException(retrySeconds(r, 3600))
                     "unavailable", "invalid" -> {
                         // Never rotate on collision, lost binding, or ambiguous prior registration.
-                        b = b.copy(uncertain = true, cached = null)
+                        b = b.copy(uncertain = true, cached = null, retryAtMs = clock() + 60_000)
                         store.write(b)
                         return denied("unauthorized")
                     }
@@ -68,10 +71,19 @@ class PanelProtocol(
             }
             val root = request("get_device_config_v2", b)
             if (root.get("status")?.asString == "rate_limited") throw PanelRetryException(retrySeconds(root, 60))
+            if (root.get("status")?.asString == "active") {
+                // Even invalid active payloads prove we cannot renew as a never-activated device.
+                b = b.copy(everActivated = true, uncertain = true)
+                store.write(b)
+            }
             var config = PanelConfigParser.parse(root.toString())
             if (config.status == PanelStatus.ACTIVE &&
                 (config.deviceCode != b.code || root.get("app_type")?.asString != "alaa_player")) {
                 config = denied("unauthorized")
+            }
+            if (config.status == PanelStatus.ACTIVE && config.expiresAt != null &&
+                runCatching { java.time.Instant.parse(config.expiresAt).toEpochMilli() <= clock() }.getOrDefault(true)) {
+                config = denied("expired")
             }
             // Persist evidence BEFORE using provider credentials. INACTIVE is NOT proof of pending.
             b = when (config.protocolStatus) {

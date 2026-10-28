@@ -139,4 +139,25 @@ class PanelProtocolTest {
         val f = Fixture(); f.store.b = PanelBinding("CODE", "bad")
         assertTrue(runCatching { f.client.refresh() }.isFailure); assertTrue(f.calls.isEmpty())
     }
+    @Test fun invalidActiveObservationBurnsRenewalProof() {
+        val f = Fixture(); f.client.refresh(); f.advance()
+        f.response = { _, _ -> """{"status":"active","device_code":"wrong","app_type":"alaa_player","playlists":[]}""" }
+        assertEquals("unauthorized", f.client.refresh()!!.protocolStatus)
+        assertTrue(f.store.b!!.everActivated)
+        val b = f.store.b!!; f.advance(); f.response = { _, _ -> """{"status":"registration_expired"}""" }
+        f.client.refresh(); assertEquals(b.code, f.store.b!!.code)
+    }
+    @Test fun alreadyExpiredActiveResponseNeverCachesCredentials() {
+        val f = Fixture(); f.client.identity(); f.store.b = f.store.b!!.copy(registered = true)
+        f.response = { _, _ -> f.active().replace("\"playlists\":", "\"expires_at\":\"1970-01-01T00:00:01Z\",\"playlists\":") }
+        assertEquals(PanelStatus.EXPIRED, f.client.refresh()!!.status); assertNull(f.client.cached())
+    }
+    @Test fun invalidExpiryFailsClosedAndNullExpiryRetainsOfflinePolicy() {
+        val f = Fixture(); f.client.identity(); f.store.b = f.store.b!!.copy(registered = true)
+        f.response = { _, _ -> f.active().replace("\"playlists\":", "\"expires_at\":\"invalid\",\"playlists\":") }
+        assertEquals(PanelStatus.EXPIRED, f.client.refresh()!!.status)
+        f.advance(); f.response = { _, _ -> f.active() }
+        assertEquals(PanelStatus.ACTIVE, f.client.refresh()!!.status)
+    }
+
 }

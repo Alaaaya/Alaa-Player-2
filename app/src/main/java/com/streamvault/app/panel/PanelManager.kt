@@ -81,10 +81,13 @@ class PanelManager @Inject constructor(
     private val _state = MutableStateFlow(PanelUiState())
     val state: StateFlow<PanelUiState> = _state.asStateFlow()
 
-    val nextPollIntervalMs: Long get() = maxOf(
-        if (_state.value.status == PanelStatus.ACTIVE) PERIODIC_INTERVAL_MS else MIN_INTERVAL_MS,
-        runCatching { protocol.retryAtMs() - System.currentTimeMillis() }.getOrDefault(MIN_INTERVAL_MS),
-    )
+    val nextPollIntervalMs: Long get() {
+        val normal = if (_state.value.status == PanelStatus.ACTIVE) PERIODIC_INTERVAL_MS else MIN_INTERVAL_MS
+        val untilExpiry = _state.value.expiresAt?.let {
+            runCatching { java.time.Instant.parse(it).toEpochMilli() - System.currentTimeMillis() }.getOrDefault(0)
+        } ?: normal
+        return minOf(normal, untilExpiry.coerceAtLeast(1_000))
+    }
 
     @Volatile private var lastAttemptMs = 0L
     @Volatile private var identityLoaded = false
@@ -118,6 +121,7 @@ class PanelManager @Inject constructor(
                 var cached = protocol.cached()
                 if (cached != null && isLocallyExpired(cached)) {
                     cached = PanelConfig(PanelStatus.EXPIRED, b.code, cached.expiresAt, emptyList())
+                    protocol.discardExpiredCache()
                 }
                 if (cached?.status == PanelStatus.ACTIVE) {
                     playbackGuard.authorize(PanelPlaybackGuard.origins(cached))
@@ -141,6 +145,7 @@ class PanelManager @Inject constructor(
                 identityLoaded = true
             } catch (e: Exception) {
                 // Keep playback gate closed if Keystore/identity/mapping integrity is unavailable.
+                playbackGuard.failClosed()
                 _state.update { it.copy(status = PanelStatus.INACTIVE, failures = listOf("Secure storage unavailable; admin recovery required")) }
             }
         }
@@ -152,7 +157,11 @@ class PanelManager @Inject constructor(
         ensureIdentity()
         if (!identityLoaded) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastAttemptMs < MIN_INTERVAL_MS) return
+        val interval = if (_state.value.status == PanelStatus.ACTIVE) PERIODIC_INTERVAL_MS else MIN_INTERVAL_MS
+        val knownExpired = _state.value.expiresAt?.let {
+            runCatching { java.time.Instant.parse(it).toEpochMilli() <= now }.getOrDefault(true)
+        } ?: false
+        if (!force && !knownExpired && now - lastAttemptMs < interval) return
         if (!mutex.tryLock()) return
         try {
             lastAttemptMs = now
@@ -171,6 +180,7 @@ class PanelManager @Inject constructor(
         val cached = protocol.cached()
         if (cached != null && isLocallyExpired(cached)) {
             enforce(PanelConfig(PanelStatus.EXPIRED, _state.value.deviceCode, cached.expiresAt, emptyList()), cached)
+            protocol.discardExpiredCache()
         }
         val config = protocol.refresh() ?: return
         enforce(config, cached)
@@ -198,6 +208,10 @@ class PanelManager @Inject constructor(
             playlistCount = config.playlists.size, offline = false, lastSyncedAtMs = at,
             failures = if (protocol.identity().legacy && config.protocolStatus == "unauthorized")
                 failures + "Admin-assisted secure re-pair required" else failures) }
+        if (failures.isNotEmpty() && config.status != PanelStatus.ACTIVE) {
+            playbackGuard.failClosed()
+            error("Panel provider cleanup incomplete")
+        }
         playbackGuard.ready()
     }
 
