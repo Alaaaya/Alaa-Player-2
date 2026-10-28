@@ -226,10 +226,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             LaunchedEffect(Unit) {
-                                // Startup sync, then every 30 min while the activity is alive.
+                                // Pending discovery every minute; active refresh every 30 min; respect backoff.
                                 while (true) {
                                     panelManager.sync(force = true)
-                                    kotlinx.coroutines.delay(com.streamvault.app.panel.PanelManager.PERIODIC_INTERVAL_MS)
+                                    kotlinx.coroutines.delay(panelManager.nextPollIntervalMs)
                                 }
                             }
                             val panelState by panelManager.state.collectAsState()

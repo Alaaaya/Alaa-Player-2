@@ -117,14 +117,15 @@ object NetworkModule {
         okHttpClient: OkHttpClient,
         playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
         audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
-    ): PlayerEngine = Media3PlayerEngine(
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore,
+        panelPlaybackGuard: com.streamvault.app.panel.PanelPlaybackGuard
+    ): PlayerEngine = panelPlaybackGuard.wrap(Media3PlayerEngine(
         context,
         okHttpClient,
         playbackCompatibilityRepository,
         audioCompatibilityMemoryStore,
         playbackSupportSnapshotStore
-    )
+    ))
 
     /**
      * Factory binding for preview and multiview playback.
@@ -137,8 +138,9 @@ object NetworkModule {
         okHttpClient: OkHttpClient,
         playbackCompatibilityRepository: com.streamvault.domain.repository.PlaybackCompatibilityRepository,
         audioCompatibilityMemoryStore: AudioCompatibilityMemoryStore,
-        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore
-    ): PlayerEngine = Media3PlayerEngine(
+        playbackSupportSnapshotStore: PlaybackSupportSnapshotStore,
+        panelPlaybackGuard: com.streamvault.app.panel.PanelPlaybackGuard
+    ): PlayerEngine = panelPlaybackGuard.wrap(Media3PlayerEngine(
         context,
         okHttpClient,
         playbackCompatibilityRepository,
@@ -147,5 +149,5 @@ object NetworkModule {
     ).apply {
         enableMediaSession = false
         bypassAudioFocus = true
-    }
+    })
 }
