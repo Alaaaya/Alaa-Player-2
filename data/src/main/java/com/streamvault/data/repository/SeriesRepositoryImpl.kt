@@ -1,7 +1,13 @@
 package com.streamvault.data.repository
 
 import android.database.sqlite.SQLiteException
+import com.streamvault.data.local.DatabaseTransactionRunner
 import android.util.Log
+import com.streamvault.data.panel.PanelCategoryExecutionContext
+import com.streamvault.data.sync.ProviderWorkflowCommitFence
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import com.streamvault.data.local.dao.*
 import com.streamvault.data.local.entity.*
 import com.streamvault.data.mapper.*
@@ -74,8 +80,33 @@ class SeriesRepositoryImpl @Inject constructor(
     private val seriesCategoryHydrationDao: SeriesCategoryHydrationDao,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
     private val providerCapabilityResolver: ProviderCapabilityResolver,
-    private val typedProviderClientFactory: TypedProviderClientFactory
+    private val typedProviderClientFactory: TypedProviderClientFactory,
+    private val transactionRunner: DatabaseTransactionRunner,
+    private val workflowCommitFence: ProviderWorkflowCommitFence = ProviderWorkflowCommitFence()
 ) : SeriesRepository {
+
+    private suspend fun <T> withCatalogPolicy(providerId: Long, block: suspend () -> T): T {
+        val policy = coroutineContext[PanelCategoryExecutionContext]
+            ?: PanelCategoryExecutionContext(com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId))
+        check(policy.token.providerId == providerId)
+        return withContext(policy) {
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            val result = block()
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            result
+        }
+    }
+
+    private suspend fun <T> catalogTransaction(providerId: Long, block: suspend () -> T): T =
+        transactionRunner.inTransaction {
+            checkNotNull(coroutineContext[PanelCategoryExecutionContext]) { "Catalog publication requires its fetch generation" }
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            block()
+        }
+
     private companion object {
         const val MAX_BACKGROUND_CATEGORY_REFRESHES = 256
         const val TAG = "SeriesRepository"
@@ -378,8 +409,9 @@ class SeriesRepositoryImpl @Inject constructor(
         categoryId: Long,
         request: VodCategoryHydrationRequest
     ): Result<Unit> {
-        val provider = loadCompatibilityProvider(providerId) ?: return Result.error("Provider not found")
-        if (provider.type != ProviderType.STALKER_PORTAL) return Result.success(Unit)
+        return withCatalogPolicy(providerId) {
+        val provider = loadCompatibilityProvider(providerId) ?: return@withCatalogPolicy Result.error("Provider not found")
+        if (provider.type != ProviderType.STALKER_PORTAL) return@withCatalogPolicy Result.success(Unit)
         val mode = preferencesRepository.vodCategoryLoadMode.first()
         val effectiveRequest = if (
             request == VodCategoryHydrationRequest.OPEN && mode == VodCategoryLoadMode.COMPLETE_ON_OPEN
@@ -416,11 +448,17 @@ class SeriesRepositoryImpl @Inject constructor(
         if (derivedResult is Result.Success && request == VodCategoryHydrationRequest.OPEN &&
             mode == VodCategoryLoadMode.PAGED
         ) {
-            repositoryScope.launch {
+            val scheduledPolicy = coroutineContext[PanelCategoryExecutionContext] ?: PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+        repositoryScope.launch(scheduledPolicy) {
+            workflowCommitFence.assertCanCommit(providerId)
                 requestCategoryHydration(providerId, categoryId, VodCategoryHydrationRequest.NEXT_PAGE)
             }
         }
-        return derivedResult
+        return@withCatalogPolicy derivedResult
+
+        }
     }
 
     override fun searchSeries(providerId: Long, query: String): Flow<List<Series>> =
@@ -464,19 +502,27 @@ class SeriesRepositoryImpl @Inject constructor(
         seriesId: Long,
         knownPresentation: SeriesDetailPresentationHint?
     ): Result<Series> {
+        return withCatalogPolicy(providerId) {
+        val detailResult = run detail@ {
+
         val seriesEntity = seriesDao.getById(seriesId)
             ?: seriesDao.getBySeriesId(providerId, seriesId)
-            ?: return Result.error("Series not found")
+            ?: return@detail Result.error("Series not found")
+        check(seriesEntity.providerId == providerId)
+        check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+            providerId, "series", seriesEntity.seriesId
+        )) { "Detail membership is not authorized" }
+
 
         val provider = loadCompatibilityProvider(providerId)
-            ?: return Result.error("Provider not found")
+            ?: return@detail Result.error("Provider not found")
 
         if (seriesEntity.seriesId <= 0L) {
-            return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
+            return@detail Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
         }
 
         if (provider.type == ProviderType.XTREAM_CODES && seriesEntity.hasFreshXtreamDetails()) {
-            return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
+            return@detail Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
         }
         if (provider.type == ProviderType.STALKER_PORTAL && seriesEntity.hasFreshStalkerDetails()) {
             val localSeries = buildSeriesWithPersistedEpisodes(seriesEntity)
@@ -487,7 +533,7 @@ class SeriesRepositoryImpl @Inject constructor(
                 seriesEntity.catalogOrigin != SeriesCatalogOrigin.VOD_DERIVED ||
                 localSeries.seasons.any { season -> season.episodes.isNotEmpty() }
             ) {
-                return Result.success(attachSeriesPresentation(localSeries, knownPresentation))
+                return@detail Result.success(attachSeriesPresentation(localSeries, knownPresentation))
             }
         }
 
@@ -496,7 +542,7 @@ class SeriesRepositoryImpl @Inject constructor(
                 is CapabilityResolution.Available -> resolution.capability
                 is CapabilityResolution.ConfigurationError,
                 is CapabilityResolution.Restricted,
-                is CapabilityResolution.Unsupported -> return Result.success(
+                is CapabilityResolution.Unsupported -> return@detail Result.success(
                     attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
                 )
             }
@@ -504,7 +550,7 @@ class SeriesRepositoryImpl @Inject constructor(
                 is CapabilityResolution.Available -> resolution.capability
                 is CapabilityResolution.ConfigurationError,
                 is CapabilityResolution.Restricted,
-                is CapabilityResolution.Unsupported -> return Result.success(
+                is CapabilityResolution.Unsupported -> return@detail Result.success(
                     attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
                 )
             }
@@ -520,20 +566,24 @@ class SeriesRepositoryImpl @Inject constructor(
                 current = buildSeriesWithPersistedEpisodes(seriesEntity)
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             if (provider.type == ProviderType.XTREAM_CODES) {
-                xtreamContentIndexDao.markDetailHydrationError(
+                catalogTransaction(providerId) { xtreamContentIndexDao.markDetailHydrationError(
                     providerId = providerId,
                     contentType = ContentType.SERIES.name,
                     remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
                     errorState = "DETAIL_FAILED_RETRYABLE"
-                )
-                return Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
+                ) }
+                return@detail Result.success(attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation))
             }
-            return Result.error(e.message ?: "Failed to access provider credentials", e)
+            return@detail Result.error(e.message ?: "Failed to access provider credentials", e)
         }
 
-        return when (remoteResult) {
-            is Result.Success -> {
+        return@detail when (remoteResult) {
+            is Result.Success -> catalogTransaction(providerId) {
+                check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+                    providerId, "series", seriesEntity.seriesId
+                )) { "Detail membership changed before publication" }
                 val remoteSeries = remoteResult.data
                 val hasRemoteEpisodes = remoteSeries.seasons.any { season -> season.episodes.isNotEmpty() }
                 val hasPersistedEpisodes = episodeDao.getBySeriesSync(seriesEntity.id).isNotEmpty()
@@ -573,9 +623,11 @@ class SeriesRepositoryImpl @Inject constructor(
                         0L
                     }
                 )
+                workflowCommitFence.assertCanCommit(providerId)
                 seriesDao.update(updatedSeries)
                 if (provider.type == ProviderType.XTREAM_CODES) {
-                    xtreamContentIndexDao.markDetailHydrated(
+                    workflowCommitFence.assertCanCommit(providerId)
+                xtreamContentIndexDao.markDetailHydrated(
                         providerId = providerId,
                         contentType = ContentType.SERIES.name,
                         remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
@@ -605,7 +657,8 @@ class SeriesRepositoryImpl @Inject constructor(
                     }
 
                 if (episodesToPersist.isNotEmpty()) {
-                    episodeDao.replaceAll(seriesEntity.id, providerId, episodesToPersist)
+                    workflowCommitFence.assertCanCommit(providerId)
+                episodeDao.replaceAll(seriesEntity.id, providerId, episodesToPersist)
                 }
 
                 val persistedSeries = seriesDao.getById(seriesEntity.id) ?: updatedSeries
@@ -680,8 +733,9 @@ class SeriesRepositoryImpl @Inject constructor(
                 )
             }
             is Result.Error -> {
+                remoteResult.exception?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
                 if (provider.type == ProviderType.XTREAM_CODES) {
-                    xtreamContentIndexDao.markDetailHydrationError(
+                    catalogTransaction(providerId) { xtreamContentIndexDao.markDetailHydrationError(
                         providerId = providerId,
                         contentType = ContentType.SERIES.name,
                         remoteId = seriesEntity.providerSeriesId?.takeIf { it.isNotBlank() } ?: seriesEntity.seriesId.toString(),
@@ -690,16 +744,27 @@ class SeriesRepositoryImpl @Inject constructor(
                         } else {
                             "DETAIL_FAILED_RETRYABLE"
                         }
-                    )
+                    ) }
                 }
                 val localSeries = attachSeriesPresentation(buildSeriesWithPersistedEpisodes(seriesEntity), knownPresentation)
                 Result.success(localSeries)
             }
             is Result.Loading -> Result.error("Unexpected loading state")
         }
+
+        }
+        if (detailResult is Result.Success) {
+            check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+                providerId, "series", detailResult.data.seriesId
+            )) { "Detail membership changed before return" }
+        }
+        detailResult
+
+        }
     }
 
     override suspend fun getEpisodeStreamInfo(episode: Episode): Result<StreamInfo> = try {
+        val categoryVersion = com.streamvault.domain.model.PanelCategoryPolicyRegistry.version(episode.providerId)
         val authorizationVersion = PanelPlaybackAuthorization.version(episode.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = episode.streamUrl,
@@ -723,11 +788,15 @@ class SeriesRepositoryImpl @Inject constructor(
                     containerExtension = ext,
                     expirationTime = resolvedStream.expirationTime,
                     providerId = episode.providerId,
-                    panelAuthorizationVersion = authorizationVersion
+                    panelAuthorizationVersion = authorizationVersion,
+                    panelCategoryPolicyVersion = categoryVersion,
+                    streamId = episode.episodeId.takeIf { it > 0 } ?: episode.id,
+                    contentType = ContentType.SERIES_EPISODE
                 )
             )
         } ?: Result.error("No stream URL available for episode: ${episode.title}")
     } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
         Result.error(e.message ?: "Failed to resolve stream URL for episode: ${episode.title}", e)
     }
 
@@ -1546,9 +1615,10 @@ class SeriesRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true,
         loadStalkerCategoryCompletely: Boolean = false
     ) {
+        return withCatalogPolicy(providerId) {
         val key = "$providerId:$categoryId"
-        val provider = loadCompatibilityProvider(providerId) ?: return
-        if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return
+        val provider = loadCompatibilityProvider(providerId) ?: return@withCatalogPolicy
+        if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return@withCatalogPolicy
 
         val localCount = seriesDao.getCountByCategory(providerId, categoryId).first()
         val hydration = seriesCategoryHydrationDao.get(providerId, categoryId)
@@ -1562,16 +1632,17 @@ class SeriesRepositoryImpl @Inject constructor(
                     if (result is com.streamvault.domain.model.Result.Success) {
                         val entities = result.data.map { it.toEntity() }
                         if (entities.isNotEmpty()) {
-                            seriesDao.upsertCategoryPage(providerId, entities)
+                            catalogTransaction(providerId) { seriesDao.upsertCategoryPage(providerId, entities) }
                             Log.d(TAG, "Directly hydrated ${entities.size} series for Xtream category $categoryId")
                         }
                     }
                 } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Direct Xtream hydration failed for category $categoryId, falling back to syncManager", e)
                     syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.SERIES, categoryId)
                 }
             }
-            return
+            return@withCatalogPolicy
         }
         if (provider.type == ProviderType.STALKER_PORTAL) {
             if (!shouldUseStalkerLazyFallback(
@@ -1581,7 +1652,7 @@ class SeriesRepositoryImpl @Inject constructor(
                     loadCompletely = loadStalkerCategoryCompletely
                 )
             ) {
-                return
+                return@withCatalogPolicy
             }
             hydrateStalkerSeriesCategoryToCount(
                 providerId = providerId,
@@ -1593,11 +1664,13 @@ class SeriesRepositoryImpl @Inject constructor(
                 allowWildcard = allowStalkerWildcard,
                 loadCompletely = loadStalkerCategoryCompletely
             )
-            return
+            return@withCatalogPolicy
+        }
+
         }
     }
 
-    private fun triggerSeriesCategoryHydration(
+    private suspend fun triggerSeriesCategoryHydration(
         providerId: Long,
         categoryId: Long,
         provider: Provider,
@@ -1605,7 +1678,11 @@ class SeriesRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true
     ) {
         val key = "$providerId:$categoryId"
-        repositoryScope.launch {
+        val scheduledPolicy = coroutineContext[PanelCategoryExecutionContext] ?: PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+        repositoryScope.launch(scheduledPolicy) {
+            workflowCommitFence.assertCanCommit(providerId)
             if (!backgroundRefreshes.awaitAdd(key)) return@launch
             try {
                 if (provider.type == ProviderType.XTREAM_CODES) {
@@ -1617,11 +1694,12 @@ class SeriesRepositoryImpl @Inject constructor(
                             if (result is com.streamvault.domain.model.Result.Success) {
                                 val entities = result.data.map { it.toEntity() }
                                 if (entities.isNotEmpty()) {
-                                    seriesDao.upsertCategoryPage(providerId, entities)
+                                    catalogTransaction(providerId) { seriesDao.upsertCategoryPage(providerId, entities) }
                                     Log.d(TAG, "Background hydrated ${entities.size} series for Xtream category $categoryId")
                                 }
                             }
                         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
                             Log.w(TAG, "Background Xtream series hydration failed for category $categoryId", e)
                         }
                     }
@@ -1679,6 +1757,7 @@ class SeriesRepositoryImpl @Inject constructor(
         loadCompletely: Boolean = false,
         requestedPage: Int? = null
     ) {
+        return withCatalogPolicy(providerId) {
         val key = "$providerId:$categoryId"
         xtreamCategoryLoadLocks.withLock(key) {
             val persistedHydration = seriesCategoryHydrationDao.get(providerId, categoryId)
@@ -1728,13 +1807,13 @@ class SeriesRepositoryImpl @Inject constructor(
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
                 firstIteration = false
                 remotePagesRequested += 1
-                seriesCategoryHydrationDao.upsert(
+                catalogTransaction(providerId) { seriesCategoryHydrationDao.upsert(
                     (currentHydration ?: SeriesCategoryHydrationEntity(providerId, categoryId)).copy(
                         lastAttemptedPage = nextPage,
                         lastStatus = "RUNNING",
                         lastError = null
                     )
-                )
+                ) }
                 val requestPriority = if (isPreviewLoad) {
                     StalkerRequestPriority.VISIBLE_PREVIEW
                 } else {
@@ -1776,28 +1855,28 @@ class SeriesRepositoryImpl @Inject constructor(
                             result.data.advertisedTotalPages != null &&
                             currentHydration?.advertisedTotalPages != result.data.advertisedTotalPages
                         ) {
-                            seriesCategoryHydrationDao.upsert(
+                            catalogTransaction(providerId) { seriesCategoryHydrationDao.upsert(
                                 (currentHydration ?: SeriesCategoryHydrationEntity(providerId, categoryId)).copy(
                                     lastAttemptedPage = result.data.page,
                                     lastStatus = "ANOMALY",
                                     lastError = "Portal changed its advertised catalog page count while loading.",
                                     retryAfterMs = 0L
                                 )
-                            )
+                            ) }
                             break
                         }
                         val pageFingerprint = result.data.items.joinToString("|") {
                             (it.providerSeriesId ?: it.seriesId).toString()
                         }.takeIf(String::isNotEmpty)
                         if (pageFingerprint != null && !seenPageFingerprints.add(pageFingerprint)) {
-                            seriesCategoryHydrationDao.upsert(
+                            catalogTransaction(providerId) { seriesCategoryHydrationDao.upsert(
                                 (currentHydration ?: SeriesCategoryHydrationEntity(providerId, categoryId)).copy(
                                     lastAttemptedPage = result.data.page,
                                     lastStatus = "ANOMALY",
                                     lastError = "Portal repeated a catalog page while loading page ${result.data.page}.",
                                     retryAfterMs = 0L
                                 )
-                            )
+                            ) }
                             break
                         }
                         val entities = result.data.items.map { series -> series.toEntity() }
@@ -1808,6 +1887,7 @@ class SeriesRepositoryImpl @Inject constructor(
                         val truncated = result.data.isTruncated || pageLimitReached
                         val terminationReason = result.data.terminationReason
                             ?: "page_limit".takeIf { pageLimitReached }
+                        catalogTransaction(providerId) {
                         seriesDao.upsertCategoryPage(providerId, entities)
                         currentCount = seriesDao.getCountByCategory(providerId, categoryId).first()
                         currentHydration = SeriesCategoryHydrationEntity(
@@ -1830,18 +1910,21 @@ class SeriesRepositoryImpl @Inject constructor(
                             retryBudgetRemaining = 3,
                             lastPageFingerprint = pageFingerprint
                         )
+                        workflowCommitFence.assertCanCommit(providerId)
                         seriesCategoryHydrationDao.upsert(currentHydration!!)
+                        }
                         if (pageComplete || truncated) break
                         nextPage = result.data.page + 1
                     }
                     is Result.Error -> {
+                        result.exception?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
                         val priorFailureCount = currentHydration?.failureCount ?: 0
                         val remainingBudget = ((currentHydration?.retryBudgetRemaining ?: 3) - 1).coerceAtLeast(0)
                         val nextStatus = when {
                             remainingBudget <= 0 -> "FAILED_BUDGET_EXHAUSTED"
                             else -> "FAILED_RETRYABLE"
                         }
-                        seriesCategoryHydrationDao.upsert(
+                        catalogTransaction(providerId) { seriesCategoryHydrationDao.upsert(
                             SeriesCategoryHydrationEntity(
                                 providerId = providerId,
                                 categoryId = categoryId,
@@ -1866,12 +1949,14 @@ class SeriesRepositoryImpl @Inject constructor(
                                 retryBudgetRemaining = remainingBudget,
                                 lastPageFingerprint = currentHydration?.lastPageFingerprint
                             )
-                        )
+                        ) }
                         break
                     }
                     is Result.Loading -> break
                 }
             }
+        }
+
         }
     }
 

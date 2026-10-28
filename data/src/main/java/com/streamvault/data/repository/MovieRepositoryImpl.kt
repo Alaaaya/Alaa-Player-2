@@ -2,6 +2,11 @@ package com.streamvault.data.repository
 
 import android.database.sqlite.SQLiteException
 import android.util.Log
+import com.streamvault.data.panel.PanelCategoryExecutionContext
+import com.streamvault.data.sync.ProviderWorkflowCommitFence
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.FavoriteDao
@@ -101,8 +106,32 @@ class MovieRepositoryImpl @Inject constructor(
     private val transactionRunner: DatabaseTransactionRunner,
     private val stalkerRequestCoordinator: StalkerRequestCoordinator,
     private val providerCapabilityResolver: ProviderCapabilityResolver,
-    private val typedProviderClientFactory: TypedProviderClientFactory
+    private val typedProviderClientFactory: TypedProviderClientFactory,
+    private val workflowCommitFence: ProviderWorkflowCommitFence = ProviderWorkflowCommitFence()
 ) : MovieRepository {
+
+    private suspend fun <T> withCatalogPolicy(providerId: Long, block: suspend () -> T): T {
+        val policy = coroutineContext[PanelCategoryExecutionContext]
+            ?: PanelCategoryExecutionContext(com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId))
+        check(policy.token.providerId == providerId)
+        return withContext(policy) {
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            val result = block()
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            result
+        }
+    }
+
+    private suspend fun <T> catalogTransaction(providerId: Long, block: suspend () -> T): T =
+        transactionRunner.inTransaction {
+            checkNotNull(coroutineContext[PanelCategoryExecutionContext]) { "Catalog publication requires its fetch generation" }
+            coroutineContext.ensureActive()
+            workflowCommitFence.assertCanCommit(providerId)
+            block()
+        }
+
     private companion object {
         const val MAX_BACKGROUND_CATEGORY_REFRESHES = 256
         const val TAG = "MovieRepository"
@@ -442,8 +471,9 @@ class MovieRepositoryImpl @Inject constructor(
         categoryId: Long,
         request: VodCategoryHydrationRequest
     ): Result<Unit> {
-        val provider = loadCompatibilityProvider(providerId) ?: return Result.error("Provider not found")
-        if (provider.type != ProviderType.STALKER_PORTAL) return Result.success(Unit)
+        return withCatalogPolicy(providerId) {
+        val provider = loadCompatibilityProvider(providerId) ?: return@withCatalogPolicy Result.error("Provider not found")
+        if (provider.type != ProviderType.STALKER_PORTAL) return@withCatalogPolicy Result.success(Unit)
         val loadMode = preferencesRepository.vodCategoryLoadMode.first()
         val effectiveRequest = if (
             request == VodCategoryHydrationRequest.OPEN && loadMode == VodCategoryLoadMode.COMPLETE_ON_OPEN
@@ -454,7 +484,7 @@ class MovieRepositoryImpl @Inject constructor(
         } else null
         if (effectiveRequest == VodCategoryHydrationRequest.OPEN && (current?.lastSuccessfulPage ?: 0) > 0) {
             scheduleMoviePrefetch(providerId, categoryId, loadMode)
-            return Result.success(Unit)
+            return@withCatalogPolicy Result.success(Unit)
         }
         val result = if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
             syncManager.hydrateSplitVodCategory(providerId, categoryId, effectiveRequest, ContentType.MOVIE)
@@ -475,12 +505,18 @@ class MovieRepositoryImpl @Inject constructor(
         if (result is Result.Success && request == VodCategoryHydrationRequest.OPEN) {
             scheduleMoviePrefetch(providerId, categoryId, loadMode)
         }
-        return result
+        return@withCatalogPolicy result
+
+        }
     }
 
-    private fun scheduleMoviePrefetch(providerId: Long, categoryId: Long, loadMode: VodCategoryLoadMode) {
+    private suspend fun scheduleMoviePrefetch(providerId: Long, categoryId: Long, loadMode: VodCategoryLoadMode) {
         if (loadMode != VodCategoryLoadMode.PAGED) return
-        repositoryScope.launch {
+        val scheduledPolicy = coroutineContext[PanelCategoryExecutionContext] ?: PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+        repositoryScope.launch(scheduledPolicy) {
+            workflowCommitFence.assertCanCommit(providerId)
             val provider = loadCompatibilityProvider(providerId) ?: return@launch
             val current = movieCategoryHydrationDao.get(providerId, categoryId)
             if (current?.isComplete == true) return@launch
@@ -550,26 +586,34 @@ class MovieRepositoryImpl @Inject constructor(
         movieId: Long,
         knownPresentation: MovieDetailPresentationHint?
     ): Result<Movie> {
+        return withCatalogPolicy(providerId) {
+        val detailResult = run detail@ {
+
         val movieEntity = movieDao.getById(movieId)
-            ?: return Result.error("Movie not found")
+            ?: return@detail Result.error("Movie not found")
+        check(movieEntity.providerId == providerId)
+        check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+            providerId, "vod", movieEntity.streamId
+        )) { "Detail membership is not authorized" }
+
 
         val provider = loadCompatibilityProvider(providerId)
-            ?: return Result.error("Provider not found")
+            ?: return@detail Result.error("Provider not found")
 
         if (provider.type == ProviderType.XTREAM_CODES && movieEntity.hasFreshXtreamDetails()) {
-            return Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
+            return@detail Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
         }
 
         val remoteMovieResult = try {
             val capabilitySet = when (val resolution = providerCapabilityResolver.resolve(providerId)) {
                 is CapabilityResolution.Available -> resolution.capability
-                is CapabilityResolution.ConfigurationError -> return Result.success(
+                is CapabilityResolution.ConfigurationError -> return@detail Result.success(
                     attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
                 )
-                is CapabilityResolution.Restricted -> return Result.success(
+                is CapabilityResolution.Restricted -> return@detail Result.success(
                     attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
                 )
-                is CapabilityResolution.Unsupported -> return Result.success(
+                is CapabilityResolution.Unsupported -> return@detail Result.success(
                     attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
                 )
             }
@@ -577,7 +621,7 @@ class MovieRepositoryImpl @Inject constructor(
                 is CapabilityResolution.Available -> resolution.capability
                 is CapabilityResolution.ConfigurationError,
                 is CapabilityResolution.Restricted,
-                is CapabilityResolution.Unsupported -> return Result.success(
+                is CapabilityResolution.Unsupported -> return@detail Result.success(
                     attachMoviePresentation(movieEntity.toDomain(), knownPresentation)
                 )
             }
@@ -590,19 +634,23 @@ class MovieRepositoryImpl @Inject constructor(
                 current = movieEntity.toDomain()
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             if (provider.type == ProviderType.XTREAM_CODES) {
-                xtreamContentIndexDao.markDetailHydrationError(
+                catalogTransaction(providerId) { xtreamContentIndexDao.markDetailHydrationError(
                     providerId = providerId,
                     contentType = ContentType.MOVIE.name,
                     remoteId = movieEntity.streamId.toString(),
                     errorState = "DETAIL_FAILED_RETRYABLE"
-                )
+                ) }
             }
-            return Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
+            return@detail Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
         }
 
-        return when (val remoteResult = remoteMovieResult) {
-            is Result.Success -> {
+        return@detail when (val remoteResult = remoteMovieResult) {
+            is Result.Success -> catalogTransaction(providerId) {
+                check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+                    providerId, "vod", movieEntity.streamId
+                )) { "Detail membership changed before publication" }
                 val remoteMovie = remoteResult.data
                 val updatedMovie = movieEntity.copy(
                     name = remoteMovie.name.ifBlank { movieEntity.name },
@@ -624,7 +672,9 @@ class MovieRepositoryImpl @Inject constructor(
                     cacheState = CACHE_STATE_DETAIL_HYDRATED,
                     detailHydratedAt = System.currentTimeMillis()
                 )
+                workflowCommitFence.assertCanCommit(providerId)
                 movieDao.update(updatedMovie)
+                workflowCommitFence.assertCanCommit(providerId)
                 xtreamContentIndexDao.markDetailHydrated(
                     providerId = providerId,
                     contentType = ContentType.MOVIE.name,
@@ -636,21 +686,33 @@ class MovieRepositoryImpl @Inject constructor(
                 Result.success(attachMoviePresentation((movieDao.getById(movieEntity.id) ?: updatedMovie).toDomain(), knownPresentation))
             }
             is Result.Error -> {
+                remoteResult.exception?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
                 if (provider.type == ProviderType.XTREAM_CODES) {
-                    xtreamContentIndexDao.markDetailHydrationError(
+                    catalogTransaction(providerId) { xtreamContentIndexDao.markDetailHydrationError(
                         providerId = providerId,
                         contentType = ContentType.MOVIE.name,
                         remoteId = movieEntity.streamId.toString(),
                         errorState = "DETAIL_FAILED_RETRYABLE"
-                    )
+                    ) }
                 }
                 Result.success(attachMoviePresentation(movieEntity.toDomain(), knownPresentation))
             }
             is Result.Loading -> Result.error("Unexpected loading state")
         }
+
+        }
+        if (detailResult is Result.Success) {
+            check(com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+                providerId, "vod", detailResult.data.streamId
+            )) { "Detail membership changed before return" }
+        }
+        detailResult
+
+        }
     }
 
     override suspend fun getStreamInfo(movie: Movie): Result<StreamInfo> = try {
+        val categoryVersion = com.streamvault.domain.model.PanelCategoryPolicyRegistry.version(movie.providerId)
         val authorizationVersion = PanelPlaybackAuthorization.version(movie.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = movie.streamUrl,
@@ -674,11 +736,15 @@ class MovieRepositoryImpl @Inject constructor(
                     containerExtension = ext,
                     expirationTime = resolvedStream.expirationTime,
                     providerId = movie.providerId,
-                    panelAuthorizationVersion = authorizationVersion
+                    panelAuthorizationVersion = authorizationVersion,
+                    panelCategoryPolicyVersion = categoryVersion,
+                    streamId = movie.streamId,
+                    contentType = ContentType.MOVIE
                 )
             )
         } ?: Result.error("No stream URL available for movie: ${movie.name}")
     } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
         Result.error(e.message ?: "Failed to resolve stream URL for movie: ${movie.name}", e)
     }
 
@@ -1585,9 +1651,10 @@ class MovieRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true,
         loadStalkerCategoryCompletely: Boolean = false
     ) {
+        return withCatalogPolicy(providerId) {
         val key = "$providerId:$categoryId"
-        val provider = loadCompatibilityProvider(providerId) ?: return
-        if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return
+        val provider = loadCompatibilityProvider(providerId) ?: return@withCatalogPolicy
+        if (provider.type != ProviderType.XTREAM_CODES && provider.type != ProviderType.STALKER_PORTAL) return@withCatalogPolicy
 
         val localCount = movieDao.getCountByCategory(providerId, categoryId).first()
         val hydration = movieCategoryHydrationDao.get(providerId, categoryId)
@@ -1596,7 +1663,7 @@ class MovieRepositoryImpl @Inject constructor(
             } else {
                 syncManager.prioritizeXtreamIndexCategory(providerId, ContentType.MOVIE, categoryId)
             }
-            return
+            return@withCatalogPolicy
         }
         if (provider.type == ProviderType.STALKER_PORTAL) {
             if (!shouldUseStalkerLazyFallback(
@@ -1606,7 +1673,7 @@ class MovieRepositoryImpl @Inject constructor(
                     loadCompletely = loadStalkerCategoryCompletely
                 )
             ) {
-                return
+                return@withCatalogPolicy
             }
             if (provider.catalogLayout == CatalogLayout.SPLIT && provider.catalogLayoutDetectionVersion > 0) {
                 syncManager.hydrateSplitVodCategory(
@@ -1618,7 +1685,7 @@ class MovieRepositoryImpl @Inject constructor(
                         VodCategoryHydrationRequest.OPEN
                     }
                 )
-                return
+                return@withCatalogPolicy
             }
             hydrateStalkerMovieCategoryToCount(
                 providerId = providerId,
@@ -1630,11 +1697,13 @@ class MovieRepositoryImpl @Inject constructor(
                 allowWildcard = allowStalkerWildcard,
                 loadCompletely = loadStalkerCategoryCompletely
             )
-            return
+            return@withCatalogPolicy
+        }
+
         }
     }
 
-    private fun triggerXtreamCategoryHydration(
+    private suspend fun triggerXtreamCategoryHydration(
         providerId: Long,
         categoryId: Long,
         fetchIfMissing: Boolean,
@@ -1643,7 +1712,11 @@ class MovieRepositoryImpl @Inject constructor(
         allowStalkerWildcard: Boolean = true
     ) {
         val key = "$providerId:$categoryId"
-        repositoryScope.launch {
+        val scheduledPolicy = coroutineContext[PanelCategoryExecutionContext] ?: PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+        repositoryScope.launch(scheduledPolicy) {
+            workflowCommitFence.assertCanCommit(providerId)
             if (!backgroundRefreshes.awaitAdd(key)) return@launch
             try {
                 val provider = loadCompatibilityProvider(providerId) ?: return@launch
@@ -1713,6 +1786,7 @@ class MovieRepositoryImpl @Inject constructor(
         loadCompletely: Boolean = false,
         requestedPage: Int? = null
     ) {
+        return withCatalogPolicy(providerId) {
         val key = "$providerId:$categoryId"
         xtreamCategoryLoadLocks.withLock(key) {
             val persistedHydration = movieCategoryHydrationDao.get(providerId, categoryId)
@@ -1762,13 +1836,13 @@ class MovieRepositoryImpl @Inject constructor(
                 if (!firstIteration && totalPages > 0 && nextPage > totalPages) break
                 firstIteration = false
                 remotePagesRequested += 1
-                movieCategoryHydrationDao.upsert(
+                catalogTransaction(providerId) { movieCategoryHydrationDao.upsert(
                     (currentHydration ?: MovieCategoryHydrationEntity(providerId, categoryId)).copy(
                         lastAttemptedPage = nextPage,
                         lastStatus = "RUNNING",
                         lastError = null
                     )
-                )
+                ) }
                 val requestPriority = if (isPreviewLoad) {
                     StalkerRequestPriority.VISIBLE_PREVIEW
                 } else {
@@ -1804,27 +1878,27 @@ class MovieRepositoryImpl @Inject constructor(
                             result.data.advertisedTotalPages != null &&
                             currentHydration?.advertisedTotalPages != result.data.advertisedTotalPages
                         ) {
-                            movieCategoryHydrationDao.upsert(
+                            catalogTransaction(providerId) { movieCategoryHydrationDao.upsert(
                                 (currentHydration ?: MovieCategoryHydrationEntity(providerId, categoryId)).copy(
                                     lastAttemptedPage = result.data.page,
                                     lastStatus = "ANOMALY",
                                     lastError = "Portal changed its advertised catalog page count while loading.",
                                     retryAfterMs = 0L
                                 )
-                            )
+                            ) }
                             break
                         }
                         val pageFingerprint = result.data.items.joinToString("|") { it.streamId.toString() }
                             .takeIf(String::isNotEmpty)
                         if (pageFingerprint != null && !seenPageFingerprints.add(pageFingerprint)) {
-                            movieCategoryHydrationDao.upsert(
+                            catalogTransaction(providerId) { movieCategoryHydrationDao.upsert(
                                 (currentHydration ?: MovieCategoryHydrationEntity(providerId, categoryId)).copy(
                                     lastAttemptedPage = result.data.page,
                                     lastStatus = "ANOMALY",
                                     lastError = "Portal repeated a catalog page while loading page ${result.data.page}.",
                                     retryAfterMs = 0L
                                 )
-                            )
+                            ) }
                             break
                         }
                         val entities = result.data.items.map { movie -> movie.toEntity() }
@@ -1835,7 +1909,7 @@ class MovieRepositoryImpl @Inject constructor(
                         val truncated = result.data.isTruncated || pageLimitReached
                         val terminationReason = result.data.terminationReason
                             ?: "page_limit".takeIf { pageLimitReached }
-                        transactionRunner.inTransaction {
+                        catalogTransaction(providerId) {
                             movieDao.upsertCategoryPage(providerId, entities)
                             val updatedCount = movieDao.getCountByCategory(providerId, categoryId).first()
                             currentCount = updatedCount
@@ -1859,19 +1933,21 @@ class MovieRepositoryImpl @Inject constructor(
                                 retryBudgetRemaining = 3,
                                 lastPageFingerprint = pageFingerprint
                             )
+                            workflowCommitFence.assertCanCommit(providerId)
                             movieCategoryHydrationDao.upsert(currentHydration!!)
                         }
                         if (pageComplete || truncated) break
                         nextPage = result.data.page + 1
                     }
                     is Result.Error -> {
+                        result.exception?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
                         val priorFailureCount = currentHydration?.failureCount ?: 0
                         val remainingBudget = ((currentHydration?.retryBudgetRemaining ?: 3) - 1).coerceAtLeast(0)
                         val nextStatus = when {
                             remainingBudget <= 0 -> "FAILED_BUDGET_EXHAUSTED"
                             else -> "FAILED_RETRYABLE"
                         }
-                        movieCategoryHydrationDao.upsert(
+                        catalogTransaction(providerId) { movieCategoryHydrationDao.upsert(
                             MovieCategoryHydrationEntity(
                                 providerId = providerId,
                                 categoryId = categoryId,
@@ -1896,12 +1972,14 @@ class MovieRepositoryImpl @Inject constructor(
                                 retryBudgetRemaining = remainingBudget,
                                 lastPageFingerprint = currentHydration?.lastPageFingerprint
                             )
-                        )
+                        ) }
                         break
                     }
                     is Result.Loading -> break
                 }
             }
+        }
+
         }
     }
 
