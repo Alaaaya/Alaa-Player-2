@@ -2,6 +2,10 @@ package com.streamvault.app
 
 import android.app.Application
 import android.util.Log
+import com.streamvault.app.panel.PanelArtworkNetworkFence
+import com.streamvault.app.panel.PanelArtworkInterceptor
+import com.streamvault.app.panel.RegistryArtworkAccess
+import com.streamvault.domain.model.PanelArtworkPolicyRegistry
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -73,6 +77,8 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
 
     private val imageOkHttpClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
+            .cache(null) // No independent HTTP cache may retain hidden artwork.
+            .addInterceptor(PanelArtworkNetworkFence())
             .addInterceptor(jellyfinImageAuthInterceptor)
             .build()
     }
@@ -127,8 +133,9 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        return ImageLoader.Builder(context)
+        val loader = ImageLoader.Builder(context)
             .components {
+                add(PanelArtworkInterceptor(RegistryArtworkAccess))
                 add(
                     OkHttpNetworkFetcherFactory(
                         callFactory = { imageOkHttpClient }
@@ -151,6 +158,15 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             .decoderCoroutineContext(Dispatchers.Default.limitedParallelism(4))
             .crossfade(!isReducedMotionEnabled(context))
             .build()
+        // Clear old unowned cache entries before any catalog reader is opened. Tracked URLs
+        // never write to these caches, so a late fetch/decode cannot repopulate them.
+        loader.memoryCache?.clear()
+        loader.diskCache?.clear()
+        PanelArtworkPolicyRegistry.addInvalidationListener {
+            loader.memoryCache?.clear()
+            loader.diskCache?.clear()
+        }
+        return loader
     }
 }
 
