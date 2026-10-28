@@ -1114,7 +1114,11 @@ class SyncManager @Inject constructor(
         trackInitialLiveOnboarding: Boolean,
         providerOverride: Provider?,
         afterCatalogApply: (suspend () -> Unit)?
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> = withContext(
+        com.streamvault.data.panel.PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+    ) { withProviderLock(providerId) lock@{
         var progressSession: SyncProgressSession? = null
         try {
             val providerEntity = providerDao.getById(providerId)
@@ -1160,6 +1164,7 @@ class SyncManager @Inject constructor(
                     }
                 }
                 transactionRunner.inTransaction {
+            providerWorkflowCommitFence.assertCanCommit(providerId)
                     providerWorkflowCommitFence.assertCanCommit(providerId)
                     // A candidate configuration which produced no catalog is not committed. Do
                     // not make the previous provider look freshly synced in that case.
@@ -1200,7 +1205,7 @@ class SyncManager @Inject constructor(
         } finally {
             progressSession?.let(::finishProgressSession)
         }
-    }
+    } }
 
     fun resetState(providerId: Long? = null) {
         syncStatusPublicationCoordinator.reset(providerId)
@@ -1209,7 +1214,11 @@ class SyncManager @Inject constructor(
     override suspend fun rebuildXtreamIndex(
         providerId: Long,
         onProgress: ((String) -> Unit)?
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> = withContext(
+        com.streamvault.data.panel.PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+    ) { withProviderLock(providerId) lock@{
         val providerEntity = providerDao.getById(providerId)
             ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
         if (providerEntity.type != ProviderType.XTREAM_CODES) {
@@ -1303,7 +1312,7 @@ class SyncManager @Inject constructor(
         } finally {
             finishProgressSession(progressSession)
         }
-    }
+    } }
 
     override suspend fun retrySection(
         providerId: Long,
@@ -1311,7 +1320,11 @@ class SyncManager @Inject constructor(
         movieFastSyncOverride: Boolean?,
         syncReason: XtreamLiveSyncReason,
         onProgress: ((String) -> Unit)?
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> = withContext(
+        com.streamvault.data.panel.PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+    ) { withProviderLock(providerId) lock@{
         val providerEntity = providerDao.getById(providerId)
             ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
 
@@ -1379,7 +1392,7 @@ class SyncManager @Inject constructor(
         } finally {
             finishProgressSession(progressSession)
         }
-    }
+    } }
 
     override suspend fun processQueuedXtreamIndexJobs(
         providerId: Long,
@@ -1387,7 +1400,11 @@ class SyncManager @Inject constructor(
         force: Boolean,
         maxCategoriesPerSection: Int?,
         onProgress: ((String) -> Unit)?
-    ): com.streamvault.domain.model.Result<Unit> = withProviderLock(providerId) lock@{
+    ): com.streamvault.domain.model.Result<Unit> = withContext(
+        com.streamvault.data.panel.PanelCategoryExecutionContext(
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        )
+    ) { withProviderLock(providerId) lock@{
         val providerEntity = providerDao.getById(providerId)
             ?: return@lock com.streamvault.domain.model.Result.error("Provider $providerId not found")
         if (providerEntity.type != ProviderType.XTREAM_CODES) {
@@ -1460,7 +1477,7 @@ class SyncManager @Inject constructor(
             com.streamvault.domain.model.Result.success(Unit)
         }
         result.alsoApplyPendingRestore(providerId)
-    }
+    } }
 
     override fun cancelStalkerIndexSync(providerId: Long) {
         providerSyncWorkScheduler.cancelStalkerIndex(providerId)
@@ -1792,6 +1809,7 @@ class SyncManager @Inject constructor(
             mergeMovieSummary(existing, summary)
         }
         transactionRunner.inTransaction {
+            providerWorkflowCommitFence.assertCanCommit(providerId)
             movieDao.insertAll(merged)
             val persistedByStreamId = loadMoviesByStreamIds(providerId, merged.map { it.streamId })
             xtreamContentIndexDao.upsertAll(
@@ -1820,6 +1838,7 @@ class SyncManager @Inject constructor(
             mergeSeriesSummary(existing, summary)
         }
         transactionRunner.inTransaction {
+            providerWorkflowCommitFence.assertCanCommit(providerId)
             seriesDao.insertAll(merged)
             val persistedBySeriesId = loadSeriesByIds(providerId, merged.map { it.seriesId })
             xtreamContentIndexDao.upsertAll(
@@ -1848,6 +1867,7 @@ class SyncManager @Inject constructor(
         }
         var accepted = emptyList<SeriesEntity>()
         transactionRunner.inTransaction {
+            providerWorkflowCommitFence.assertCanCommit(providerId)
             val existing = seriesDao.getBySeriesIds(providerId, incoming.map { it.seriesId })
                 .associateBy { it.seriesId }
             accepted = incoming.mapNotNull { summary ->
@@ -2090,6 +2110,7 @@ class SyncManager @Inject constructor(
             )
         }
         transactionRunner.inTransaction {
+            providerWorkflowCommitFence.assertCanCommit(providerId)
             xtreamContentIndexDao.deleteByProviderAndType(providerId, ContentType.LIVE.name)
             xtreamContentIndexDao.upsertAll(indexRows)
         }
