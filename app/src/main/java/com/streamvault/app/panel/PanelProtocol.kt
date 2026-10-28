@@ -76,7 +76,7 @@ class PanelProtocol(
                 b = b.copy(everActivated = true, uncertain = true)
                 store.write(b)
             }
-            var config = PanelConfigParser.parse(root.toString())
+            var config = PanelConfigParser.parse(root.toString(), cached())
             if (config.status == PanelStatus.ACTIVE &&
                 (config.deviceCode != b.code || root.get("app_type")?.asString != "alaa_player")) {
                 config = denied("unauthorized")
@@ -102,7 +102,7 @@ class PanelProtocol(
                 }
                 else -> b.copy(uncertain = true)
             }
-            store.write(b.copy(cached = if (config.status == PanelStatus.ACTIVE) root.toString() else null,
+            store.write(b.copy(cached = if (config.status == PanelStatus.ACTIVE) PanelConfigParser.cacheJson(root, config) else null,
                 retryAtMs = clock() + 60_000, failures = 0))
             return config
         } catch (e: Exception) {
