@@ -46,6 +46,7 @@ import com.streamvault.domain.model.LegacyProvider as Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Result.Success
+import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.model.StalkerRequestPriority
@@ -650,6 +651,7 @@ class MovieRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamInfo(movie: Movie): Result<StreamInfo> = try {
+        val authorizationVersion = PanelPlaybackAuthorization.version(movie.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = movie.streamUrl,
             fallbackProviderId = movie.providerId,
@@ -670,7 +672,9 @@ class MovieRepositoryImpl @Inject constructor(
                     proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
-                    expirationTime = resolvedStream.expirationTime
+                    expirationTime = resolvedStream.expirationTime,
+                    providerId = movie.providerId,
+                    panelAuthorizationVersion = authorizationVersion
                 )
             )
         } ?: Result.error("No stream URL available for movie: ${movie.name}")

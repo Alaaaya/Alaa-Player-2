@@ -19,7 +19,9 @@ data class StreamInfo(
     val containerExtension: String? = null,
     val catchUpUrl: String? = null,
     val expirationTime: Long? = null,
-    val drmInfo: DrmInfo? = null
+    val drmInfo: DrmInfo? = null,
+    val providerId: Long? = null,
+    val panelAuthorizationVersion: Long = 0L
 ) {
     init {
         require(url.isNotBlank()) { "StreamInfo url must not be blank" }

@@ -700,6 +700,7 @@ class SeriesRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getEpisodeStreamInfo(episode: Episode): Result<StreamInfo> = try {
+        val authorizationVersion = PanelPlaybackAuthorization.version(episode.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = episode.streamUrl,
             fallbackProviderId = episode.providerId,
@@ -720,7 +721,9 @@ class SeriesRepositoryImpl @Inject constructor(
                     proxyPort = resolvedStream.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
-                    expirationTime = resolvedStream.expirationTime
+                    expirationTime = resolvedStream.expirationTime,
+                    providerId = episode.providerId,
+                    panelAuthorizationVersion = authorizationVersion
                 )
             )
         } ?: Result.error("No stream URL available for episode: ${episode.title}")

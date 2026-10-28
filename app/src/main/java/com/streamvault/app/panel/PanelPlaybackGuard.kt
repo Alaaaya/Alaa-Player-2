@@ -1,12 +1,12 @@
 package com.streamvault.app.panel
 
 import com.streamvault.domain.model.StreamInfo
+import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.player.PlayerEngine
 import com.streamvault.player.timeshift.TimeshiftConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
-import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,51 +14,59 @@ import javax.inject.Singleton
 @Singleton
 class PanelPlaybackGuard @Inject constructor() {
     @Volatile private var loading = true
-    @Volatile private var deniedOrigins: Set<String> = emptySet()
     private val engines = mutableListOf<WeakReference<GuardedEngine>>()
     @Synchronized fun wrap(engine: PlayerEngine): PlayerEngine = GuardedEngine(engine, this).also {
         engines.removeAll { ref -> ref.get() == null }; engines += WeakReference(it)
     }
     fun ready() { loading = false }
     fun failClosed() { loading = true }
-    fun allows(url: String) = !loading && origin(url) !in deniedOrigins
-    suspend fun revoke(origins: Set<String>) {
-        deniedOrigins = deniedOrigins + origins
+    suspend fun failClosedAndStop() {
+        loading = true
         withContext(Dispatchers.Main.immediate) {
             synchronized(this@PanelPlaybackGuard) {
-                // Stop all running engines conservatively: stream URLs may be redirected CDN URLs.
                 engines.mapNotNull { it.get() }.forEach { it.revokeCurrent() }
             }
         }
     }
-    @Synchronized fun authorize(origins: Set<String>) {
-        deniedOrigins = deniedOrigins - origins; loading = false
-        engines.mapNotNull { it.get() }.forEach { it.authorized() }
+    fun allows(info: StreamInfo) = !loading && PanelPlaybackAuthorization.allows(info)
+    suspend fun revoke(providerIds: Set<Long>) {
+        if (providerIds.isEmpty()) return // Pending install must never stop manual playback.
+        PanelPlaybackAuthorization.revoke(providerIds)
+        withContext(Dispatchers.Main.immediate) {
+            synchronized(this@PanelPlaybackGuard) {
+                engines.mapNotNull { it.get() }.forEach { it.revokeProviders(providerIds) }
+            }
+        }
     }
-    companion object {
-        fun origin(url: String): String = runCatching {
-            val u = URI(url); "${u.scheme?.lowercase()}://${u.host?.lowercase()}:${if (u.port >= 0) u.port else if (u.scheme == "https") 443 else 80}"
-        }.getOrDefault("invalid")
-        fun origins(c: PanelConfig): Set<String> = c.playlists.mapNotNull { it.server ?: it.url }.map(::origin).toSet()
+    fun authorize(providerIds: Set<Long>) {
+        PanelPlaybackAuthorization.authorize(providerIds)
+        loading = false
     }
     private class GuardedEngine(private val delegate: PlayerEngine, private val guard: PanelPlaybackGuard) : PlayerEngine by delegate {
         private var stream: StreamInfo? = null
         private var revoked = false
+        private var preloaded: StreamInfo? = null
         fun revokeCurrent() { revoked = true; delegate.preload(null); delegate.stopLiveTimeshift(); delegate.stop() }
-        fun authorized() { if (stream?.let { guard.allows(it.url) } == true) revoked = false }
+        fun revokeProviders(ids: Set<Long>) {
+            // Preloads may contain the next provider even while the current stream is manual.
+            if (preloaded?.providerId in ids) { delegate.preload(null); preloaded = null }
+            if (stream?.providerId in ids) revokeCurrent()
+        }
         private fun accept(info: StreamInfo): Boolean {
-            if ((revoked && stream?.url == info.url) || !guard.allows(info.url)) { revokeCurrent(); return false }
+            if (!guard.allows(info)) { revokeCurrent(); return false }
             stream = info; revoked = false; return true
         }
         override fun prepare(streamInfo: StreamInfo) { if (accept(streamInfo)) delegate.prepare(streamInfo) }
         override fun renewStreamUrl(streamInfo: StreamInfo) { if (accept(streamInfo)) delegate.renewStreamUrl(streamInfo) }
         override fun preload(streamInfo: StreamInfo?) {
-            if (streamInfo == null || guard.allows(streamInfo.url)) delegate.preload(streamInfo)
+            if (streamInfo == null || guard.allows(streamInfo)) {
+                preloaded = streamInfo; delegate.preload(streamInfo)
+            }
         }
-        override fun play() { if (!revoked && stream?.let { guard.allows(it.url) } == true) delegate.play() }
+        override fun play() { if (!revoked && stream?.let { guard.allows(it) } == true) delegate.play() }
         override fun startLiveTimeshift(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig) {
             if (accept(streamInfo)) delegate.startLiveTimeshift(streamInfo, channelKey, config)
         }
-        override fun resumeTimeshift() { if (!revoked && stream?.let { guard.allows(it.url) } == true) delegate.resumeTimeshift() }
+        override fun resumeTimeshift() { if (!revoked && stream?.let { guard.allows(it) } == true) delegate.resumeTimeshift() }
     }
 }

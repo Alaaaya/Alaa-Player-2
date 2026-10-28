@@ -146,3 +146,12 @@ object PanelDeviceCode {
     fun isValid(code: String?): Boolean = code != null && code.length == LENGTH && code.all { it in ALPHABET }
     fun display(code: String): String = if (isValid(code)) code.chunked(4).joinToString("-") else code
 }
+
+/** Ownership-scoped authorization diff. A changed/unusable grant cannot keep old playback alive. */
+fun panelProviderGrants(config: PanelConfig, mappings: List<PanelMapping>): Pair<Set<Long>, Set<Long>> {
+    val remote = if (config.status == PanelStatus.ACTIVE) config.playlists.associateBy { it.id } else emptyMap()
+    val authorized = mappings.filter { m ->
+        remote[m.panelId]?.let { it.isUsable && it.fingerprint() == m.fingerprint } == true
+    }.map { it.localProviderId }.toSet()
+    return (mappings.map { it.localProviderId }.toSet() - authorized) to authorized
+}

@@ -107,4 +107,28 @@ class PanelSyncTest {
         assertThat(PanelDeviceCode.isValid("a7k29qxd")).isFalse()
         assertThat(PanelDeviceCode.isValid(null)).isFalse()
     }
+    @Test fun grantsOnlyAuthorizeOwnedMatchingFingerprints() {
+        val c = PanelConfigParser.parse(activeJson)
+        val maps = listOf(PanelMapping("a", 10, c.playlists[0].fingerprint()), PanelMapping("b", 11, "stale"))
+        val grants = panelProviderGrants(c, maps)
+        assertThat(grants.first).containsExactly(11L)
+        assertThat(grants.second).containsExactly(10L)
+        assertThat(grants.first + grants.second).doesNotContain(99L) // manual same-host account
+    }
+    @Test fun pendingEmptyMappingDoesNotRevokeManualProviders() {
+        val c = PanelConfig(PanelStatus.INACTIVE, "code", null, emptyList())
+        assertThat(panelProviderGrants(c, emptyList()).first).isEmpty()
+        assertThat(panelProviderGrants(c, listOf(PanelMapping("a", 1, "x"))).first).containsExactly(1L)
+    }
+    @Test fun activeRemovalOrUnusableReplacementRevokesOldGrant() {
+        val c = PanelConfigParser.parse(activeJson)
+        val maps = c.playlists.mapIndexed { i, p -> PanelMapping(p.id, i.toLong()+10, p.fingerprint()) }
+        val removed = c.copy(playlists = c.playlists.take(1))
+        assertThat(panelProviderGrants(removed, maps).first).containsExactly(11L)
+        val unusable = c.copy(playlists = listOf(c.playlists[0].copy(url = null), c.playlists[1]))
+        assertThat(panelProviderGrants(unusable, maps).first).containsExactly(10L)
+        val failedSetup = maps.map { it.copy(fingerprint = "") }
+        assertThat(panelProviderGrants(c, failedSetup).second).isEmpty()
+    }
+
 }

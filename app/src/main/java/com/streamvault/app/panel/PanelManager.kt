@@ -111,8 +111,8 @@ class PanelManager @Inject constructor(
                 val legacyCode = plainPrefs.getString(KEY_CODE, null)
                 val legacyMappings = loadMappings()
                 check(!plainPrefs.getBoolean("v2_initialized", false) || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
-                val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty()
-                if (denied.isNotEmpty()) playbackGuard.revoke(denied)
+                val denied = loadDeniedProviderIds()
+                playbackGuard.revoke(denied)
                 check(legacyCode != null || legacyMappings.isEmpty() || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
                 val b = protocol.identity(legacyCode, legacyMappings.isNotEmpty())
                 check(plainPrefs.edit().putBoolean("v2_initialized", true).commit())
@@ -124,15 +124,15 @@ class PanelManager @Inject constructor(
                     protocol.discardExpiredCache()
                 }
                 if (cached?.status == PanelStatus.ACTIVE) {
-                    playbackGuard.authorize(PanelPlaybackGuard.origins(cached))
+                    // Reconcile active cached grants before opening the startup gate.
+                    enforce(cached, cached)
                 } else {
                     val deny = PanelConfig(PanelStatus.INACTIVE, b.code, null, emptyList())
                     // Clear stale providers even if the first network request is offline.
                     if (legacyMappings.isNotEmpty()) {
-                        val local = providerRepository.getProviders().first().filter { p -> legacyMappings.any { it.localProviderId == p.id } }
-                        val origins = local.map { PanelPlaybackGuard.origin(it.m3uUrl.ifBlank { it.serverUrl }) }.toSet()
-                        check(securePrefs.edit().putStringSet("denied_origins", denied + origins).commit())
-                        playbackGuard.revoke(origins)
+                        val ids = legacyMappings.map { it.localProviderId }.toSet()
+                        saveDeniedProviderIds(denied + ids)
+                        playbackGuard.revoke(ids)
                         val removalFailures = apply(deny)
                         check(removalFailures.isEmpty()) { "Panel provider cleanup failed" }
                     }
@@ -189,19 +189,25 @@ class PanelManager @Inject constructor(
     }
 
     private suspend fun enforce(config: PanelConfig, previous: PanelConfig?) {
-        if (config.status != PanelStatus.ACTIVE) {
-            // Stop before deletion (including main, preview and multiview); purge authorization cache.
-            val origins = previous?.let(PanelPlaybackGuard::origins).orEmpty()
-            val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty() + origins
-            check(securePrefs.edit().putStringSet("denied_origins", denied).commit())
-            playbackGuard.revoke(denied)
-        } else {
-            val origins = PanelPlaybackGuard.origins(config)
-            val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty() - origins
-            check(securePrefs.edit().putStringSet("denied_origins", denied).commit())
-            playbackGuard.authorize(origins)
+        try { enforceKnownConfig(config) }
+        catch (e: Exception) {
+            playbackGuard.failClosedAndStop()
+            throw e
         }
+    }
+
+    private suspend fun enforceKnownConfig(config: PanelConfig) {
+        // Revoke removed/replaced panel grants BEFORE modifying rows or network setup.
+        // Provider IDs survive URL/CDN redirects and distinguish manual accounts on the same host.
+        val before = loadMappings()
+        val revoked = panelProviderGrants(config, before).first
+        playbackGuard.revoke(revoked)
+        saveDeniedProviderIds(loadDeniedProviderIds() + revoked)
         val failures = apply(config)
+        // Failed/partial setup does NOT restore access to a previous account configuration.
+        val authorized = panelProviderGrants(config, loadMappings()).second
+        saveDeniedProviderIds(loadDeniedProviderIds() - authorized)
+        playbackGuard.authorize(authorized)
         val at = System.currentTimeMillis()
         plainPrefs.edit().putLong(KEY_LAST_SYNC, at).commit()
         _state.update { it.copy(status = config.status, expiresAt = config.expiresAt,
@@ -241,16 +247,37 @@ class PanelManager @Inject constructor(
     }
 
     private suspend fun upsert(p: PanelPlaylist, existingId: Long?, mappings: MutableList<PanelMapping>, failures: MutableList<String>) {
+        // Reserve an inert, unique identity first. Real account identity is installed only by the
+        // edit path, which checks for collisions BEFORE mutation. No real credentials are
+        // installed until the ownership mapping has been committed.
+        val targetId = existingId ?: run {
+            val reservationUrl = "https://panel-reservation-${java.util.UUID.randomUUID()}.invalid"
+            val draft = com.streamvault.domain.model.LegacyProvider(
+                name = p.name,
+                type = if (p.type == PanelPlaylistType.XTREAM) com.streamvault.domain.model.ProviderType.XTREAM_CODES else com.streamvault.domain.model.ProviderType.M3U,
+                serverUrl = reservationUrl,
+                m3uUrl = if (p.type == PanelPlaylistType.M3U) reservationUrl else "",
+                isActive = false,
+            )
+            val added = providerRepository.addProvider(draft)
+            val id = (added as? com.streamvault.domain.model.Result.Success)?.data
+            if (id == null) { failures += "Panel account conflicts with existing provider"; return }
+            mappings += PanelMapping(p.id, id, "")
+            saveMappings(mappings) // Ownership committed before any subsequent setup/network mutation.
+            saveDeniedProviderIds(loadDeniedProviderIds() + id)
+            playbackGuard.revoke(setOf(id))
+            id
+        }
         val result = runCatching {
             when (p.type) {
                 PanelPlaylistType.XTREAM -> validateAndAddProvider.loginXtream(
                     XtreamProviderSetupCommand(
                         serverUrl = p.server.orEmpty(), username = p.username.orEmpty(), password = p.password.orEmpty(),
-                        name = p.name, existingProviderId = existingId,
+                        name = p.name, existingProviderId = targetId,
                     )
                 )
                 PanelPlaylistType.M3U -> validateAndAddProvider.addM3u(
-                    M3uProviderSetupCommand(url = p.url.orEmpty(), name = p.name, existingProviderId = existingId)
+                    M3uProviderSetupCommand(url = p.url.orEmpty(), name = p.name, existingProviderId = targetId)
                 )
             }
         }.getOrElse { failures += "Provider setup failed"; return }
@@ -282,6 +309,16 @@ class PanelManager @Inject constructor(
             if (text.length > MAX_RESPONSE_CHARS) throw IOException("panel response too large")
             return text
         }
+    }
+
+    private fun loadDeniedProviderIds(): Set<Long> =
+        securePrefs.getStringSet("denied_provider_ids", emptySet()).orEmpty().map {
+            it.toLongOrNull() ?: error("Invalid panel ownership state")
+        }.toSet()
+
+    private fun saveDeniedProviderIds(ids: Set<Long>) {
+        check(securePrefs.edit().putStringSet("denied_provider_ids", ids.map(Long::toString).toSet())
+            .remove("denied_origins").commit())
     }
 
     private fun loadMappings(): List<PanelMapping> = runCatching {

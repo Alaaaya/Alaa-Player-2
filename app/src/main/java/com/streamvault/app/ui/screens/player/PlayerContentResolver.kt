@@ -8,6 +8,7 @@ import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
 import com.streamvault.domain.model.VodMovieVariant
@@ -80,6 +81,7 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
     seriesRepository: SeriesRepository,
     xtreamStreamUrlResolver: ProviderPlaybackResolver
 ): PlayerPlaybackStreamResolution {
+    val authorizationVersion = PanelPlaybackAuthorization.version(providerId)
     var fallbackStreamId: Long? = null
     var fallbackContainerExtension: String? = null
 
@@ -181,7 +183,9 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                     proxyPort = resolved.proxyPort,
                     streamType = StreamType.fromContainerExtension(ext),
                     containerExtension = ext,
-                    expirationTime = resolved.expirationTime
+                    expirationTime = resolved.expirationTime,
+                    providerId = providerId,
+                    panelAuthorizationVersion = authorizationVersion
                 )
             )
         }
@@ -212,7 +216,9 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 url = it,
                 title = currentTitle,
                 streamType = StreamType.fromContainerExtension(fallbackContainerExtension),
-                containerExtension = fallbackContainerExtension
+                containerExtension = fallbackContainerExtension,
+                providerId = providerId,
+                panelAuthorizationVersion = authorizationVersion
             )
         }
     )
