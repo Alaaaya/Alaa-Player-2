@@ -151,14 +151,14 @@ class PanelManagerOwnershipTest {
     }
 
     @Test fun artworkRestoreFailureAbortsStartupBeforeIdentityOrProviderWork(): Unit = runBlocking {
-        whenever(categories.restoreArtworkTombstones()).thenThrow(IllegalStateException("storage unavailable"))
+        whenever(categories.restoreStartup()).thenThrow(IllegalStateException("storage unavailable"))
         try {
             manager.restoreCatalogPolicy()
             fail("Startup must remain closed if persisted artwork ownership cannot be restored")
         } catch (expected: IllegalStateException) {
             assertEquals("storage unavailable", expected.message)
         }
-        verify(categories).restoreArtworkTombstones()
+        verify(categories).restoreStartup()
         verifyNoInteractions(repo, setup)
     }
 
