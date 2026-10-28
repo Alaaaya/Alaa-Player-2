@@ -26,7 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' :app:assembleDebug
+        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :domain:test --tests '*Panel*' :data:testDebugUnitTest --tests '*Panel*' :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' --tests 'com.streamvault.app.DatabaseStartupGateTest' :app:assembleDebug
 
       - name: Prepare APK artifact
         shell: bash
@@ -48,6 +48,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: secure-pairing-test-reports
-          path: app/build/test-results/testDebugUnitTest/
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            data/build/test-results/testDebugUnitTest/
+            domain/build/test-results/test/
           if-no-files-found: warn
           retention-days: 7

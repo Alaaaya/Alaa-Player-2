@@ -8,6 +8,7 @@ import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.PanelCategoryPolicyRegistry
 import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.StreamType
@@ -82,6 +83,7 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
     xtreamStreamUrlResolver: ProviderPlaybackResolver
 ): PlayerPlaybackStreamResolution {
     val authorizationVersion = PanelPlaybackAuthorization.version(providerId)
+    val categoryVersion = PanelCategoryPolicyRegistry.version(providerId)
     var fallbackStreamId: Long? = null
     var fallbackContainerExtension: String? = null
 
@@ -162,6 +164,11 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
         }
     }
 
+    // An unresolved cached/deep-link ID must not fall through to an arbitrary URL for a
+    // tracked subscription. Resolve only content with known currently visible membership.
+    if (!PanelCategoryPolicyRegistry.allowsContent(providerId, PanelCategoryPolicyRegistry.media(contentType), fallbackStreamId)) {
+        return PlayerPlaybackStreamResolution(streamInfo = null, resolutionFailureMessage = "Content is unavailable under the current category settings.")
+    }
     try {
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = logicalUrl,
@@ -185,7 +192,10 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                     containerExtension = ext,
                     expirationTime = resolved.expirationTime,
                     providerId = providerId,
-                    panelAuthorizationVersion = authorizationVersion
+                    panelAuthorizationVersion = authorizationVersion,
+                    panelCategoryPolicyVersion = categoryVersion,
+                    contentType = contentType,
+                    streamId = fallbackStreamId
                 )
             )
         }
@@ -218,7 +228,10 @@ internal suspend fun resolvePlayerPlaybackStreamInfo(
                 streamType = StreamType.fromContainerExtension(fallbackContainerExtension),
                 containerExtension = fallbackContainerExtension,
                 providerId = providerId,
-                panelAuthorizationVersion = authorizationVersion
+                panelAuthorizationVersion = authorizationVersion,
+                panelCategoryPolicyVersion = categoryVersion,
+                contentType = contentType,
+                streamId = fallbackStreamId
             )
         }
     )

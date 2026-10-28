@@ -62,6 +62,25 @@ class DatabaseStartupGateTest {
     }
 
     @Test
+    fun `catalog readers stay behind gate until secure policy restoration completes`() = runTest {
+        val policyRestored = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val gate = DatabaseStartupGate { policyRestored.await() }
+        val opening = async { gate.open() }
+        advanceUntilIdle()
+        assertThat(gate.state.value).isEqualTo(DatabaseStartupState.Opening)
+        policyRestored.complete(Unit)
+        opening.await()
+        assertThat(gate.state.value).isEqualTo(DatabaseStartupState.Ready)
+    }
+
+    @Test
+    fun `secure policy restore failure cannot publish cached catalog readiness`() = runTest {
+        val gate = DatabaseStartupGate { error("Secure policy unavailable") }
+        gate.open()
+        assertThat(gate.state.value).isInstanceOf(DatabaseStartupState.Failed::class.java)
+    }
+
+    @Test
     fun `one startup task failure does not cancel sibling tasks`() = runTest {
         val completed = mutableListOf<String>()
         val failures = mutableListOf<String>()
