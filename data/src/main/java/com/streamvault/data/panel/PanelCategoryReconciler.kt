@@ -43,6 +43,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             if (previous != scope) {
                 // Explicit one-time migration of unprovable legacy cache, or provider replacement.
                 store.purgeCatalog(providerId)
+                db.execSQL("DELETE FROM panel_episode_parent WHERE provider_id=?", arrayOf<Any>(providerId))
                 db.execSQL("DELETE FROM panel_raw_membership WHERE provider_id=?", arrayOf<Any>(providerId))
                 db.execSQL("DELETE FROM panel_raw_category WHERE provider_id=?", arrayOf<Any>(providerId))
             }
@@ -66,7 +67,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             store.schema()
             store.seedArtwork(providerId, false)
             store.purgeCatalog(providerId)
-            listOf("panel_raw_membership", "panel_raw_category", "panel_cache_identity").forEach {
+            listOf("panel_episode_parent", "panel_raw_membership", "panel_raw_category", "panel_cache_identity").forEach {
                 db.execSQL("DELETE FROM $it WHERE provider_id=?", arrayOf<Any>(providerId))
             }
             val names = db.query("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'panel_cat_${providerId}_%'").use { c ->
@@ -81,13 +82,14 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
         private val artworkEpochs = mutableMapOf<Long,Long>()
         private fun expectedArtworkEpoch(providerId:Long):Long = artworkEpochs.getOrPut(providerId) { Artwork.epoch(providerId) }
         private val catalogs = listOf(Triple("channels", "live", "stream_id"), Triple("movies", "vod", "stream_id"),
-            Triple("series", "series", "series_id"), Triple("episodes", "series", "episode_id"),
+            Triple("series", "series", "series_id"), Triple("episodes", "episode", "episode_id"),
             Triple("channel_import_stage", "live", "stream_id"), Triple("movie_import_stage", "vod", "stream_id"),
             Triple("series_import_stage", "series", "series_id"))
         private fun columns(table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { c ->
             buildSet { while (c.moveToNext()) add(c.getString(1)) }
         }
         fun schema() {
+            db.execSQL("CREATE TABLE IF NOT EXISTS panel_episode_parent(provider_id INTEGER NOT NULL,series_id INTEGER NOT NULL,episode_id INTEGER NOT NULL,PRIMARY KEY(provider_id,series_id,episode_id))")
             db.execSQL("CREATE TABLE IF NOT EXISTS panel_cache_identity(provider_id INTEGER PRIMARY KEY,scope TEXT NOT NULL,revision TEXT NOT NULL)")
             db.execSQL("CREATE TABLE IF NOT EXISTS panel_raw_category(provider_id INTEGER NOT NULL,media TEXT NOT NULL,raw_id TEXT NOT NULL,cache_key INTEGER NOT NULL,PRIMARY KEY(provider_id,media,raw_id),UNIQUE(provider_id,media,cache_key))")
             db.execSQL("CREATE TABLE IF NOT EXISTS panel_raw_membership(provider_id INTEGER NOT NULL,media TEXT NOT NULL,content_id INTEGER NOT NULL,raw_id TEXT NOT NULL,allowed INTEGER NOT NULL,PRIMARY KEY(provider_id,media,content_id,raw_id))")
@@ -127,18 +129,23 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             "SELECT raw_id FROM panel_raw_category WHERE provider_id=? AND media=? AND cache_key=?",arrayOf<Any>(providerId,media,key)).use {
             if(it.moveToFirst()) it.getString(0) else null
         }
+        override fun episodeParent(providerId: Long, seriesId: Long, episodeId: Long) {
+            db.execSQL("INSERT OR IGNORE INTO panel_episode_parent VALUES(?,?,?)",arrayOf<Any>(providerId,seriesId,episodeId))
+        }
         override fun membership(providerId: Long, media: String, contentId: Long, categories: Set<String>, allowed: Boolean) {
             categories.forEach { raw -> db.execSQL("INSERT OR REPLACE INTO panel_raw_membership VALUES(?,?,?,?,?)",arrayOf<Any>(providerId,media,contentId,raw,if(allowed) 1 else 0)) }
             if(!allowed) {
                 // Sticky union revokes the version that may have been cached from an earlier category response.
-                Artwork.beginTransition(providerId)
-                artworkEpochs[providerId] = Artwork.epoch(providerId)
+                // Denials never advance the provider epoch; that would invalidate unrelated in-flight DTOs.
                 seedArtwork(providerId, false, media, contentId)
                 evict(providerId, media, contentId)
-                seedArtwork(providerId, true)
+                if(Policies.allowsContent(providerId,media,contentId)) seedArtwork(providerId, true)
             }
         }
         fun restore(providerId: Long) {
+            db.query("SELECT series_id,episode_id FROM panel_episode_parent WHERE provider_id=?",arrayOf<Any>(providerId)).use { c ->
+                while(c.moveToNext()) Policies.restoreEpisodeParent(providerId,c.getLong(0),c.getLong(1))
+            }
             val rows = mutableMapOf<Pair<String,Long>,MutableSet<String>>()
             db.query("SELECT media,content_id,raw_id FROM panel_raw_membership WHERE provider_id=?",arrayOf<Any>(providerId)).use { c ->
                 while(c.moveToNext()) rows.getOrPut(c.getString(0) to c.getLong(1)){mutableSetOf()} += c.getString(2)
@@ -146,12 +153,15 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             rows.forEach { (key, ids) -> Policies.restoreMembership(providerId,key.first,key.second,ids) }
         }
         fun reconcileMembership(providerId: Long) {
+            // Legacy episode memberships had no trustworthy typed ownership. Never authorize them as episodes.
+            // Durable edges created by detail hydration permit rebuilding the full parent union on restart.
+            db.execSQL("INSERT OR REPLACE INTO panel_raw_membership SELECT e.provider_id,'episode',e.episode_id,m.raw_id,m.allowed FROM panel_episode_parent e JOIN panel_raw_membership m ON m.provider_id=e.provider_id AND m.media='series' AND m.content_id=e.series_id WHERE e.provider_id=?",arrayOf<Any>(providerId))
             val rows = mutableMapOf<Pair<String,Long>,MutableSet<String>>()
             db.query("SELECT media,content_id,raw_id FROM panel_raw_membership WHERE provider_id=?",arrayOf<Any>(providerId)).use { c ->
                 while(c.moveToNext()) rows.getOrPut(c.getString(0) to c.getLong(1)){mutableSetOf()} += c.getString(2)
             }
             rows.forEach { (key, ids) ->
-                val allowed = ids.none { it in policy!!.hidden[key.first].orEmpty() }
+                val allowed = ids.isNotEmpty() && ids.none { it in policy!!.hidden[if(key.first=="episode") "series" else key.first].orEmpty() }
                 db.execSQL("UPDATE panel_raw_membership SET allowed=? WHERE provider_id=? AND media=? AND content_id=?",arrayOf<Any>(if(allowed)1 else 0,providerId,key.first,key.second))
                 if(!allowed) evict(providerId,key.first,key.second)
             }
@@ -163,7 +173,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                 if("provider_id" in columns(table)) db.execSQL("DELETE FROM `$table` WHERE provider_id=?",arrayOf<Any>(providerId))
             }
             if("provider_id" in columns("xtream_content_index")) {
-                policy!!.hidden.forEach { (media,_) ->
+                (policy!!.hidden.keys + "episode").forEach { media ->
                     db.execSQL("DELETE FROM xtream_content_index WHERE provider_id=? AND content_type IN (${types(media)}) AND NOT EXISTS(SELECT 1 FROM panel_raw_membership m WHERE m.provider_id=xtream_content_index.provider_id AND m.media='$media' AND CAST(m.content_id AS TEXT)=xtream_content_index.remote_id AND m.allowed=1)",arrayOf<Any>(providerId))
                 }
             }
@@ -220,7 +230,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                 if("provider_id" in columns(table)) db.execSQL("DELETE FROM `$table` WHERE provider_id=? AND `$column`=?",arrayOf<Any>(providerId,id))
             }
         }
-        private fun types(media:String):String = when(media) {"live" -> "'LIVE'";"vod" -> "'MOVIE','VOD'";else -> "'SERIES','SERIES_EPISODE'"}
+        private fun types(media:String):String = when(media) {"live" -> "'LIVE'";"vod" -> "'MOVIE','VOD'";"episode" -> "'SERIES_EPISODE'";else -> "'SERIES'"}
         fun purgeCatalog(providerId: Long) {
             val tables = catalogs.map{it.first} + listOf("categories","category_import_stage","programs","channel_epg_mappings","vod_catalog_entries","movie_category_hydration","series_category_hydration","vod_category_hydration","xtream_content_index","xtream_index_jobs","xtream_category_index_state","sync_metadata")
             tables.forEach { table -> if("provider_id" in columns(table)) db.execSQL("DELETE FROM `$table` WHERE provider_id=?",arrayOf<Any>(providerId)) }
@@ -242,6 +252,15 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             } }
         }
         fun seedArtwork(providerId: Long, allowed: Boolean, onlyMedia: String?=null, onlyId: Long?=null) {
+            db.query("SELECT url,owner_key FROM panel_artwork_owner WHERE provider_id=?",arrayOf<Any>(providerId)).use { c ->
+                while(c.moveToNext()) {
+                    val key=c.getString(1)
+                    val media=key.substringBefore(':')
+                    val content=key.substringAfter(':').toLongOrNull() ?: continue
+                    if(onlyMedia!=null && media!=onlyMedia || onlyId!=null && content!=onlyId) continue
+                    check(Artwork.record(providerId,c.getString(0),key,allowed && Policies.allowsContent(providerId,media,content),if(allowed) expectedArtworkEpoch(providerId) else Artwork.epoch(providerId))) { "Artwork generation changed" }
+                }
+            }
             (catalogs + listOf(Triple("xtream_content_index","live","remote_id"))).filter { onlyMedia==null || it.second==onlyMedia }.forEach { (table,media,id) ->
                 val cols=columns(table)
                 if("provider_id" !in cols) return@forEach
@@ -256,7 +275,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                         urls.indices.forEach { index -> if(!c.isNull(index+1)) {
                             val url=c.getString(index+1)
                             db.execSQL("INSERT OR IGNORE INTO panel_artwork_owner VALUES(?,?,?)",arrayOf<Any>(providerId,url,key))
-                            check(Artwork.record(providerId,url,key,allowed && Policies.allowsContent(providerId,actualMedia,content),expectedArtworkEpoch(providerId))) { "Artwork generation changed" }
+                            check(Artwork.record(providerId,url,key,allowed && Policies.allowsContent(providerId,actualMedia,content),if(allowed) expectedArtworkEpoch(providerId) else Artwork.epoch(providerId))) { "Artwork generation changed" }
                         } }
                     }
                 }

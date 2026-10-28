@@ -16,6 +16,7 @@ object PanelCategoryPolicyRegistry {
     private val states = mutableMapOf<Long, State>()
     private val epochs = mutableMapOf<Long, Long>()
     private val membership = mutableMapOf<Triple<Long, String, Long>, Set<String>>()
+    private val episodeParents = mutableMapOf<Pair<Long, Long>, MutableSet<Long>>()
     private val requests = mutableMapOf<Snapshot, MutableSet<() -> Unit>>()
     @Synchronized fun registerRequest(token: Snapshot, cancel: () -> Unit): AutoCloseable {
         requireCurrent(token)
@@ -30,6 +31,7 @@ object PanelCategoryPolicyRegistry {
     private var startupReady = false
     interface Persistence {
         fun membership(providerId: Long, media: String, contentId: Long, categories: Set<String>, allowed: Boolean)
+        fun episodeParent(providerId: Long, seriesId: Long, episodeId: Long) {}
         fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long)
         fun categoryKey(providerId: Long, media: String, rawId: String): Long
         fun rawCategory(providerId: Long, media: String, key: Long): String?
@@ -90,7 +92,7 @@ object PanelCategoryPolicyRegistry {
     @Synchronized fun allowsCategory(providerId: Long, media: String, rawId: String?): Boolean {
         val state = states[providerId] ?: return startupReady
         val policy = state.policy ?: return false
-        val hidden = policy.hidden[media] ?: return false
+        val hidden = policy.hidden[if (media == "episode") "series" else media] ?: return false
         return rawId != null && rawId.matches(Regex("[0-9]{1,64}")) && rawId !in hidden
     }
     @Synchronized fun recordMembership(token: Snapshot, media: String, contentId: Long, categoryIds: Set<String>): Boolean {
@@ -101,18 +103,41 @@ object PanelCategoryPolicyRegistry {
         membership[key] = union
         val allowed = union.isNotEmpty() && union.all { allowsCategory(token.providerId, media, it) }
         persistence[token.providerId]?.membership(token.providerId, media, contentId, union, allowed)
+        if (media == "series") {
+            episodeParents.filterKeys { it.first == token.providerId }.filterValues { contentId in it }
+                .keys.toList().forEach { (_, episodeId) ->
+                    recordMembership(token, "episode", episodeId, union)
+                }
+        }
         return allowed
+    }
+    /** Typed persistent edges inherit the complete sticky parent union, including future discoveries. */
+    @Synchronized fun recordEpisodeParent(token: Snapshot, seriesId: Long, episodeId: Long): Boolean {
+        if (!isCurrent(token)) return false
+        if (!isTracked(token.providerId)) return true
+        episodeParents.getOrPut(token.providerId to episodeId) { mutableSetOf() }.add(seriesId)
+        persistence[token.providerId]?.episodeParent(token.providerId, seriesId, episodeId)
+        return recordMembership(token, "episode", episodeId, membership[Triple(token.providerId,"series",seriesId)].orEmpty()) &&
+            allowsContent(token.providerId, "series", seriesId)
+    }
+    @Synchronized fun restoreEpisodeParent(providerId: Long, seriesId: Long, episodeId: Long) {
+        episodeParents.getOrPut(providerId to episodeId) { mutableSetOf() }.add(seriesId)
     }
     @Synchronized fun allowsContent(providerId: Long, media: String, contentId: Long?): Boolean {
         val state = states[providerId] ?: return startupReady
         val policy = state.policy ?: return false
+        if (media == "episode") {
+            val parents = episodeParents[providerId to contentId] ?: return false
+            if (parents.isEmpty() || parents.any { !allowsContent(providerId,"series",it) }) return false
+        }
         val categories = membership[Triple(providerId, media, contentId)] ?: return false
         return categories.isNotEmpty() && categories.all { allowsCategory(providerId, media, it) }
     }
-    private fun clearMembership(id: Long) { membership.keys.removeAll { it.first == id } }
+    private fun clearMembership(id: Long) { membership.keys.removeAll { it.first == id }; episodeParents.keys.removeAll { it.first == id } }
     fun media(type: ContentType): String = when (type) {
         ContentType.LIVE -> "live"
         ContentType.MOVIE, ContentType.VOD -> "vod"
-        ContentType.SERIES, ContentType.SERIES_EPISODE -> "series"
+        ContentType.SERIES -> "series"
+        ContentType.SERIES_EPISODE -> "episode"
     }
 }

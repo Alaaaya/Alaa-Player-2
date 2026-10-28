@@ -82,6 +82,7 @@ class XtreamProvider(
 
     // A provider instance is a workflow capability. Policy transitions invalidate old instances;
     // callers must obtain a fresh instance rather than revive stale mapped callbacks.
+    private val categoryWorkflowToken = PanelCategoryPolicyRegistry.snapshot(providerId)
     private val artworkWorkflowEpoch = PanelArtworkPolicyRegistry.epoch(providerId)
 
     private enum class XtreamTextDecodeMode {
@@ -372,6 +373,7 @@ class XtreamProvider(
     }
 
     override suspend fun getVodInfo(vodId: Long): Result<Movie> { return try {
+        PanelCategoryPolicyRegistry.requireCurrent(categoryWorkflowToken)
         if (!panelContent(ContentType.MOVIE, vodId)) return Result.error("Unknown or hidden content")
         val response = api.getVodInfo(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -391,6 +393,8 @@ class XtreamProvider(
         } else if (movieData.streamId <= 0) {
             Result.error("Movie stream is invalid")
         } else {
+            check(movieData.streamId == vodId) { "Movie identity changed" }
+            check(PanelCategoryPolicyRegistry.recordMembership(categoryWorkflowToken,"vod",vodId,setOfNotNull(movieData.categoryId))) { "Movie membership denied" }
             val adultCategoryIds = loadAdultCategoryIds(ContentType.MOVIE)
             if (!panelCategory(ContentType.MOVIE, movieData.categoryId)) return Result.error("Hidden content")
             val category = resolveXtreamCategory(ContentType.MOVIE, movieData.categoryId, null)
@@ -430,7 +434,10 @@ class XtreamProvider(
                         categoryName = category.name,
                         adultCategoryIds = adultCategoryIds
                     )
-                )
+                ).also {
+                    PanelCategoryPolicyRegistry.requireCurrent(categoryWorkflowToken)
+                    PanelCategoryPolicyRegistry.recordArtwork(providerId,"vod",vodId,listOf(it.posterUrl,it.backdropUrl),artworkWorkflowEpoch)
+                }
             )
         }
     } catch (e: CancellationException) {
@@ -572,9 +579,14 @@ class XtreamProvider(
     }
 
     override suspend fun getSeriesInfo(seriesId: Long): Result<Series> { return try {
+        PanelCategoryPolicyRegistry.requireCurrent(categoryWorkflowToken)
         if (!panelContent(ContentType.SERIES, seriesId)) return Result.error("Unknown or hidden content")
         val response = requestSeriesInfoWithCompatibilityFallback(seriesId)
         val info = response.info
+        if (info != null) {
+            check(info.seriesId <= 0 || info.seriesId == seriesId) { "Series identity changed" }
+            check(PanelCategoryPolicyRegistry.recordMembership(categoryWorkflowToken,"series",seriesId,setOfNotNull(info.categoryId))) { "Series membership denied" }
+        }
         val adultCategoryIds = loadAdultCategoryIds(ContentType.SERIES)
         val baseSeries = info?.toDomain(
             adultCategoryIds = adultCategoryIds,
@@ -628,12 +640,9 @@ class XtreamProvider(
                         episodeId = episodeId
                     )
                 }
-                if (PanelCategoryPolicyRegistry.isTracked(providerId)) {
-                    val token = PanelCategoryPolicyRegistry.snapshot(providerId)
-                    val raw = panelRawCategory(ContentType.SERIES, baseSeries.categoryId)
-                    mappedEpisodes.forEach { episode ->
-                        PanelCategoryPolicyRegistry.recordMembership(token, "series", episode.episodeId, setOfNotNull(raw))
-                    }
+                mappedEpisodes.forEach { episode ->
+                    check(PanelCategoryPolicyRegistry.recordEpisodeParent(categoryWorkflowToken,seriesId,episode.episodeId)) { "Episode parent denied" }
+                    PanelCategoryPolicyRegistry.recordArtwork(providerId,"episode",episode.episodeId,listOf(episode.coverUrl),artworkWorkflowEpoch)
                 }
                 val seasonMetadata = seasonMetadataByNumber[resolvedSeasonNumber]
                 Season(
@@ -662,6 +671,9 @@ class XtreamProvider(
             else -> emptyList()
         }
 
+        PanelCategoryPolicyRegistry.requireCurrent(categoryWorkflowToken)
+        PanelCategoryPolicyRegistry.recordArtwork(providerId,"series",seriesId,
+            listOf(baseSeries.posterUrl,baseSeries.backdropUrl) + seasons.map { it.coverUrl },artworkWorkflowEpoch)
         Result.success(
             baseSeries.copy(
                 seasons = seasons,
