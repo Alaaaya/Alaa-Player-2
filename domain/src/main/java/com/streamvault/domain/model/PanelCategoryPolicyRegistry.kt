@@ -45,11 +45,11 @@ object PanelCategoryPolicyRegistry {
     }
     private val persistence = mutableMapOf<Long, Persistence>()
     @Synchronized fun attach(providerId: Long, store: Persistence) { persistence[providerId] = store }
-    @Synchronized fun recordArtwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long) {
-        if (!isTracked(providerId)) { check(startupReady); return }
+    fun recordArtwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long) = PanelArtworkPolicyRegistry.deferInvalidationCallbacks { synchronized(this) {
+        if (!isTracked(providerId)) { check(startupReady); return@synchronized }
         check(allowsContent(providerId,media,contentId)) { "Artwork membership changed" }
         checkNotNull(persistence[providerId]) { "Artwork ownership unavailable" }.artwork(providerId,media,contentId,urls,expectedEpoch)
-    }
+    } }
     @Synchronized fun markStartupReady() { startupReady = true }
     @Synchronized fun startupReady(): Boolean = startupReady
     @Synchronized fun categoryKey(providerId: Long, media: String, rawId: String): Long? {
@@ -111,9 +111,9 @@ object PanelCategoryPolicyRegistry {
         val hidden = policy.hidden[if (media == "episode") "series" else media] ?: return false
         return rawId != null && rawId.matches(Regex("[0-9]{1,64}")) && rawId !in hidden
     }
-    @Synchronized fun recordMembership(token: Snapshot, media: String, contentId: Long, categoryIds: Set<String>): Boolean {
-        if (!isCurrent(token)) return false
-        if (!isTracked(token.providerId)) return true
+    fun recordMembership(token: Snapshot, media: String, contentId: Long, categoryIds: Set<String>): Boolean = PanelArtworkPolicyRegistry.deferInvalidationCallbacks { synchronized(this) {
+        if (!isCurrent(token)) return@synchronized false
+        if (!isTracked(token.providerId)) return@synchronized true
         val key = Triple(token.providerId, media, contentId)
         val union = membership[key].orEmpty() + categoryIds
         membership[key] = union
@@ -125,17 +125,17 @@ object PanelCategoryPolicyRegistry {
                     recordMembership(token, "episode", episodeId, union)
                 }
         }
-        return allowed
-    }
+        return@synchronized allowed
+    } }
     /** Typed persistent edges inherit the complete sticky parent union, including future discoveries. */
-    @Synchronized fun recordEpisodeParent(token: Snapshot, seriesId: Long, episodeId: Long): Boolean {
-        if (!isCurrent(token)) return false
-        if (!isTracked(token.providerId)) return true
+    fun recordEpisodeParent(token: Snapshot, seriesId: Long, episodeId: Long): Boolean = PanelArtworkPolicyRegistry.deferInvalidationCallbacks { synchronized(this) {
+        if (!isCurrent(token)) return@synchronized false
+        if (!isTracked(token.providerId)) return@synchronized true
         episodeParents.getOrPut(token.providerId to episodeId) { mutableSetOf() }.add(seriesId)
         persistence[token.providerId]?.episodeParent(token.providerId, seriesId, episodeId)
-        return recordMembership(token, "episode", episodeId, membership[Triple(token.providerId,"series",seriesId)].orEmpty()) &&
+        return@synchronized recordMembership(token, "episode", episodeId, membership[Triple(token.providerId,"series",seriesId)].orEmpty()) &&
             allowsContent(token.providerId, "series", seriesId)
-    }
+    } }
     @Synchronized fun restoreEpisodeParent(providerId: Long, seriesId: Long, episodeId: Long) {
         episodeParents.getOrPut(providerId to episodeId) { mutableSetOf() }.add(seriesId)
     }

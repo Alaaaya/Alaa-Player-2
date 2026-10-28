@@ -22,6 +22,10 @@ class PlaybackResolverRegistry(
         preferStableUrl: Boolean,
         isStalkerSource: Boolean
     ): ResolvedStreamUrl? {
+        val policyToken = com.streamvault.domain.model.PanelCategoryPolicyRegistry.snapshot(providerId)
+        if (!com.streamvault.domain.model.PanelCategoryPolicyRegistry.allowsContent(
+                providerId, com.streamvault.domain.model.PanelCategoryPolicyRegistry.media(contentType), streamId
+            )) return null
         val capabilitySet = when (val resolution = providerCapabilities.resolve(providerId)) {
             is CapabilityResolution.Available -> resolution.capability
             is CapabilityResolution.ConfigurationError -> return unavailable(sourceUrl, resolution.reason, isStalkerSource)
@@ -44,6 +48,7 @@ class PlaybackResolverRegistry(
             )
         )) {
             is Result.Success -> result.data.let { resolved ->
+                com.streamvault.domain.model.PanelCategoryPolicyRegistry.requireCurrent(policyToken)
                 ResolvedStreamUrl(
                     url = resolved.url,
                     expirationTime = resolved.expirationTime ?: extractStreamExpirationTime(resolved.url),

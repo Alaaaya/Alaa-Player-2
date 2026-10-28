@@ -245,6 +245,7 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamInfo(channel: Channel, preferStableUrl: Boolean): Result<StreamInfo> = try {
+        val categoryVersion = com.streamvault.domain.model.PanelCategoryPolicyRegistry.version(channel.providerId)
         val authorizationVersion = PanelPlaybackAuthorization.version(channel.providerId)
         xtreamStreamUrlResolver.resolveAndCommitMetadata(
             url = channel.streamUrl,
@@ -269,7 +270,10 @@ class ChannelRepositoryImpl @Inject constructor(
                     containerExtension = resolvedStream.containerExtension,
                     expirationTime = resolvedStream.expirationTime,
                     providerId = channel.providerId,
-                    panelAuthorizationVersion = authorizationVersion
+                    panelAuthorizationVersion = authorizationVersion,
+                    panelCategoryPolicyVersion = categoryVersion,
+                    streamId = channel.streamId,
+                    contentType = ContentType.LIVE
                 )
             )
         } ?: Result.error("No stream URL available for channel: ${channel.name}")

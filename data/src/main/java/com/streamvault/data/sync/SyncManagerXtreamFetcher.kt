@@ -1,6 +1,8 @@
 package com.streamvault.data.sync
 
 import android.util.Log
+import com.streamvault.domain.model.PanelCategoryPolicyRegistry as PanelPolicies
+import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.remote.dto.XtreamLiveStreamRow
 import com.streamvault.data.remote.dto.XtreamSeriesItem
@@ -55,7 +57,7 @@ internal class SyncManagerXtreamFetcher(
             val batchSize = streamingStageBatchSize
             if (batchSize == null || onMappedBatch == null) {
                 val rows = ArrayList<XtreamLiveStreamRow>()
-                val streamedCount = xtreamCatalogHttpService.streamLiveStreamRows(endpoint) { row -> rows += row }
+                val streamedCount = xtreamCatalogHttpService.streamLiveStreamRows(endpoint, HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream")) { row -> rows += row }
                 return streamedCount to api.mapLiveStreamRowsSequence(rows.asSequence()).toList()
             }
 
@@ -68,7 +70,7 @@ internal class SyncManagerXtreamFetcher(
                 rawBatch.clear()
             }
 
-            xtreamCatalogHttpService.streamLiveStreamRows(endpoint) { row ->
+            xtreamCatalogHttpService.streamLiveStreamRows(endpoint, HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream")) { row ->
                 rawBatch += row
                 streamedCount++
                 if (rawBatch.size >= batchSize) {
@@ -98,7 +100,7 @@ internal class SyncManagerXtreamFetcher(
                                     "Xtream live category '${category.categoryName}' thin decode failed; retrying legacy decode: ${sanitizeThrowableMessage(error)}"
                                 )
                             }
-                            val legacyStreams = xtreamCatalogApiService.getLiveStreams(endpoint)
+                            val legacyStreams = xtreamCatalogApiService.getLiveStreams(endpoint, HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream"))
                             rawCount = legacyStreams.size
                             emitMappedChannels(api.mapLiveStreamsResponse(legacyStreams))
                         }
@@ -154,7 +156,8 @@ internal class SyncManagerXtreamFetcher(
                                     password = provider.password,
                                     action = "get_vod_streams",
                                     extraQueryParams = mapOf("category_id" to category.categoryId)
-                                )
+                                ),
+                                requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream")
                             )
                         }
                     }
@@ -209,7 +212,8 @@ internal class SyncManagerXtreamFetcher(
                                     password = provider.password,
                                     action = "get_series",
                                     extraQueryParams = mapOf("category_id" to category.categoryId)
-                                )
+                                ),
+                                requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream")
                             )
                         }
                     }

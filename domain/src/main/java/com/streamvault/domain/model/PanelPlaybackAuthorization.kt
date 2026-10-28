@@ -28,7 +28,11 @@ object PanelPlaybackAuthorization {
     fun allows(streamInfo: StreamInfo): Boolean {
         val id = streamInfo.providerId ?: return true
         return (!PanelCategoryPolicyRegistry.isTracked(id) ||
-            (PanelCategoryPolicyRegistry.current(id) != null && streamInfo.panelCategoryPolicyVersion == PanelCategoryPolicyRegistry.version(id))) && id !in denied && streamInfo.panelAuthorizationVersion == (versions[id] ?: 0L)
+            (PanelCategoryPolicyRegistry.current(id) != null &&
+                streamInfo.panelCategoryPolicyVersion == PanelCategoryPolicyRegistry.version(id) &&
+                streamInfo.contentType?.let { type ->
+                    PanelCategoryPolicyRegistry.allowsContent(id, PanelCategoryPolicyRegistry.media(type), streamInfo.streamId)
+                } == true)) && id !in denied && streamInfo.panelAuthorizationVersion == (versions[id] ?: 0L)
     }
 
     @Synchronized
