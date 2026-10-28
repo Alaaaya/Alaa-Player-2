@@ -1099,6 +1099,9 @@ class SeriesRepositoryImplTest {
         whenever(preferencesRepository.vodVariantSelections).thenReturn(flowOf(preferredVariants))
         whenever(preferencesRepository.vodVariantObservations).thenReturn(flowOf(variantObservations))
         return SeriesRepositoryImpl(
+            transactionRunner = object : com.streamvault.data.local.DatabaseTransactionRunner {
+                override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+            },
             seriesDao = seriesDao,
             episodeDao = episodeDao,
             categoryDao = categoryDao,
