@@ -1164,7 +1164,6 @@ class SyncManager @Inject constructor(
                     }
                 }
                 transactionRunner.inTransaction {
-            providerWorkflowCommitFence.assertCanCommit(providerId)
                     providerWorkflowCommitFence.assertCanCommit(providerId)
                     // A candidate configuration which produced no catalog is not committed. Do
                     // not make the previous provider look freshly synced in that case.
