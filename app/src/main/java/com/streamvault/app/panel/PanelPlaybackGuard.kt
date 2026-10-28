@@ -20,6 +20,7 @@ class PanelPlaybackGuard @Inject constructor() {
         engines.removeAll { ref -> ref.get() == null }; engines += WeakReference(it)
     }
     fun ready() { loading = false }
+    fun failClosed() { loading = true }
     fun allows(url: String) = !loading && origin(url) !in deniedOrigins
     suspend fun revoke(origins: Set<String>) {
         deniedOrigins = deniedOrigins + origins
@@ -30,7 +31,10 @@ class PanelPlaybackGuard @Inject constructor() {
             }
         }
     }
-    fun authorize(origins: Set<String>) { deniedOrigins = deniedOrigins - origins; loading = false }
+    @Synchronized fun authorize(origins: Set<String>) {
+        deniedOrigins = deniedOrigins - origins; loading = false
+        engines.mapNotNull { it.get() }.forEach { it.authorized() }
+    }
     companion object {
         fun origin(url: String): String = runCatching {
             val u = URI(url); "${u.scheme?.lowercase()}://${u.host?.lowercase()}:${if (u.port >= 0) u.port else if (u.scheme == "https") 443 else 80}"
@@ -41,8 +45,9 @@ class PanelPlaybackGuard @Inject constructor() {
         private var stream: StreamInfo? = null
         private var revoked = false
         fun revokeCurrent() { revoked = true; delegate.preload(null); delegate.stopLiveTimeshift(); delegate.stop() }
+        fun authorized() { if (stream?.let { guard.allows(it.url) } == true) revoked = false }
         private fun accept(info: StreamInfo): Boolean {
-            if (!guard.allows(info.url)) { revokeCurrent(); return false }
+            if ((revoked && stream?.url == info.url) || !guard.allows(info.url)) { revokeCurrent(); return false }
             stream = info; revoked = false; return true
         }
         override fun prepare(streamInfo: StreamInfo) { if (accept(streamInfo)) delegate.prepare(streamInfo) }
