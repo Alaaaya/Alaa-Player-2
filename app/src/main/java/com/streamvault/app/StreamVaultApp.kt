@@ -73,6 +73,9 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
     lateinit var pendingBackupRestoreCoordinator: PendingBackupRestoreCoordinator
 
     @Inject
+    lateinit var panelManager: dagger.Lazy<com.streamvault.app.panel.PanelManager>
+
+    @Inject
     lateinit var databaseStartupCoordinator: DatabaseStartupCoordinator
 
     private val imageOkHttpClient: OkHttpClient by lazy {
@@ -87,6 +90,17 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         CrashReportStore.install(this)
         runtimeDiagnosticsManager.start()
+        // Workers can start this process without an Activity opening DatabaseStartupCoordinator.
+        // Restore exact persisted policy independently; failure must never release either fence.
+        applicationScope.launch {
+            try {
+                panelManager.get().restoreCatalogPolicy()
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Log.e("StreamVaultStartup", "Secure catalog policy restoration failed")
+            }
+        }
         applicationScope.launch {
             databaseStartupCoordinator.state
                 .filterIsInstance<DatabaseStartupState.Ready>()
