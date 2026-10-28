@@ -91,11 +91,27 @@ class XtreamProvider(
         val name: String?
     )
 
+    private fun panelCategory(type: ContentType, raw: String?): Boolean =
+        PanelCategoryPolicyRegistry.allowsCategory(providerId, PanelCategoryPolicyRegistry.media(type), raw)
+    private fun rememberPanelCategories(type: ContentType, categories: List<XtreamCategory>): List<XtreamCategory> {
+        if (!PanelCategoryPolicyRegistry.isTracked(providerId)) return categories
+        val media = PanelCategoryPolicyRegistry.media(type)
+        return categories.filter { panelCategory(type, it.categoryId) }.onEach {
+            PanelCategoryPolicyRegistry.categoryKey(providerId,media,it.categoryId)
+        }
+    }
+    private fun panelRawCategory(type: ContentType, id: Long?): String? =
+        if (PanelCategoryPolicyRegistry.isTracked(providerId))
+            PanelCategoryPolicyRegistry.rawCategory(providerId,PanelCategoryPolicyRegistry.media(type),id)
+        else id?.toString()
+    private fun panelContent(type: ContentType, id: Long): Boolean =
+        PanelCategoryPolicyRegistry.allowsContent(providerId, PanelCategoryPolicyRegistry.media(type), id)
+
     private var serverInfo: XtreamServerInfo? = null
     private var liveOutputFormats: List<String> = normalizeAllowedOutputFormats(allowedOutputFormats)
     private val adultCategoryCache = mutableMapOf<ContentType, Set<Long>>()
     private val adultCategoryCacheMutex = Mutex()
-    override suspend fun authenticate(): Result<Provider> = try {
+    override suspend fun authenticate(): Result<Provider> { return try {
         val response = api.authenticate(
             XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password),
             requestProfile
@@ -141,23 +157,54 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Authentication failed", e), e)
     }
+    }
 
     // ── Live TV ────────────────────────────────────────────────────
 
-    override suspend fun getLiveCategories(): Result<List<Category>> = try {
+    override suspend fun getLiveCategories(): Result<List<Category>> { return try {
         val categories = api.getLiveCategories(
             XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_live_categories"),
             requestProfile
         )
         cacheAdultCategoryIds(ContentType.LIVE, categories)
-        Result.success(categories.map { it.toDomain(ContentType.LIVE) })
+        Result.success(rememberPanelCategories(ContentType.LIVE, categories).map { it.toDomain(ContentType.LIVE) })
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load live categories", e), e)
     }
+    }
 
-    override suspend fun getLiveStreams(categoryId: Long?): Result<List<Channel>> = try {
+    override suspend fun getLiveStreams(categoryId: Long?): Result<List<Channel>> { return try {
+        val fence = PanelCategoryPolicyRegistry.snapshot(providerId)
+        PanelCategoryPolicyRegistry.requireCurrent(fence)
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && categoryId == null) {
+            val categories = when (val result = getLiveCategories()) {
+                is Result.Success -> result.data
+                is Result.Error -> return result
+                is Result.Loading -> return Result.error("Categories unavailable")
+            }
+            val all = mutableListOf<Channel>()
+            for (category in categories) {
+                PanelCategoryPolicyRegistry.requireCurrent(fence)
+                when (val result = getLiveStreams(category.id)) {
+                    is Result.Success -> all += result.data
+                    is Result.Error -> return result
+                    is Result.Loading -> return Result.error("Category unavailable")
+                }
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+            return Result.success(all.filter { panelContent(ContentType.LIVE,it.streamId) })
+        }
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && panelRawCategory(ContentType.LIVE, categoryId) == null) {
+            when (val result = getLiveCategories()) {
+                is Result.Error -> return result
+                else -> Unit
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+        }
+        if (!panelCategory(ContentType.LIVE, panelRawCategory(ContentType.LIVE, categoryId))) return Result.success(emptyList())
+
         val adultCategoryIds = loadAdultCategoryIds(ContentType.LIVE)
         val streams = api.getLiveStreams(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -165,7 +212,7 @@ class XtreamProvider(
                 username = username,
                 password = password,
                 action = "get_live_streams",
-                extraQueryParams = mapOf("category_id" to categoryId?.toString())
+                extraQueryParams = mapOf("category_id" to panelRawCategory(ContentType.LIVE, categoryId))
             ),
             requestProfile
         )
@@ -187,23 +234,54 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load live streams", e), e)
     }
+    }
 
     // ── VOD ────────────────────────────────────────────────────────
 
-    override suspend fun getVodCategories(): Result<List<Category>> = try {
+    override suspend fun getVodCategories(): Result<List<Category>> { return try {
         val categories = api.getVodCategories(
             XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_vod_categories"),
             requestProfile
         )
         cacheAdultCategoryIds(ContentType.MOVIE, categories)
-        Result.success(categories.map { it.toDomain(ContentType.MOVIE) })
+        Result.success(rememberPanelCategories(ContentType.MOVIE, categories).map { it.toDomain(ContentType.MOVIE) })
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load VOD categories", e), e)
     }
+    }
 
-    override suspend fun getVodStreams(categoryId: Long?): Result<List<Movie>> = try {
+    override suspend fun getVodStreams(categoryId: Long?): Result<List<Movie>> { return try {
+        val fence = PanelCategoryPolicyRegistry.snapshot(providerId)
+        PanelCategoryPolicyRegistry.requireCurrent(fence)
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && categoryId == null) {
+            val categories = when (val result = getVodCategories()) {
+                is Result.Success -> result.data
+                is Result.Error -> return result
+                is Result.Loading -> return Result.error("Categories unavailable")
+            }
+            val all = mutableListOf<Movie>()
+            for (category in categories) {
+                PanelCategoryPolicyRegistry.requireCurrent(fence)
+                when (val result = getVodStreams(category.id)) {
+                    is Result.Success -> all += result.data
+                    is Result.Error -> return result
+                    is Result.Loading -> return Result.error("Category unavailable")
+                }
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+            return Result.success(all.filter { panelContent(ContentType.MOVIE,it.streamId) })
+        }
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && panelRawCategory(ContentType.MOVIE, categoryId) == null) {
+            when (val result = getVodCategories()) {
+                is Result.Error -> return result
+                else -> Unit
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+        }
+        if (!panelCategory(ContentType.MOVIE, panelRawCategory(ContentType.MOVIE, categoryId))) return Result.success(emptyList())
+
         val adultCategoryIds = loadAdultCategoryIds(ContentType.MOVIE)
         val streams = api.getVodStreams(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -211,7 +289,7 @@ class XtreamProvider(
                 username = username,
                 password = password,
                 action = "get_vod_streams",
-                extraQueryParams = mapOf("category_id" to categoryId?.toString())
+                extraQueryParams = mapOf("category_id" to panelRawCategory(ContentType.MOVIE, categoryId))
             ),
             requestProfile
         )
@@ -233,13 +311,29 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load VOD", e), e)
     }
+    }
 
     suspend fun streamVodSummaries(
         categoryId: Long? = null,
         batchSize: Int = STREAM_SUMMARY_BATCH_SIZE,
         adultCategoryIds: Set<Long>? = null,
         onBatch: suspend (List<Movie>) -> Unit
-    ): Result<Int> = try {
+    ): Result<Int> { return try {
+        if (PanelCategoryPolicyRegistry.isTracked(providerId)) {
+            val token = PanelCategoryPolicyRegistry.snapshot(providerId)
+            return when (val result = getVodStreams(categoryId)) {
+                is Result.Success -> {
+                    for (batch in result.data.chunked(batchSize.coerceAtLeast(1))) {
+                        PanelCategoryPolicyRegistry.requireCurrent(token)
+                        onBatch(batch)
+                    }
+                    Result.success(result.data.size)
+                }
+                is Result.Error -> result
+                is Result.Loading -> Result.error("Categories unavailable")
+            }
+        }
+
         val resolvedAdultCategoryIds = adultCategoryIds ?: loadAdultCategoryIds(ContentType.MOVIE)
         val buffer = mutableListOf<Movie>()
         var acceptedCount = 0
@@ -271,8 +365,10 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to stream VOD index", e), e)
     }
+    }
 
-    override suspend fun getVodInfo(vodId: Long): Result<Movie> = try {
+    override suspend fun getVodInfo(vodId: Long): Result<Movie> { return try {
+        if (!panelContent(ContentType.MOVIE, vodId)) return Result.error("Unknown or hidden content")
         val response = api.getVodInfo(
             XtreamUrlFactory.buildPlayerApiUrl(
                 serverUrl = serverUrl,
@@ -292,6 +388,7 @@ class XtreamProvider(
             Result.error("Movie stream is invalid")
         } else {
             val adultCategoryIds = loadAdultCategoryIds(ContentType.MOVIE)
+            if (!panelCategory(ContentType.MOVIE, movieData.categoryId)) return Result.error("Hidden content")
             val category = resolveXtreamCategory(ContentType.MOVIE, movieData.categoryId, null)
             val normalizedContainerExtension = normalizeContainerExtension(movieData.containerExtension)
             val sanitizedDirectSource = sanitizeAssetValue(movieData.directSource)
@@ -337,23 +434,54 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load movie details", e), e)
     }
+    }
 
     // ── Series ─────────────────────────────────────────────────────
 
-    override suspend fun getSeriesCategories(): Result<List<Category>> = try {
+    override suspend fun getSeriesCategories(): Result<List<Category>> { return try {
         val categories = api.getSeriesCategories(
             XtreamUrlFactory.buildPlayerApiUrl(serverUrl, username, password, action = "get_series_categories"),
             requestProfile
         )
         cacheAdultCategoryIds(ContentType.SERIES, categories)
-        Result.success(categories.map { it.toDomain(ContentType.SERIES) })
+        Result.success(rememberPanelCategories(ContentType.SERIES, categories).map { it.toDomain(ContentType.SERIES) })
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load series categories", e), e)
     }
+    }
 
-    override suspend fun getSeriesList(categoryId: Long?): Result<List<Series>> = try {
+    override suspend fun getSeriesList(categoryId: Long?): Result<List<Series>> { return try {
+        val fence = PanelCategoryPolicyRegistry.snapshot(providerId)
+        PanelCategoryPolicyRegistry.requireCurrent(fence)
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && categoryId == null) {
+            val categories = when (val result = getSeriesCategories()) {
+                is Result.Success -> result.data
+                is Result.Error -> return result
+                is Result.Loading -> return Result.error("Categories unavailable")
+            }
+            val all = mutableListOf<Series>()
+            for (category in categories) {
+                PanelCategoryPolicyRegistry.requireCurrent(fence)
+                when (val result = getSeriesList(category.id)) {
+                    is Result.Success -> all += result.data
+                    is Result.Error -> return result
+                    is Result.Loading -> return Result.error("Category unavailable")
+                }
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+            return Result.success(all.filter { panelContent(ContentType.SERIES,it.seriesId) })
+        }
+        if (PanelCategoryPolicyRegistry.isTracked(providerId) && panelRawCategory(ContentType.SERIES, categoryId) == null) {
+            when (val result = getSeriesCategories()) {
+                is Result.Error -> return result
+                else -> Unit
+            }
+            PanelCategoryPolicyRegistry.requireCurrent(fence)
+        }
+        if (!panelCategory(ContentType.SERIES, panelRawCategory(ContentType.SERIES, categoryId))) return Result.success(emptyList())
+
         val adultCategoryIds = loadAdultCategoryIds(ContentType.SERIES)
         val items = api.getSeriesList(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -361,7 +489,7 @@ class XtreamProvider(
                 username = username,
                 password = password,
                 action = "get_series",
-                extraQueryParams = mapOf("category_id" to categoryId?.toString())
+                extraQueryParams = mapOf("category_id" to panelRawCategory(ContentType.SERIES, categoryId))
             ),
             requestProfile
         )
@@ -383,13 +511,29 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load series", e), e)
     }
+    }
 
     suspend fun streamSeriesSummaries(
         categoryId: Long? = null,
         batchSize: Int = STREAM_SUMMARY_BATCH_SIZE,
         adultCategoryIds: Set<Long>? = null,
         onBatch: suspend (List<Series>) -> Unit
-    ): Result<Int> = try {
+    ): Result<Int> { return try {
+        if (PanelCategoryPolicyRegistry.isTracked(providerId)) {
+            val token = PanelCategoryPolicyRegistry.snapshot(providerId)
+            return when (val result = getSeriesList(categoryId)) {
+                is Result.Success -> {
+                    for (batch in result.data.chunked(batchSize.coerceAtLeast(1))) {
+                        PanelCategoryPolicyRegistry.requireCurrent(token)
+                        onBatch(batch)
+                    }
+                    Result.success(result.data.size)
+                }
+                is Result.Error -> result
+                is Result.Loading -> Result.error("Categories unavailable")
+            }
+        }
+
         val resolvedAdultCategoryIds = adultCategoryIds ?: loadAdultCategoryIds(ContentType.SERIES)
         val buffer = mutableListOf<Series>()
         var acceptedCount = 0
@@ -421,8 +565,10 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to stream series index", e), e)
     }
+    }
 
-    override suspend fun getSeriesInfo(seriesId: Long): Result<Series> = try {
+    override suspend fun getSeriesInfo(seriesId: Long): Result<Series> { return try {
+        if (!panelContent(ContentType.SERIES, seriesId)) return Result.error("Unknown or hidden content")
         val response = requestSeriesInfoWithCompatibilityFallback(seriesId)
         val info = response.info
         val adultCategoryIds = loadAdultCategoryIds(ContentType.SERIES)
@@ -433,7 +579,7 @@ class XtreamProvider(
             ?: return Result.error("Series details are unavailable")
         val isAdult = resolveAdultFlag(
             explicitAdult = info?.isAdult,
-            categoryId = info?.categoryId?.toLongOrNull(),
+            categoryId = info?.categoryId?.let { resolveXtreamCategory(ContentType.SERIES,it,null).id },
             categoryName = info?.categoryName,
             adultCategoryIds = adultCategoryIds
         )
@@ -478,6 +624,13 @@ class XtreamProvider(
                         episodeId = episodeId
                     )
                 }
+                if (PanelCategoryPolicyRegistry.isTracked(providerId)) {
+                    val token = PanelCategoryPolicyRegistry.snapshot(providerId)
+                    val raw = panelRawCategory(ContentType.SERIES, baseSeries.categoryId)
+                    mappedEpisodes.forEach { episode ->
+                        PanelCategoryPolicyRegistry.recordMembership(token, "series", episode.episodeId, setOfNotNull(raw))
+                    }
+                }
                 val seasonMetadata = seasonMetadataByNumber[resolvedSeasonNumber]
                 Season(
                     seasonNumber = resolvedSeasonNumber,
@@ -517,10 +670,11 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load series details", e), e)
     }
+    }
 
     // ── EPG ────────────────────────────────────────────────────────
 
-    override suspend fun getEpg(channelId: String): Result<List<Program>> = try {
+    override suspend fun getEpg(channelId: String): Result<List<Program>> { return try {
         val streamId = channelId.toLongOrNull() ?: 0
         val response = api.getFullEpg(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -538,8 +692,9 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load EPG", e), e)
     }
+    }
 
-    override suspend fun getShortEpg(channelId: String, limit: Int): Result<List<Program>> = try {
+    override suspend fun getShortEpg(channelId: String, limit: Int): Result<List<Program>> { return try {
         val streamId = channelId.toLongOrNull() ?: 0
         val response = api.getShortEpg(
             XtreamUrlFactory.buildPlayerApiUrl(
@@ -560,10 +715,12 @@ class XtreamProvider(
     } catch (e: Exception) {
         Result.error(XtreamErrorFormatter.message("Failed to load EPG", e), e)
     }
+    }
 
     // ── Stream URLs ────────────────────────────────────────────────
 
     override suspend fun buildStreamUrl(streamId: Long, containerExtension: String?): String {
+        check(panelContent(ContentType.LIVE, streamId)) { "Unknown or hidden content" }
         return XtreamUrlFactory.buildPlaybackUrl(
             serverUrl = serverUrl,
             username = username,
@@ -575,6 +732,7 @@ class XtreamProvider(
     }
 
     private fun buildMovieStreamUrl(streamId: Long, containerExtension: String?): String {
+        check(panelContent(ContentType.MOVIE, streamId)) { "Unknown or hidden content" }
         return XtreamUrlFactory.buildPlaybackUrl(
             serverUrl = serverUrl,
             username = username,
@@ -586,6 +744,7 @@ class XtreamProvider(
     }
 
     private fun buildSeriesStreamUrl(streamId: Long, containerExtension: String?): String {
+        check(panelContent(ContentType.SERIES, streamId)) { "Unknown or hidden content" }
         return XtreamUrlFactory.buildPlaybackUrl(
             serverUrl = serverUrl,
             username = username,
@@ -601,6 +760,7 @@ class XtreamProvider(
     }
 
     override suspend fun buildCatchUpUrls(streamId: Long, start: Long, end: Long): List<String> {
+        check(panelContent(ContentType.LIVE, streamId)) { "Unknown or hidden content" }
         val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd:HH-mm", java.util.Locale.ROOT)
         dateFormat.timeZone = java.util.TimeZone.getTimeZone("UTC") // Xtream servers typically use UTC for EPG timeshifts
         val formattedStart = dateFormat.format(java.util.Date(start * 1000L))
@@ -620,7 +780,7 @@ class XtreamProvider(
         if (type != ContentType.SERIES_EPISODE) {
             cacheAdultCategoryIds(type, categories)
         }
-        return categories.map { it.toDomain(type) }
+        return rememberPanelCategories(type, categories).map { it.toDomain(type) }
     }
 
     suspend fun mapVodStreamsResponse(streams: List<XtreamStream>): List<Movie> =
@@ -903,7 +1063,7 @@ class XtreamProvider(
         includePlaybackVariants: Boolean,
         adultCategoryIds: Set<Long>
     ): Channel? {
-        if (streamId <= 0) return null
+        if (streamId <= 0 || !panelCategory(ContentType.LIVE, categoryId) || !panelContent(ContentType.LIVE,streamId)) return null
         val category = resolveXtreamCategory(ContentType.LIVE, categoryId, categoryName)
         val primaryContainerExtension = preferredLiveContainerExtension(containerExtension)
         val resolvedName = decodeXtreamNullableText(name, XtreamTextDecodeMode.RAW)?.ifBlank { null } ?: "Channel $streamId"
@@ -951,11 +1111,11 @@ class XtreamProvider(
                 emptyList()
             },
             streamId = streamId
-        )
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"live",streamId,listOf(it.logoUrl)) }
     }
 
     private fun XtreamStream.toMovie(adultCategoryIds: Set<Long>): Movie? {
-        if (streamId <= 0) return null
+        if (streamId <= 0 || !panelCategory(ContentType.MOVIE, primaryCategoryId()) || !panelContent(ContentType.MOVIE,streamId)) return null
         val category = resolveXtreamCategory(ContentType.MOVIE, primaryCategoryId(), categoryName)
         val resolvedName = decodeXtreamNullableText(name, XtreamTextDecodeMode.RAW)?.ifBlank { null } ?: "Movie $streamId"
         val normalizedContainerExtension = normalizeContainerExtension(containerExtension)
@@ -987,7 +1147,7 @@ class XtreamProvider(
             isUserProtected = false,
             streamId = streamId,
             addedAt = added?.trim()?.toLongOrNull() ?: 0L
-        )
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"vod",streamId,listOf(it.posterUrl,it.backdropUrl)) }
     }
 
     private fun mapVodStream(
@@ -1009,7 +1169,9 @@ class XtreamProvider(
         adultCategoryIds: Set<Long>,
         fallbackSeriesId: Long? = null
     ): Series? {
+        if (!panelCategory(ContentType.SERIES, categoryId)) return null
         val resolvedSeriesId = seriesId.takeIf { it > 0 } ?: fallbackSeriesId ?: return null
+        if (!panelContent(ContentType.SERIES,resolvedSeriesId)) return null
         val category = resolveXtreamCategory(ContentType.SERIES, categoryId, categoryName)
         val resolvedName = decodeXtreamNullableText(name, XtreamTextDecodeMode.RAW)?.ifBlank { null } ?: "Series $resolvedSeriesId"
         return Series(
@@ -1039,7 +1201,7 @@ class XtreamProvider(
             ),
             isUserProtected = false,
             seriesId = resolvedSeriesId
-        )
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"series",resolvedSeriesId,listOf(it.posterUrl,it.backdropUrl)) }
     }
 
     private fun mapSeriesItem(
@@ -1237,7 +1399,9 @@ class XtreamProvider(
         rawCategoryName: String?
     ): ResolvedXtreamCategory {
         val decodedName = decodeXtreamNullableText(rawCategoryName, XtreamTextDecodeMode.RAW)
-        val parsedId = rawCategoryId?.trim()?.toLongOrNull()
+        val parsedId = if (PanelCategoryPolicyRegistry.isTracked(providerId)) {
+            rawCategoryId?.let { PanelCategoryPolicyRegistry.categoryKey(providerId,PanelCategoryPolicyRegistry.media(type),it) }
+        } else rawCategoryId?.trim()?.toLongOrNull()
         if (parsedId != null) {
             return ResolvedXtreamCategory(
                 id = parsedId,

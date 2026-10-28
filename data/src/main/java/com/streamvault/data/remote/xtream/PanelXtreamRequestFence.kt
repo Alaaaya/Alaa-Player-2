@@ -32,6 +32,7 @@ internal class PanelXtreamRequestFence(endpoint: String, profile: HttpRequestPro
             }
         }
     }
+    fun bind(cancel: () -> Unit): AutoCloseable = token?.let { Policies.registerRequest(it,cancel) } ?: AutoCloseable {}
     fun checkCurrent() { token?.let(Policies::requireCurrent) }
     fun accepts(value: Any?): Boolean {
         checkCurrent()
@@ -52,12 +53,22 @@ internal class PanelXtreamRequestFence(endpoint: String, profile: HttpRequestPro
             is XtreamSeriesItem -> { categories = setOfNotNull(value.categoryId); contentId = value.seriesId }
             else -> return true
         }
-        if (categories.isEmpty() && Policies.current(id)?.hidden?.get(media)?.isEmpty() == true) return true
         return Policies.recordMembership(requireNotNull(token), media, contentId, categories)
     }
     @Suppress("UNCHECKED_CAST")
     fun <T> filter(value: T): T {
         checkCurrent()
-        return if (value is List<*>) value.filter(::accepts) as T else value
+        return if (value is List<*>) {
+            val accepted = value.filter(::accepts)
+            // The last DTO can reveal a hidden alternate for an earlier DTO in this very response.
+            accepted.filter { item ->
+                when(item) {
+                    is XtreamStream -> providerId == null || Policies.allowsContent(providerId,media,item.streamId)
+                    is XtreamLiveStreamRow -> providerId == null || Policies.allowsContent(providerId,media,item.streamId)
+                    is XtreamSeriesItem -> providerId == null || Policies.allowsContent(providerId,media,item.seriesId)
+                    else -> true
+                }
+            } as T
+        } else value
     }
 }

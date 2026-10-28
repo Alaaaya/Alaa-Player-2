@@ -3,6 +3,7 @@ package com.streamvault.data.remote.xtream
 import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.domain.model.PanelCategoryPolicy
 import com.streamvault.domain.model.PanelCategoryPolicyRegistry as Policies
+import org.junit.Before
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,6 +17,7 @@ class PanelXtreamRequestFenceTest {
     private fun fence(action: String, extra: String = "") = PanelXtreamRequestFence(
         "https://example.invalid/player_api.php?action=$action$extra", profile)
     private fun denied(block: () -> Unit) { try { block(); fail("Expected denial") } catch (_: IllegalStateException) {} }
+    @Before fun startup() { Policies.markStartupReady() }
     @After fun clear() { Policies.remove(id) }
     @Test fun noGlobalCatalogRequestsForAnyPanelMedia() {
         install()

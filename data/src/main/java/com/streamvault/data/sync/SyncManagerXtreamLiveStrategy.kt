@@ -1,6 +1,8 @@
 package com.streamvault.data.sync
 
 import android.util.Log
+import com.streamvault.domain.model.PanelCategoryPolicyRegistry as PanelPolicies
+import com.streamvault.data.remote.http.HttpRequestProfile
 import com.streamvault.data.mapper.toEntity
 import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.remote.dto.XtreamLiveStreamRow
@@ -66,8 +68,9 @@ internal class SyncManagerXtreamLiveStrategy(
                             username = provider.username,
                             password = provider.password,
                             action = "get_live_categories"
-                        )
-                    )
+                        ),
+ requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream")
+)
                 }
             }
         }) {
@@ -85,8 +88,9 @@ internal class SyncManagerXtreamLiveStrategy(
             ?.map { category -> category.toEntity(provider.id) }
             ?.takeIf { it.isNotEmpty() }
         val filteredRawLiveCategories = rawLiveCategories.orEmpty().filterNot { category ->
-            val id = category.categoryId.toLongOrNull()
-            id in hiddenLiveCategoryIds && id !in requiredHiddenLiveCategoryIds
+            val id = if (PanelPolicies.isTracked(provider.id)) PanelPolicies.categoryKey(provider.id,"live",category.categoryId) else category.categoryId.toLongOrNull()
+            !PanelPolicies.allowsCategory(provider.id, "live", category.categoryId) ||
+                (id in hiddenLiveCategoryIds && id !in requiredHiddenLiveCategoryIds)
         }
         // Hidden categories still need a catalog shell after a provider is restored. The
         // channel fetch intentionally skips them, but filtering them out of the category
@@ -98,7 +102,7 @@ internal class SyncManagerXtreamLiveStrategy(
             catalogResult = CatalogStrategyResult.EmptyValid("full"),
             categories = null
         )
-        val shouldAttemptFullCatalog = effectiveLiveSyncMethod == EffectiveXtreamLiveSyncMethod.STREAM_ALL &&
+        val shouldAttemptFullCatalog = !PanelPolicies.isTracked(provider.id) && effectiveLiveSyncMethod == EffectiveXtreamLiveSyncMethod.STREAM_ALL &&
             hiddenLiveCategoryIds.isEmpty() &&
             runtimeProfile.shouldAttemptFullLiveCatalog(trackInitialLiveOnboarding)
         if (shouldAttemptFullCatalog) {
@@ -184,7 +188,7 @@ internal class SyncManagerXtreamLiveStrategy(
                 provider = provider,
                 decoderLabel = "legacy",
                 failureNextStep = "category-bulk",
-                streamItems = { item -> xtreamCatalogHttpService.streamLiveStreams(endpoint, onItem = item) },
+                streamItems = { item -> xtreamCatalogHttpService.streamLiveStreams(endpoint, requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream"), onItem = item) },
                 mapRawBatch = { batch -> api.mapLiveStreamsSequence(batch) },
                 runtimeProfile = runtimeProfile
             )
@@ -194,7 +198,7 @@ internal class SyncManagerXtreamLiveStrategy(
             provider = provider,
             decoderLabel = "thin",
             failureNextStep = "legacy-full",
-            streamItems = { item -> xtreamCatalogHttpService.streamLiveStreamRows(endpoint, onItem = item) },
+            streamItems = { item -> xtreamCatalogHttpService.streamLiveStreamRows(endpoint, requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream"), onItem = item) },
             mapRawBatch = { batch -> api.mapLiveStreamRowsSequence(batch) },
             runtimeProfile = runtimeProfile
         )
@@ -210,7 +214,7 @@ internal class SyncManagerXtreamLiveStrategy(
             provider = provider,
             decoderLabel = "legacy",
             failureNextStep = "category-bulk",
-            streamItems = { item -> xtreamCatalogHttpService.streamLiveStreams(endpoint, onItem = item) },
+            streamItems = { item -> xtreamCatalogHttpService.streamLiveStreams(endpoint, requestProfile = HttpRequestProfile(ownerTag = "provider:${provider.id}/xtream"), onItem = item) },
             mapRawBatch = { batch -> api.mapLiveStreamsSequence(batch) },
             runtimeProfile = runtimeProfile
         )

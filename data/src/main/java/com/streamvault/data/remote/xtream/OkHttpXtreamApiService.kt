@@ -203,6 +203,8 @@ class OkHttpXtreamApiService(
         val descriptor = describeEndpoint(endpoint)
         val effectiveProfile = requestProfileFor(descriptor, profile)
         val effectiveRequestProfile = requestProfile.mergedWithDefaults(defaultRequestProfile)
+        val categoryFence = PanelXtreamRequestFence(endpoint, effectiveRequestProfile)
+        categoryFence.checkRequest()
         val request = Request.Builder()
             .url(endpoint)
             .get()
@@ -210,6 +212,7 @@ class OkHttpXtreamApiService(
             .withRequestProfile(effectiveRequestProfile)
         try {
             val call = clientFor(effectiveProfile).newCall(request)
+            categoryFence.bind { call.cancel() }.use { _ ->
             executeCancellable(call).use { response ->
                 if (!response.isSuccessful) {
                     val message = "HTTP ${response.code}"
@@ -231,12 +234,13 @@ class OkHttpXtreamApiService(
                 }
                 val body = response.body
                     ?: throw XtreamParsingException("Empty response body from ${descriptor.hint}")
-                decodeBodyBounded(
+                categoryFence.filter(decodeBodyBounded<T>(
                     body = body,
                     descriptor = descriptor,
                     contentType = response.header("Content-Type"),
                     maxBytes = responseBudgetFor(descriptor)
-                )
+                ))
+            }
             }
         } catch (e: XtreamApiException) {
             throw e
@@ -326,6 +330,8 @@ class OkHttpXtreamApiService(
         val descriptor = describeEndpoint(endpoint)
         val effectiveProfile = requestProfileFor(descriptor, profile)
         val effectiveRequestProfile = requestProfile.mergedWithDefaults(defaultRequestProfile)
+        val categoryFence = PanelXtreamRequestFence(endpoint, effectiveRequestProfile)
+        categoryFence.checkRequest()
         val request = Request.Builder()
             .url(endpoint)
             .get()
@@ -333,6 +339,7 @@ class OkHttpXtreamApiService(
             .withRequestProfile(effectiveRequestProfile)
         try {
             val call = clientFor(effectiveProfile).newCall(request)
+            categoryFence.bind { call.cancel() }.use { _ ->
             executeCancellable(call).use { response ->
                 if (!response.isSuccessful) {
                     val message = "HTTP ${response.code}"
@@ -360,8 +367,9 @@ class OkHttpXtreamApiService(
                     contentType = response.header("Content-Type"),
                     maxBytes = responseBudgetFor(descriptor),
                     deserializer = deserializer,
-                    onItem = onItem
-                )
+                    onItem = { item -> if (categoryFence.accepts(item)) onItem(item) }
+                ).also { categoryFence.checkCurrent() }
+            }
             }
         } catch (e: XtreamApiException) {
             throw e
