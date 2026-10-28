@@ -26,7 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:assembleDebug
+        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' :app:assembleDebug
 
       - name: Prepare APK artifact
         shell: bash
@@ -41,4 +41,13 @@ jobs:
           name: alaa-player-2-debug-apk
           path: dist/Alaa-Player-2-debug.apk
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload panel test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-pairing-test-reports
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
           retention-days: 7
