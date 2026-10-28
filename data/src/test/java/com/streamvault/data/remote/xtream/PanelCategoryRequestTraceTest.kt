@@ -14,6 +14,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PanelCategoryRequestTraceTest {
+    private val artwork = mutableMapOf<Pair<String,Long>,MutableSet<String>>()
     private val id=23452345L
     private val server=MockWebServer()
     private fun setup(hidden:Map<String,Set<String>>) : XtreamProvider {
@@ -22,7 +23,12 @@ class PanelCategoryRequestTraceTest {
         val rawKeys=mutableMapOf<Pair<String,String>,Long>()
         P.attach(id,object:P.Persistence {
             override fun membership(providerId:Long,media:String,contentId:Long,categories:Set<String>,allowed:Boolean) {}
-            override fun artwork(providerId:Long,media:String,contentId:Long,urls:List<String?>,expectedEpoch:Long) {}
+            override fun artwork(providerId:Long,media:String,contentId:Long,urls:List<String?>,expectedEpoch:Long) {
+                urls.filterNotNull().forEach { url ->
+                    artwork.getOrPut(media to contentId){mutableSetOf()}.add(url)
+                    check(com.streamvault.domain.model.PanelArtworkPolicyRegistry.record(providerId,url,"$media:$contentId",true,expectedEpoch))
+                }
+            }
             override fun categoryKey(providerId:Long,media:String,rawId:String):Long = rawKeys.getOrPut(media to rawId){rawKeys.size.toLong()+1}
             override fun rawCategory(providerId:Long,media:String,key:Long):String? = rawKeys.entries.firstOrNull{it.key.first==media && it.value==key}?.key?.second
         })
@@ -58,5 +64,34 @@ class PanelCategoryRequestTraceTest {
             if(request.queryParameter("action")=="get_live_streams") assertEquals("7",request.queryParameter("category_id"))
         }
         assertFalse(P.allowsContent(id,"live",2));assertFalse(P.allowsContent(id,"live",3))
+    }
+
+    @Test fun unseenDetailAndNestedArtIsRegisteredBeforePublicationAndParentAlternateRevokes()=runBlocking {
+        val provider=setup(mapOf("live" to emptySet(),"vod" to emptySet(),"series" to setOf("007")))
+        val token=P.snapshot(id)
+        P.recordMembership(token,"vod",50,setOf("7"))
+        P.recordMembership(token,"series",60,setOf("7","8"))
+        server.enqueue(MockResponse().setBody("""{"info":{"movie_image":"https://art.test/movie","backdrop_path":["https://art.test/backdrop"]},"movie_data":{"stream_id":50,"name":"Movie","category_id":"7"}}"""))
+        server.enqueue(MockResponse().setBody("[]"))
+        val movie=provider.getVodInfo(50)
+        assertTrue(movie is DomainResult.Success)
+        assertEquals(setOf("https://art.test/movie","https://art.test/backdrop"),artwork["vod" to 50L])
+        server.enqueue(MockResponse().setBody("""{"info":{"series_id":60,"name":"Series","category_id":"7"},"seasons":[{"season_number":1,"cover":"https://art.test/season"}],"episodes":{"1":[{"id":"70","episode_num":1,"title":"Episode","info":{"movie_image":"https://art.test/episode"}}]}}"""))
+        server.enqueue(MockResponse().setBody("[]"))
+        val series=provider.getSeriesInfo(60)
+        assertTrue(series is DomainResult.Success)
+        assertTrue(artwork["series" to 60L]!!.contains("https://art.test/season"))
+        assertEquals(setOf("https://art.test/episode"),artwork["episode" to 70L])
+        assertTrue(P.allowsContent(id,"episode",70))
+        assertFalse(P.recordMembership(token,"series",60,setOf("007")))
+        assertFalse(P.allowsContent(id,"episode",70))
+    }
+    @Test fun staleProviderCannotPublishNewDetailArtwork()=runBlocking {
+        val provider=setup(mapOf("live" to emptySet(),"vod" to emptySet(),"series" to emptySet()))
+        P.recordMembership(P.snapshot(id),"vod",50,setOf("7"))
+        P.install(id,P.current(id)!!.copy(revision="next"))
+        assertTrue(provider.getVodInfo(50) is DomainResult.Error)
+        assertEquals(0,server.requestCount)
+        assertTrue(artwork.isEmpty())
     }
 }

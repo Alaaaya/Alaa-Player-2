@@ -70,4 +70,28 @@ class PanelCategoryPolicyRegistryTest {
         ids.clear()
         assertFalse(PanelCategoryPolicyRegistry.allowsCategory(id, "live", "007"))
     }
+
+    @Test fun episodesInheritFutureAlternateMembershipWithoutSeriesIdAliasing() {
+        PanelCategoryPolicyRegistry.install(id, policy())
+        val t=PanelCategoryPolicyRegistry.snapshot(id)
+        assertTrue(PanelCategoryPolicyRegistry.recordMembership(t,"series",10,setOf("7","8")))
+        assertTrue(PanelCategoryPolicyRegistry.recordMembership(t,"series",11,setOf("7")))
+        assertTrue(PanelCategoryPolicyRegistry.recordEpisodeParent(t,10,11))
+        assertTrue(PanelCategoryPolicyRegistry.allowsContent(id,"episode",11))
+        assertFalse(PanelCategoryPolicyRegistry.recordMembership(t,"series",10,setOf("21")))
+        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id,"episode",11))
+        assertTrue(PanelCategoryPolicyRegistry.allowsContent(id,"series",11))
+        assertFalse(PanelCategoryPolicyRegistry.recordEpisodeParent(t,10,11))
+    }
+    @Test fun episodeParentsAreRequiredAndManualEpisodesAreUnchanged() {
+        assertEquals("episode",PanelCategoryPolicyRegistry.media(ContentType.SERIES_EPISODE))
+        assertTrue(PanelCategoryPolicyRegistry.allowsContent(id,"episode",99))
+        PanelCategoryPolicyRegistry.install(id, policy())
+        val t=PanelCategoryPolicyRegistry.snapshot(id)
+        assertTrue(PanelCategoryPolicyRegistry.recordMembership(t,"episode",99,setOf("7")))
+        assertFalse(PanelCategoryPolicyRegistry.allowsContent(id,"episode",99))
+        assertFalse(PanelCategoryPolicyRegistry.recordEpisodeParent(t,88,99))
+        PanelCategoryPolicyRegistry.install(id,policy().copy(revision="new"))
+        assertFalse(PanelCategoryPolicyRegistry.recordEpisodeParent(t,88,99))
+    }
 }
