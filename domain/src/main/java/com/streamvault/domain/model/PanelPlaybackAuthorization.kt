@@ -27,7 +27,8 @@ object PanelPlaybackAuthorization {
     @Synchronized
     fun allows(streamInfo: StreamInfo): Boolean {
         val id = streamInfo.providerId ?: return true
-        return id !in denied && streamInfo.panelAuthorizationVersion == (versions[id] ?: 0L)
+        return (!PanelCategoryPolicyRegistry.isTracked(id) ||
+            (PanelCategoryPolicyRegistry.current(id) != null && streamInfo.panelCategoryPolicyVersion == PanelCategoryPolicyRegistry.version(id))) && id !in denied && streamInfo.panelAuthorizationVersion == (versions[id] ?: 0L)
     }
 
     @Synchronized
