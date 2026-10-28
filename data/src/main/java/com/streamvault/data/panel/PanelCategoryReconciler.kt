@@ -252,6 +252,32 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             } }
         }
         fun seedArtwork(providerId: Long, allowed: Boolean, onlyMedia: String?=null, onlyId: Long?=null) {
+            // Legacy auxiliary posters may never have occurred in provider responses. Capture before
+            // sanitization, resolving Room identity to remote identity rather than conflating the two.
+            listOf("playback_history","watch_later").forEach { table ->
+                val cols=columns(table)
+                if(!cols.containsAll(setOf("provider_id","content_id","content_type","poster_url"))) return@forEach
+                db.query("SELECT content_id,content_type,poster_url FROM `$table` WHERE provider_id=? AND poster_url IS NOT NULL",arrayOf<Any>(providerId)).use { c ->
+                    while(c.moveToNext()) {
+                        val local=c.getLong(0)
+                        val type=c.getString(1)
+                        val media=when(type) { "LIVE"->"live";"MOVIE","VOD"->"vod";"SERIES"->"series";"SERIES_EPISODE"->"episode";else->"unknown" }
+                        val catalog=catalogs.firstOrNull { it.second==media }
+                        val remote=catalog?.let { (name,_,idColumn) ->
+                            if("id" !in columns(name)) null else db.query("SELECT `$idColumn` FROM `$name` WHERE provider_id=? AND id=?",arrayOf<Any>(providerId,local)).use { row ->
+                                if(row.moveToFirst()) row.getLong(0) else null
+                            }
+                        }
+                        // Unknown legacy identity remains a denied tombstone, never an unowned URL.
+                        if(onlyMedia!=null && media!=onlyMedia || onlyId!=null && remote!=onlyId) continue
+                        val key=if(remote==null) "legacy-$table:$local" else "$media:$remote"
+                        val url=c.getString(2)
+                        db.execSQL("INSERT OR IGNORE INTO panel_artwork_owner VALUES(?,?,?)",arrayOf<Any>(providerId,url,key))
+                        check(Artwork.record(providerId,url,key,allowed && remote!=null && Policies.allowsContent(providerId,media,remote),
+                            if(allowed) expectedArtworkEpoch(providerId) else Artwork.epoch(providerId))) { "Artwork generation changed" }
+                    }
+                }
+            }
             db.query("SELECT url,owner_key FROM panel_artwork_owner WHERE provider_id=?",arrayOf<Any>(providerId)).use { c ->
                 while(c.moveToNext()) {
                     val key=c.getString(1)
