@@ -14,7 +14,6 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import sun.misc.Unsafe
 
 /** Exercises the actual private repository entry/transaction helpers, not a duplicate fence. */
 class RepositoryWriterGenerationFenceTest {
@@ -36,8 +35,10 @@ class RepositoryWriterGenerationFenceTest {
 
     // Avoid constructing unrelated network clients: these helpers only use the two fields below.
     private fun repository(type: Class<*>, transactions: Transactions): Any {
-        val unsafeField = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }
-        val instance = (unsafeField.get(null) as Unsafe).allocateInstance(type)
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafeField = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }
+        val instance = unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(unsafeField.get(null), type)
         type.getDeclaredField("transactionRunner").apply { isAccessible = true }.set(instance, transactions)
         type.getDeclaredField("workflowCommitFence").apply { isAccessible = true }
             .set(instance, ProviderWorkflowCommitFence())
