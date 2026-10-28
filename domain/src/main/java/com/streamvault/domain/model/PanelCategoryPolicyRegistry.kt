@@ -23,10 +23,17 @@ object PanelCategoryPolicyRegistry {
         requests.getOrPut(token) { mutableSetOf() }.add(cancel)
         return AutoCloseable { synchronized(this) { requests[token]?.remove(cancel) } }
     }
-    private fun cancelRequests(providerId: Long) {
+    private fun takeRequests(providerId: Long): List<() -> Unit> {
         val keys = requests.keys.filter { it.providerId == providerId }
         val callbacks = keys.flatMap { requests.remove(it).orEmpty() }
-        callbacks.forEach { it() }
+        return callbacks
+    }
+    private fun dispatch(callbacks: List<() -> Unit>) {
+        var failure: Throwable? = null
+        callbacks.forEach { callback ->
+            try { callback() } catch (error: Throwable) { if (failure == null) failure = error }
+        }
+        failure?.let { throw it }
     }
     private var startupReady = false
     interface Persistence {
@@ -57,28 +64,37 @@ object PanelCategoryPolicyRegistry {
     }
     private fun next(id: Long): Long = ((epochs[id] ?: 0L) + 1).also { epochs[id] = it }
 
-    @Synchronized fun install(providerId: Long, policy: PanelCategoryPolicy) {
+    fun install(providerId: Long, policy: PanelCategoryPolicy) {
         require(policy.deviceScope.isNotBlank() && policy.playlistId.isNotBlank() &&
             policy.providerGeneration.isNotBlank() && policy.revision.isNotBlank())
         require(policy.hidden.keys == setOf("live", "vod", "series"))
         require(policy.hidden.values.all { ids -> ids.size <= 10000 && ids.all { it.matches(Regex("[0-9]{1,64}")) } })
         val frozen = policy.copy(hidden = policy.hidden.mapValues { it.value.toSet() }.toMap())
-        if (states[providerId]?.policy == frozen) return
-        cancelRequests(providerId)
-        clearMembership(providerId)
-        states[providerId] = State(next(providerId), frozen)
+        val callbacks = synchronized(this) {
+            if (states[providerId]?.policy == frozen) return
+            clearMembership(providerId)
+            states[providerId] = State(next(providerId), frozen)
+            takeRequests(providerId)
+        }
+        dispatch(callbacks)
     }
-    @Synchronized fun block(providerId: Long) {
-        cancelRequests(providerId)
-        clearMembership(providerId)
-        states[providerId] = State(next(providerId), null)
+    fun block(providerId: Long) {
+        val callbacks = synchronized(this) {
+            clearMembership(providerId)
+            states[providerId] = State(next(providerId), null)
+            takeRequests(providerId)
+        }
+        dispatch(callbacks)
     }
-    @Synchronized fun remove(providerId: Long) {
-        cancelRequests(providerId)
-        clearMembership(providerId)
-        next(providerId)
-        states.remove(providerId)
-        persistence.remove(providerId)
+    fun remove(providerId: Long) {
+        val callbacks = synchronized(this) {
+            clearMembership(providerId)
+            next(providerId)
+            states.remove(providerId)
+            persistence.remove(providerId)
+            takeRequests(providerId)
+        }
+        dispatch(callbacks)
     }
     @Synchronized fun current(providerId: Long): PanelCategoryPolicy? = states[providerId]?.policy
     @Synchronized fun isTracked(providerId: Long): Boolean = states.containsKey(providerId)

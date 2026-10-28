@@ -11,6 +11,26 @@ class PanelCategoryPolicyRegistryTest {
         PanelCategoryPolicy("device-a", "playlist-a", "generation-a", "opaque-revision", hidden)
     @Before fun startup() { PanelCategoryPolicyRegistry.markStartupReady() }
     @After fun clear() { PanelCategoryPolicyRegistry.remove(id); PanelCategoryPolicyRegistry.remove(id + 1) }
+    @Test fun transitionsRevokeBeforeUnlockedCancellationCallbacks() {
+        val registry=PanelCategoryPolicyRegistry
+        registry.install(id,policy())
+        fun checkTransition(change:()->Unit) {
+            val old=registry.snapshot(id)
+            var called=false
+            registry.registerRequest(old) {
+                called=true
+                assertFalse(Thread.holdsLock(registry))
+                assertFalse(registry.isCurrent(old))
+                assertFalse(registry.recordMembership(old,"live",99,setOf("7")))
+            }
+            change()
+            assertTrue(called)
+        }
+        checkTransition { registry.block(id) }
+        registry.install(id,policy())
+        checkTransition { registry.install(id,policy().copy(revision="next")) }
+        checkTransition { registry.remove(id) }
+    }
     @Test fun manualProvidersRemainUnrestricted() {
         assertTrue(PanelCategoryPolicyRegistry.allowsCategory(id, "live", null))
         assertTrue(PanelCategoryPolicyRegistry.allowsContent(id, "series", 99))
