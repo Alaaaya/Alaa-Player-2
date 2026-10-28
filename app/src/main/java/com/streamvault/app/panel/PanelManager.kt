@@ -162,7 +162,7 @@ class PanelManager @Inject constructor(
 
     /** Startup barrier shared by catalog readers/workers, not only by playback engines. */
     suspend fun restoreCatalogPolicy() {
-        categoryReconciler.restoreArtworkTombstones()
+        categoryReconciler.restoreStartup()
         if (!_state.value.configured) {
             playbackGuard.ready()
             PanelCategoryPolicyRegistry.markStartupReady()
