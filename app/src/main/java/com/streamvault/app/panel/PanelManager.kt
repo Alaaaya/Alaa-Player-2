@@ -283,7 +283,12 @@ class PanelManager @Inject constructor(
         }.getOrElse { failures += "Provider setup failed"; return }
         val provider = when (result) {
             is ValidateAndAddProviderResult.Success -> result.provider
-            is ValidateAndAddProviderResult.SavedWithWarning -> result.provider.also { failures += "Provider saved with warning" }
+            is ValidateAndAddProviderResult.SavedWithWarning -> {
+                // An edit warning may mean staged credentials were never committed. Do not
+                // authorize old credentials or suppress retries with the desired fingerprint.
+                failures += "Provider saved with warning; activation incomplete"
+                return
+            }
             is ValidateAndAddProviderResult.ValidationError -> { failures += "Provider validation failed"; return }
             is ValidateAndAddProviderResult.Error -> { failures += "Provider validation failed"; return }
             is ValidateAndAddProviderResult.VerificationInconclusive -> { failures += "Provider validation failed"; return }
