@@ -64,4 +64,21 @@ class PanelPlayerFallbackTest {
         assertNotEquals(info.panelCategoryPolicyVersion, PanelCategoryPolicyRegistry.version(provider))
         assertFalse(PanelPlaybackAuthorization.allows(info))
     }
+    @Test fun playingEpisodeInheritsNewlyDiscoveredHiddenParentMembership() {
+        val seriesPolicy = PanelCategoryPolicy("device", "playlist", "generation", "revision",
+            mapOf("live" to emptySet(), "vod" to emptySet(), "series" to setOf("007")))
+        PanelCategoryPolicyRegistry.install(provider, seriesPolicy)
+        val token = PanelCategoryPolicyRegistry.snapshot(provider)
+        assertTrue(PanelCategoryPolicyRegistry.recordMembership(token, "series", 100, setOf("7")))
+        assertTrue(PanelCategoryPolicyRegistry.recordEpisodeParent(token, 100, 200))
+        val playing = com.streamvault.domain.model.StreamInfo(
+            url = "https://media.invalid/episode.mp4", providerId = provider,
+            streamId = 200, contentType = ContentType.SERIES_EPISODE,
+            panelAuthorizationVersion = PanelPlaybackAuthorization.version(provider),
+            panelCategoryPolicyVersion = PanelCategoryPolicyRegistry.version(provider))
+        assertTrue(PanelPlaybackAuthorization.allows(playing))
+        assertFalse(PanelCategoryPolicyRegistry.recordMembership(token, "series", 100, setOf("007")))
+        assertFalse(PanelPlaybackAuthorization.allows(playing))
+    }
+
 }
