@@ -42,8 +42,31 @@ class PlaybackHistoryRepositoryImplTest {
         preferencesRepository = preferencesRepository,
         movieDao = movieDao,
         episodeDao = episodeDao,
-        transactionRunner = transactionRunner
+        transactionRunner = transactionRunner,
+        payloadGuard = PanelAuxiliaryPayloadGuard(mock()).also { com.streamvault.domain.model.PanelCategoryPolicyRegistry.markStartupReady() }
     )
+
+    @Test
+    fun queuedProgressCannotReinsertPayloadAfterProviderBlocked() = runTest {
+        whenever(preferencesRepository.isIncognitoMode).thenReturn(flowOf(false))
+        val input = movieHistory().copy(providerId = 831001, title = "hidden",
+            posterUrl = "https://hidden/poster")
+        val repository = repository()
+        assertThat(repository.updateResumePosition(input).isSuccess).isTrue()
+        com.streamvault.domain.model.PanelCategoryPolicyRegistry.block(input.providerId)
+        assertThat(repository.getPlaybackHistory(input.contentId, input.contentType, input.providerId,
+            null, null, null)?.title).isEmpty()
+        whenever(historyDao.getRecentlyWatched(10)).thenReturn(flowOf(emptyList()))
+        assertThat(repository.getRecentlyWatched(10).first().single().title).isEmpty()
+        assertThat(repository.flushPendingProgress().isSuccess).isTrue()
+        // Progress commits even while blocked, but its retained payload cannot return.
+        val rows = argumentCaptor<PlaybackHistoryEntity>()
+        verify(historyDao).insertOrUpdate(rows.capture())
+        assertThat(rows.firstValue.title).isEmpty()
+        assertThat(rows.firstValue.posterUrl).isNull()
+        assertThat(rows.firstValue.streamUrl).isEmpty()
+        assertThat(rows.firstValue.resumePositionMs).isEqualTo(input.resumePositionMs)
+    }
 
     private fun movieHistory(
         resumePositionMs: Long = 1_000L,
