@@ -53,7 +53,10 @@ class WatchLaterMigrationTest {
             .allowMainThreadQueries().build()
         try {
             database.openHelper.writableDatabase.execSQL("PRAGMA foreign_keys=OFF")
-            val repo = WatchLaterRepository(database.watchLaterDao())
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.markStartupReady()
+            val repo = WatchLaterRepository(database.watchLaterDao(),
+                com.streamvault.data.repository.PanelAuxiliaryPayloadGuard(database),
+                RoomDatabaseTransactionRunner(database))
             assertThat(repo.toggle(1, 7, ContentType.MOVIE, "Film", null)).isTrue()
             assertThat(repo.observeContains(1, 7, ContentType.MOVIE).first()).isTrue()
             assertThat(repo.observeAll().first().map { it.title }).containsExactly("Film")
