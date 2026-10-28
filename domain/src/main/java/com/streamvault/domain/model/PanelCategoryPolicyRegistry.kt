@@ -30,14 +30,16 @@ object PanelCategoryPolicyRegistry {
     private var startupReady = false
     interface Persistence {
         fun membership(providerId: Long, media: String, contentId: Long, categories: Set<String>, allowed: Boolean)
-        fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>)
+        fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long)
         fun categoryKey(providerId: Long, media: String, rawId: String): Long
         fun rawCategory(providerId: Long, media: String, key: Long): String?
     }
     private val persistence = mutableMapOf<Long, Persistence>()
     @Synchronized fun attach(providerId: Long, store: Persistence) { persistence[providerId] = store }
-    @Synchronized fun recordArtwork(providerId: Long, media: String, contentId: Long, urls: List<String?>) {
-        if (allowsContent(providerId,media,contentId)) persistence[providerId]?.artwork(providerId,media,contentId,urls)
+    @Synchronized fun recordArtwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long) {
+        if (!isTracked(providerId)) { check(startupReady); return }
+        check(allowsContent(providerId,media,contentId)) { "Artwork membership changed" }
+        checkNotNull(persistence[providerId]) { "Artwork ownership unavailable" }.artwork(providerId,media,contentId,urls,expectedEpoch)
     }
     @Synchronized fun markStartupReady() { startupReady = true }
     @Synchronized fun startupReady(): Boolean = startupReady
