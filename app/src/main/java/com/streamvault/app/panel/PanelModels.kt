@@ -43,6 +43,7 @@ data class PanelConfig(
     val deviceCode: String?,
     val expiresAt: String?,
     val playlists: List<PanelPlaylist>,
+    val protocolStatus: String = status.name.lowercase(),
 )
 
 class PanelParseException(message: String) : Exception(message)
@@ -54,7 +55,7 @@ object PanelConfigParser {
             ?: throw PanelParseException("Panel response is not a JSON object")
         val status = when (root.str("status")?.lowercase()) {
             "active" -> PanelStatus.ACTIVE
-            "inactive" -> PanelStatus.INACTIVE
+            "inactive", "pending", "registration_expired", "unauthorized", "upgrade_required" -> PanelStatus.INACTIVE
             "expired" -> PanelStatus.EXPIRED
             "unknown" -> PanelStatus.UNKNOWN
             else -> throw PanelParseException("Unknown panel status")
@@ -65,7 +66,7 @@ object PanelConfigParser {
                 ?.distinctBy { it.id }
                 .orEmpty()
         } else emptyList()
-        return PanelConfig(status, root.str("device_code"), root.str("expires_at"), playlists)
+        return PanelConfig(status, root.str("device_code"), root.str("expires_at"), playlists, root.str("status").orEmpty())
     }
 
     private fun JsonObject.toPlaylist(): PanelPlaylist? {
@@ -138,15 +139,10 @@ fun planPanelSync(
 }
 
 object PanelDeviceCode {
-    /** No 0/O, 1/I/L: easy to read off a TV and type into the panel. */
-    const val ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-    const val LENGTH = 8
-
+    const val ALPHABET = "0123456789ABCDEF"
+    const val LENGTH = 12
     fun generate(random: SecureRandom = SecureRandom()): String =
-        buildString(LENGTH) { repeat(LENGTH) { append(ALPHABET[random.nextInt(ALPHABET.length)]) } }
-
+        ByteArray(6).also(random::nextBytes).joinToString("") { "%02X".format(it) }
     fun isValid(code: String?): Boolean = code != null && code.length == LENGTH && code.all { it in ALPHABET }
-
-    /** "A7K29QXD" -> "A7K2-9QXD" for display only; the server gets the raw code. */
-    fun display(code: String): String = if (code.length == LENGTH) code.substring(0, 4) + "-" + code.substring(4) else code
+    fun display(code: String): String = if (isValid(code)) code.chunked(4).joinToString("-") else code
 }

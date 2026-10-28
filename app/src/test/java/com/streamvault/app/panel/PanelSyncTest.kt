@@ -101,9 +101,9 @@ class PanelSyncTest {
         repeat(200) {
             val code = PanelDeviceCode.generate(r)
             assertThat(PanelDeviceCode.isValid(code)).isTrue()
-            assertThat(code.none { it in "0O1IL" }).isTrue()
+            assertThat(code.length).isEqualTo(12)
         }
-        assertThat(PanelDeviceCode.display("A7K29QXD")).isEqualTo("A7K2-9QXD")
+        assertThat(PanelDeviceCode.display("A1B2C3D4E5F6")).isEqualTo("A1B2-C3D4-E5F6")
         assertThat(PanelDeviceCode.isValid("a7k29qxd")).isFalse()
         assertThat(PanelDeviceCode.isValid(null)).isFalse()
     }
