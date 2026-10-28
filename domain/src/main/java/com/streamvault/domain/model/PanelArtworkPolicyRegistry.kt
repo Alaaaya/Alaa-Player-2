@@ -17,6 +17,34 @@ object PanelArtworkPolicyRegistry {
     private val listeners = mutableListOf<() -> Unit>()
     private val urlVersions = mutableMapOf<String, Long>()
     private var startupReady = false
+    private val deferredCallbacks = ThreadLocal<MutableList<() -> Unit>>()
+
+    /**
+     * Wrap OUTSIDE the policy monitor/transaction boundary. Ownership and lease generations
+     * change immediately; only external cancellation/purge callbacks wait for the outermost exit.
+     * Persistence remains synchronous and fenced by its caller's original transaction.
+     */
+    fun <T> deferInvalidationCallbacks(block: () -> T): T {
+        if (deferredCallbacks.get() != null) return block()
+        val pending = mutableListOf<() -> Unit>()
+        deferredCallbacks.set(pending)
+        var primaryFailure: Throwable? = null
+        try {
+            return block()
+        } catch (error: Throwable) {
+            primaryFailure = error
+            throw error
+        } finally {
+            // Reentrant callbacks start a fresh scope, never append to a completed queue.
+            deferredCallbacks.remove()
+            try {
+                runCallbacks(pending)
+            } catch (error: Throwable) {
+                if (primaryFailure == null) throw error
+                if (primaryFailure !== error) primaryFailure.addSuppressed(error)
+            }
+        }
+    }
 
     @Synchronized fun epoch(providerId: Long): Long = epochs[providerId] ?: 0
     @Synchronized fun addInvalidationListener(listener: () -> Unit) { listeners += listener }
@@ -55,8 +83,13 @@ object PanelArtworkPolicyRegistry {
     }
     private fun dispatch(work: Pair<List<() -> Unit>, List<() -> Unit>>?) {
         if (work == null) return
+        val callbacks = work.first + work.second
+        val pending = deferredCallbacks.get()
+        if (pending != null) pending.addAll(callbacks) else runCallbacks(callbacks)
+    }
+    private fun runCallbacks(callbacks: List<() -> Unit>) {
         var failure: Throwable? = null
-        (work.first + work.second).forEach { callback ->
+        callbacks.forEach { callback ->
             try { callback() } catch (error: Throwable) { if (failure == null) failure = error }
         }
         failure?.let { throw it }
