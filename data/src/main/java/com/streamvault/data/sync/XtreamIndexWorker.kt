@@ -41,6 +41,13 @@ class XtreamIndexWorker(
     }
 
     override suspend fun doWork(): Result {
+        // Join the application's restoration, including worker-only launches. A failed or
+        // delayed restore never opens this barrier; retry without executing catalog work.
+        val restored = kotlinx.coroutines.withTimeoutOrNull(30_000L) {
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.awaitStartupReady()
+            true
+        } ?: false
+        if (!restored) return Result.retry()
         if (applicationContext.isCurrentlyLowOnMemoryForSync()) {
             Log.w(TAG, "Deferring Xtream index work: device low on memory")
             return Result.retry()
