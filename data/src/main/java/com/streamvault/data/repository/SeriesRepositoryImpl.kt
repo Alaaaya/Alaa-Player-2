@@ -792,7 +792,11 @@ class SeriesRepositoryImpl @Inject constructor(
                     panelCategoryPolicyVersion = categoryVersion,
                     streamId = episode.episodeId.takeIf { it > 0 } ?: episode.id,
                     contentType = ContentType.SERIES_EPISODE
-                )
+                ).also { stream ->
+                    check(PanelPlaybackAuthorization.allows(stream)) {
+                        "Episode or its parent is no longer authorized"
+                    }
+                }
             )
         } ?: Result.error("No stream URL available for episode: ${episode.title}")
     } catch (e: Exception) {
