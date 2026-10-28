@@ -22,7 +22,7 @@ class PanelCategoryRequestTraceTest {
         val rawKeys=mutableMapOf<Pair<String,String>,Long>()
         P.attach(id,object:P.Persistence {
             override fun membership(providerId:Long,media:String,contentId:Long,categories:Set<String>,allowed:Boolean) {}
-            override fun artwork(providerId:Long,media:String,contentId:Long,urls:List<String?>) {}
+            override fun artwork(providerId:Long,media:String,contentId:Long,urls:List<String?>,expectedEpoch:Long) {}
             override fun categoryKey(providerId:Long,media:String,rawId:String):Long = rawKeys.getOrPut(media to rawId){rawKeys.size.toLong()+1}
             override fun rawCategory(providerId:Long,media:String,key:Long):String? = rawKeys.entries.firstOrNull{it.key.first==media && it.value==key}?.key?.second
         })

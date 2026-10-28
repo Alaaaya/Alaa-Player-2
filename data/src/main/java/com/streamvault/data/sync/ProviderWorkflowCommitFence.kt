@@ -37,6 +37,13 @@ class ProviderWorkflowCommitFence @Inject constructor(
     internal constructor() : this(null)
 
     suspend fun assertCanCommit(providerId: Long) {
+        coroutineContext[com.streamvault.data.panel.PanelCategoryExecutionContext]?.let {
+            check(it.token.providerId == providerId)
+            check(it.artworkEpoch == com.streamvault.domain.model.PanelArtworkPolicyRegistry.epoch(providerId)) {
+                "Artwork workflow generation changed before database publication"
+            }
+            com.streamvault.domain.model.PanelCategoryPolicyRegistry.requireCurrent(it.token)
+        }
         val execution = coroutineContext[ProviderWorkflowExecutionContext] ?: return
         val lease = execution.lease
         if (

@@ -20,6 +20,10 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
     suspend fun restoreArtworkTombstones() = mutex.withLock {
         Store(database.openHelper.writableDatabase, null).schema()
     }
+    /** Must run on every startup, even with no remaining managed providers, before artwork ready. */
+    suspend fun restoreStartup() = mutex.withLock {
+        database.withTransaction { Store(database.openHelper.writableDatabase,null).schema() }
+    }
     suspend fun reconcile(providerId: Long, policy: PanelCategoryPolicy) = mutex.withLock {
         require(providerId > 0)
         if (Policies.current(providerId) == policy) return@withLock
@@ -98,8 +102,9 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                 }
             }
         }
-        override fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>) {
-            val epoch=expectedArtworkEpoch(providerId)
+        override fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>, expectedEpoch: Long) {
+            val epoch=expectedEpoch
+            check(epoch == Artwork.epoch(providerId)) { "Stale artwork workflow" }
             urls.filterNotNull().filter { it.isNotBlank() }.forEach { url ->
                 val key="$media:$contentId"
                 db.execSQL("INSERT OR IGNORE INTO panel_artwork_owner VALUES(?,?,?)",arrayOf<Any>(providerId,url,key))
@@ -162,6 +167,14 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                     db.execSQL("DELETE FROM xtream_content_index WHERE provider_id=? AND content_type IN (${types(media)}) AND NOT EXISTS(SELECT 1 FROM panel_raw_membership m WHERE m.provider_id=xtream_content_index.provider_id AND m.media='$media' AND CAST(m.content_id AS TEXT)=xtream_content_index.remote_id AND m.allowed=1)",arrayOf<Any>(providerId))
                 }
             }
+            if("provider_id" in columns("vod_catalog_entries")) {
+                db.execSQL("DELETE FROM vod_catalog_entries WHERE provider_id=? AND NOT EXISTS(SELECT 1 FROM panel_raw_membership m JOIN panel_raw_category c ON c.provider_id=m.provider_id AND c.media=m.media AND c.raw_id=m.raw_id WHERE m.provider_id=vod_catalog_entries.provider_id AND c.cache_key=vod_catalog_entries.category_id AND m.allowed=1)",arrayOf<Any>(providerId))
+            }
+            listOf("movie_category_hydration" to "vod","series_category_hydration" to "series","vod_category_hydration" to "vod").forEach { (table,media) ->
+                if("provider_id" in columns(table)) policy!!.hidden[media].orEmpty().forEach { raw ->
+                    db.execSQL("DELETE FROM `$table` WHERE provider_id=? AND category_id IN(SELECT cache_key FROM panel_raw_category WHERE provider_id=? AND media=? AND raw_id=?)",arrayOf<Any>(providerId,providerId,media,raw))
+                }
+            }
             // Category rows are projections of exact raw keys, never numeric policy comparisons.
             if("provider_id" in columns("categories")) {
                 policy!!.hidden.forEach { (media, ids) -> ids.forEach { raw ->
@@ -184,6 +197,17 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             if("provider_id" in columns("xtream_content_index")) db.execSQL(
                 "DELETE FROM xtream_content_index WHERE provider_id=? AND remote_id=? AND content_type IN (${types(media)})",arrayOf<Any>(providerId,id.toString()))
             val ids=localIds + id
+            if(media=="live") {
+                listOf("programs","channel_epg_mappings").forEach { table ->
+                    val cols=columns(table)
+                    if("provider_id" in cols && "channel_id" in cols) ids.forEach { local ->
+                        db.execSQL("DELETE FROM `$table` WHERE provider_id=? AND channel_id=?",arrayOf<Any>(providerId,local))
+                    }
+                }
+            }
+            if("provider_id" in columns("vod_catalog_entries")) ids.forEach { local ->
+                db.execSQL("DELETE FROM vod_catalog_entries WHERE provider_id=? AND target_id=? AND item_type IN (${types(media)})",arrayOf<Any>(providerId,local))
+            }
             listOf("playback_history","watch_later").forEach { table ->
                 val cols=columns(table)
                 if("provider_id" in cols && "content_id" in cols) {
@@ -221,7 +245,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             (catalogs + listOf(Triple("xtream_content_index","live","remote_id"))).filter { onlyMedia==null || it.second==onlyMedia }.forEach { (table,media,id) ->
                 val cols=columns(table)
                 if("provider_id" !in cols) return@forEach
-                val urls=listOf("logo_url","poster_url","backdrop_url","image_url").filter{it in cols}
+                val urls=listOf("logo_url","poster_url","backdrop_url","image_url","cover_url").filter{it in cols}
                 if(urls.isEmpty()) return@forEach
                 val contentTypeColumn=if(table=="xtream_content_index") ",content_type" else ""
                 db.query("SELECT `$id`,${urls.joinToString(",")}$contentTypeColumn FROM `$table` WHERE provider_id=?" + if(onlyId==null) "" else " AND `$id`=$onlyId",arrayOf<Any>(providerId)).use { c ->

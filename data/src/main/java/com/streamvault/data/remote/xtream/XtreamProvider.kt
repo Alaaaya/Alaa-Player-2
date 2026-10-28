@@ -80,6 +80,10 @@ class XtreamProvider(
         )
     }
 
+    // A provider instance is a workflow capability. Policy transitions invalidate old instances;
+    // callers must obtain a fresh instance rather than revive stale mapped callbacks.
+    private val artworkWorkflowEpoch = PanelArtworkPolicyRegistry.epoch(providerId)
+
     private enum class XtreamTextDecodeMode {
         RAW,
         EPG,
@@ -1111,7 +1115,7 @@ class XtreamProvider(
                 emptyList()
             },
             streamId = streamId
-        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"live",streamId,listOf(it.logoUrl)) }
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"live",streamId,listOf(it.logoUrl),artworkWorkflowEpoch) }
     }
 
     private fun XtreamStream.toMovie(adultCategoryIds: Set<Long>): Movie? {
@@ -1147,7 +1151,7 @@ class XtreamProvider(
             isUserProtected = false,
             streamId = streamId,
             addedAt = added?.trim()?.toLongOrNull() ?: 0L
-        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"vod",streamId,listOf(it.posterUrl,it.backdropUrl)) }
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"vod",streamId,listOf(it.posterUrl,it.backdropUrl),artworkWorkflowEpoch) }
     }
 
     private fun mapVodStream(
@@ -1201,7 +1205,7 @@ class XtreamProvider(
             ),
             isUserProtected = false,
             seriesId = resolvedSeriesId
-        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"series",resolvedSeriesId,listOf(it.posterUrl,it.backdropUrl)) }
+        ).also { PanelCategoryPolicyRegistry.recordArtwork(providerId,"series",resolvedSeriesId,listOf(it.posterUrl,it.backdropUrl),artworkWorkflowEpoch) }
     }
 
     private fun mapSeriesItem(
