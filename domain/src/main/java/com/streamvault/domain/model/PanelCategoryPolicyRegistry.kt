@@ -36,6 +36,7 @@ object PanelCategoryPolicyRegistry {
         failure?.let { throw it }
     }
     private var startupReady = false
+    private val startupRestored = kotlinx.coroutines.CompletableDeferred<Unit>()
     interface Persistence {
         fun membership(providerId: Long, media: String, contentId: Long, categories: Set<String>, allowed: Boolean)
         fun episodeParent(providerId: Long, seriesId: Long, episodeId: Long) {}
@@ -50,7 +51,9 @@ object PanelCategoryPolicyRegistry {
         check(allowsContent(providerId,media,contentId)) { "Artwork membership changed" }
         checkNotNull(persistence[providerId]) { "Artwork ownership unavailable" }.artwork(providerId,media,contentId,urls,expectedEpoch)
     } }
-    @Synchronized fun markStartupReady() { startupReady = true }
+    @Synchronized fun markStartupReady() { startupReady = true; startupRestored.complete(Unit) }
+    /** Shared process barrier, completed only by successful application policy restoration. */
+    suspend fun awaitStartupReady() { startupRestored.await() }
     @Synchronized fun startupReady(): Boolean = startupReady
     @Synchronized fun categoryKey(providerId: Long, media: String, rawId: String): Long? {
         if (!allowsCategory(providerId, media, rawId)) return null
