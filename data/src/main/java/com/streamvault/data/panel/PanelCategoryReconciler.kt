@@ -16,6 +16,10 @@ import kotlinx.coroutines.sync.withLock
 class PanelCategoryReconciler @Inject constructor(private val database: StreamVaultDatabase) {
     private val mutex = Mutex()
     companion object { private var tombstonesRestored = false }
+    /** Restore denied URL ownership even when the device has no current panel mappings. */
+    suspend fun restoreArtworkTombstones() = mutex.withLock {
+        Store(database.openHelper.writableDatabase, null).schema()
+    }
     suspend fun reconcile(providerId: Long, policy: PanelCategoryPolicy) = mutex.withLock {
         require(providerId > 0)
         if (Policies.current(providerId) == policy) return@withLock
@@ -70,6 +74,8 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
     }
 
     internal class Store(private val db: SupportSQLiteDatabase, private val policy: PanelCategoryPolicy?) : Policies.Persistence {
+        private val artworkEpochs = mutableMapOf<Long,Long>()
+        private fun expectedArtworkEpoch(providerId:Long):Long = artworkEpochs.getOrPut(providerId) { Artwork.epoch(providerId) }
         private val catalogs = listOf(Triple("channels", "live", "stream_id"), Triple("movies", "vod", "stream_id"),
             Triple("series", "series", "series_id"), Triple("episodes", "series", "episode_id"),
             Triple("channel_import_stage", "live", "stream_id"), Triple("movie_import_stage", "vod", "stream_id"),
@@ -86,18 +92,18 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             synchronized(PanelCategoryReconciler::class.java) {
                 if (!tombstonesRestored) {
                     db.query("SELECT provider_id,url,owner_key FROM panel_artwork_owner").use { c ->
-                        while(c.moveToNext()) Artwork.record(c.getLong(0), c.getString(1), c.getString(2), false)
+                        while(c.moveToNext()) check(Artwork.record(c.getLong(0), c.getString(1), c.getString(2), false)) { "Artwork restore rejected" }
                     }
                     tombstonesRestored = true
                 }
             }
         }
         override fun artwork(providerId: Long, media: String, contentId: Long, urls: List<String?>) {
-            val epoch=Artwork.epoch(providerId)
+            val epoch=expectedArtworkEpoch(providerId)
             urls.filterNotNull().filter { it.isNotBlank() }.forEach { url ->
                 val key="$media:$contentId"
                 db.execSQL("INSERT OR IGNORE INTO panel_artwork_owner VALUES(?,?,?)",arrayOf<Any>(providerId,url,key))
-                Artwork.record(providerId,url,key,true,epoch)
+                check(Artwork.record(providerId,url,key,true,epoch)) { "Artwork generation changed" }
             }
         }
         override fun categoryKey(providerId: Long, media: String, rawId: String): Long {
@@ -121,6 +127,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             if(!allowed) {
                 // Sticky union revokes the version that may have been cached from an earlier category response.
                 Artwork.beginTransition(providerId)
+                artworkEpochs[providerId] = Artwork.epoch(providerId)
                 seedArtwork(providerId, false, media, contentId)
                 evict(providerId, media, contentId)
                 seedArtwork(providerId, true)
@@ -225,7 +232,7 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
                         urls.indices.forEach { index -> if(!c.isNull(index+1)) {
                             val url=c.getString(index+1)
                             db.execSQL("INSERT OR IGNORE INTO panel_artwork_owner VALUES(?,?,?)",arrayOf<Any>(providerId,url,key))
-                            Artwork.record(providerId,url,key,allowed && Policies.allowsContent(providerId,actualMedia,content),Artwork.epoch(providerId))
+                            check(Artwork.record(providerId,url,key,allowed && Policies.allowsContent(providerId,actualMedia,content),expectedArtworkEpoch(providerId))) { "Artwork generation changed" }
                         } }
                     }
                 }
