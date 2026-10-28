@@ -1,5 +1,7 @@
 package com.streamvault.data.manager
 
+import com.streamvault.data.mapper.toDomain
+import com.streamvault.data.mapper.toEntity
 import com.google.gson.Gson
 import com.streamvault.data.local.dao.BackupRestoreLedgerDao
 import com.streamvault.data.local.dao.ChannelDao
@@ -81,6 +83,8 @@ class PendingBackupRestoreCoordinator @Inject constructor(
     private val providerSnapshotRepository: ProviderSnapshotRepository,
     private val recordingManager: RecordingManager,
     private val gson: Gson,
+    private val auxiliaryGuard: com.streamvault.data.repository.PanelAuxiliaryPayloadGuard,
+    private val auxiliaryTransactions: com.streamvault.data.local.DatabaseTransactionRunner,
     private val categoryDao: CategoryDao? = null
 ) {
     private data class ReplaceScopePayload(
@@ -376,6 +380,7 @@ class PendingBackupRestoreCoordinator @Inject constructor(
     }
 
     private suspend fun applyPlaybackHistory(item: BackupRestoreItemEntity, providerId: Long): Boolean {
+        val ticket = auxiliaryGuard.capture(providerId)
         val backup = gson.fromJson(item.payloadJson, PortablePlaybackHistoryBackup::class.java)
         val resolved = resolveContent(providerId, backup.content) ?: return false
         val parentSeriesId = backup.content.parentRemoteContentId?.let { remoteParent ->
@@ -384,8 +389,9 @@ class PendingBackupRestoreCoordinator @Inject constructor(
                 backup.content.copy(contentType = ContentType.SERIES, remoteContentId = remoteParent)
             )?.localId
         }
-        playbackHistoryDao.insertOrUpdate(
-            PlaybackHistoryEntity(
+        auxiliaryTransactions.inTransaction {
+            auxiliaryGuard.requireCurrent(ticket)
+            val restored = PlaybackHistoryEntity(
                 contentId = resolved.localId,
                 contentType = backup.content.contentType,
                 providerId = providerId,
@@ -401,7 +407,9 @@ class PendingBackupRestoreCoordinator @Inject constructor(
                 seasonNumber = backup.seasonNumber,
                 episodeNumber = backup.episodeNumber
             )
-        )
+            playbackHistoryDao.insertOrUpdate(auxiliaryGuard.history(restored.toDomain(), ticket).toEntity())
+            auxiliaryGuard.requireCurrent(ticket)
+        }
         return true
     }
 

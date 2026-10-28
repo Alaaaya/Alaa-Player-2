@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -43,7 +44,8 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
     private val movieDao: MovieDao,
     private val episodeDao: EpisodeDao,
-    private val transactionRunner: DatabaseTransactionRunner
+    private val transactionRunner: DatabaseTransactionRunner,
+    private val payloadGuard: PanelAuxiliaryPayloadGuard
 ) : PlaybackHistoryRepository {
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pendingResumeUpdates = ConcurrentHashMap<PlaybackKey, PlaybackHistory>()
@@ -54,6 +56,14 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
             .stateIn(repositoryScope, SharingStarted.Eagerly, false)
 
     init {
+        repositoryScope.launch {
+            payloadGuard.changes.collect {
+                pendingProgressMutex.withLock {
+                    pendingResumeUpdates.replaceAll { _, value -> payloadGuard.history(value) }
+                    publishPendingResumeUpdates()
+                }
+            }
+        }
         repositoryScope.launch {
             while (currentCoroutineContext().isActive) {
                 delay(RESUME_POSITION_FLUSH_INTERVAL_MS)
@@ -111,11 +121,11 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
         episodeNumber: Int?
     ): PlaybackHistory? {
         val key = PlaybackKey(contentId, contentType, providerId)
-        pendingResumeUpdates[key]?.let { return it }
+        pendingResumeUpdates[key]?.let { return payloadGuard.history(it) }
 
         val directMatch = dao.get(contentId, contentType.name, providerId)?.toDomain()
         if (directMatch != null) {
-            return directMatch
+            return payloadGuard.history(directMatch)
         }
 
         return when (contentType) {
@@ -129,7 +139,7 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
             }
             ContentType.LIVE,
             ContentType.VOD -> null
-        }
+        }?.let { payloadGuard.history(it) }
     }
 
     override suspend fun markAsWatched(history: PlaybackHistory): Result<Unit> {
@@ -157,7 +167,9 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
                     lastWatchedAt = System.currentTimeMillis()
                 )
                 transactionRunner.inTransaction {
-                    dao.insertOrUpdate(updatedHistory.toEntity())
+                    val ticket = payloadGuard.capture(updatedHistory.providerId)
+                    dao.insertOrUpdate(payloadGuard.history(updatedHistory, ticket).toEntity())
+                    payloadGuard.requireCurrent(ticket)
                     syncDenormalizedProgress(updatedHistory.contentId, updatedHistory.contentType, updatedHistory.providerId)
                 }
                 clearPendingResumeUpdateLocked(key)
@@ -193,7 +205,9 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
                     lastWatchedAt = System.currentTimeMillis()
                 )
                 transactionRunner.inTransaction {
-                    dao.insertOrUpdate(updatedHistory.toEntity())
+                    val ticket = payloadGuard.capture(updatedHistory.providerId)
+                    dao.insertOrUpdate(payloadGuard.history(updatedHistory, ticket).toEntity())
+                    payloadGuard.requireCurrent(ticket)
                     syncDenormalizedProgress(updatedHistory.contentId, updatedHistory.contentType, updatedHistory.providerId)
                 }
                 clearPendingResumeUpdateLocked(key)
@@ -229,7 +243,7 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
                 )
                 // Steady-state playback is memory-only. The periodic actor and lifecycle
                 // boundaries flush this coalesced value to Room as one durable write.
-                pendingResumeUpdates[key] = updatedHistory
+                pendingResumeUpdates[key] = payloadGuard.history(updatedHistory)
                 publishPendingResumeUpdates()
             }
             Result.success(Unit)
@@ -320,7 +334,9 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
             // item when a lifecycle boundary flushes several recently played items.
             transactionRunner.inTransaction {
                 snapshot.values.forEach { history ->
-                    dao.insertOrUpdate(history.toEntity())
+                    val ticket = payloadGuard.capture(history.providerId)
+                    dao.insertOrUpdate(payloadGuard.history(history, ticket).toEntity())
+                    payloadGuard.requireCurrent(ticket)
                     syncDenormalizedProgress(history.contentId, history.contentType, history.providerId)
                 }
             }
@@ -345,7 +361,7 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
         persisted: Flow<List<PlaybackHistory>>,
         limit: Int,
         includePending: (PlaybackHistory) -> Boolean
-    ): Flow<List<PlaybackHistory>> = combine(persisted, pendingResumeUpdatesState) { persistedItems, pendingItems ->
+    ): Flow<List<PlaybackHistory>> = combine(persisted, pendingResumeUpdatesState, payloadGuard.changes) { persistedItems, pendingItems, _ ->
         val mergedByKey = LinkedHashMap<PlaybackKey, PlaybackHistory>()
         persistedItems.forEach { history ->
             mergedByKey[history.playbackKey()] = history
@@ -357,9 +373,10 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
                 mergedByKey[history.playbackKey()] = history
             }
         mergedByKey.values
+            .map { payloadGuard.history(it) }
             .sortedByDescending(PlaybackHistory::lastWatchedAt)
             .take(limit)
-    }
+    }.flowOn(Dispatchers.IO)
 
     private suspend fun syncDenormalizedProgress(contentId: Long, contentType: ContentType, providerId: Long) {
         when (contentType) {

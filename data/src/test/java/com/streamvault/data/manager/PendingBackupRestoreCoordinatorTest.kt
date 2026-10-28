@@ -50,6 +50,12 @@ import org.mockito.kotlin.whenever
 import org.mockito.kotlin.never
 
 class PendingBackupRestoreCoordinatorTest {
+    private val auxiliaryGuard = com.streamvault.data.repository.PanelAuxiliaryPayloadGuard(mock())
+        .also { com.streamvault.domain.model.PanelCategoryPolicyRegistry.markStartupReady() }
+    private val auxiliaryTransactions = object : com.streamvault.data.local.DatabaseTransactionRunner {
+        override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+    }
+
     @Test
     fun `cancellation leaves restore instruction retryable`() = runBlocking {
         val ledger: BackupRestoreLedgerDao = mock()
@@ -189,7 +195,7 @@ class PendingBackupRestoreCoordinatorTest {
 
         val coordinator = PendingBackupRestoreCoordinator(
             ledger, providerDao, favoriteDao, mock(), mock(), channelDao, mock(), mock(), mock(),
-            mock(), mock(), mock(), mock(), mock(), snapshots, mock(), gson
+            mock(), mock(), mock(), mock(), mock(), snapshots, mock(), gson, auxiliaryGuard, auxiliaryTransactions
         )
 
         assertThat(coordinator.applyForProvider(88).appliedCount).isEqualTo(1)
@@ -245,7 +251,7 @@ class PendingBackupRestoreCoordinatorTest {
             preferencesRepository = preferences,
             providerSnapshotRepository = mock(),
             recordingManager = mock(),
-            gson = gson
+            gson = gson, auxiliaryGuard = auxiliaryGuard, auxiliaryTransactions = auxiliaryTransactions
         )
 
         assertThat(coordinator.requiredHiddenCategoryIds(77, ContentType.LIVE)).containsExactly(9L)
@@ -301,7 +307,7 @@ class PendingBackupRestoreCoordinatorTest {
 
         val coordinator = PendingBackupRestoreCoordinator(
             ledger, providerDao, mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(),
-            mock(), mock(), mock(), preferences, snapshots, mock(), gson
+            mock(), mock(), mock(), preferences, snapshots, mock(), gson, auxiliaryGuard, auxiliaryTransactions
         )
 
         assertThat(coordinator.requiredHiddenCategoryIds(77, ContentType.LIVE))
@@ -388,7 +394,7 @@ class PendingBackupRestoreCoordinatorTest {
             preferencesRepository = mock<PreferencesRepository>(),
             providerSnapshotRepository = mock<ProviderSnapshotRepository>(),
             recordingManager = mock<RecordingManager>(),
-            gson = gson
+            gson = gson, auxiliaryGuard = auxiliaryGuard, auxiliaryTransactions = auxiliaryTransactions
         ).applyForProvider(77)
 
         assertThat(result.appliedCount).isEqualTo(1)
@@ -466,7 +472,7 @@ class PendingBackupRestoreCoordinatorTest {
             preferencesRepository = preferences,
             providerSnapshotRepository = mock(),
             recordingManager = mock(),
-            gson = gson
+            gson = gson, auxiliaryGuard = auxiliaryGuard, auxiliaryTransactions = auxiliaryTransactions
         )
 
         val result = coordinator.applyForProvider(77)
@@ -507,6 +513,6 @@ class PendingBackupRestoreCoordinatorTest {
         preferencesRepository = mock(),
         providerSnapshotRepository = mock(),
         recordingManager = mock(),
-        gson = gson
+        gson = gson, auxiliaryGuard = auxiliaryGuard, auxiliaryTransactions = auxiliaryTransactions
     )
 }

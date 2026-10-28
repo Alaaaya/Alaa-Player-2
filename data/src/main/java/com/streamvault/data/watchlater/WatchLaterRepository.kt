@@ -1,5 +1,10 @@
 package com.streamvault.data.watchlater
 
+import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.repository.PanelAuxiliaryPayloadGuard
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.combine
 import com.streamvault.data.local.dao.WatchLaterDao
 import com.streamvault.data.local.entity.WatchLaterEntity
 import com.streamvault.domain.model.ContentType
@@ -8,13 +13,24 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class WatchLaterRepository @Inject constructor(private val dao: WatchLaterDao) {
-    fun observeAll(): Flow<List<WatchLaterEntity>> = dao.observeAll()
+class WatchLaterRepository @Inject constructor(
+    private val dao: WatchLaterDao,
+    private val payloadGuard: PanelAuxiliaryPayloadGuard,
+    private val transactions: DatabaseTransactionRunner
+) {
+    fun observeAll(): Flow<List<WatchLaterEntity>> = combine(dao.observeAll(), payloadGuard.changes) { rows, _ ->
+        rows.map { payloadGuard.watchLater(it) }
+    }.flowOn(Dispatchers.IO)
     fun observeContains(providerId: Long, contentId: Long, type: ContentType): Flow<Boolean> =
         dao.observeContains(providerId, contentId, type)
 
     suspend fun add(providerId: Long, contentId: Long, type: ContentType, title: String, posterUrl: String?) {
-        dao.insert(WatchLaterEntity(providerId = providerId, contentId = contentId, contentType = type, title = title, posterUrl = posterUrl))
+        transactions.inTransaction {
+            val ticket = payloadGuard.capture(providerId)
+            val row = WatchLaterEntity(providerId = providerId, contentId = contentId, contentType = type, title = title, posterUrl = posterUrl)
+            dao.insert(payloadGuard.watchLater(row, ticket))
+            payloadGuard.requireCurrent(ticket)
+        }
     }
 
     suspend fun remove(providerId: Long, contentId: Long, type: ContentType) {
