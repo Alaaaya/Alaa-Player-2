@@ -26,7 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :domain:test --tests '*Panel*' :data:testDebugUnitTest --tests '*Panel*' :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' --tests 'com.streamvault.app.DatabaseStartupGateTest' :app:assembleDebug
+        run: ./gradlew --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :domain:test --tests '*Panel*' :data:testDebugUnitTest --tests '*Panel*' --tests '*RepositoryWriterGenerationFenceTest' --tests '*PlaybackHistoryRepositoryImplTest' --tests '*SeriesRepositoryImplTest' --tests '*MovieRepositoryImplTest' --tests '*PendingBackupRestoreCoordinatorTest' --tests '*WatchLaterMigrationTest' :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' --tests 'com.streamvault.app.DatabaseStartupGateTest' :app:assembleDebug
 
       - name: Prepare APK artifact
         shell: bash
