@@ -8,6 +8,10 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import com.streamvault.app.BuildConfig
+import com.streamvault.data.panel.PanelCategoryReconciler
+import com.streamvault.domain.model.PanelCategoryPolicy
+import com.streamvault.domain.model.PanelArtworkPolicyRegistry
+import com.streamvault.domain.model.PanelCategoryPolicyRegistry
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.M3uProviderSetupCommand
 import com.streamvault.domain.usecase.ValidateAndAddProvider
@@ -57,6 +61,7 @@ class PanelManager @Inject constructor(
     private val validateAndAddProvider: ValidateAndAddProvider,
     private val providerRepository: ProviderRepository,
     private val playbackGuard: PanelPlaybackGuard,
+    private val categoryReconciler: PanelCategoryReconciler,
 ) {
     // Dedicated client: never inherits provider logging, interceptors, caches, or unsafe TLS.
     private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
@@ -111,6 +116,9 @@ class PanelManager @Inject constructor(
                 val legacyCode = plainPrefs.getString(KEY_CODE, null)
                 val legacyMappings = loadMappings()
                 check(!plainPrefs.getBoolean("v2_initialized", false) || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
+                // Mark every owned provider blocked before any startup catalog may run. Last-known
+                // policy is restored and reconciled from the encrypted binding below, before ready.
+                legacyMappings.forEach { PanelCategoryPolicyRegistry.block(it.localProviderId) }
                 val denied = loadDeniedProviderIds()
                 playbackGuard.revoke(denied)
                 check(legacyCode != null || legacyMappings.isEmpty() || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
@@ -143,12 +151,27 @@ class PanelManager @Inject constructor(
                     playlistCount = cached?.playlists?.size ?: 0,
                     failures = if (b.legacy) listOf("Admin-assisted secure re-pair required") else emptyList()) }
                 identityLoaded = true
+                PanelCategoryPolicyRegistry.markStartupReady()
             } catch (e: Exception) {
                 // Keep playback gate closed if Keystore/identity/mapping integrity is unavailable.
                 playbackGuard.failClosed()
                 _state.update { it.copy(status = PanelStatus.INACTIVE, failures = listOf("Secure storage unavailable; admin recovery required")) }
             }
         }
+    }
+
+    /** Startup barrier shared by catalog readers/workers, not only by playback engines. */
+    suspend fun restoreCatalogPolicy() {
+        if (!_state.value.configured) {
+            playbackGuard.ready()
+            PanelCategoryPolicyRegistry.markStartupReady()
+            PanelArtworkPolicyRegistry.completeStartup()
+            return
+        }
+        ensureIdentity()
+        check(identityLoaded) { "Secure catalog policy unavailable" }
+        PanelCategoryPolicyRegistry.markStartupReady()
+        PanelArtworkPolicyRegistry.completeStartup()
     }
 
     /** Retry/force never bypasses server backoff. Offline cache is retained until expiry/revocation. */
@@ -203,6 +226,16 @@ class PanelManager @Inject constructor(
         val revoked = panelProviderGrants(config, before).first
         playbackGuard.revoke(revoked)
         saveDeniedProviderIds(loadDeniedProviderIds() + revoked)
+        // Policy update is separate from provider credentials. Never trigger full provider setup
+        // merely because a category was hidden/unhidden in the panel.
+        for (mapping in before) {
+            val playlist = config.playlists.firstOrNull { it.id == mapping.panelId }
+            if (config.status == PanelStatus.ACTIVE && playlist?.isUsable == true) {
+                reconcileCategories(playlist, mapping.localProviderId)
+            } else {
+                PanelCategoryPolicyRegistry.block(mapping.localProviderId)
+            }
+        }
         val failures = apply(config)
         // Failed/partial setup does NOT restore access to a previous account configuration.
         val authorized = panelProviderGrants(config, loadMappings()).second
@@ -236,6 +269,7 @@ class PanelManager @Inject constructor(
                         val r = providerRepository.deleteProvider(action.localProviderId)
                         if (r.isError) { failures += "remove ${action.panelId}"; continue }
                     }
+                    categoryReconciler.remove(action.localProviderId)
                     mappings.removeAll { it.panelId == action.panelId }
                 }
                 is PanelSyncAction.Add -> upsert(action.playlist, null, mappings, failures)
@@ -268,6 +302,11 @@ class PanelManager @Inject constructor(
             playbackGuard.revoke(setOf(id))
             id
         }
+        // Ownership and policy must exist before setup launches any provider content requests.
+        if (!reconcileCategories(p, targetId)) {
+            failures += "Unsupported category policy; catalog deferred"
+            return
+        }
         val result = runCatching {
             when (p.type) {
                 PanelPlaylistType.XTREAM -> validateAndAddProvider.loginXtream(
@@ -296,6 +335,33 @@ class PanelManager @Inject constructor(
         }
         mappings.removeAll { it.panelId == p.id }
         mappings += PanelMapping(p.id, provider.id, p.fingerprint())
+    }
+
+    private suspend fun reconcileCategories(p: PanelPlaylist, providerId: Long): Boolean {
+        val settings = p.categorySettings
+        if (settings == null) {
+            PanelCategoryPolicyRegistry.block(providerId)
+            playbackGuard.revoke(setOf(providerId))
+            saveDeniedProviderIds(loadDeniedProviderIds() + providerId)
+            return false
+        }
+        if (p.type == PanelPlaylistType.M3U) {
+            categoryReconciler.remove(providerId) // Xtream-ID hiding is explicitly unsupported for M3U.
+            return true
+        }
+        val identity = protocol.identity()
+        // Secret token is hashed, never persisted/logged as a policy key or passed to a provider.
+        val scope = java.security.MessageDigest.getInstance("SHA-256")
+            .digest((identity.code + "\u0000" + identity.token).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val policy = PanelCategoryPolicy(scope, p.id, settings.providerGeneration, settings.revision, settings.hidden)
+        if (PanelCategoryPolicyRegistry.current(providerId) != policy) {
+            // Kill resolved/preloaded old-policy streams before replacing the cache snapshot.
+            playbackGuard.revoke(setOf(providerId))
+            saveDeniedProviderIds(loadDeniedProviderIds() + providerId)
+            categoryReconciler.reconcile(providerId, policy)
+        }
+        return true
     }
 
     private fun rpc(function: String, body: JsonObject): String {

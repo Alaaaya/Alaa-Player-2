@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.streamvault.domain.model.*
+import com.streamvault.data.panel.PanelCategoryReconciler
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.*
 import com.streamvault.player.PlayerEngine
@@ -26,6 +27,7 @@ class PanelManagerOwnershipTest {
     private lateinit var setup: ValidateAndAddProvider
     private lateinit var guard: PanelPlaybackGuard
     private lateinit var manager: PanelManager
+    private lateinit var categories: PanelCategoryReconciler
     private val values = mutableMapOf<String, Any?>()
     private val gson = Gson()
     private val old = PanelPlaylist("p", "Panel", PanelPlaylistType.XTREAM, null, null, "https://same.invalid", "old", "pass")
@@ -38,10 +40,14 @@ class PanelManagerOwnershipTest {
     @Before fun before() = runBlocking {
         Dispatchers.setMain(Dispatchers.Unconfined)
         PanelPlaybackAuthorization.authorize(setOf(id, manualId))
+        PanelCategoryPolicyRegistry.remove(id)
+        PanelCategoryPolicyRegistry.remove(manualId)
+        PanelCategoryPolicyRegistry.markStartupReady()
         values.clear()
         repo = mock(); setup = mock(); guard = PanelPlaybackGuard(); guard.ready()
         whenever(repo.getProviders()).thenReturn(MutableStateFlow(listOf(provider(), provider(manualId))))
-        manager = PanelManager(mock<Context>(), setup, repo, guard)
+        categories = mock()
+        manager = PanelManager(mock<Context>(), setup, repo, guard, categories)
         val prefs = memoryPrefs()
         field("securePrefs" + "$" + "delegate", lazyOf(prefs))
         field("plainPrefs" + "$" + "delegate", lazyOf(prefs))
@@ -112,6 +118,36 @@ class PanelManagerOwnershipTest {
         assertEquals(changed.fingerprint(), mappings().single().fingerprint)
         assertFalse(guard.allows(stale)); assertTrue(guard.allows(stream()))
         assertTrue(guard.allows(stream(manualId)))
+    }
+
+    @Test fun purePolicyRefreshStopsStalePlaybackBeforePurgeWithoutRelogin(): Unit = runBlocking {
+        seed()
+        val calls = mutableListOf<String>(); val player = guard.wrap(engine(calls))
+        player.prepare(stream()); calls.clear()
+        val policy = PanelCategorySettings("11111111-1111-1111-1111-111111111111", "hc1_" + "a".repeat(64),
+            mapOf("live" to setOf("007"), "vod" to emptySet(), "series" to emptySet()))
+        whenever(categories.reconcile(eq(id), any())).thenAnswer {
+            assertFalse(guard.allows(stream()))
+            assertTrue(calls.contains("stop"))
+            null
+        }
+        enforce(config(old.copy(categorySettings = policy)))
+        verify(categories).reconcile(eq(id), check {
+            assertEquals("p", it.playlistId)
+            assertEquals(setOf("007"), it.hidden["live"])
+            assertFalse(it.deviceScope.contains("TEST"))
+            assertFalse(it.deviceScope.contains("a".repeat(64)))
+        })
+        verify(setup, never()).loginXtream(any(), isNull())
+    }
+
+    @Test fun unsupportedPolicyDeniesExistingOwnedProviderWithoutTouchingManual(): Unit = runBlocking {
+        seed()
+        enforce(config(old.copy(categorySettings = null)))
+        assertFalse(guard.allows(stream()))
+        assertTrue(guard.allows(stream(manualId)))
+        verify(setup, never()).loginXtream(any(), isNull())
+        verify(categories, never()).reconcile(any(), any())
     }
 
     private fun memoryPrefs(): SharedPreferences {

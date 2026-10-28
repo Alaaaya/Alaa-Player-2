@@ -62,6 +62,7 @@ internal class DatabaseStartupGate(
 @Singleton
 class DatabaseStartupCoordinator @Inject constructor(
     database: Lazy<StreamVaultDatabase>,
+    panelManager: Lazy<com.streamvault.app.panel.PanelManager>,
     @ApplicationContext context: Context
 ) {
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -69,6 +70,12 @@ class DatabaseStartupCoordinator @Inject constructor(
         openDatabase = {
             withContext(Dispatchers.IO) {
                 database.get().openHelper.writableDatabase
+                // Do not emit Ready (and mount cached catalog/recommendation readers) before
+                // securely restoring and reconciling the exact paired device policy.
+                panelManager.get().restoreCatalogPolicy()
+                startupScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                    panelManager.get().sync(force = true)
+                }
             }
         },
         onFailure = { error ->
