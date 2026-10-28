@@ -243,6 +243,15 @@ class PanelCategoryReconciler @Inject constructor(private val database: StreamVa
             }
         }
         fun installTriggers(providerId: Long) {
+            if(columns("xtream_content_index").containsAll(setOf("provider_id","remote_id","content_type"))) {
+                val media="CASE NEW.content_type WHEN 'LIVE' THEN 'live' WHEN 'MOVIE' THEN 'vod' WHEN 'VOD' THEN 'vod' WHEN 'SERIES' THEN 'series' WHEN 'SERIES_EPISODE' THEN 'episode' ELSE '' END"
+                listOf("INSERT","UPDATE").forEach { op ->
+                    val name="panel_cat_${providerId}_xtream_content_index_${op.lowercase()}"
+                    db.execSQL("DROP TRIGGER IF EXISTS `$name`")
+                    db.execSQL("CREATE TRIGGER `$name` BEFORE $op ON xtream_content_index WHEN NEW.provider_id=$providerId AND (NOT EXISTS(SELECT 1 FROM panel_raw_membership m WHERE m.provider_id=NEW.provider_id AND m.media=($media) AND CAST(m.content_id AS TEXT)=NEW.remote_id AND m.allowed=1) OR EXISTS(SELECT 1 FROM panel_raw_membership m WHERE m.provider_id=NEW.provider_id AND m.media=($media) AND CAST(m.content_id AS TEXT)=NEW.remote_id AND m.allowed=0)) BEGIN SELECT RAISE(ABORT,'Category index membership denied'); END")
+                }
+            }
+
             catalogs.forEach { (table,media,id) -> if("provider_id" in columns(table)) {
                 listOf("INSERT","UPDATE").forEach { op ->
                     val name="panel_cat_${providerId}_${table}_${op.lowercase()}"
