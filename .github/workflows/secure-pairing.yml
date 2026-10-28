@@ -1,0 +1,30 @@
+name: Secure pairing Android validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile app, test pairing, package APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain '-Dorg.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8' --max-workers=1 :app:testDebugUnitTest --tests 'com.streamvault.app.panel.*' :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secure-pairing-validation
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: error
+          retention-days: 14

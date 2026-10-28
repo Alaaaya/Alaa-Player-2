@@ -1,11 +1,7 @@
 package com.streamvault.app.panel
 
-import androidx.core.content.edit
-import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
-import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.gson.Gson
@@ -18,6 +14,7 @@ import com.streamvault.domain.usecase.ValidateAndAddProvider
 import com.streamvault.domain.usecase.ValidateAndAddProviderResult
 import com.streamvault.domain.usecase.XtreamProviderSetupCommand
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,8 +29,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.net.NetworkInterface
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,15 +54,17 @@ data class PanelUiState(
 @Singleton
 class PanelManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    okHttpClient: OkHttpClient,
     private val validateAndAddProvider: ValidateAndAddProvider,
     private val providerRepository: ProviderRepository,
+    private val playbackGuard: PanelPlaybackGuard,
 ) {
-    private val http = okHttpClient.newBuilder()
+    // Dedicated client: never inherits provider logging, interceptors, caches, or unsafe TLS.
+    private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private val mutex = Mutex()
+    private val identityMutex = Mutex()
     private val json = "application/json; charset=utf-8".toMediaType()
 
     /** Device code / MAC are not secret; playlists cache + mappings are (they hold credentials). */
@@ -84,35 +81,76 @@ class PanelManager @Inject constructor(
     private val _state = MutableStateFlow(PanelUiState())
     val state: StateFlow<PanelUiState> = _state.asStateFlow()
 
+    val nextPollIntervalMs: Long get() = maxOf(
+        if (_state.value.status == PanelStatus.ACTIVE) PERIODIC_INTERVAL_MS else MIN_INTERVAL_MS,
+        runCatching { protocol.retryAtMs() - System.currentTimeMillis() }.getOrDefault(MIN_INTERVAL_MS),
+    )
+
     @Volatile private var lastAttemptMs = 0L
     @Volatile private var identityLoaded = false
 
-    /** Cheap, safe to call from the UI thread's coroutine; loads identity + cached status off-main. */
-    suspend fun ensureIdentity() = withContext(Dispatchers.IO) {
-        if (identityLoaded) return@withContext
-        val code = plainPrefs.getString(KEY_CODE, null)?.takeIf(PanelDeviceCode::isValid)
-            ?: PanelDeviceCode.generate().also { plainPrefs.edit { putString(KEY_CODE, it) } }
-        val mac = plainPrefs.getString(KEY_MAC, null)
-            ?: resolveMac().also { plainPrefs.edit { putString(KEY_MAC, it) } }
-        val model = listOf(Build.MANUFACTURER, Build.MODEL).filter { !it.isNullOrBlank() }.joinToString(" ").take(120)
-        val cached = runCatching { securePrefs.getString(KEY_LAST_CONFIG, null)?.let(PanelConfigParser::parse) }.getOrNull()
-        _state.update {
-            it.copy(
-                deviceCode = code, mac = mac, model = model,
-                status = cached?.status, expiresAt = cached?.expiresAt, playlistCount = cached?.playlists?.size ?: 0,
-                lastSyncedAtMs = plainPrefs.getLong(KEY_LAST_SYNC, 0L),
-            )
-        }
-        identityLoaded = true
+    private val protocol by lazy {
+        PanelProtocol(object : PanelBindingStore {
+            override fun read(): PanelBinding? = securePrefs.getString(KEY_BINDING, null)?.let {
+                gson.fromJson(it, PanelBinding::class.java)
+            }
+            override fun write(binding: PanelBinding) {
+                check(securePrefs.edit().putString(KEY_BINDING, gson.toJson(binding)).commit()) { "Secure identity persistence failed" }
+            }
+        }, PanelTransport(::rpc), listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").take(120))
     }
 
-    /**
-     * Register (idempotent) + fetch config + apply to providers. Never throws. Offline: keeps the
-     * last known status and leaves all providers untouched.
-     */
+    /** Identity/cache always loaded off-main, serialized, and committed before first registration. */
+    suspend fun ensureIdentity() = withContext(Dispatchers.IO) {
+        identityMutex.withLock {
+            if (identityLoaded) return@withLock
+            try {
+                val legacyCode = plainPrefs.getString(KEY_CODE, null)
+                val legacyMappings = loadMappings()
+                check(!plainPrefs.getBoolean("v2_initialized", false) || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
+                val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty()
+                if (denied.isNotEmpty()) playbackGuard.revoke(denied)
+                check(legacyCode != null || legacyMappings.isEmpty() || securePrefs.contains(KEY_BINDING)) { "Identity lost; admin recovery required" }
+                val b = protocol.identity(legacyCode, legacyMappings.isNotEmpty())
+                check(plainPrefs.edit().putBoolean("v2_initialized", true).commit())
+                // Legacy code-only cache is NOT authorization under v2. Remove it before navigation.
+                securePrefs.edit().remove(KEY_LAST_CONFIG).commit()
+                var cached = protocol.cached()
+                if (cached != null && isLocallyExpired(cached)) {
+                    cached = PanelConfig(PanelStatus.EXPIRED, b.code, cached.expiresAt, emptyList())
+                }
+                if (cached?.status == PanelStatus.ACTIVE) {
+                    playbackGuard.authorize(PanelPlaybackGuard.origins(cached))
+                } else {
+                    val deny = PanelConfig(PanelStatus.INACTIVE, b.code, null, emptyList())
+                    // Clear stale providers even if the first network request is offline.
+                    if (legacyMappings.isNotEmpty()) {
+                        val local = providerRepository.getProviders().first().filter { p -> legacyMappings.any { it.localProviderId == p.id } }
+                        val origins = local.map { PanelPlaybackGuard.origin(it.m3uUrl.ifBlank { it.serverUrl }) }.toSet()
+                        check(securePrefs.edit().putStringSet("denied_origins", denied + origins).commit())
+                        playbackGuard.revoke(origins)
+                        val removalFailures = apply(deny)
+                        check(removalFailures.isEmpty()) { "Panel provider cleanup failed" }
+                    }
+                    playbackGuard.ready()
+                }
+                _state.update { it.copy(deviceCode = b.code, mac = "", model = listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" "),
+                    status = cached?.status ?: PanelStatus.INACTIVE, expiresAt = cached?.expiresAt,
+                    playlistCount = cached?.playlists?.size ?: 0,
+                    failures = if (b.legacy) listOf("Admin-assisted secure re-pair required") else emptyList()) }
+                identityLoaded = true
+            } catch (e: Exception) {
+                // Keep playback gate closed if Keystore/identity/mapping integrity is unavailable.
+                _state.update { it.copy(status = PanelStatus.INACTIVE, failures = listOf("Secure storage unavailable; admin recovery required")) }
+            }
+        }
+    }
+
+    /** Retry/force never bypasses server backoff. Offline cache is retained until expiry/revocation. */
     suspend fun sync(force: Boolean = false) {
-        if (!_state.value.configured) return
+        if (!_state.value.configured) { playbackGuard.ready(); return }
         ensureIdentity()
+        if (!identityLoaded) return
         val now = System.currentTimeMillis()
         if (!force && now - lastAttemptMs < MIN_INTERVAL_MS) return
         if (!mutex.tryLock()) return
@@ -120,39 +158,52 @@ class PanelManager @Inject constructor(
             lastAttemptMs = now
             _state.update { it.copy(syncing = true) }
             withContext(Dispatchers.IO) { runSync() }
-        } catch (t: Throwable) {
-            Log.w(TAG, "panel sync failed: ${t.javaClass.simpleName}")
-            _state.update { it.copy(offline = t is IOException, failures = listOf(t.javaClass.simpleName)) }
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) {
+            // Logs contain no device code, token, URL, response, or provider credentials.
+            _state.update { it.copy(offline = true, failures = listOf("Panel temporarily unavailable")) }
         } finally {
-            _state.update { it.copy(syncing = false) }
-            mutex.unlock()
+            _state.update { it.copy(syncing = false) }; mutex.unlock()
         }
     }
 
     private suspend fun runSync() {
-        val s = _state.value
-        val registerBody = JsonObject().apply {
-            addProperty("p_device_code", s.deviceCode); addProperty("p_mac", s.mac); addProperty("p_model", s.model)
+        val cached = protocol.cached()
+        if (cached != null && isLocallyExpired(cached)) {
+            enforce(PanelConfig(PanelStatus.EXPIRED, _state.value.deviceCode, cached.expiresAt, emptyList()), cached)
         }
-        rpc("register_device", registerBody) // idempotent upsert, also refreshes model/last_seen
-        val codeBody = JsonObject().apply { addProperty("p_device_code", s.deviceCode) }
-        var config = PanelConfigParser.parse(rpc("get_device_config", codeBody))
-        if (config.status == PanelStatus.UNKNOWN) {
-            // Row was deleted on the panel (or first registration was lost): register again.
-            rpc("register_device", registerBody)
-            config = PanelConfigParser.parse(rpc("get_device_config", codeBody))
+        val config = protocol.refresh() ?: return
+        enforce(config, cached)
+        val b = protocol.identity()
+        _state.update { it.copy(deviceCode = b.code) }
+    }
+
+    private suspend fun enforce(config: PanelConfig, previous: PanelConfig?) {
+        if (config.status != PanelStatus.ACTIVE) {
+            // Stop before deletion (including main, preview and multiview); purge authorization cache.
+            val origins = previous?.let(PanelPlaybackGuard::origins).orEmpty()
+            val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty() + origins
+            check(securePrefs.edit().putStringSet("denied_origins", denied).commit())
+            playbackGuard.revoke(denied)
+        } else {
+            val origins = PanelPlaybackGuard.origins(config)
+            val denied = securePrefs.getStringSet("denied_origins", emptySet()).orEmpty() - origins
+            check(securePrefs.edit().putStringSet("denied_origins", denied).commit())
+            playbackGuard.authorize(origins)
         }
         val failures = apply(config)
-        securePrefs.edit { putString(KEY_LAST_CONFIG, cacheJson(config)) }
         val at = System.currentTimeMillis()
-        plainPrefs.edit { putLong(KEY_LAST_SYNC, at) }
-        _state.update {
-            it.copy(
-                status = config.status, expiresAt = config.expiresAt, playlistCount = config.playlists.size,
-                offline = false, lastSyncedAtMs = at, failures = failures,
-            )
-        }
+        plainPrefs.edit().putLong(KEY_LAST_SYNC, at).commit()
+        _state.update { it.copy(status = config.status, expiresAt = config.expiresAt,
+            playlistCount = config.playlists.size, offline = false, lastSyncedAtMs = at,
+            failures = if (protocol.identity().legacy && config.protocolStatus == "unauthorized")
+                failures + "Admin-assisted secure re-pair required" else failures) }
+        playbackGuard.ready()
     }
+
+    private fun isLocallyExpired(config: PanelConfig): Boolean = config.expiresAt?.let {
+        runCatching { java.time.Instant.parse(it).toEpochMilli() <= System.currentTimeMillis() }.getOrDefault(true)
+    } ?: false
 
     private suspend fun apply(config: PanelConfig): List<String> {
         val mappings = loadMappings().toMutableList()
@@ -188,14 +239,14 @@ class PanelManager @Inject constructor(
                     M3uProviderSetupCommand(url = p.url.orEmpty(), name = p.name, existingProviderId = existingId)
                 )
             }
-        }.getOrElse { failures += "${p.name}: ${it.javaClass.simpleName}"; return }
+        }.getOrElse { failures += "Provider setup failed"; return }
         val provider = when (result) {
             is ValidateAndAddProviderResult.Success -> result.provider
-            is ValidateAndAddProviderResult.SavedWithWarning -> result.provider.also { failures += "${p.name}: ${result.warning}" }
-            is ValidateAndAddProviderResult.ValidationError -> { failures += "${p.name}: ${result.message}"; return }
-            is ValidateAndAddProviderResult.Error -> { failures += "${p.name}: ${result.message}"; return }
-            is ValidateAndAddProviderResult.VerificationInconclusive -> { failures += "${p.name}: ${result.message}"; return }
-            is ValidateAndAddProviderResult.TransportConsentRequired -> { failures += "${p.name}: transport confirmation required"; return }
+            is ValidateAndAddProviderResult.SavedWithWarning -> result.provider.also { failures += "Provider saved with warning" }
+            is ValidateAndAddProviderResult.ValidationError -> { failures += "Provider validation failed"; return }
+            is ValidateAndAddProviderResult.Error -> { failures += "Provider validation failed"; return }
+            is ValidateAndAddProviderResult.VerificationInconclusive -> { failures += "Provider validation failed"; return }
+            is ValidateAndAddProviderResult.TransportConsentRequired -> { failures += "Provider transport confirmation required"; return }
         }
         mappings.removeAll { it.panelId == p.id }
         mappings += PanelMapping(p.id, provider.id, p.fingerprint())
@@ -210,8 +261,10 @@ class PanelManager @Inject constructor(
             .post(body.toString().toRequestBody(json))
             .build()
         http.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException("panel HTTP ${response.code}")
+            val source = response.body?.source() ?: throw IOException("Empty panel response")
+            if (source.request(MAX_RESPONSE_CHARS.toLong() + 1)) throw IOException("Panel response too large")
+            val text = source.readUtf8()
+            if (!response.isSuccessful) throw PanelHttpException(response.code, response.header("Retry-After")?.toLongOrNull() ?: 0)
             if (text.length > MAX_RESPONSE_CHARS) throw IOException("panel response too large")
             return text
         }
@@ -221,46 +274,12 @@ class PanelManager @Inject constructor(
         securePrefs.getString(KEY_MAPPINGS, null)?.let {
             gson.fromJson<List<PanelMapping>>(it, object : TypeToken<List<PanelMapping>>() {}.type)
         }
-    }.getOrNull().orEmpty()
+    }.getOrThrow().orEmpty()
 
-    private fun saveMappings(list: List<PanelMapping>) { securePrefs.edit { putString(KEY_MAPPINGS, gson.toJson(list)) } }
-
-    private fun cacheJson(c: PanelConfig): String = JsonObject().apply {
-        addProperty("status", c.status.name.lowercase()); addProperty("device_code", c.deviceCode); addProperty("expires_at", c.expiresAt)
-        add("playlists", com.google.gson.JsonArray().also { arr ->
-            c.playlists.forEach { p ->
-                arr.add(JsonObject().apply {
-                    addProperty("id", p.id); addProperty("name", p.name); addProperty("type", p.type.name.lowercase())
-                    addProperty("url", p.url); addProperty("epg_url", p.epgUrl); addProperty("server", p.server)
-                    addProperty("username", p.username); addProperty("password", p.password)
-                })
-            }
-        })
-    }.toString()
-
-    /**
-     * Real MAC when the OS exposes it (Ethernet on many TV boxes, pre-Android 11); otherwise a stable
-     * locally-administered pseudo-MAC derived from ANDROID_ID, which is what the panel shows.
-     */
-    @SuppressLint("HardwareIds") // deliberate: the panel identifies the box to its owner by MAC-like id
-    private fun resolveMac(): String {
-        runCatching {
-            NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
-                .sortedBy { if (it.name.startsWith("eth")) 0 else if (it.name.startsWith("wlan")) 1 else 2 }
-                .firstNotNullOfOrNull { nic ->
-                    nic.hardwareAddress?.takeIf { it.size == 6 && !it.all { b -> b == 0.toByte() } }
-                        ?.joinToString(":") { "%02X".format(it) }
-                        ?.takeIf { it != "02:00:00:00:00:00" }
-                }
-        }.getOrNull()?.let { return it }
-        val seed = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: PanelDeviceCode.generate()
-        val h = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray())
-        h[0] = ((h[0].toInt() or 0x02) and 0xFE).toByte() // locally administered, unicast
-        return h.take(6).joinToString(":") { "%02X".format(it) }
-    }
+    private fun saveMappings(list: List<PanelMapping>) { check(securePrefs.edit().putString(KEY_MAPPINGS, gson.toJson(list)).commit()) }
 
     companion object {
-        private const val TAG = "AlaaPanel"
+        private const val KEY_BINDING = "v2_binding"
         const val PERIODIC_INTERVAL_MS = 30 * 60 * 1000L
         private const val MIN_INTERVAL_MS = 60 * 1000L
         private const val MAX_RESPONSE_CHARS = 512 * 1024
