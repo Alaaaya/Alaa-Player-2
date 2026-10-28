@@ -5,6 +5,7 @@ import com.streamvault.data.remote.xtream.ProviderPlaybackResolver
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PanelCategoryPolicy
+import com.streamvault.domain.model.PanelPlaybackAuthorization
 import com.streamvault.domain.model.PanelCategoryPolicyRegistry
 import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.MovieRepository
@@ -56,7 +57,11 @@ class PanelPlayerFallbackTest {
         val info = checkNotNull(resolve().streamInfo)
         assertEquals(provider, info.providerId)
         assertEquals(version, info.panelCategoryPolicyVersion)
+        assertEquals(123L, info.streamId)
+        assertEquals(ContentType.LIVE, info.contentType)
+        assertTrue(PanelPlaybackAuthorization.allows(info))
         PanelCategoryPolicyRegistry.block(provider)
         assertNotEquals(info.panelCategoryPolicyVersion, PanelCategoryPolicyRegistry.version(provider))
+        assertFalse(PanelPlaybackAuthorization.allows(info))
     }
 }
