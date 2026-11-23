@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.themes.alaa
 
+import androidx.core.content.edit
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -547,7 +548,7 @@ private fun rememberAlaaWatchLaterState(contentType: String, contentId: Long): A
     return remember(key, preferences) {
         AlaaWatchLaterState(
             initialValue = preferences.getBoolean(key, false),
-            persist = { value -> preferences.edit().putBoolean(key, value).apply() }
+            persist = { value -> preferences.edit { putBoolean(key, value) } }
         )
     }
 }
